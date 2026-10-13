@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -74,23 +75,50 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/catalogo", response_class=HTMLResponse)
-    def catalogo(request: Request, busca: str = "", filtro: str = "todos"):
+    def catalogo(
+        request: Request,
+        busca: str = "",
+        filtro: str = "todos",
+        categoria: str = "",
+        com_preco: str = "",
+        pagina: str = "1",
+    ):
         if filtro not in consultas.FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
+        numero = int(pagina) if pagina.strip().isdecimal() and int(pagina) >= 1 else 1
+        so_com_preco = com_preco == "1"
         with sessoes() as s, s.begin():
-            # Busca um a mais que o limite só para saber se a lista foi cortada.
-            limite = consultas.LIMITE_CATALOGO
-            linhas = consultas.buscar_catalogo(s, busca, filtro, repo.agora_utc(), limite=limite + 1)
+            categorias = consultas.listar_categorias(s)
+            if categoria and categoria not in categorias:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
+            linhas, total, numero = consultas.buscar_catalogo(
+                s, busca, filtro, repo.agora_utc(), categoria or None, so_com_preco, numero
+            )
+            paginas = max(1, -(-total // consultas.POR_PAGINA))
+            parametros = {"busca": busca, "filtro": filtro, "categoria": categoria}
+            if so_com_preco:
+                parametros["com_preco"] = "1"
+            parametros = {k: v for k, v in parametros.items() if v and not (k == "filtro" and v == "todos")}
+
+            def link(destino: int) -> str:
+                return "/catalogo?" + urlencode({**parametros, "pagina": destino})
+
             return templates.TemplateResponse(
                 request,
                 "catalogo.html",
                 {
-                    "linhas": linhas[:limite],
-                    "cortado": len(linhas) > limite,
-                    "limite": limite,
+                    "linhas": linhas,
+                    "total": total,
+                    "pagina": numero,
+                    "paginas": paginas,
+                    "link_anterior": link(numero - 1) if numero > 1 else None,
+                    "link_proxima": link(numero + 1) if numero < paginas else None,
                     "busca": busca,
                     "filtro": filtro,
                     "filtros": consultas.FILTROS,
+                    "categoria": categoria,
+                    "categorias": categorias,
+                    "com_preco": so_com_preco,
                 },
             )
 

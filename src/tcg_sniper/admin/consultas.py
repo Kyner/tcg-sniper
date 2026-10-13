@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import (
@@ -14,7 +14,7 @@ from tcg_sniper.db.models import (
 
 FILTROS = ("todos", "ativos", "inativos", "novos")
 JANELA_NOVOS = timedelta(days=7)
-LIMITE_CATALOGO = 500
+POR_PAGINA = 100
 
 
 def _escapar_like(texto: str) -> str:
@@ -29,22 +29,53 @@ def coleta_em_andamento(s: Session) -> bool:
     return s.scalar(select(Coleta.id).where(Coleta.status == StatusColeta.RODANDO).limit(1)) is not None
 
 
-def buscar_catalogo(
-    s: Session, busca: str | None, filtro: str, agora: datetime, limite: int = 500
-) -> list[tuple[ProdutoLiga, PrecoAtualLiga | None]]:
-    consulta = select(ProdutoLiga, PrecoAtualLiga).outerjoin(
-        PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id
+def listar_categorias(s: Session) -> list[str]:
+    return list(
+        s.scalars(
+            select(ProdutoLiga.tipo).where(ProdutoLiga.tipo.is_not(None)).distinct().order_by(ProdutoLiga.tipo)
+        )
     )
+
+
+def buscar_catalogo(
+    s: Session,
+    busca: str | None,
+    filtro: str,
+    agora: datetime,
+    categoria: str | None = None,
+    com_preco: bool = False,
+    pagina: int = 1,
+    por_pagina: int = POR_PAGINA,
+) -> tuple[list[tuple[ProdutoLiga, PrecoAtualLiga | None]], int, int]:
+    """Uma página do catálogo: (linhas, total de produtos com os filtros, página efetiva).
+
+    A página pedida além do fim é reduzida para a última."""
+    condicoes = []
     if busca and busca.strip():
-        consulta = consulta.where(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
+        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
     if filtro == "ativos":
-        consulta = consulta.where(ProdutoLiga.ativo.is_(True))
+        condicoes.append(ProdutoLiga.ativo.is_(True))
     elif filtro == "inativos":
-        consulta = consulta.where(ProdutoLiga.ativo.is_(False))
+        condicoes.append(ProdutoLiga.ativo.is_(False))
     elif filtro == "novos":
-        consulta = consulta.where(ProdutoLiga.visto_primeiro_em >= agora - JANELA_NOVOS)
-    consulta = consulta.order_by(ProdutoLiga.ativo.desc(), ProdutoLiga.nome).limit(limite)
-    return [(produto, atual) for produto, atual in s.execute(consulta)]
+        condicoes.append(ProdutoLiga.visto_primeiro_em >= agora - JANELA_NOVOS)
+    if categoria:
+        condicoes.append(ProdutoLiga.tipo == categoria)
+    if com_preco:
+        condicoes.append(PrecoAtualLiga.preco_a_partir.is_not(None))
+    juncao = ProdutoLiga.__table__.outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+    total = s.scalar(select(func.count()).select_from(juncao).where(*condicoes)) or 0
+    paginas = max(1, -(-total // por_pagina))
+    pagina = min(max(pagina, 1), paginas)
+    consulta = (
+        select(ProdutoLiga, PrecoAtualLiga)
+        .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+        .where(*condicoes)
+        .order_by(ProdutoLiga.ativo.desc(), ProdutoLiga.nome, ProdutoLiga.id)
+        .limit(por_pagina)
+        .offset((pagina - 1) * por_pagina)
+    )
+    return [(produto, atual) for produto, atual in s.execute(consulta)], total, pagina
 
 
 def alternar_ativo(s: Session, produto_id: int) -> tuple[ProdutoLiga, PrecoAtualLiga | None] | None:

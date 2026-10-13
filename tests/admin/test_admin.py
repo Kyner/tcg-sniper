@@ -1,4 +1,5 @@
 import base64
+import re
 from datetime import timedelta
 from decimal import Decimal
 
@@ -148,13 +149,13 @@ def test_catalogo_mostra_preco_min_e_lojas(cliente, sessoes):
     assert "R$ 899,90" in r.text and "<td>12</td>" in r.text
 
 
-def item_listagem(liga_id, nome, preco):
+def item_listagem(liga_id, nome, preco, tipo="Caixas de Boosters"):
     return ItemListagem(
         liga_id=liga_id,
         nome=nome,
         url=f"https://liga.test/{liga_id}",
         preco_a_partir=None if preco is None else Decimal(preco),
-        tipo="Caixas de Boosters",
+        tipo=tipo,
     )
 
 
@@ -207,16 +208,118 @@ def test_index_com_coleta_rodando_mostra_andamento_e_esconde_rodar_agora(cliente
     assert "Rodar agora" not in r.text
 
 
-def test_catalogo_avisa_quando_bate_no_limite(cliente, sessoes):
+def criar_muitos(sessoes, n):
     with sessoes() as s, s.begin():
-        for i in range(501):
+        for i in range(n):
             criar_produto(s, f"p{i:03d}", nome=f"Produto {i:03d}")
+
+
+def test_catalogo_pagina_100_linhas_com_total(cliente, sessoes):
+    criar_muitos(sessoes, 250)
     r = cliente.get("/catalogo")
-    assert "mostrando os primeiros 500 — refine a busca" in r.text
-    assert "Produto 499" in r.text and "Produto 500" not in r.text
+    assert "Página 1 de 3 · 250 produto(s)" in r.text
+    assert "Produto 099" in r.text and "Produto 100" not in r.text
+    assert "mostrando os primeiros" not in r.text
+    r = cliente.get("/catalogo?pagina=3")
+    assert "Página 3 de 3 · 250 produto(s)" in r.text
+    assert "Produto 200" in r.text and "Produto 249" in r.text and "Produto 199" not in r.text
 
 
-def test_catalogo_abaixo_do_limite_nao_avisa(cliente, sessoes):
+def test_catalogo_pagina_invalida_vira_1(cliente, sessoes):
+    criar_muitos(sessoes, 150)
+    for valor in ("0", "-2", "abc", ""):
+        r = cliente.get("/catalogo", params={"pagina": valor})
+        assert r.status_code == 200 and "Página 1 de 2" in r.text
+
+
+def test_catalogo_pagina_alem_do_fim_mostra_ultima(cliente, sessoes):
+    criar_muitos(sessoes, 150)
+    r = cliente.get("/catalogo?pagina=99")
+    assert "Página 2 de 2" in r.text and "Produto 149" in r.text
+
+
+def test_catalogo_links_anterior_proxima_mantem_parametros(cliente, sessoes):
+    criar_muitos(sessoes, 250)
+    r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos&com_preco=1")
+    assert "Página 2 de 3" not in r.text  # com_preco=1 esconde tudo (sem preço)
+    r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos")
+    assert "Página 2 de 3" in r.text
+    assert 'href="/catalogo?busca=Produto&amp;filtro=ativos&amp;pagina=1"' in r.text
+    assert 'href="/catalogo?busca=Produto&amp;filtro=ativos&amp;pagina=3"' in r.text
+    primeira = cliente.get("/catalogo").text
+    assert "Anterior</a>" not in primeira and "Próxima</a>" in primeira
+
+
+def test_catalogo_vazio_mostra_pagina_1_de_1(cliente):
+    r = cliente.get("/catalogo")
+    assert "Página 1 de 1 · 0 produto(s)" in r.text
+    assert "Nenhum produto encontrado." in r.text
+
+
+def gravar_listagem_tipos(sessoes):
     with sessoes() as s, s.begin():
-        criar_produto(s, "a", nome="Produto A")
-    assert "refine a busca" not in cliente.get("/catalogo").text
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.gravar_listagem(
+            s,
+            c.id,
+            [
+                item_listagem("1", "Caixa Alfa", "10.00", tipo="Caixas de Boosters"),
+                item_listagem("2", "Caixa Beta", None, tipo="Caixas de Boosters"),
+                item_listagem("3", "Bundle Gama", "20.00", tipo="Bundles"),
+            ],
+            T0,
+        )
+
+
+def test_catalogo_filtra_por_categoria_e_lista_opcoes(cliente, sessoes):
+    gravar_listagem_tipos(sessoes)
+    with sessoes() as s, s.begin():
+        criar_produto(s, "sem-tipo", nome="Sem Tipo")
+    r = cliente.get("/catalogo", params={"categoria": "Bundles"})
+    assert r.status_code == 200
+    assert "Bundle Gama" in r.text and "Caixa Alfa" not in r.text and "Sem Tipo" not in r.text
+    assert '<option value="">todas</option>' in r.text
+    assert r.text.index(">Bundles</option>") < r.text.index(">Caixas de Boosters</option>")
+    assert '<option value="Bundles" selected>' in r.text
+    assert "1 produto(s)" in r.text
+
+
+def test_catalogo_categoria_desconhecida_400(cliente, sessoes):
+    gravar_listagem_tipos(sessoes)
+    assert cliente.get("/catalogo", params={"categoria": "Inexistente"}).status_code == 400
+
+
+def test_catalogo_categoria_vazia_e_todas(cliente, sessoes):
+    gravar_listagem_tipos(sessoes)
+    r = cliente.get("/catalogo?categoria=")
+    assert r.status_code == 200 and "Caixa Alfa" in r.text and "Bundle Gama" in r.text
+
+
+def test_catalogo_so_com_preco(cliente, sessoes):
+    gravar_listagem_tipos(sessoes)
+    with sessoes() as s, s.begin():
+        criar_produto(s, "sem-linha", nome="Sem Linha")
+    r = cliente.get("/catalogo?com_preco=1")
+    assert "Caixa Alfa" in r.text and "Bundle Gama" in r.text
+    assert "Caixa Beta" not in r.text and "Sem Linha" not in r.text
+    assert "2 produto(s)" in r.text
+    assert 'name="com_preco" value="1" checked' in r.text
+    assert "Sem Linha" in cliente.get("/catalogo").text
+
+
+def test_catalogo_filtros_combinam(cliente, sessoes):
+    gravar_listagem_tipos(sessoes)
+    r = cliente.get("/catalogo?categoria=Caixas+de+Boosters&com_preco=1&busca=caixa&filtro=inativos")
+    assert "Caixa Alfa" in r.text and "Caixa Beta" not in r.text and "Bundle Gama" not in r.text
+    assert "1 produto(s)" in r.text
+    assert "Nenhum produto encontrado." in cliente.get("/catalogo?categoria=Bundles&busca=caixa").text
+
+
+def test_catalogo_ordem_estavel_com_nomes_iguais(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        for i in range(120):
+            criar_produto(s, f"x{i:03d}", nome="Mesmo Nome")
+    ids = []
+    for pagina in (1, 2):
+        ids += re.findall(r'id="produto-(\d+)"', cliente.get(f"/catalogo?pagina={pagina}").text)
+    assert len(ids) == 120 and len(set(ids)) == 120
