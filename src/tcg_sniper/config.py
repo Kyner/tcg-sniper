@@ -5,17 +5,14 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DIAS_SEMANA = {
-    "segunda": 0,
-    "terca": 1,
-    "terça": 1,
-    "quarta": 2,
-    "quinta": 3,
-    "sexta": 4,
-    "sabado": 5,
-    "sábado": 5,
-    "domingo": 6,
-}
+# Categorias de selados de Magic na LigaMagic (levantamento de 2026-10-13).
+CATEGORIAS_SELADOS = (
+    "10", "11", "12", "13", "14", "15", "16", "17", "19", "20", "21",
+    "22", "31", "36", "37", "47", "50", "51", "52", "55", "56",
+)  # fmt: skip
+URL_LISTAGEM_PADRAO = (
+    "https://www.ligamagic.com.br/?view=cards/search&card=categ%3D{categ}+searchprod%3D1&tipo=1"
+)
 
 
 class Config(BaseSettings):
@@ -25,12 +22,13 @@ class Config(BaseSettings):
     admin_senha: str = "trocar-esta-senha"
     coleta_hora: time = time(10, 0)
     coleta_jitter_min: int = Field(30, ge=0, le=180)
-    catalogo_dia_semana: str = "domingo"
     pausa_min_s: float = Field(8.0, ge=0)
     pausa_max_s: float = Field(20.0, ge=0)
     limite_falha_pct: int = Field(50, ge=0, le=100)
     fuso: str = "America/Sao_Paulo"
-    liga_url_catalogo: str = ""
+    liga_categorias: str = ",".join(CATEGORIAS_SELADOS)
+    liga_url_listagem: str = URL_LISTAGEM_PADRAO
+    liga_max_cliques: int = Field(50, ge=1, le=500)
     dir_dados: Path = Path("/data")
     host_publico: str = "localhost"
     evolution_url: str | None = None
@@ -39,13 +37,20 @@ class Config(BaseSettings):
     whatsapp_grupo_admin: str | None = None
     whatsapp_grupo_oportunidades: str | None = None
 
-    @field_validator("catalogo_dia_semana")
+    @field_validator("liga_categorias")
     @classmethod
-    def _validar_dia(cls, valor: str) -> str:
-        normalizado = valor.strip().lower()
-        if normalizado not in DIAS_SEMANA:
-            raise ValueError(f"dia inválido: {valor!r}; use um de {sorted(DIAS_SEMANA)}")
-        return normalizado
+    def _validar_categorias(cls, valor: str) -> str:
+        ids = [parte.strip() for parte in valor.split(",") if parte.strip()]
+        if not ids or not all(i.isascii() and i.isdigit() for i in ids):
+            raise ValueError(f"LIGA_CATEGORIAS inválida: {valor!r}; use IDs numéricos separados por vírgula")
+        return ",".join(dict.fromkeys(ids))
+
+    @field_validator("liga_url_listagem")
+    @classmethod
+    def _validar_url_listagem(cls, valor: str) -> str:
+        if "{categ}" not in valor:
+            raise ValueError("LIGA_URL_LISTAGEM precisa conter {categ}")
+        return valor
 
     @model_validator(mode="after")
     def _validar_pausas(self) -> "Config":
@@ -54,8 +59,11 @@ class Config(BaseSettings):
         return self
 
     @property
-    def catalogo_weekday(self) -> int:
-        return DIAS_SEMANA[self.catalogo_dia_semana]
+    def categorias(self) -> list[str]:
+        return self.liga_categorias.split(",")
+
+    def url_listagem(self, categ: str) -> str:
+        return self.liga_url_listagem.replace("{categ}", categ)
 
     @property
     def zona(self) -> ZoneInfo:

@@ -17,7 +17,9 @@ def config(tmp_path):
     return Config(
         _env_file=None,
         dir_dados=tmp_path,
-        liga_url_catalogo="https://liga.test/selados",
+        liga_categorias="10,11,12",
+        liga_url_listagem="https://liga.test/listagem?categ={categ}",
+        liga_max_cliques=5,
         host_publico="host.test",
         pausa_min_s=8,
         pausa_max_s=20,
