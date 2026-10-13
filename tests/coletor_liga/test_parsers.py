@@ -17,6 +17,7 @@ TITULOS = {
     " | Busca de cards, produtos e preços de Magic: The Gathering | LigaMagic",
     "listagem_expandida": "Busca: categ=10 searchprod=1"
     " | Busca de cards, produtos e preços de Magic: The Gathering | LigaMagic",
+    "listagem_vazia": "Global Series - Jiang Yanggu e Mu Yanling | Busca de Produtos e Acessórios | LigaMagic",
 }
 
 

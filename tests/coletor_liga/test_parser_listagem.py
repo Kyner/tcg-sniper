@@ -91,3 +91,13 @@ def test_listagem_real_expandida():
     assert sum(i.preco_a_partir is None for i in itens) == SEM_PRECO_EXPANDIDA
     assert all(f"pcode={i.liga_id}" in i.url for i in itens)
     assert all(i.preco_a_partir is None or i.preco_a_partir > 0 for i in itens)
+
+
+def test_pagina_de_produto_no_lugar_da_listagem_continua_erro():
+    # Categoria 20 devolveu a página do pcode 106224 (busca com um único resultado redireciona
+    # para o produto). O aviso "Nenhum produto de lojas encontrado" ali é um `div` oculto que toda
+    # página de produto traz; não é sinal de listagem vazia e a categoria deve contar como falha.
+    html = fixture_liga("listagem_vazia")
+    assert "Nenhum produto de lojas encontrado" in html
+    with pytest.raises(ErroParser):
+        parse_listagem(html, URL_CATEG_10)
