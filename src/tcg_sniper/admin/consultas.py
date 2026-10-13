@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import (
@@ -37,6 +37,53 @@ def listar_categorias(s: Session) -> list[str]:
     )
 
 
+def condicoes_catalogo(
+    busca: str | None, filtro: str, categoria: str | None, com_preco: bool, agora: datetime
+) -> list[ColumnElement[bool]]:
+    """Condições WHERE do catálogo; compartilhadas pela listagem, pela contagem e pela alteração em lote.
+
+    `com_preco` referencia `PrecoAtualLiga`, então a consulta que as usar precisa do outer join."""
+    condicoes: list[ColumnElement[bool]] = []
+    if busca and busca.strip():
+        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
+    if filtro == "ativos":
+        condicoes.append(ProdutoLiga.ativo.is_(True))
+    elif filtro == "inativos":
+        condicoes.append(ProdutoLiga.ativo.is_(False))
+    elif filtro == "novos":
+        condicoes.append(ProdutoLiga.visto_primeiro_em >= agora - JANELA_NOVOS)
+    if categoria:
+        condicoes.append(ProdutoLiga.tipo == categoria)
+    if com_preco:
+        condicoes.append(PrecoAtualLiga.preco_a_partir.is_not(None))
+    return condicoes
+
+
+def alterar_ativo_em_lote(
+    s: Session,
+    ativo: bool,
+    busca: str | None,
+    filtro: str,
+    categoria: str | None,
+    com_preco: bool,
+    agora: datetime,
+) -> int:
+    """Define `ativo` em todos os produtos do filtro (todas as páginas); devolve quantos mudaram de fato."""
+    condicoes = condicoes_catalogo(busca, filtro, categoria, com_preco, agora)
+    if com_preco:
+        juncao = ProdutoLiga.__table__.outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+        condicoes_update = [ProdutoLiga.id.in_(select(ProdutoLiga.id).select_from(juncao).where(*condicoes))]
+    else:
+        condicoes_update = condicoes
+    comando = (
+        update(ProdutoLiga)
+        .where(*condicoes_update, ProdutoLiga.ativo != ativo)
+        .values(ativo=ativo)
+        .execution_options(synchronize_session=False)
+    )
+    return s.execute(comando).rowcount
+
+
 def buscar_catalogo(
     s: Session,
     busca: str | None,
@@ -50,19 +97,7 @@ def buscar_catalogo(
     """Uma página do catálogo: (linhas, total de produtos com os filtros, página efetiva, total de páginas).
 
     A página pedida além do fim é reduzida para a última."""
-    condicoes = []
-    if busca and busca.strip():
-        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
-    if filtro == "ativos":
-        condicoes.append(ProdutoLiga.ativo.is_(True))
-    elif filtro == "inativos":
-        condicoes.append(ProdutoLiga.ativo.is_(False))
-    elif filtro == "novos":
-        condicoes.append(ProdutoLiga.visto_primeiro_em >= agora - JANELA_NOVOS)
-    if categoria:
-        condicoes.append(ProdutoLiga.tipo == categoria)
-    if com_preco:
-        condicoes.append(PrecoAtualLiga.preco_a_partir.is_not(None))
+    condicoes = condicoes_catalogo(busca, filtro, categoria, com_preco, agora)
     juncao = ProdutoLiga.__table__.outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
     total = s.scalar(select(func.count()).select_from(juncao).where(*condicoes)) or 0
     paginas = max(1, -(-total // por_pagina))
