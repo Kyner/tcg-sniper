@@ -85,16 +85,18 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     ):
         if filtro not in consultas.FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
-        numero = int(pagina) if pagina.strip().isdecimal() and int(pagina) >= 1 else 1
+        texto_pagina = pagina.strip()
+        # Limite de dígitos: int() de um número gigante estoura (ValueError/500); acima disso vale 1.
+        numero = int(texto_pagina) if texto_pagina.isdecimal() and len(texto_pagina) <= 9 else 1
+        numero = max(numero, 1)
         so_com_preco = com_preco == "1"
         with sessoes() as s, s.begin():
             categorias = consultas.listar_categorias(s)
             if categoria and categoria not in categorias:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
-            linhas, total, numero = consultas.buscar_catalogo(
+            linhas, total, numero, paginas = consultas.buscar_catalogo(
                 s, busca, filtro, repo.agora_utc(), categoria or None, so_com_preco, numero
             )
-            paginas = max(1, -(-total // consultas.POR_PAGINA))
             parametros = {"busca": busca, "filtro": filtro, "categoria": categoria}
             if so_com_preco:
                 parametros["com_preco"] = "1"

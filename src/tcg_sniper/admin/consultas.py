@@ -46,8 +46,8 @@ def buscar_catalogo(
     com_preco: bool = False,
     pagina: int = 1,
     por_pagina: int = POR_PAGINA,
-) -> tuple[list[tuple[ProdutoLiga, PrecoAtualLiga | None]], int, int]:
-    """Uma página do catálogo: (linhas, total de produtos com os filtros, página efetiva).
+) -> tuple[list[tuple[ProdutoLiga, PrecoAtualLiga | None]], int, int, int]:
+    """Uma página do catálogo: (linhas, total de produtos com os filtros, página efetiva, total de páginas).
 
     A página pedida além do fim é reduzida para a última."""
     condicoes = []
@@ -75,7 +75,7 @@ def buscar_catalogo(
         .limit(por_pagina)
         .offset((pagina - 1) * por_pagina)
     )
-    return [(produto, atual) for produto, atual in s.execute(consulta)], total, pagina
+    return [(produto, atual) for produto, atual in s.execute(consulta)], total, pagina, paginas
 
 
 def alternar_ativo(s: Session, produto_id: int) -> tuple[ProdutoLiga, PrecoAtualLiga | None] | None:

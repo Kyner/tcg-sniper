@@ -227,7 +227,7 @@ def test_catalogo_pagina_100_linhas_com_total(cliente, sessoes):
 
 def test_catalogo_pagina_invalida_vira_1(cliente, sessoes):
     criar_muitos(sessoes, 150)
-    for valor in ("0", "-2", "abc", ""):
+    for valor in ("0", "-2", "abc", "", "9" * 5000, "9" * 30):
         r = cliente.get("/catalogo", params={"pagina": valor})
         assert r.status_code == 200 and "Página 1 de 2" in r.text
 
@@ -241,7 +241,7 @@ def test_catalogo_pagina_alem_do_fim_mostra_ultima(cliente, sessoes):
 def test_catalogo_links_anterior_proxima_mantem_parametros(cliente, sessoes):
     criar_muitos(sessoes, 250)
     r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos&com_preco=1")
-    assert "Página 2 de 3" not in r.text  # com_preco=1 esconde tudo (sem preço)
+    assert "Página 1 de 1 · 0 produto(s)" in r.text  # com_preco=1 esconde tudo (sem preço)
     r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos")
     assert "Página 2 de 3" in r.text
     assert 'href="/catalogo?busca=Produto&amp;filtro=ativos&amp;pagina=1"' in r.text
@@ -323,3 +323,18 @@ def test_catalogo_ordem_estavel_com_nomes_iguais(cliente, sessoes):
     for pagina in (1, 2):
         ids += re.findall(r'id="produto-(\d+)"', cliente.get(f"/catalogo?pagina={pagina}").text)
     assert len(ids) == 120 and len(set(ids)) == 120
+    assert ids == sorted(ids, key=int)  # nomes iguais: o desempate por id é crescente entre as páginas
+
+
+def test_catalogo_link_proxima_codifica_categoria_e_mantem_ordem(cliente, sessoes):
+    tipo = "Caixas de Boosters/Promo ção"
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        itens = [item_listagem(f"q{i:03d}", f"Promo {i:03d}", "10.00", tipo=tipo) for i in range(101)]
+        repo.gravar_listagem(s, c.id, itens, T0)
+    r = cliente.get("/catalogo", params={"categoria": tipo, "com_preco": "1"})
+    assert r.status_code == 200 and "Página 1 de 2 · 101 produto(s)" in r.text
+    assert (
+        'href="/catalogo?categoria=Caixas+de+Boosters%2FPromo+%C3%A7%C3%A3o&amp;com_preco=1&amp;pagina=2"'
+        in r.text
+    )
