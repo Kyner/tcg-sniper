@@ -1,9 +1,10 @@
+import re
 import secrets
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -17,6 +18,7 @@ from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 
 SENHA_PADRAO = "trocar-esta-senha"
+MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
 
 
 def formatar_brl(valor: Decimal | None) -> str:
@@ -82,6 +84,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         categoria: str = "",
         com_preco: str = "",
         pagina: str = "1",
+        msg: str = "",
     ):
         if filtro not in consultas.FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
@@ -121,8 +124,39 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "categoria": categoria,
                     "categorias": categorias,
                     "com_preco": so_com_preco,
+                    "mensagem": msg if MENSAGEM_LOTE.fullmatch(msg) else None,
                 },
             )
+
+    @app.post("/catalogo/lote")
+    async def alterar_lote(request: Request):
+        # Corpo urlencoded lido à mão: evita a dependência python-multipart só para este formulário.
+        campos = parse_qs((await request.body()).decode("utf-8", "replace"), keep_blank_values=True)
+
+        def campo(nome: str, padrao: str = "") -> str:
+            return campos.get(nome, [padrao])[0]
+
+        acao, busca, categoria, com_preco = campo("acao"), campo("busca"), campo("categoria"), campo("com_preco")
+        filtro = campo("filtro", "todos")
+        if acao not in ("ativar", "desativar"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ação inválida: {acao}")
+        if filtro not in consultas.FILTROS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
+        ativar = acao == "ativar"
+        so_com_preco = com_preco == "1"
+        with sessoes() as s, s.begin():
+            if categoria and categoria not in consultas.listar_categorias(s):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
+            alterados = consultas.alterar_ativo_em_lote(
+                s, ativar, busca, filtro, categoria or None, so_com_preco, repo.agora_utc()
+            )
+        parametros = {"busca": busca, "filtro": filtro, "categoria": categoria}
+        if so_com_preco:
+            parametros["com_preco"] = "1"
+        parametros = {k: v for k, v in parametros.items() if v and not (k == "filtro" and v == "todos")}
+        mensagem = f"{alterados} produto(s) {'ativado' if ativar else 'desativado'}(s)."
+        destino = "/catalogo?" + urlencode({**parametros, "pagina": 1, "msg": mensagem})
+        return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/produto/{produto_id}/ativo", response_class=HTMLResponse)
     def alternar_ativo(request: Request, produto_id: int):
