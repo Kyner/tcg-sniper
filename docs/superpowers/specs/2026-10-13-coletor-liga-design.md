@@ -14,8 +14,8 @@ Critério de sucesso: a coleta diária roda por uma semana sem desafio do Cloudf
 Dentro:
 
 - Varredura semanal do catálogo de selados da LigaMagic.
-- Coleta diária das ofertas por vendedor dos produtos ativos.
-- Banco Postgres com catálogo, ofertas, resumos e estado do coletor.
+- Coleta diária do resumo de preços (mín, médio, máx) e do número de lojas dos produtos ativos.
+- Banco Postgres com catálogo, resumos de preço e estado do coletor.
 - Página de admin para ativar produtos, ver status e retomar a coleta.
 - Notificador com destino "admin" via WhatsApp (Evolution API).
 
@@ -61,7 +61,7 @@ src/tcg_sniper/
     navegador.py      # contexto Playwright persistente
     parsers.py        # HTML -> dataclasses, funções puras, sem I/O
     catalogo.py       # varredura da categoria de selados
-    precos.py         # coleta diária das ofertas da lista ativa
+    precos.py         # coleta diária do resumo de preços da lista ativa
     desafio.py        # detecção da página de desafio
     agendador.py      # laço de 60 s, lock, polling de solicitações
   admin/
@@ -116,35 +116,18 @@ Uma linha por execução.
 
 Status final: `ok` se nenhum produto falhou; `parcial` se falharam até 50%; `falha` se falharam mais de 50% ou houve erro geral.
 
-### `oferta_liga`
-
-Histórico bruto, append-only.
-
-| Coluna | Tipo |
-| --- | --- |
-| `id` | bigserial PK |
-| `coleta_id` | FK `coleta` |
-| `produto_id` | FK `produto_liga` |
-| `loja` | text |
-| `preco` | numeric(10,2) |
-| `quantidade` | int |
-| `idioma` | text NULL |
-| `condicao` | text NULL |
-| `coletado_em` | timestamptz |
-
-Índice em `(produto_id, coletado_em)`. A coluna `coletado_em` permite particionar por mês no futuro (`PARTITION BY RANGE`) sem mudar consultas. Particionamento não é ativado agora: o volume esperado é de cerca de 365 mil linhas por ano.
-
 ### `resumo_preco`
 
-Histórico derivado, uma linha por produto e coleta.
+Histórico append-only, uma linha por produto e coleta.
 
 | Coluna | Tipo |
 | --- | --- |
 | `produto_id` | FK, parte da PK |
 | `coleta_id` | FK, parte da PK |
-| `menor_preco_com_estoque` | numeric(10,2) NULL (NULL se nenhuma oferta tem estoque) |
-| `num_vendedores_com_estoque` | int |
-| `num_ofertas` | int |
+| `preco_min` | numeric(10,2) NULL (NULL se a página não mostra o quadro de preços) |
+| `preco_medio` | numeric(10,2) NULL |
+| `preco_max` | numeric(10,2) NULL |
+| `num_lojas` | int |
 | `coletado_em` | timestamptz |
 
 ### `preco_atual_liga`
@@ -155,12 +138,13 @@ Dado corrente, uma linha por produto, atualizado por upsert. É a tabela que o a
 | --- | --- |
 | `produto_id` | PK, FK `produto_liga` |
 | `coleta_id` | FK `coleta` |
-| `menor_preco_com_estoque` | numeric(10,2) NULL |
-| `num_vendedores_com_estoque` | int |
-| `num_ofertas` | int |
+| `preco_min` | numeric(10,2) NULL |
+| `preco_medio` | numeric(10,2) NULL |
+| `preco_max` | numeric(10,2) NULL |
+| `num_lojas` | int |
 | `atualizado_em` | timestamptz |
 
-Separação entre dado do dia e histórico: `preco_atual_liga` para o presente, `resumo_preco` e `oferta_liga` para o histórico. Não existe job de virada de dia; os três são gravados na mesma transação.
+Separação entre dado do dia e histórico: `preco_atual_liga` para o presente, `resumo_preco` para o histórico. Não existe job de virada de dia; as duas são gravadas na mesma transação.
 
 ### `estado_coletor`
 
@@ -195,11 +179,11 @@ Playwright com `launch_persistent_context`, `headless=False`, perfil em `/data/p
 3. Para cada produto ativo:
    1. Abre a URL do produto.
    2. Verifica se a página é desafio (ver abaixo).
-   3. Extrai as ofertas com o parser.
-   4. Em uma transação: insere `oferta_liga`, insere `resumo_preco`, faz upsert em `preco_atual_liga`.
+   3. Extrai o resumo com o parser (`parse_produto`).
+   4. Em uma transação: insere `resumo_preco` e faz upsert em `preco_atual_liga`.
 4. Ao fim, define `status` e `finalizada_em`.
 
-`menor_preco_com_estoque` é o menor `preco` entre ofertas com `quantidade > 0`. `num_vendedores_com_estoque` conta lojas distintas com `quantidade > 0`.
+`preco_min`, `preco_medio` e `preco_max` são lidos do quadro textual "Preço Médio de Venda no Marketplace" da página do produto; `num_lojas` é o contador "Lojas" do filtro "Vendedores" (0 quando a página diz "Nenhum item encontrado"). Atenção: o quadro é um indicador histórico do marketplace, não o menor preço pedido agora: um produto sem nenhuma loja ainda mostra valores. Quem consome deve olhar `num_lojas` junto.
 
 ### Varredura do catálogo
 
@@ -235,9 +219,16 @@ O admin grava em `estado_coletor`: `estado = ativo` e `execucao_solicitada = tru
 | PC desligado no horário agendado | Na inicialização, se a última coleta de preços `ok` ou `parcial` tem mais de 24 horas, agenda uma execução com jitter. Além disso, se ainda não houve coleta de preços iniciada hoje e o horário do dia já passou, ela roda. |
 | Erro inesperado no job (ex.: Chromium não abre) | Log, aviso no grupo admin e nenhuma nova tentativa agendada no mesmo dia |
 
-### Ponto a confirmar na implementação
+### Decisão: só o resumo de preços (2026-10-13)
 
-Não se sabe ainda se as ofertas por vendedor estão no HTML inicial da página do produto ou são carregadas por JavaScript e paginadas. O primeiro passo da implementação é abrir algumas páginas manualmente, salvá-las como fixtures e escrever o parser a partir delas. Apenas `parsers.py` e `navegador.py` dependem disso.
+As fixtures reais (Task 6) mostraram que as ofertas por vendedor não são utilizáveis:
+
+- Preço e quantidade de cada oferta são desenhados dígito a dígito com sprite CSS (classes aleatórias por página e `background-position`), e a loja aparece só como logotipo. Ler isso exigiria contornar uma ofuscação anti-scraping.
+- A página mostra 16 ofertas e um botão "Ver Mais" (JavaScript) para o resto (ex.: 16 de 94).
+
+Decisão do usuário em 2026-10-13: guardar só o resumo textual (mín, médio, máx) e o número de lojas. Não decodificar o sprite e não clicar em "Ver Mais". A tabela `oferta_liga` foi removida.
+
+Ponto em aberto: a listagem do catálogo (ex.: `?view=cards/search&card=categ%3D10+searchprod%3D1&tipo=1`) também carrega itens por JavaScript ("Exibir mais", `mcards.nextPage(40)`), sem link de próxima página no HTML, e não existe uma listagem única de todos os selados: são várias categorias. Os cartões da listagem trazem em texto o preço "À partir de" (ou "Produto Indisponível"). A varredura do catálogo depende de uma decisão de design.
 
 ## Admin
 
@@ -247,7 +238,7 @@ FastAPI com templates Jinja e HTMX, na porta 8000. Autenticação HTTP Basic com
 | --- | --- |
 | `/` | Estado do coletor (destaque se pausado), últimas 10 coletas, botões "retomar" e "rodar agora" |
 | `/catalogo` | Busca por nome; filtros ativos, inativos e novos na última semana; toggle de ativo via HTMX |
-| `/produto/{id}` | Preço atual, número de vendedores com estoque, tabela do histórico de `resumo_preco` |
+| `/produto/{id}` | Preço atual (mín, médio, máx), número de lojas, tabela do histórico de `resumo_preco` |
 
 ## Notificador
 
@@ -276,7 +267,7 @@ pytest, desenvolvimento orientado a testes. Nenhum teste acessa a LigaMagic ou o
 
 | Camada | Abordagem |
 | --- | --- |
-| `parsers.py` | Fixtures de HTML reais: produto normal, sem estoque, um único vendedor, página do catálogo |
+| `parsers.py` | Fixtures de HTML reais: produto com várias lojas, sem estoque, uma única loja, página do catálogo |
 | `desafio.py` | Fixtures de páginas de desafio do Cloudflare e de páginas normais |
 | Persistência | Postgres real de teste, rollback por teste |
 | Fluxo da coleta | `NavegadorFake` que devolve fixtures e `NotificadorFake` que guarda mensagens; cobre desafio no meio da coleta, falha acima de 50%, coleta interrompida, lock e execução solicitada |

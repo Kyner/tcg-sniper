@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Coletar diariamente as ofertas de selados de Magic na LigaMagic, guardar histórico no Postgres, administrar a lista ativa por uma página web e avisar o grupo admin do WhatsApp quando a coleta precisar de intervenção.
+**Goal:** Coletar diariamente o resumo de preços de selados de Magic na LigaMagic, guardar histórico no Postgres, administrar a lista ativa por uma página web e avisar o grupo admin do WhatsApp quando a coleta precisar de intervenção.
 
 **Architecture:** Um pacote Python (`tcg_sniper`) e uma imagem Docker; cada serviço (`coletor-liga`, `admin`, `migrate`) roda em seu próprio container com um comando diferente, e todos se comunicam só pelo Postgres. Parsers e regras de negócio são funções puras testadas com fixtures; navegador (Playwright) e WhatsApp (Evolution API) ficam atrás de interfaces com fakes nos testes.
 
@@ -18,7 +18,7 @@
 - Coleta diária às 10:00 ± 30 min (`COLETA_HORA`, `COLETA_JITTER_MIN`), fuso `America/Sao_Paulo`. Domingo: varredura do catálogo e depois preços, no mesmo job.
 - Nunca duas coletas simultâneas (advisory lock do Postgres).
 - Dinheiro em `NUMERIC(10,2)`; datas `timestamptz` em UTC no banco, exibidas no fuso local.
-- `oferta_liga` e `resumo_preco` são append-only; `preco_atual_liga` é upsert; `produto_liga` nunca é apagado e a varredura nunca altera `ativo`.
+- `resumo_preco` é append-only; `preco_atual_liga` é upsert; `produto_liga` nunca é apagado e a varredura nunca altera `ativo`.
 - Status de coleta: `ok` sem falhas; `parcial` com falhas até `LIMITE_FALHA_PCT` (50%) inclusive; `falha` acima disso ou erro geral.
 - Falha de envio do notificador nunca interrompe a coleta (3 tentativas com backoff, depois log).
 - Nenhum teste acessa a LigaMagic ou o WhatsApp reais.
@@ -53,10 +53,9 @@ src/tcg_sniper/
     migrations/                      # Alembic (env.py, versions/)
   coletor_liga/
     __init__.py
-    modelos.py                       # Oferta, ItemCatalogo, PaginaCatalogo, Pagina, ErroParser, ErroRede
-    resumo.py                        # calcular_resumo (puro)
+    modelos.py                       # Resumo, ItemCatalogo, PaginaCatalogo, Pagina, ErroParser, ErroRede
     desafio.py                       # eh_desafio (puro)
-    parsers.py                       # parse_ofertas, parse_catalogo, parse_preco_brl (puros)
+    parsers.py                       # parse_produto, parse_catalogo, parse_preco_brl (puros)
     navegador.py                     # Navegador (Protocol), NavegadorPlaywright
     execucao.py                      # abrir_pagina, pausa_humana, registrar_desafio, salvar_html_falha
     precos.py                        # coletar_precos
@@ -78,7 +77,7 @@ tests/
   fixtures/liga/*.html               # HTMLs reais capturados na Task 6
   test_config.py
   db/test_migracao.py, db/test_repositorio.py
-  coletor_liga/test_resumo.py, test_desafio.py, test_parsers.py, test_precos.py, test_catalogo.py, test_agendador.py
+  coletor_liga/test_desafio.py, test_parsers.py, test_precos.py, test_catalogo.py, test_agendador.py
   notificador/test_notificador.py
   admin/test_admin.py
 ```
@@ -380,7 +379,7 @@ git commit -m "chore: project skeleton, config and local postgres"
 **Interfaces:**
 - Consumes: `Config.database_url`.
 - Produces:
-  - `tcg_sniper.db.models`: `Base`, enums `TipoColeta` (`CATALOGO`, `PRECOS`), `StatusColeta` (`RODANDO`, `OK`, `PARCIAL`, `FALHA`, `PAUSADA_DESAFIO`), `EstadoColetorTipo` (`ATIVO`, `PAUSADO_DESAFIO`); modelos `ProdutoLiga`, `Coleta`, `OfertaLiga`, `ResumoPreco`, `PrecoAtualLiga`, `EstadoColetor` com as colunas da spec.
+  - `tcg_sniper.db.models`: `Base`, enums `TipoColeta` (`CATALOGO`, `PRECOS`), `StatusColeta` (`RODANDO`, `OK`, `PARCIAL`, `FALHA`, `PAUSADA_DESAFIO`), `EstadoColetorTipo` (`ATIVO`, `PAUSADO_DESAFIO`); modelos `ProdutoLiga`, `Coleta`, `ResumoPreco`, `PrecoAtualLiga`, `EstadoColetor` com as colunas da spec.
   - `tcg_sniper.db.session`: `criar_engine(url: str) -> Engine`, `criar_sessoes(engine) -> sessionmaker[Session]` (com `expire_on_commit=False`), `migrar(url: str) -> None`.
   - Fixtures pytest: `engine` (sessão de testes, banco `tcg_test` migrado do zero), `sessoes` (sessionmaker isolado por teste, tudo desfeito no fim), `s` (uma `Session` aberta de `sessoes`).
 
@@ -395,13 +394,11 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
-    Index,
     Integer,
     Numeric,
     Text,
@@ -475,29 +472,15 @@ class Coleta(Base):
     erro: Mapped[str | None] = mapped_column(Text)
 
 
-class OfertaLiga(Base):
-    __tablename__ = "oferta_liga"
-    __table_args__ = (Index("ix_oferta_liga_produto_coletado", "produto_id", "coletado_em"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"))
-    produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"))
-    loja: Mapped[str] = mapped_column(Text)
-    preco: Mapped[Decimal] = mapped_column(DINHEIRO)
-    quantidade: Mapped[int] = mapped_column(Integer)
-    idioma: Mapped[str | None] = mapped_column(Text)
-    condicao: Mapped[str | None] = mapped_column(Text)
-    coletado_em: Mapped[datetime] = mapped_column(DATA)
-
-
 class ResumoPreco(Base):
     __tablename__ = "resumo_preco"
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"), primary_key=True)
-    menor_preco_com_estoque: Mapped[Decimal | None] = mapped_column(DINHEIRO)
-    num_vendedores_com_estoque: Mapped[int] = mapped_column(Integer)
-    num_ofertas: Mapped[int] = mapped_column(Integer)
+    preco_min: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_medio: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_max: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    num_lojas: Mapped[int] = mapped_column(Integer)
     coletado_em: Mapped[datetime] = mapped_column(DATA)
 
 
@@ -506,9 +489,10 @@ class PrecoAtualLiga(Base):
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"))
-    menor_preco_com_estoque: Mapped[Decimal | None] = mapped_column(DINHEIRO)
-    num_vendedores_com_estoque: Mapped[int] = mapped_column(Integer)
-    num_ofertas: Mapped[int] = mapped_column(Integer)
+    preco_min: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_medio: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_max: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    num_lojas: Mapped[int] = mapped_column(Integer)
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
 
 
@@ -593,7 +577,7 @@ Pré-requisito: `docker compose up -d postgres` e um `.env` com `DATABASE_URL=po
 Run: `uv run alembic revision --autogenerate -m "schema inicial"`
 Expected: novo arquivo `src/tcg_sniper/db/migrations/versions/<hash>_schema_inicial.py`.
 
-Revise o arquivo gerado: ele precisa criar as 6 tabelas, o índice `ix_oferta_liga_produto_coletado`, a unique de `produto_liga.liga_id`, as CHECK constraints dos três enums e a `ck_estado_coletor_linha_unica`. Se faltar alguma CHECK de enum, adicione no `op.create_table` correspondente, por exemplo `sa.CheckConstraint("status IN ('rodando','ok','parcial','falha','pausada_desafio')", name="status_coleta")`.
+Revise o arquivo gerado: ele precisa criar as 5 tabelas, a unique de `produto_liga.liga_id`, as CHECK constraints dos três enums e a `ck_estado_coletor_linha_unica`. Se faltar alguma CHECK de enum, adicione no `op.create_table` correspondente, por exemplo `sa.CheckConstraint("status IN ('rodando','ok','parcial','falha','pausada_desafio')", name="status_coleta")`.
 
 - [ ] **Step 4: Fixtures de banco nos testes**
 
@@ -684,17 +668,19 @@ git commit -m "feat: database models and initial migration"
 
 ### Task 3: Modelos de domínio, resumo de preço e repositório
 
+> **Revisão 2026-10-13 (só resumo):** as ofertas por vendedor da LigaMagic são ofuscadas (sprite CSS) e só 16 aparecem sem JavaScript; por decisão do usuário o coletor guarda só o resumo textual da página (mín, médio, máx, nº de lojas). `Oferta`, `calcular_resumo` e `oferta_liga` foram removidos; os blocos abaixo já refletem o código atual. Ver a spec, "Decisão: só o resumo de preços".
+
+
 **Files:**
-- Create: `src/tcg_sniper/coletor_liga/__init__.py`, `src/tcg_sniper/coletor_liga/modelos.py`, `src/tcg_sniper/coletor_liga/resumo.py`, `src/tcg_sniper/db/repositorio.py`
+- Create: `src/tcg_sniper/coletor_liga/__init__.py`, `src/tcg_sniper/coletor_liga/modelos.py`, `src/tcg_sniper/db/repositorio.py`
 - Create: `tests/fakes.py`
-- Test: `tests/coletor_liga/test_resumo.py`, `tests/db/test_repositorio.py`
+- Test: `tests/db/test_repositorio.py`
 
 **Interfaces:**
 - Consumes: modelos e enums da Task 2; fixture `s`.
 - Produces:
-  - `coletor_liga.modelos`: dataclasses frozen `Oferta(loja: str, preco: Decimal, quantidade: int, idioma: str | None = None, condicao: str | None = None)`, `ItemCatalogo(liga_id: str, nome: str, url: str, edicao: str | None = None, tipo: str | None = None, idioma: str | None = None)`, `PaginaCatalogo(itens: list[ItemCatalogo], proxima_url: str | None)`, `Pagina(url: str, status: int, html: str, titulo: str, headers: dict[str, str])`; exceções `ErroParser`, `ErroRede`.
-  - `coletor_liga.resumo`: `Resumo(menor_preco_com_estoque: Decimal | None, num_vendedores_com_estoque: int, num_ofertas: int)`, `calcular_resumo(ofertas: Sequence[Oferta]) -> Resumo`.
-  - `db.repositorio`: `agora_utc()`, `produtos_ativos(s)`, `iniciar_coleta(s, tipo, agora) -> Coleta`, `status_final(ok, falha, limite_falha_pct) -> StatusColeta`, `finalizar_coleta(s, coleta_id, status, ok, falha, agora, erro=None)`, `gravar_precos_produto(s, coleta_id, produto_id, ofertas, resumo, agora)`, `upsert_catalogo(s, itens, agora) -> int` (quantidade de novos), `obter_estado(s, agora=None) -> EstadoColetor`, `pausar_por_desafio(s, motivo, agora)`, `retomar(s, agora)`, `solicitar_execucao(s, agora)`, `consumir_solicitacao(s, agora) -> bool`, `marcar_interrompidas(s, agora) -> int`, `ultima_coleta_sucesso(s, tipo) -> datetime | None`, `coleta_iniciada_desde(s, tipo, desde) -> bool`.
+  - `coletor_liga.modelos`: dataclasses frozen `Resumo(preco_min: Decimal | None, preco_medio: Decimal | None, preco_max: Decimal | None, num_lojas: int)`, `ItemCatalogo(liga_id: str, nome: str, url: str, edicao: str | None = None, tipo: str | None = None, idioma: str | None = None)`, `PaginaCatalogo(itens: list[ItemCatalogo], proxima_url: str | None)`, `Pagina(url: str, status: int, html: str, titulo: str, headers: dict[str, str])`; exceções `ErroParser`, `ErroRede`.
+  - `db.repositorio`: `agora_utc()`, `produtos_ativos(s)`, `iniciar_coleta(s, tipo, agora) -> Coleta`, `status_final(ok, falha, limite_falha_pct) -> StatusColeta`, `finalizar_coleta(s, coleta_id, status, ok, falha, agora, erro=None)`, `gravar_precos_produto(s, coleta_id, produto_id, resumo, agora)`, `upsert_catalogo(s, itens, agora) -> int` (quantidade de novos), `obter_estado(s, agora=None) -> EstadoColetor`, `pausar_por_desafio(s, motivo, agora)`, `retomar(s, agora)`, `solicitar_execucao(s, agora)`, `consumir_solicitacao(s, agora) -> bool`, `marcar_interrompidas(s, agora) -> int`, `ultima_coleta_sucesso(s, tipo) -> datetime | None`, `coleta_iniciada_desde(s, tipo, desde) -> bool`.
   - `tests/fakes.py`: `criar_produto(s, liga_id="p1", ativo=True, agora=T0, nome=None, url=None) -> ProdutoLiga`, constante `T0`.
 
 - [ ] **Step 1: Escrever os modelos de domínio**
@@ -716,12 +702,17 @@ class ErroRede(Exception):
 
 
 @dataclass(frozen=True)
-class Oferta:
-    loja: str
-    preco: Decimal
-    quantidade: int
-    idioma: str | None = None
-    condicao: str | None = None
+class Resumo:
+    """Quadro de preços da página de produto ("Preço Médio de Venda no Marketplace") + nº de lojas.
+
+    Os preços vêm do resumo textual da LigaMagic (os preços por oferta são ofuscados em
+    sprite e não são lidos). `None` quando a página não mostra o quadro.
+    """
+
+    preco_min: Decimal | None
+    preco_medio: Decimal | None
+    preco_max: Decimal | None
+    num_lojas: int
 
 
 @dataclass(frozen=True)
@@ -749,70 +740,7 @@ class Pagina:
     headers: dict[str, str] = field(default_factory=dict)
 ```
 
-- [ ] **Step 2: Teste do resumo**
-
-`tests/coletor_liga/test_resumo.py`:
-```python
-from decimal import Decimal
-
-from tcg_sniper.coletor_liga.modelos import Oferta
-from tcg_sniper.coletor_liga.resumo import Resumo, calcular_resumo
-
-
-def o(loja, preco, quantidade):
-    return Oferta(loja=loja, preco=Decimal(preco), quantidade=quantidade)
-
-
-def test_menor_preco_ignora_ofertas_sem_estoque():
-    r = calcular_resumo([o("A", "100.00", 0), o("B", "120.00", 2), o("C", "110.00", 1)])
-    assert r == Resumo(Decimal("110.00"), 2, 3)
-
-
-def test_sem_estoque_nenhum():
-    assert calcular_resumo([o("A", "100.00", 0)]) == Resumo(None, 0, 1)
-
-
-def test_lista_vazia():
-    assert calcular_resumo([]) == Resumo(None, 0, 0)
-
-
-def test_mesma_loja_conta_uma_vez():
-    r = calcular_resumo([o("A", "100.00", 1), o("A", "90.00", 1)])
-    assert r == Resumo(Decimal("90.00"), 1, 2)
-```
-
-Run: `uv run pytest tests/coletor_liga/test_resumo.py -v`
-Expected: FAIL, `ModuleNotFoundError: No module named 'tcg_sniper.coletor_liga.resumo'`.
-
-- [ ] **Step 3: Implementar o resumo**
-
-`src/tcg_sniper/coletor_liga/resumo.py`:
-```python
-from collections.abc import Sequence
-from dataclasses import dataclass
-from decimal import Decimal
-
-from tcg_sniper.coletor_liga.modelos import Oferta
-
-
-@dataclass(frozen=True)
-class Resumo:
-    menor_preco_com_estoque: Decimal | None
-    num_vendedores_com_estoque: int
-    num_ofertas: int
-
-
-def calcular_resumo(ofertas: Sequence[Oferta]) -> Resumo:
-    com_estoque = [o for o in ofertas if o.quantidade > 0]
-    return Resumo(
-        menor_preco_com_estoque=min((o.preco for o in com_estoque), default=None),
-        num_vendedores_com_estoque=len({o.loja for o in com_estoque}),
-        num_ofertas=len(ofertas),
-    )
-```
-
-Run: `uv run pytest tests/coletor_liga/test_resumo.py -v`
-Expected: 4 passed.
+- [ ] **Steps 2 e 3: (removidos)** `resumo.py`/`calcular_resumo` deixaram de existir: o resumo vem pronto do parser (Task 6).
 
 - [ ] **Step 4: Criar `tests/fakes.py` e os testes do repositório**
 
@@ -847,13 +775,11 @@ from decimal import Decimal
 from fakes import T0, criar_produto
 from sqlalchemy import func, select
 
-from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Oferta
-from tcg_sniper.coletor_liga.resumo import calcular_resumo
+from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Resumo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import (
     Coleta,
     EstadoColetorTipo,
-    OfertaLiga,
     PrecoAtualLiga,
     ProdutoLiga,
     ResumoPreco,
@@ -911,23 +837,36 @@ def test_upsert_catalogo_lista_vazia(s):
 
 def test_gravar_precos_produto_grava_historico_e_atualiza_atual(s):
     produto = criar_produto(s)
-    ofertas = [
-        Oferta("Loja A", Decimal("899.90"), 2),
-        Oferta("Loja B", Decimal("850.00"), 0),
-    ]
     c1 = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
-    repo.gravar_precos_produto(s, c1.id, produto.id, ofertas, calcular_resumo(ofertas), T0)
+    resumo1 = Resumo(Decimal("850.00"), Decimal("874.95"), Decimal("899.90"), 2)
+    repo.gravar_precos_produto(s, c1.id, produto.id, resumo1, T0)
 
-    novas = [Oferta("Loja C", Decimal("799.00"), 1)]
     c2 = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0 + timedelta(days=1))
-    repo.gravar_precos_produto(s, c2.id, produto.id, novas, calcular_resumo(novas), T0 + timedelta(days=1))
+    resumo2 = Resumo(Decimal("799.00"), Decimal("799.00"), Decimal("799.00"), 1)
+    repo.gravar_precos_produto(s, c2.id, produto.id, resumo2, T0 + timedelta(days=1))
 
-    assert s.scalar(select(func.count()).select_from(OfertaLiga)) == 3
-    assert s.scalar(select(func.count()).select_from(ResumoPreco)) == 2
+    historico = s.scalars(select(ResumoPreco).order_by(ResumoPreco.coletado_em)).all()
+    assert [(r.coleta_id, r.preco_min, r.num_lojas) for r in historico] == [
+        (c1.id, Decimal("850.00"), 2),
+        (c2.id, Decimal("799.00"), 1),
+    ]
     atual = s.scalars(select(PrecoAtualLiga)).one()
     assert atual.coleta_id == c2.id
-    assert atual.menor_preco_com_estoque == Decimal("799.00")
-    assert atual.num_vendedores_com_estoque == 1
+    assert (atual.preco_min, atual.preco_medio, atual.preco_max, atual.num_lojas) == (
+        Decimal("799.00"),
+        Decimal("799.00"),
+        Decimal("799.00"),
+        1,
+    )
+    assert atual.atualizado_em == T0 + timedelta(days=1)
+
+
+def test_gravar_precos_produto_sem_precos(s):
+    produto = criar_produto(s)
+    c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
+    repo.gravar_precos_produto(s, c.id, produto.id, Resumo(None, None, None, 0), T0)
+    atual = s.scalars(select(PrecoAtualLiga)).one()
+    assert (atual.preco_min, atual.preco_medio, atual.preco_max, atual.num_lojas) == (None, None, None, 0)
 
 
 def test_estado_pausa_retoma_e_solicitacao(s):
@@ -996,13 +935,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Oferta
-from tcg_sniper.coletor_liga.resumo import Resumo
+from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Resumo
 from tcg_sniper.db.models import (
     Coleta,
     EstadoColetor,
     EstadoColetorTipo,
-    OfertaLiga,
     PrecoAtualLiga,
     ProdutoLiga,
     ResumoPreco,
@@ -1057,44 +994,23 @@ def gravar_precos_produto(
     s: Session,
     coleta_id: int,
     produto_id: int,
-    ofertas: Sequence[Oferta],
     resumo: Resumo,
     agora: datetime,
 ) -> None:
-    s.add_all(
-        OfertaLiga(
-            coleta_id=coleta_id,
-            produto_id=produto_id,
-            loja=o.loja,
-            preco=o.preco,
-            quantidade=o.quantidade,
-            idioma=o.idioma,
-            condicao=o.condicao,
-            coletado_em=agora,
-        )
-        for o in ofertas
-    )
-    s.add(
-        ResumoPreco(
-            produto_id=produto_id,
-            coleta_id=coleta_id,
-            menor_preco_com_estoque=resumo.menor_preco_com_estoque,
-            num_vendedores_com_estoque=resumo.num_vendedores_com_estoque,
-            num_ofertas=resumo.num_ofertas,
-            coletado_em=agora,
-        )
-    )
+    """Acrescenta o resumo ao histórico (append-only) e faz upsert do preço atual."""
     valores = {
         "coleta_id": coleta_id,
-        "menor_preco_com_estoque": resumo.menor_preco_com_estoque,
-        "num_vendedores_com_estoque": resumo.num_vendedores_com_estoque,
-        "num_ofertas": resumo.num_ofertas,
-        "atualizado_em": agora,
+        "preco_min": resumo.preco_min,
+        "preco_medio": resumo.preco_medio,
+        "preco_max": resumo.preco_max,
+        "num_lojas": resumo.num_lojas,
     }
+    s.add(ResumoPreco(produto_id=produto_id, coletado_em=agora, **valores))
+    atual = {**valores, "atualizado_em": agora}
     s.execute(
         pg_insert(PrecoAtualLiga)
-        .values(produto_id=produto_id, **valores)
-        .on_conflict_do_update(index_elements=[PrecoAtualLiga.produto_id], set_=valores)
+        .values(produto_id=produto_id, **atual)
+        .on_conflict_do_update(index_elements=[PrecoAtualLiga.produto_id], set_=atual)
     )
     s.flush()
 
@@ -1207,7 +1123,7 @@ def coleta_iniciada_desde(s: Session, tipo: TipoColeta, desde: datetime) -> bool
 
 - [ ] **Step 6: Rodar**
 
-Run: `uv run pytest tests/db tests/coletor_liga/test_resumo.py -v`
+Run: `uv run pytest tests/db -v`
 Expected: todos passam.
 
 - [ ] **Step 7: Commit**
@@ -1676,45 +1592,31 @@ git commit -m "feat: playwright browser wrapper, challenge detection and fixture
 
 ### Task 6: Parsers da LigaMagic (com fixtures reais)
 
-Esta task depende do HTML real da LigaMagic, que ainda não foi inspecionado (ponto em aberto da spec). Os seletores CSS e as regras de extração do `liga_id` são definidos aqui a partir das fixtures. O contrato (funções, tipos, comportamento em erro) está fixo; o que muda é só o miolo do parser.
+> **Revisão 2026-10-13 (só resumo).** A primeira captura mostrou que as ofertas por vendedor não são utilizáveis: preço e quantidade de cada oferta são desenhados com sprite CSS (classes aleatórias + `background-position`), a loja é só um logotipo, e a página mostra 16 ofertas com um botão "Ver Mais" (JavaScript) para o resto (16 de 94 na fixture). Decisão do usuário: não decodificar o sprite e não clicar em "Ver Mais"; ler só o quadro textual "Preço Médio de Venda no Marketplace" (mín, médio, máx) e o contador "Lojas". `parse_ofertas`/`parse_quantidade` saíram do contrato.
+>
+> **Catálogo em aberto.** A listagem de selados não é única (são categorias: `?view=cards/search&card=categ%3D<N>+searchprod%3D1&tipo=1`, ex. 10 = Caixas de Boosters) e carrega mais itens por JavaScript ("Exibir mais", `mcards.nextPage(40)`), sem link de próxima página no HTML. `parse_catalogo` e as fixtures `catalogo_*` ficam pendentes de decisão de design (Task 8 depende disso).
 
 **Files:**
-- Create: `tests/fixtures/liga/catalogo_pagina_1.html`, `catalogo_ultima_pagina.html`, `produto_varios_vendedores.html`, `produto_sem_estoque.html`, `produto_um_vendedor.html`
+- Create: `tests/fixtures/liga/produto_varios_vendedores.html`, `produto_sem_estoque.html`, `produto_um_vendedor.html`
 - Create: `src/tcg_sniper/coletor_liga/parsers.py`
-- Modify: `.env.example` (valor de `LIGA_URL_CATALOGO`)
 - Test: `tests/coletor_liga/test_parsers.py`
+- Pendente (catálogo): `tests/fixtures/liga/catalogo_pagina_1.html`, `catalogo_ultima_pagina.html`, `parse_catalogo`, valor de `LIGA_URL_CATALOGO` no `.env.example`
 
 **Interfaces:**
-- Consumes: `Oferta`, `ItemCatalogo`, `PaginaCatalogo`, `ErroParser` (Task 3); `eh_desafio`, `fixture_liga`, `pagina_html` (Task 5).
-- Produces: `parsers.parse_preco_brl(texto: str) -> Decimal`, `parsers.parse_quantidade(texto: str) -> int`, `parsers.parse_ofertas(html: str) -> list[Oferta]`, `parsers.parse_catalogo(html: str, url_base: str) -> PaginaCatalogo`. Ambos os `parse_*` de página lançam `ErroParser` quando a estrutura esperada não existe; `parse_ofertas` devolve `[]` quando a página é válida mas não tem nenhuma oferta.
+- Consumes: `Resumo`, `ErroParser` (Task 3); `eh_desafio`, `fixture_liga`, `pagina_html` (Task 5).
+- Produces: `parsers.parse_preco_brl(texto: str) -> Decimal`, `parsers.parse_produto(html: str) -> Resumo`. `parse_produto` lança `ErroParser` quando a estrutura da página de produto não existe; página válida sem lojas devolve `num_lojas == 0` (os preços do quadro, se a página mostrar o quadro, vêm mesmo assim: ele é histórico). Pendente: `parsers.parse_catalogo(html: str, url_base: str) -> PaginaCatalogo`.
 
-- [ ] **Step 1: Pedir as URLs ao usuário e capturar as fixtures**
+- [x] **Step 1: Capturar as fixtures de produto** (uma por vez, ≥ 10 s entre elas)
 
-Peça ao usuário: (a) a URL da listagem de selados na LigaMagic, (b) uma URL de produto com vários vendedores, (c) uma de produto sem estoque e (d) uma de produto com um único vendedor. Grave a URL (a) em `LIGA_URL_CATALOGO` no `.env` e no `.env.example`.
-
-Capture (uma por vez, são 5 páginas no total, com pelo menos 10 s entre elas):
 ```
-uv run python scripts/capturar_fixture.py "<url a>" catalogo_pagina_1
-uv run python scripts/capturar_fixture.py "<url da última página da listagem>" catalogo_ultima_pagina
-uv run python scripts/capturar_fixture.py "<url b>" produto_varios_vendedores
-uv run python scripts/capturar_fixture.py "<url c>" produto_sem_estoque
-uv run python scripts/capturar_fixture.py "<url d>" produto_um_vendedor
+uv run python scripts/capturar_fixture.py "https://www.ligamagic.com.br/?view=prod/view&pcode=137175&prod=Booster%20Avulso%20-%20Reality%20Fracture%20-%20Booster%20de%20Jogo" produto_varios_vendedores
+uv run python scripts/capturar_fixture.py "https://www.ligamagic.com.br/?view=prod/view&pcode=276&prod=From%20the%20Vault:%20Relics%20Box%20Set" produto_sem_estoque
+uv run python scripts/capturar_fixture.py "https://www.ligamagic.com.br/?view=prod/view&pcode=273&prod=From%20the%20Vault:%20Exiled%20Box%20Set" produto_um_vendedor
 ```
 
-Confira, abrindo a página no navegador normal, se o número de ofertas visível bate com o do HTML capturado. **Se a página do produto mostrar menos ofertas do que existem (botão "ver mais", paginação de lojas), pare e avise o usuário**: isso exige mudar `NavegadorPlaywright`/design, fora do escopo desta task.
+- [x] **Step 2: Estrutura registrada** no docstring de `parsers.py` (abaixo).
 
-- [ ] **Step 2: Inspecionar as fixtures e registrar a estrutura**
-
-Abra cada fixture e localize:
-- Produto: o contêiner que agrupa as ofertas, o elemento de cada linha de oferta, e dentro dela loja, preço, quantidade, idioma, condição; e o marcador que a página usa quando não há ofertas.
-- Catálogo: o elemento de cada item, o link para o produto, o nome, e o link "próxima página" (ausente na última); como o ID do produto aparece na URL.
-
-Registre o que encontrou no docstring do módulo `parsers.py` (Step 5), com os seletores escolhidos.
-
-- [ ] **Step 3: Escrever os testes**
-
-`tests/coletor_liga/test_parsers.py`. Os valores marcados com `# conferir na fixture` são lidos das fixtures no Step 2 e escritos literalmente no teste (ex.: `assert len(ofertas) == 17`).
-
+- [x] **Step 3: Testes** — `tests/coletor_liga/test_parsers.py`:
 ```python
 from decimal import Decimal
 
@@ -1722,22 +1624,16 @@ import pytest
 from fakes import fixture_liga, pagina_html
 
 from tcg_sniper.coletor_liga.desafio import eh_desafio
-from tcg_sniper.coletor_liga.modelos import ErroParser
-from tcg_sniper.coletor_liga.parsers import (
-    parse_catalogo,
-    parse_ofertas,
-    parse_preco_brl,
-    parse_quantidade,
-)
+from tcg_sniper.coletor_liga.modelos import ErroParser, Resumo
+from tcg_sniper.coletor_liga.parsers import parse_preco_brl, parse_produto
 
-FIXTURES = [
-    "catalogo_pagina_1",
-    "catalogo_ultima_pagina",
-    "produto_varios_vendedores",
-    "produto_sem_estoque",
-    "produto_um_vendedor",
-]
-URL_CATALOGO = "https://www.ligamagic.com.br/"
+# <title> real de cada fixture, registrado na captura (scripts/capturar_fixture.py).
+TITULOS = {
+    "produto_varios_vendedores": "Booster Avulso - Reality Fracture - Booster de Jogo"
+    " | Busca de Produtos e Acessórios | LigaMagic",
+    "produto_sem_estoque": "From the Vault: Relics Box Set | Busca de Produtos e Acessórios | LigaMagic",
+    "produto_um_vendedor": "From the Vault: Exiled Box Set | Busca de Produtos e Acessórios | LigaMagic",
+}
 
 
 @pytest.mark.parametrize(
@@ -1754,93 +1650,116 @@ def test_parse_preco_brl(texto, esperado):
     assert parse_preco_brl(texto) == esperado
 
 
-@pytest.mark.parametrize("texto", ["", "Esgotado", "R$ --"])
+@pytest.mark.parametrize("texto", ["", "Esgotado", "R$ --", "R$ 12"])
 def test_parse_preco_brl_invalido(texto):
     with pytest.raises(ErroParser):
         parse_preco_brl(texto)
 
 
-@pytest.mark.parametrize(("texto", "esperado"), [("3", 3), ("12 unid.", 12), ("Qtd: 1", 1)])
-def test_parse_quantidade(texto, esperado):
-    assert parse_quantidade(texto) == esperado
-
-
-def test_parse_quantidade_invalida():
-    with pytest.raises(ErroParser):
-        parse_quantidade("indisponível")
-
-
-@pytest.mark.parametrize("nome", FIXTURES)
-def test_paginas_reais_nao_sao_desafio(nome):
-    assert not eh_desafio(pagina_html(fixture_liga(nome)))
+@pytest.mark.parametrize(("nome", "titulo"), TITULOS.items())
+def test_paginas_reais_nao_sao_desafio(nome, titulo):
+    assert not eh_desafio(pagina_html(fixture_liga(nome), titulo=titulo))
 
 
 def test_produto_varios_vendedores():
-    ofertas = parse_ofertas(fixture_liga("produto_varios_vendedores"))
-    assert len(ofertas) == N_OFERTAS_VARIOS  # conferir na fixture
-    assert ofertas[0].loja == PRIMEIRA_LOJA  # conferir na fixture
-    assert ofertas[0].preco == Decimal(PRIMEIRO_PRECO)  # conferir na fixture
-    assert ofertas[0].quantidade == PRIMEIRA_QUANTIDADE  # conferir na fixture
-    assert all(o.loja and o.preco > 0 and o.quantidade >= 0 for o in ofertas)
-    assert len({o.loja for o in ofertas}) > 1
+    assert parse_produto(fixture_liga("produto_varios_vendedores")) == Resumo(
+        preco_min=Decimal("29.89"),
+        preco_medio=Decimal("37.32"),
+        preco_max=Decimal("49.90"),
+        num_lojas=94,
+    )
 
 
 def test_produto_um_vendedor():
-    ofertas = parse_ofertas(fixture_liga("produto_um_vendedor"))
-    assert len({o.loja for o in ofertas}) == 1
+    assert parse_produto(fixture_liga("produto_um_vendedor")) == Resumo(
+        preco_min=Decimal("2499.90"),
+        preco_medio=Decimal("2499.90"),
+        preco_max=Decimal("2499.90"),
+        num_lojas=1,
+    )
 
 
 def test_produto_sem_estoque():
-    ofertas = parse_ofertas(fixture_liga("produto_sem_estoque"))
-    assert all(o.quantidade == 0 for o in ofertas)
+    # A página real sem lojas ainda mostra o quadro "Preço Médio de Venda no Marketplace"
+    # (histórico, não depende de estoque atual); o parser devolve o que a página mostra.
+    assert parse_produto(fixture_liga("produto_sem_estoque")) == Resumo(
+        preco_min=Decimal("5450.00"),
+        preco_medio=Decimal("5450.00"),
+        preco_max=Decimal("5450.00"),
+        num_lojas=0,
+    )
 
 
-def test_ofertas_html_sem_estrutura():
+def test_produto_sem_quadro_de_precos():
+    html = '<html><body><div id="marketplace-stores"><div class="alertaErro">Nenhum item</div></div></body></html>'
+    assert parse_produto(html) == Resumo(None, None, None, 0)
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<html><body><p>layout novo</p></body></html>",
+        # tem lojas na página, mas o contador "Lojas" sumiu
+        '<html><body><div id="marketplace-stores"><div class="store"></div></div></body></html>',
+        # quadro de preços sem um dos valores
+        (
+            '<html><body><div id="marketplace-stores"><div class="alertaErro">x</div></div>'
+            '<div class="price-mkp"><div class="min"><div class="price">R$ 1,00</div></div></div></body></html>'
+        ),
+    ],
+)
+def test_produto_html_sem_estrutura(html):
     with pytest.raises(ErroParser):
-        parse_ofertas("<html><body><p>layout novo</p></body></html>")
-
-
-def test_catalogo_primeira_pagina():
-    pagina = parse_catalogo(fixture_liga("catalogo_pagina_1"), URL_CATALOGO)
-    assert len(pagina.itens) == N_ITENS_PAGINA_1  # conferir na fixture
-    primeiro = pagina.itens[0]
-    assert primeiro.liga_id == PRIMEIRO_LIGA_ID  # conferir na fixture
-    assert primeiro.nome == PRIMEIRO_NOME  # conferir na fixture
-    assert primeiro.url.startswith("https://")
-    assert pagina.proxima_url is not None and pagina.proxima_url.startswith("https://")
-    assert len({i.liga_id for i in pagina.itens}) == len(pagina.itens)
-
-
-def test_catalogo_ultima_pagina():
-    pagina = parse_catalogo(fixture_liga("catalogo_ultima_pagina"), URL_CATALOGO)
-    assert pagina.itens
-    assert pagina.proxima_url is None
-
-
-def test_catalogo_html_sem_estrutura():
-    with pytest.raises(ErroParser):
-        parse_catalogo("<html><body><p>layout novo</p></body></html>", URL_CATALOGO)
+        parse_produto(html)
 ```
 
-Antes de rodar, substitua cada constante em maiúsculas (`N_OFERTAS_VARIOS`, `PRIMEIRA_LOJA`, `PRIMEIRO_PRECO`, `PRIMEIRA_QUANTIDADE`, `N_ITENS_PAGINA_1`, `PRIMEIRO_LIGA_ID`, `PRIMEIRO_NOME`) pelo valor literal lido na fixture. Se `produto_sem_estoque` não tiver nenhuma oferta listada, troque a asserção desse teste por `assert ofertas == []`.
-
 Run: `uv run pytest tests/coletor_liga/test_parsers.py -v`
-Expected: FAIL, `ModuleNotFoundError: No module named 'tcg_sniper.coletor_liga.parsers'`.
+Expected (antes do parser): FAIL na coleta, `ImportError` (`Resumo`/`parsers` inexistentes).
 
-- [ ] **Step 4: Implementar os helpers de texto**
-
-Início de `src/tcg_sniper/coletor_liga/parsers.py`:
+- [x] **Step 4: Implementar** — `src/tcg_sniper/coletor_liga/parsers.py` (selectolax com backend lexbor; o backend `selectolax.parser` foi removido na 1.0):
 ```python
+"""Parsers puros do HTML da LigaMagic, escritos a partir das fixtures reais em tests/fixtures/liga.
+
+Página de produto (`?view=prod/view&pcode=N`), estrutura observada em 2026-10-13:
+
+- `#marketplace-stores`: lista de ofertas das lojas; existe em toda página de produto e é o
+  marcador de estrutura (ausente → `ErroParser`). Sem lojas, contém
+  `<div class="alertaErro">… Nenhum item encontrado.</div>`.
+- As ofertas individuais NÃO são lidas: preço e quantidade de cada `div.store` são desenhados
+  dígito a dígito com sprite CSS (classes aleatórias + background-position), a loja é só um
+  logotipo, e a página mostra 16 ofertas com um botão "Ver Mais" (JS) para o resto. Decisão do
+  usuário em 2026-10-13: usar só o resumo textual.
+- Quadro "Preço Médio de Venda no Marketplace" / "Preços aplicados no Marketplace":
+  `.price-mkp .min .price`, `.price-mkp .medium .price`, `.price-mkp .max .price`
+  (ex.: "R$ 29,89"). ATENÇÃO: é um indicador histórico do marketplace, não o menor preço
+  pedido agora — a página sem nenhuma loja (pcode 276) ainda mostra R$ 5.450,00 nos três.
+  Ausente → os três preços ficam `None`.
+- Número de lojas: filtro "Vendedores" (`.group-filter` cujo `.filter-header .title` tem
+  `data-label="Vendedores"`), opção `.filter-option` com `.filter-infos[title="Lojas"]`,
+  contador em `.filter-counter` (ex.: 94 com só 16 linhas no HTML). Sem lojas, a página não
+  tem nenhum `.group-filter` e `#marketplace-stores` tem `.alertaErro` → 0. Nenhum dos dois
+  → `ErroParser`.
+"""
+
 import re
 from decimal import Decimal
-from urllib.parse import urljoin
 
-from selectolax.parser import HTMLParser, Node
+from selectolax.lexbor import LexborHTMLParser, LexborNode
 
-from tcg_sniper.coletor_liga.modelos import ErroParser, ItemCatalogo, Oferta, PaginaCatalogo
+from tcg_sniper.coletor_liga.modelos import ErroParser, Resumo
 
 _RE_PRECO = re.compile(r"(\d{1,3}(?:\.\d{3})+|\d+),(\d{2})")
-_RE_INTEIRO = re.compile(r"\d+")
+_RE_INTEIRO = re.compile(r"^\d+$")
+
+SELETOR_ESTRUTURA_PRODUTO = "#marketplace-stores"
+SELETOR_SEM_LOJAS = "#marketplace-stores .alertaErro"
+SELETOR_QUADRO_PRECOS = ".price-mkp"
+SELETORES_PRECO = (".min .price", ".medium .price", ".max .price")
+SELETOR_GRUPO_FILTRO = ".group-filter"
+SELETOR_TITULO_VENDEDORES = '.filter-header .title[data-label="Vendedores"]'
+SELETOR_OPCAO_FILTRO = ".filter-option"
+SELETOR_OPCAO_LOJAS = '.filter-infos[title="Lojas"]'
+SELETOR_CONTADOR = ".filter-counter"
 
 
 def parse_preco_brl(texto: str) -> Decimal:
@@ -1850,101 +1769,56 @@ def parse_preco_brl(texto: str) -> Decimal:
     return Decimal(f"{m.group(1).replace('.', '')}.{m.group(2)}")
 
 
-def parse_quantidade(texto: str) -> int:
-    m = _RE_INTEIRO.search(texto)
-    if not m:
-        raise ErroParser(f"quantidade inválida: {texto!r}")
-    return int(m.group())
-
-
-def _texto(no: Node, seletor: str) -> str:
+def _texto(no: LexborNode, seletor: str) -> str:
     alvo = no.css_first(seletor)
     if alvo is None:
         raise ErroParser(f"elemento {seletor!r} não encontrado")
     return alvo.text(strip=True)
 
 
-def _texto_opcional(no: Node, seletor: str) -> str | None:
-    alvo = no.css_first(seletor)
-    texto = alvo.text(strip=True) if alvo is not None else ""
-    return texto or None
-```
-
-Run: `uv run pytest tests/coletor_liga/test_parsers.py -v -k "preco or quantidade"`
-Expected: os testes de `parse_preco_brl` e `parse_quantidade` passam.
-
-- [ ] **Step 5: Implementar `parse_ofertas` e `parse_catalogo`**
-
-Acrescente ao `parsers.py` a estrutura abaixo, preenchendo as constantes de seletor e o `_RE_LIGA_ID` com o que foi registrado no Step 2. Atualize o docstring do módulo (primeira linha do arquivo) descrevendo a estrutura encontrada.
-
-```python
-# Seletores definidos a partir das fixtures em tests/fixtures/liga (ver docstring do módulo).
-SELETOR_CONTAINER_OFERTAS = "..."  # contêiner que sempre existe na página de produto
-SELETOR_LINHA_OFERTA = "..."
-SELETOR_LOJA = "..."
-SELETOR_PRECO = "..."
-SELETOR_QUANTIDADE = "..."
-SELETOR_IDIOMA = "..."
-SELETOR_CONDICAO = "..."
-SELETOR_ITEM_CATALOGO = "..."
-SELETOR_LINK_ITEM = "..."
-SELETOR_NOME_ITEM = "..."
-SELETOR_PROXIMA_PAGINA = "..."
-_RE_LIGA_ID = re.compile(r"...")  # captura o ID do produto na URL (grupo 1)
+def _num_lojas(arvore: LexborHTMLParser) -> int:
+    for grupo in arvore.css(SELETOR_GRUPO_FILTRO):
+        if grupo.css_first(SELETOR_TITULO_VENDEDORES) is None:
+            continue
+        for opcao in grupo.css(SELETOR_OPCAO_FILTRO):
+            if opcao.css_first(SELETOR_OPCAO_LOJAS) is not None:
+                contador = _texto(opcao, SELETOR_CONTADOR)
+                if not _RE_INTEIRO.match(contador):
+                    raise ErroParser(f"contador de lojas inválido: {contador!r}")
+                return int(contador)
+    if arvore.css_first(SELETOR_SEM_LOJAS) is not None:
+        return 0
+    raise ErroParser("contador de lojas não encontrado")
 
 
-def parse_ofertas(html: str) -> list[Oferta]:
-    container = HTMLParser(html).css_first(SELETOR_CONTAINER_OFERTAS)
-    if container is None:
-        raise ErroParser("contêiner de ofertas não encontrado")
-    ofertas = []
-    for linha in container.css(SELETOR_LINHA_OFERTA):
-        ofertas.append(
-            Oferta(
-                loja=_texto(linha, SELETOR_LOJA),
-                preco=parse_preco_brl(_texto(linha, SELETOR_PRECO)),
-                quantidade=parse_quantidade(_texto(linha, SELETOR_QUANTIDADE)),
-                idioma=_texto_opcional(linha, SELETOR_IDIOMA),
-                condicao=_texto_opcional(linha, SELETOR_CONDICAO),
-            )
+def parse_produto(html: str) -> Resumo:
+    arvore = LexborHTMLParser(html)
+    if arvore.css_first(SELETOR_ESTRUTURA_PRODUTO) is None:
+        raise ErroParser("estrutura da página de produto não encontrada")
+    quadro = arvore.css_first(SELETOR_QUADRO_PRECOS)
+    if quadro is None:
+        precos = (None, None, None)
+    else:
+        precos = tuple(
+            parse_preco_brl(_texto(quadro, seletor)) for seletor in SELETORES_PRECO
         )
-    return ofertas
-
-
-def parse_catalogo(html: str, url_base: str) -> PaginaCatalogo:
-    arvore = HTMLParser(html)
-    nos = arvore.css(SELETOR_ITEM_CATALOGO)
-    if not nos:
-        raise ErroParser("nenhum item de catálogo encontrado")
-    itens = []
-    for no in nos:
-        link = no.css_first(SELETOR_LINK_ITEM)
-        href = link.attributes.get("href") if link is not None else None
-        if not href:
-            raise ErroParser("item de catálogo sem link")
-        url = urljoin(url_base, href)
-        m = _RE_LIGA_ID.search(url)
-        if not m:
-            raise ErroParser(f"ID do produto não encontrado em {url!r}")
-        itens.append(ItemCatalogo(liga_id=m.group(1), nome=_texto(no, SELETOR_NOME_ITEM), url=url))
-    proxima = arvore.css_first(SELETOR_PROXIMA_PAGINA)
-    proxima_href = proxima.attributes.get("href") if proxima is not None else None
-    return PaginaCatalogo(itens=itens, proxima_url=urljoin(url_base, proxima_href) if proxima_href else None)
+    preco_min, preco_medio, preco_max = precos
+    return Resumo(
+        preco_min=preco_min,
+        preco_medio=preco_medio,
+        preco_max=preco_max,
+        num_lojas=_num_lojas(arvore),
+    )
 ```
 
-Se `idioma`, `condicao`, `edicao` ou `tipo` não existirem no HTML, remova o seletor correspondente e deixe o campo `None` (eles são opcionais). Se a página sem ofertas não tiver o contêiner, use como `SELETOR_CONTAINER_OFERTAS` um elemento que exista em toda página de produto (ex.: o título do produto) e procure as linhas a partir da árvore inteira. O ponto não negociável: página sem a estrutura de produto lança `ErroParser`, nunca devolve `[]`.
+- [x] **Step 5: Rodar**
 
-- [ ] **Step 6: Rodar**
+Run: `uv run pytest -q`
+Expected: todos passam, inclusive `test_paginas_reais_nao_sao_desafio` para as fixtures de produto com o `<title>` real.
 
-Run: `uv run pytest tests/coletor_liga -v`
-Expected: todos passam, inclusive `test_paginas_reais_nao_sao_desafio` para as 5 fixtures. Se alguma fixture real for classificada como desafio, ajuste `MARCADORES_HTML` em `desafio.py` para um marcador mais específico da página interstitial.
+- [x] **Step 6: Commit** — `feat: summary-only LigaMagic product parser; drop per-offer model`
 
-- [ ] **Step 7: Commit**
-
-```bash
-git add src/tcg_sniper/coletor_liga/parsers.py src/tcg_sniper/coletor_liga/desafio.py tests/coletor_liga/test_parsers.py tests/fixtures/liga .env.example
-git commit -m "feat: LigaMagic parsers built from real page fixtures"
-```
+- [ ] **Step 7 (pendente de decisão): catálogo** — escolher a(s) URL(s) de listagem e como paginar sem clicar em "Exibir mais"; capturar `catalogo_pagina_1`/`catalogo_ultima_pagina`; implementar `parse_catalogo` (os cartões `div.card` trazem link `/?view=prod/view&pcode=<id>`, nome em `h5.card-title a`, preço "À partir de" em `.smallest-price` ou "Produto Indisponível" em `.price-out-of-stock`); gravar `LIGA_URL_CATALOGO`.
 
 ---
 
@@ -1955,7 +1829,7 @@ git commit -m "feat: LigaMagic parsers built from real page fixtures"
 - Test: `tests/coletor_liga/test_precos.py`
 
 **Interfaces:**
-- Consumes: `repositorio` (Task 3), `Notificador`/`Destino` (Task 4), `Navegador`, `eh_desafio` (Task 5), `parse_ofertas` (Task 6), fixtures `config`, `sessoes`.
+- Consumes: `repositorio` (Task 3), `Notificador`/`Destino` (Task 4), `Navegador`, `eh_desafio` (Task 5), `parse_produto` (Task 6), fixtures `config`, `sessoes`.
 - Produces:
   - `execucao`: `DesafioDetectado(Exception)`, `ResultadoColeta(coleta_id: int, status: StatusColeta, produtos_ok: int, produtos_falha: int, novos: int = 0)`, `pausa_humana(config, dormir) -> None`, `abrir_pagina(navegador, url, dormir) -> Pagina` (um retry em `ErroRede` após 30 s; lança `DesafioDetectado`), `mensagem_desafio(config, url) -> str`, `registrar_desafio(sessoes, notificador, config, coleta_id, url, ok, falha) -> None`, `salvar_html_falha(config, nome, html) -> Path`.
   - `precos.coletar_precos(sessoes, navegador, notificador, config, dormir=time.sleep, embaralhar=random.shuffle) -> ResultadoColeta | None` (`None` quando o coletor está pausado).
@@ -1968,14 +1842,14 @@ from fakes import NavegadorFake, NotificadorFake, criar_produto, fixture_liga, p
 from sqlalchemy import func, select
 
 from tcg_sniper.coletor_liga.modelos import ErroRede
-from tcg_sniper.coletor_liga.parsers import parse_ofertas
+from tcg_sniper.coletor_liga.parsers import parse_produto
 from tcg_sniper.coletor_liga.precos import coletar_precos
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import (
     Coleta,
     EstadoColetorTipo,
-    OfertaLiga,
     PrecoAtualLiga,
+    ResumoPreco,
     StatusColeta,
 )
 from tcg_sniper.notificador.base import Destino
@@ -2004,7 +1878,7 @@ def coletar(sessoes, config, paginas, pausas=None):
     return resultado, navegador, notificador
 
 
-def test_coleta_ok_grava_ofertas_e_pausa_entre_produtos(sessoes, config):
+def test_coleta_ok_grava_resumos_e_pausa_entre_produtos(sessoes, config):
     urls = preparar(sessoes, "a", "b", "c")
     pausas = []
     resultado, navegador, notificador = coletar(
@@ -2016,8 +1890,11 @@ def test_coleta_ok_grava_ofertas_e_pausa_entre_produtos(sessoes, config):
     assert len(pausas) == 2 and all(8 <= p <= 20 for p in pausas)
     assert notificador.mensagens == []
     with sessoes() as s:
-        assert s.scalar(select(func.count()).select_from(OfertaLiga)) == 3 * len(parse_ofertas(HTML_OK))
-        assert s.scalar(select(func.count()).select_from(PrecoAtualLiga)) == 3
+        assert s.scalar(select(func.count()).select_from(ResumoPreco)) == 3
+        atuais = s.scalars(select(PrecoAtualLiga)).all()
+        esperado = parse_produto(HTML_OK)
+        assert len(atuais) == 3
+        assert all((a.preco_min, a.num_lojas) == (esperado.preco_min, esperado.num_lojas) for a in atuais)
         coleta = s.get(Coleta, resultado.coleta_id)
         assert coleta.status is StatusColeta.OK and coleta.finalizada_em is not None
 
@@ -2219,8 +2096,7 @@ from tcg_sniper.coletor_liga.execucao import (
 )
 from tcg_sniper.coletor_liga.modelos import ErroParser, ErroRede
 from tcg_sniper.coletor_liga.navegador import Navegador
-from tcg_sniper.coletor_liga.parsers import parse_ofertas
-from tcg_sniper.coletor_liga.resumo import calcular_resumo
+from tcg_sniper.coletor_liga.parsers import parse_produto
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, StatusColeta, TipoColeta
@@ -2261,16 +2137,14 @@ def coletar_precos(
                 falha += 1
                 continue
             try:
-                ofertas = parse_ofertas(pagina.html)
+                resumo = parse_produto(pagina.html)
             except ErroParser as erro:
                 caminho = salvar_html_falha(config, f"precos-{coleta_id}-{produto_id}", pagina.html)
                 log.warning("parser falhou no produto %s (%s); HTML em %s", produto_id, erro, caminho)
                 falha += 1
                 continue
             with sessoes() as s, s.begin():
-                repo.gravar_precos_produto(
-                    s, coleta_id, produto_id, ofertas, calcular_resumo(ofertas), repo.agora_utc()
-                )
+                repo.gravar_precos_produto(s, coleta_id, produto_id, resumo, repo.agora_utc())
             ok += 1
     except Exception as erro:
         log.exception("erro inesperado na coleta de preços %s", coleta_id)
@@ -2307,6 +2181,8 @@ git commit -m "feat: daily price collection with challenge pause and failure han
 ---
 
 ### Task 8: Varredura do catálogo
+
+> **Bloqueada (2026-10-13):** depende do Step 7 da Task 6 (listagem do catálogo sem link de próxima página; itens extras via JavaScript "Exibir mais"). O desenho abaixo (`proxima_url`) pode mudar.
 
 **Files:**
 - Create: `src/tcg_sniper/coletor_liga/catalogo.py`
@@ -2928,8 +2804,7 @@ from fakes import T0, criar_produto
 from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app, formatar_brl
-from tcg_sniper.coletor_liga.modelos import Oferta
-from tcg_sniper.coletor_liga.resumo import calcular_resumo
+from tcg_sniper.coletor_liga.modelos import Resumo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, ProdutoLiga, TipoColeta
 
@@ -3036,16 +2911,28 @@ def test_toggle_inexistente_404(cliente):
 def test_detalhe_produto_mostra_preco_e_historico(cliente, sessoes):
     with sessoes() as s, s.begin():
         produto = criar_produto(s, "a", nome="Caixa Duskmourn")
-        ofertas = [Oferta("Loja", Decimal("1234.56"), 1)]
+        resumo = Resumo(Decimal("1234.56"), Decimal("1500.00"), Decimal("1999.90"), 7)
         c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
-        repo.gravar_precos_produto(s, c.id, produto.id, ofertas, calcular_resumo(ofertas), T0)
+        repo.gravar_precos_produto(s, c.id, produto.id, resumo, T0)
     r = cliente.get(f"/produto/{produto.id}")
     assert r.status_code == 200
-    assert "Caixa Duskmourn" in r.text and "R$ 1.234,56" in r.text
+    assert "Caixa Duskmourn" in r.text
+    for texto in ("Mín", "Médio", "Máx", "Lojas", "R$ 1.234,56", "R$ 1.500,00", "R$ 1.999,90", "<td>7</td>"):
+        assert texto in r.text
 
 
 def test_detalhe_inexistente_404(cliente):
     assert cliente.get("/produto/999999").status_code == 404
+
+
+def test_catalogo_mostra_preco_min_e_lojas(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        produto = criar_produto(s, "a", nome="Caixa Duskmourn")
+        c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
+        repo.gravar_precos_produto(s, c.id, produto.id, Resumo(Decimal("899.90"), None, None, 12), T0)
+    r = cliente.get("/catalogo")
+    assert "<th>Mín</th>" in r.text and "<th>Lojas</th>" in r.text
+    assert "R$ 899,90" in r.text and "<td>12</td>" in r.text
 ```
 
 Run: `uv run pytest tests/admin -v`
@@ -3301,7 +3188,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 </form>
 <p>{{ linhas|length }} produto(s).</p>
 <table>
-  <thead><tr><th>Nome</th><th>Edição</th><th>Menor preço</th><th>Vendedores</th><th>Visto desde</th><th>Monitorar</th></tr></thead>
+  <thead><tr><th>Nome</th><th>Edição</th><th>Mín</th><th>Lojas</th><th>Visto desde</th><th>Monitorar</th></tr></thead>
   <tbody>
   {% for p, atual in linhas %}
     {% include "_linha_produto.html" %}
@@ -3318,8 +3205,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 <tr id="produto-{{ p.id }}">
   <td><a href="/produto/{{ p.id }}">{{ p.nome }}</a></td>
   <td>{{ p.edicao or "" }}</td>
-  <td>{{ (atual.menor_preco_com_estoque if atual else None)|brl }}</td>
-  <td>{{ atual.num_vendedores_com_estoque if atual else "—" }}</td>
+  <td>{{ (atual.preco_min if atual else None)|brl }}</td>
+  <td>{{ atual.num_lojas if atual else "—" }}</td>
   <td>{{ p.visto_primeiro_em|data }}</td>
   <td>
     <button hx-post="/produto/{{ p.id }}/ativo" hx-target="#produto-{{ p.id }}" hx-swap="outerHTML"
@@ -3336,18 +3223,20 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 <h2>{{ p.nome }}</h2>
 <p><a href="{{ p.url }}" target="_blank" rel="noopener">Ver na LigaMagic</a> · {{ "Monitorado" if p.ativo else "Não monitorado" }}</p>
 <article>
-  <strong>Menor preço com estoque:</strong> {{ (atual.menor_preco_com_estoque if atual else None)|brl }}<br>
-  <strong>Vendedores com estoque:</strong> {{ atual.num_vendedores_com_estoque if atual else "—" }}<br>
+  <strong>Mín:</strong> {{ (atual.preco_min if atual else None)|brl }} ·
+  <strong>Médio:</strong> {{ (atual.preco_medio if atual else None)|brl }} ·
+  <strong>Máx:</strong> {{ (atual.preco_max if atual else None)|brl }}<br>
+  <strong>Lojas:</strong> {{ atual.num_lojas if atual else "—" }}<br>
   <strong>Atualizado em:</strong> {{ (atual.atualizado_em if atual else None)|data }}
 </article>
 <h3>Histórico</h3>
 <table>
-  <thead><tr><th>Data</th><th>Menor preço</th><th>Vendedores com estoque</th><th>Ofertas</th></tr></thead>
+  <thead><tr><th>Data</th><th>Mín</th><th>Médio</th><th>Máx</th><th>Lojas</th></tr></thead>
   <tbody>
   {% for r in historico %}
-    <tr><td>{{ r.coletado_em|data }}</td><td>{{ r.menor_preco_com_estoque|brl }}</td><td>{{ r.num_vendedores_com_estoque }}</td><td>{{ r.num_ofertas }}</td></tr>
+    <tr><td>{{ r.coletado_em|data }}</td><td>{{ r.preco_min|brl }}</td><td>{{ r.preco_medio|brl }}</td><td>{{ r.preco_max|brl }}</td><td>{{ r.num_lojas }}</td></tr>
   {% else %}
-    <tr><td colspan="4">Sem coletas ainda.</td></tr>
+    <tr><td colspan="5">Sem coletas ainda.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -3357,7 +3246,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 - [ ] **Step 5: Rodar**
 
 Run: `uv run pytest tests/admin -v`
-Expected: 15 passed.
+Expected: 18 passed.
 
 - [ ] **Step 6: Commit**
 
