@@ -50,4 +50,4 @@ O admin e o noVNC usam HTTP simples, sem TLS: são só para a rede local. Não e
 
 ## Quando chegar um aviso de desafio
 
-Abra o noVNC, resolva a verificação na janela do Chromium e clique em **Retomar** no admin. O coletor não tenta de novo sozinho.
+O Chromium fica aberto com a verificação na tela. Abra o noVNC, resolva a verificação nessa janela e clique em **Retomar** no admin. Em até 1 minuto o job do dia roda de novo no mesmo navegador (com as listagens, se nenhuma terminou com sucesso hoje). O coletor não tenta de novo sozinho. Se a janela do Chromium for fechada, o próximo job abre outra.

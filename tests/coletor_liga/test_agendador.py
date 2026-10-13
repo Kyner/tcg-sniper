@@ -418,3 +418,142 @@ def test_lock_coleta_nao_fica_ocioso_em_transacao(engine):
                 {"id": ID_LOCK},
             ).scalars().all()
     assert estados == ["idle"]
+
+
+class FabricaFake:
+    """Fábrica de navegadores: cada chamada devolve um context manager que entrega o próximo
+    NavegadorFake da fila e registra entradas e saídas."""
+
+    def __init__(self, *navegadores):
+        self.fila = list(navegadores)
+        self.entregues: list[NavegadorFake] = []
+        self.fechados: list[NavegadorFake] = []
+
+    def __call__(self):
+        fabrica = self
+
+        class Contexto:
+            def __enter__(self):
+                self.navegador = fabrica.fila.pop(0)
+                fabrica.entregues.append(self.navegador)
+                return self.navegador
+
+            def __exit__(self, *_exc):
+                fabrica.fechados.append(self.navegador)
+
+        return Contexto()
+
+
+def agendador_com_fabrica(engine, sessoes, config, fabrica, relogio=None):
+    return Agendador(
+        engine,
+        sessoes,
+        fabrica,
+        NotificadorFake(),
+        config,
+        relogio=relogio or Relogio(datetime.now(UTC)),
+        rng=random.Random(1),
+        dormir=lambda _: None,
+    )
+
+
+def config_uma_categoria(config):
+    c = config.model_copy(update={"liga_categorias": "10"})
+    return c, c.url_listagem("10")
+
+
+DESAFIO = pagina_html("<html></html>", titulo="Just a moment...")
+
+
+def test_desafio_mantem_o_navegador_aberto(engine, sessoes, config):
+    c, url = config_uma_categoria(config)
+    navegador = NavegadorFake({url: DESAFIO})
+    fabrica = FabricaFake(navegador)
+    agendador_com_fabrica(engine, sessoes, c, fabrica).executar_job(incluir_listagens=True)
+    assert fabrica.entregues == [navegador]
+    assert fabrica.fechados == []
+
+
+def test_job_normal_fecha_o_navegador(engine, sessoes, config):
+    navegador = NavegadorFake({})
+    fabrica = FabricaFake(navegador)
+    agendador_com_fabrica(engine, sessoes, config, fabrica).executar_job(incluir_listagens=False)
+    assert fabrica.fechados == [navegador]
+
+
+def test_erro_no_job_fecha_o_navegador(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_liga import agendador as modulo
+
+    def quebrar(*_a, **_k):
+        raise RuntimeError("banco caiu")
+
+    monkeypatch.setattr(modulo, "coletar_produtos", quebrar)
+    navegador = NavegadorFake({})
+    fabrica = FabricaFake(navegador)
+    try:
+        agendador_com_fabrica(engine, sessoes, config, fabrica).executar_job(incluir_listagens=False)
+    except RuntimeError:
+        pass
+    assert fabrica.fechados == [navegador]
+
+
+def test_retomar_roda_no_mesmo_dia_reaproveitando_o_navegador(engine, sessoes, config):
+    """Desafio na listagem → pausa com o navegador aberto → humano resolve e clica em Retomar →
+    o próximo tick roda o job completo (listagens + produtos) no mesmo navegador e o fecha."""
+    c, url = config_uma_categoria(config)
+    navegador = NavegadorFake({url: [DESAFIO, pagina_html(fixture_liga("catalogo_pagina_1"), url=url)]})
+    fabrica = FabricaFake(navegador)
+    a = agendador_com_fabrica(engine, sessoes, c, fabrica)
+    a.executar_job(incluir_listagens=True)
+    with sessoes() as s, s.begin():
+        assert repo.obter_estado(s).estado.value == "pausado_desafio"
+    assert a.tick() is None  # pausado: não roda nada
+
+    with sessoes() as s, s.begin():
+        repo.retomar(s, repo.agora_utc())
+    assert a.tick() == "solicitado"
+    assert fabrica.entregues == [navegador]  # o mesmo, sem abrir outro
+    assert fabrica.fechados == [navegador]
+    assert navegador.visitadas == [url, url]
+    with sessoes() as s:
+        coletas = [(x.tipo, x.status) for x in s.scalars(select(Coleta).order_by(Coleta.id))]
+    assert coletas == [
+        (TipoColeta.LISTAGEM, StatusColeta.PAUSADA_DESAFIO),
+        (TipoColeta.LISTAGEM, StatusColeta.OK),
+        (TipoColeta.PRODUTOS, StatusColeta.OK),
+    ]
+
+
+def test_navegador_mantido_morto_e_trocado_uma_vez(engine, sessoes, config):
+    c, url = config_uma_categoria(config)
+    morto = NavegadorFake({url: DESAFIO})
+    novo = NavegadorFake({url: pagina_html(fixture_liga("catalogo_pagina_1"), url=url)})
+    fabrica = FabricaFake(morto, novo)
+    a = agendador_com_fabrica(engine, sessoes, c, fabrica)
+    a.executar_job(incluir_listagens=True)
+    assert fabrica.fechados == []
+    morto.morto = True  # o usuário fechou a janela do Chromium pelo noVNC
+    with sessoes() as s, s.begin():
+        repo.retomar(s, repo.agora_utc())
+    assert a.tick() == "solicitado"
+    assert fabrica.entregues == [morto, novo]
+    assert fabrica.fechados == [morto, novo]
+    assert morto.visitadas == [url]
+    assert novo.visitadas == [url]
+
+
+def test_rodar_fecha_o_navegador_mantido_ao_sair(engine, sessoes, config):
+    c, url = config_uma_categoria(config)
+    navegador = NavegadorFake({url: DESAFIO})
+    fabrica = FabricaFake(navegador)
+    a = agendador_com_fabrica(engine, sessoes, c, fabrica)
+    a.executar_job(incluir_listagens=True)
+    assert fabrica.fechados == []
+    dormir, _ = dormir_ate(1)
+    a._dormir = dormir
+    a.tick = lambda: None
+    try:
+        a.rodar()
+    except Parar:
+        pass
+    assert fabrica.fechados == [navegador]

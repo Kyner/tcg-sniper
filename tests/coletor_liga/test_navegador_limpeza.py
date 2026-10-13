@@ -122,3 +122,19 @@ def test_abrir_com_erro_e_captura_impossivel_levanta_erro_rede():
     pagina.erro_captura = PlaywrightError("Target closed")
     with pytest.raises(ErroRede, match="Target closed"):
         navegador_com(pagina).abrir("https://liga.test/p")
+
+
+def test_vivo_com_pagina_respondendo():
+    assert navegador_com(PaginaPw()).vivo() is True
+
+
+def test_vivo_falso_com_pagina_fechada():
+    pagina = PaginaPw()
+    pagina.fechada = True
+    assert navegador_com(pagina).vivo() is False
+
+
+def test_vivo_falso_quando_o_navegador_morreu():
+    pagina = PaginaPw()
+    pagina.erro_captura = PlaywrightError("Target page, context or browser has been closed")
+    assert navegador_com(pagina).vivo() is False

@@ -18,6 +18,9 @@ JS_CONTAGEM_CRESCEU = "([seletor, antes]) => document.querySelectorAll(seletor).
 
 
 class Navegador(Protocol):
+    def vivo(self) -> bool:
+        """True se a instância ainda responde (a janela não foi fechada, o processo não morreu)."""
+
     def abrir(self, url: str) -> Pagina:
         """Abre a URL e devolve a página renderizada. Lança ErroRede em falha de navegação,
         exceto se a tela mostrar um desafio: aí devolve a página do desafio."""
@@ -66,6 +69,12 @@ class NavegadorPlaywright:
             self._contexto.close()
         finally:
             self._playwright.stop()
+
+    def vivo(self) -> bool:
+        try:
+            return not self._pagina.is_closed() and self._pagina.evaluate("1") == 1
+        except PlaywrightError:
+            return False
 
     def _capturar(self, status: int, headers: dict[str, str]) -> Pagina:
         return Pagina(

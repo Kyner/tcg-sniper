@@ -81,6 +81,10 @@ class NavegadorFake:
         self.paginas = paginas
         self.visitadas: list[str] = []
         self.expandidas: list[tuple[str, int]] = []
+        self.morto = False
+
+    def vivo(self) -> bool:
+        return not self.morto
 
     def _proxima(self, url: str):
         self.visitadas.append(url)

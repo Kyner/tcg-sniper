@@ -67,6 +67,10 @@ class Agendador:
         self._alvos: dict[date, datetime] = {}
         self._datas_tentadas: set[date] = set()
         self._atrasada_em: datetime | None = None
+        # Navegador aberto sob demanda. Fica aberto quando um job termina pausado por desafio,
+        # para o humano resolver pelo noVNC; o job seguinte (após "retomar") o reaproveita.
+        self._contexto_navegador: AbstractContextManager[Navegador] | None = None
+        self._navegador: Navegador | None = None
 
     def inicializar(self) -> None:
         agora = self._relogio()
@@ -129,26 +133,66 @@ class Agendador:
             if not obtido:
                 log.warning("outra coleta em andamento; job ignorado")
                 return False
-            with self._fabrica_navegador() as navegador:
-                if incluir_listagens:
-                    resultado = coletar_listagens(
-                        self._sessoes, navegador, self._notificador, self._config, self._dormir
-                    )
-                    if resultado is None or resultado.status is StatusColeta.PAUSADA_DESAFIO:
-                        return True
-                    pausa_humana(self._config, self._dormir)
-                coletar_produtos(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+            navegador = self._obter_navegador()
+            pausou = False
+            try:
+                pausou = self._coletar(navegador, incluir_listagens)
+            finally:
+                if pausou:
+                    log.info("navegador mantido aberto com o desafio na tela (resolver pelo noVNC)")
+                else:
+                    self.fechar_navegador()
         return True
+
+    def _coletar(self, navegador: Navegador, incluir_listagens: bool) -> bool:
+        """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare."""
+        if incluir_listagens:
+            resultado = coletar_listagens(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+            if resultado is None:
+                return False
+            if resultado.status is StatusColeta.PAUSADA_DESAFIO:
+                return True
+            pausa_humana(self._config, self._dormir)
+        resultado = coletar_produtos(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+        return resultado is not None and resultado.status is StatusColeta.PAUSADA_DESAFIO
+
+    def _obter_navegador(self) -> Navegador:
+        """Reaproveita o navegador mantido aberto se ele ainda responde; senão (ex.: a janela foi
+        fechada pelo noVNC) descarta e abre um novo, uma única vez."""
+        if self._navegador is not None:
+            if self._navegador.vivo():
+                log.info("reaproveitando o navegador mantido aberto")
+                return self._navegador
+            log.warning("navegador mantido aberto não responde; abrindo outro")
+            self.fechar_navegador()
+        contexto = self._fabrica_navegador()
+        navegador = contexto.__enter__()
+        self._contexto_navegador, self._navegador = contexto, navegador
+        return navegador
+
+    def fechar_navegador(self) -> None:
+        contexto = self._contexto_navegador
+        self._contexto_navegador = self._navegador = None
+        if contexto is None:
+            return
+        try:
+            contexto.__exit__(None, None, None)
+        except Exception:  # instância possivelmente morta: só registra
+            log.warning("erro ao fechar o navegador", exc_info=True)
 
     def rodar(self) -> None:
         inicializado = False
-        while True:
-            try:
-                if not inicializado:
-                    self.inicializar()
-                    inicializado = True
-                    log.info("agendador iniciado")
-                self.tick()
-            except Exception:
-                log.exception("erro no laço do agendador; tenta de novo no próximo tick")
-            self._dormir(INTERVALO_TICK_S)
+        try:
+            while True:
+                try:
+                    if not inicializado:
+                        self.inicializar()
+                        inicializado = True
+                        log.info("agendador iniciado")
+                    self.tick()
+                except Exception:
+                    log.exception("erro no laço do agendador; tenta de novo no próximo tick")
+                self._dormir(INTERVALO_TICK_S)
+        finally:
+            # SIGTERM vira SystemExit: fecha o navegador que tenha ficado aberto por um desafio.
+            self.fechar_navegador()

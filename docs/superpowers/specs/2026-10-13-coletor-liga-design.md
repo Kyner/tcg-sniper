@@ -238,6 +238,7 @@ A verificação vale para a carga de cada página e para a página depois de cad
 2. `estado_coletor.estado = pausado_desafio`, com motivo.
 3. Envia ao grupo admin: "Desafio Cloudflare na LigaMagic. Resolver em http://<host>:6080/vnc.html e depois clicar em retomar em http://<host>:8000".
 4. Encerra o job sem retry (a etapa 2 não roda se o desafio veio na etapa 1).
+5. Mantém o Chromium aberto com o desafio na tela, para o humano resolver pelo noVNC. O job seguinte (após "retomar") reaproveita essa mesma instância e a fecha no fim, a menos que pause de novo. Se a instância mantida não responder mais (ex.: a janela foi fechada), é descartada e uma nova é aberta, uma única vez.
 
 ### Retomar e rodar agora
 
