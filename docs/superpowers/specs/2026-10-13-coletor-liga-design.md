@@ -31,7 +31,7 @@ Fora (próximas specs):
 
 - Cloudflare é restrição, não obstáculo: nada de solucionador de CAPTCHA nem spoofing de fingerprint. A estratégia é volume baixo, navegador real com perfil persistente, IP residencial e intervenção humana quando o desafio aparecer. Sem retry automático diante de desafio.
 - Roda no PC Windows do grupo com Docker Desktop nesta fase.
-- Stack: Python 3.12, `uv`, Playwright (Python), SQLAlchemy 2, Alembic, FastAPI, Jinja2, HTMX, APScheduler, pytest, Postgres 16.
+- Stack: Python 3.12, `uv`, Playwright (Python), SQLAlchemy 2, Alembic, FastAPI, Jinja2, HTMX, pytest, Postgres 16. O agendamento é um laço simples de 60 segundos, não APScheduler: a API síncrona do Playwright é presa à thread que a criou.
 
 ## Arquitetura
 
@@ -41,7 +41,8 @@ Um repositório, um pacote Python (`tcg_sniper`), uma imagem Docker. Cada servi�
 | --- | --- | --- | --- | --- |
 | `postgres` | `postgres:16` | padrão | 5432 (local) | Banco |
 | `evolution` | Evolution API (imagem e versão confirmadas na implementação) | padrão | 8080 (local) | Ponte com o WhatsApp via chip secundário |
-| `coletor-liga` | `tcg-sniper` | `tcg-sniper coletor-liga` | 6080 (noVNC) | Chromium com Xvfb; agenda e executa coletas |
+| `migrate` | `tcg-sniper` | `tcg-sniper migrate` | — | Aplica as migrações e termina; os demais esperam por ele |
+| `coletor-liga` | `tcg-sniper` | `tcg-sniper coletor-liga` | 6080 (noVNC, com senha `VNC_SENHA`) | Chromium com Xvfb; agenda e executa coletas |
 | `admin` | `tcg-sniper` | `tcg-sniper admin` | 8000 | Página web de administração |
 
 Volumes: dados do Postgres, perfil do Chromium (`/data/perfil`), HTMLs de falha (`/data/falhas`), dados da Evolution API.
@@ -62,7 +63,7 @@ src/tcg_sniper/
     catalogo.py       # varredura da categoria de selados
     precos.py         # coleta diária das ofertas da lista ativa
     desafio.py        # detecção da página de desafio
-    agendador.py      # APScheduler, lock, polling de solicitações
+    agendador.py      # laço de 60 s, lock, polling de solicitações
   admin/
     app.py            # FastAPI
     templates/
@@ -183,7 +184,7 @@ Playwright com `launch_persistent_context`, `headless=False`, perfil em `/data/p
 - Pausa aleatória de 8 a 20 segundos entre páginas.
 - Ordem dos produtos embaralhada a cada execução.
 - Coleta diária de preços às 10:00, com jitter aleatório de ±30 minutos.
-- Aos domingos, no mesmo horário, roda primeiro a varredura do catálogo e em seguida a coleta de preços, como um único job.
+- Aos domingos, no mesmo horário, roda primeiro a varredura do catálogo e em seguida a coleta de preços, como um único job. A varredura também entra no job quando a última com sucesso tem mais de 7 dias ou não existe (primeira execução).
 - Horários e jitter configuráveis via `.env`.
 - Um lock garante que nunca há duas coletas simultâneas, incluindo as disparadas pelo admin.
 
@@ -216,7 +217,7 @@ Ao detectar:
 
 1. `coleta.status = pausada_desafio`.
 2. `estado_coletor.estado = pausado_desafio`, com motivo.
-3. Envia ao grupo admin: "Desafio Cloudflare na LigaMagic. Resolver em http://<host>:6080 e depois clicar em retomar em http://<host>:8000".
+3. Envia ao grupo admin: "Desafio Cloudflare na LigaMagic. Resolver em http://<host>:6080/vnc.html e depois clicar em retomar em http://<host>:8000".
 4. Encerra a execução sem retry.
 
 ### Retomar e rodar agora
@@ -231,7 +232,8 @@ O admin grava em `estado_coletor`: `estado = ativo` e `execucao_solicitada = tru
 | Mais de 50% dos produtos falham | `status = falha`; alerta admin: "layout da LigaMagic pode ter mudado" |
 | Timeout ou erro de rede | Um retry após 30 segundos; depois conta como falha do produto |
 | Container encerrado durante a coleta | Na inicialização, coletas `rodando` viram `falha` com erro "interrompida" |
-| PC desligado no horário agendado | Na inicialização, se a última coleta de preços `ok` ou `parcial` tem mais de 24 horas, agenda uma execução com jitter |
+| PC desligado no horário agendado | Na inicialização, se a última coleta de preços `ok` ou `parcial` tem mais de 24 horas, agenda uma execução com jitter. Além disso, se ainda não houve coleta de preços iniciada hoje e o horário do dia já passou, ela roda. |
+| Erro inesperado no job (ex.: Chromium não abre) | Log, aviso no grupo admin e nenhuma nova tentativa agendada no mesmo dia |
 
 ### Ponto a confirmar na implementação
 
@@ -266,7 +268,7 @@ class Notificador(Protocol):
 
 ## Configuração (`.env`)
 
-`DATABASE_URL`, `ADMIN_SENHA`, `COLETA_HORA` (padrão `10:00`), `COLETA_JITTER_MIN` (padrão `30`), `CATALOGO_DIA_SEMANA` (padrão `domingo`), `PAUSA_MIN_S` (padrão `8`), `PAUSA_MAX_S` (padrão `20`), `LIMITE_FALHA_PCT` (padrão `50`), `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA`, `WHATSAPP_GRUPO_ADMIN`, `WHATSAPP_GRUPO_OPORTUNIDADES`, `HOST_PUBLICO` (usado nos links das mensagens).
+`DATABASE_URL`, `ADMIN_SENHA`, `VNC_SENHA`, `FUSO` (padrão `America/Sao_Paulo`), `LIGA_URL_CATALOGO`, `DIR_DADOS` (padrão `/data`), `COLETA_HORA` (padrão `10:00`), `COLETA_JITTER_MIN` (padrão `30`), `CATALOGO_DIA_SEMANA` (padrão `domingo`), `PAUSA_MIN_S` (padrão `8`), `PAUSA_MAX_S` (padrão `20`), `LIMITE_FALHA_PCT` (padrão `50`), `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA`, `WHATSAPP_GRUPO_ADMIN`, `WHATSAPP_GRUPO_OPORTUNIDADES`, `HOST_PUBLICO` (usado nos links das mensagens).
 
 ## Testes
 
