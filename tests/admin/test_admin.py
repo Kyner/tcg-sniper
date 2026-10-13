@@ -278,7 +278,7 @@ def test_catalogo_filtra_por_categoria_e_lista_opcoes(cliente, sessoes):
     r = cliente.get("/catalogo", params={"categoria": "Bundles"})
     assert r.status_code == 200
     assert "Bundle Gama" in r.text and "Caixa Alfa" not in r.text and "Sem Tipo" not in r.text
-    assert '<option value="">todas</option>' in r.text
+    assert '<option value="">todas as categorias</option>' in r.text
     assert r.text.index(">Bundles</option>") < r.text.index(">Caixas de Boosters</option>")
     assert '<option value="Bundles" selected>' in r.text
     assert "1 produto(s)" in r.text

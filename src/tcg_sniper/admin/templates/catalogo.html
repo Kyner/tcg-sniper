@@ -2,17 +2,21 @@
 {% block titulo %}Catálogo · TCG Sniper{% endblock %}
 {% block conteudo %}
 <h2>Catálogo</h2>
-<form method="get" action="/catalogo" role="search">
-  <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar por nome">
-  <select name="filtro">
-    {% for f in filtros %}<option value="{{ f }}" {% if f == filtro %}selected{% endif %}>{{ f }}</option>{% endfor %}
-  </select>
-  <select name="categoria">
-    <option value="">todas</option>
-    {% for c in categorias %}<option value="{{ c }}" {% if c == categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
-  </select>
-  <label><input type="checkbox" name="com_preco" value="1" {% if com_preco %}checked{% endif %}> Só com preço</label>
-  <button type="submit">Filtrar</button>
+<form method="get" action="/catalogo" class="filtros">
+  <fieldset role="group">
+    <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar por nome">
+    <button type="submit">Filtrar</button>
+  </fieldset>
+  <div class="grid">
+    <select name="filtro" aria-label="Situação">
+      {% for f in filtros %}<option value="{{ f }}" {% if f == filtro %}selected{% endif %}>{{ f }}</option>{% endfor %}
+    </select>
+    <select name="categoria" aria-label="Categoria">
+      <option value="">todas as categorias</option>
+      {% for c in categorias %}<option value="{{ c }}" {% if c == categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+    <label><input type="checkbox" name="com_preco" value="1" {% if com_preco %}checked{% endif %}> Só com preço</label>
+  </div>
 </form>
 <p>Página {{ pagina }} de {{ paginas }} · {{ total }} produto(s)</p>
 <table>
