@@ -47,11 +47,11 @@ def test_criar_app_recusa_senha_vazia_ou_padrao(sessoes, config, senha):
 
 def test_index_mostra_estado_e_coletas(cliente, sessoes):
     with sessoes() as s, s.begin():
-        repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
+        repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
     r = cliente.get("/")
     assert r.status_code == 200
     assert "Rodar agora" in r.text
-    assert "precos" in r.text
+    assert "<td>produtos</td>" in r.text
 
 
 def test_index_pausado_mostra_retomar(cliente, sessoes):
@@ -123,7 +123,7 @@ def test_detalhe_produto_mostra_preco_e_historico(cliente, sessoes):
     with sessoes() as s, s.begin():
         produto = criar_produto(s, "a", nome="Caixa Duskmourn")
         resumo = Resumo(Decimal("1234.56"), Decimal("1500.00"), Decimal("1999.90"), 7)
-        c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
+        c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
         repo.gravar_precos_produto(s, c.id, produto.id, resumo, T0)
     r = cliente.get(f"/produto/{produto.id}")
     assert r.status_code == 200
@@ -139,7 +139,7 @@ def test_detalhe_inexistente_404(cliente):
 def test_catalogo_mostra_preco_min_e_lojas(cliente, sessoes):
     with sessoes() as s, s.begin():
         produto = criar_produto(s, "a", nome="Caixa Duskmourn")
-        c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
+        c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
         repo.gravar_precos_produto(s, c.id, produto.id, Resumo(Decimal("899.90"), None, None, 12), T0)
     r = cliente.get("/catalogo")
     assert "<th>Mín</th>" in r.text and "<th>Lojas</th>" in r.text

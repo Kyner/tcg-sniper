@@ -8,7 +8,7 @@
   <strong>Médio:</strong> {{ (atual.preco_medio if atual else None)|brl }} ·
   <strong>Máx:</strong> {{ (atual.preco_max if atual else None)|brl }}<br>
   <strong>Lojas:</strong> {{ atual.num_lojas if atual else "—" }}<br>
-  <strong>Atualizado em:</strong> {{ (atual.atualizado_em if atual else None)|data }}
+  <strong>Atualizado em:</strong> {{ (atual.resumo_em if atual else None)|data }}
 </article>
 <h3>Histórico</h3>
 <table>

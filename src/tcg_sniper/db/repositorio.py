@@ -7,12 +7,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Resumo
+from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.db.models import (
     Coleta,
     EstadoColetor,
     EstadoColetorTipo,
     PrecoAtualLiga,
+    PrecoListagem,
     ProdutoLiga,
     ResumoPreco,
     StatusColeta,
@@ -69,16 +70,15 @@ def gravar_precos_produto(
     resumo: Resumo,
     agora: datetime,
 ) -> None:
-    """Acrescenta o resumo ao histórico (append-only) e faz upsert do preço atual."""
-    valores = {
-        "coleta_id": coleta_id,
+    """Acrescenta o resumo ao histórico (append-only) e atualiza só o grupo "resumo" do preço atual."""
+    precos = {
         "preco_min": resumo.preco_min,
         "preco_medio": resumo.preco_medio,
         "preco_max": resumo.preco_max,
         "num_lojas": resumo.num_lojas,
     }
-    s.add(ResumoPreco(produto_id=produto_id, coletado_em=agora, **valores))
-    atual = {**valores, "atualizado_em": agora}
+    s.add(ResumoPreco(produto_id=produto_id, coleta_id=coleta_id, coletado_em=agora, **precos))
+    atual = {**precos, "resumo_coleta_id": coleta_id, "resumo_em": agora}
     s.execute(
         pg_insert(PrecoAtualLiga)
         .values(produto_id=produto_id, **atual)
@@ -87,9 +87,21 @@ def gravar_precos_produto(
     s.flush()
 
 
-def upsert_catalogo(s: Session, itens: Sequence[ItemCatalogo], agora: datetime) -> int:
-    """Insere ou atualiza produtos do catálogo. Nunca altera `ativo`. Retorna quantos são novos."""
-    unicos = {i.liga_id: i for i in itens}
+def _primeiro_de_cada(itens: Sequence[ItemListagem]) -> dict[str, ItemListagem]:
+    unicos: dict[str, ItemListagem] = {}
+    for item in itens:
+        unicos.setdefault(item.liga_id, item)
+    return unicos
+
+
+def upsert_catalogo(s: Session, itens: Sequence[ItemListagem], agora: datetime) -> int:
+    """Insere ou atualiza produtos do catálogo. Nunca altera `ativo`. Retorna quantos são novos.
+
+    Atualiza `nome`, `url` e `visto_ultimo_em`; `tipo` só é preenchido se ainda estiver vazio
+    (um produto listado em duas categorias não fica trocando de tipo). `liga_id` repetido na
+    lista vale uma vez (a primeira ocorrência).
+    """
+    unicos = _primeiro_de_cada(itens)
     if not unicos:
         return 0
     existentes = set(s.scalars(select(ProdutoLiga.liga_id).where(ProdutoLiga.liga_id.in_(unicos))))
@@ -98,9 +110,7 @@ def upsert_catalogo(s: Session, itens: Sequence[ItemCatalogo], agora: datetime) 
             liga_id=i.liga_id,
             nome=i.nome,
             url=i.url,
-            edicao=i.edicao,
             tipo=i.tipo,
-            idioma=i.idioma,
             ativo=False,
             visto_primeiro_em=agora,
             visto_ultimo_em=agora,
@@ -111,13 +121,46 @@ def upsert_catalogo(s: Session, itens: Sequence[ItemCatalogo], agora: datetime) 
                 "nome": stmt.excluded.nome,
                 "url": stmt.excluded.url,
                 "visto_ultimo_em": stmt.excluded.visto_ultimo_em,
-                "edicao": func.coalesce(stmt.excluded.edicao, ProdutoLiga.edicao),
-                "tipo": func.coalesce(stmt.excluded.tipo, ProdutoLiga.tipo),
-                "idioma": func.coalesce(stmt.excluded.idioma, ProdutoLiga.idioma),
+                "tipo": func.coalesce(ProdutoLiga.tipo, stmt.excluded.tipo),
             },
         )
         s.execute(stmt)
     return len(unicos.keys() - existentes)
+
+
+def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], agora: datetime) -> int:
+    """Grava uma listagem de categoria: catálogo (upsert), histórico do preço "à partir de"
+    (append-only) e o grupo "listagem" do preço atual. Retorna quantos produtos são novos.
+
+    Um produto que já apareceu nesta coleta (outra categoria) não é contado como novo de novo e
+    mantém o primeiro preço visto na coleta, tanto no histórico quanto no preço atual.
+    """
+    unicos = _primeiro_de_cada(itens)
+    novos = upsert_catalogo(s, list(unicos.values()), agora)
+    if not unicos:
+        return novos
+    ids = dict(
+        s.execute(select(ProdutoLiga.liga_id, ProdutoLiga.id).where(ProdutoLiga.liga_id.in_(unicos))).all()
+    )
+    for liga_id, item in unicos.items():
+        produto_id = ids[liga_id]
+        s.execute(
+            pg_insert(PrecoListagem)
+            .values(produto_id=produto_id, coleta_id=coleta_id, preco_a_partir=item.preco_a_partir, coletado_em=agora)
+            .on_conflict_do_nothing(index_elements=[PrecoListagem.produto_id, PrecoListagem.coleta_id])
+        )
+        atual = {"preco_a_partir": item.preco_a_partir, "listagem_coleta_id": coleta_id, "listagem_em": agora}
+        s.execute(
+            pg_insert(PrecoAtualLiga)
+            .values(produto_id=produto_id, **atual)
+            .on_conflict_do_update(
+                index_elements=[PrecoAtualLiga.produto_id],
+                set_=atual,
+                where=PrecoAtualLiga.listagem_coleta_id.is_distinct_from(coleta_id),
+            )
+        )
+    s.flush()
+    return novos
 
 
 def obter_estado(s: Session, agora: datetime | None = None) -> EstadoColetor:

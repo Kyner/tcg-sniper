@@ -20,8 +20,8 @@ class Base(DeclarativeBase):
 
 
 class TipoColeta(enum.StrEnum):
-    CATALOGO = "catalogo"
-    PRECOS = "precos"
+    LISTAGEM = "listagem"  # varredura das listagens de categoria (catálogo + preço "à partir de")
+    PRODUTOS = "produtos"  # páginas de produto da lista ativa (resumo histórico + nº de lojas)
 
 
 class StatusColeta(enum.StrEnum):
@@ -93,16 +93,33 @@ class ResumoPreco(Base):
     coletado_em: Mapped[datetime] = mapped_column(DATA)
 
 
+class PrecoListagem(Base):
+    """Histórico append-only do preço "à partir de" da listagem: uma linha por produto e coleta."""
+
+    __tablename__ = "preco_listagem"
+
+    produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
+    coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"), primary_key=True)
+    preco_a_partir: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    coletado_em: Mapped[datetime] = mapped_column(DATA)
+
+
 class PrecoAtualLiga(Base):
+    """Dado corrente por produto. Dois grupos de colunas, cada um gravado só pela sua coleta:
+    listagem (`preco_a_partir`, `listagem_*`) e página de produto (resumo, `num_lojas`, `resumo_*`)."""
+
     __tablename__ = "preco_atual_liga"
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
-    coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"))
+    preco_a_partir: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    listagem_coleta_id: Mapped[int | None] = mapped_column(ForeignKey("coleta.id"))
+    listagem_em: Mapped[datetime | None] = mapped_column(DATA)
     preco_min: Mapped[Decimal | None] = mapped_column(DINHEIRO)
     preco_medio: Mapped[Decimal | None] = mapped_column(DINHEIRO)
     preco_max: Mapped[Decimal | None] = mapped_column(DINHEIRO)
-    num_lojas: Mapped[int] = mapped_column(Integer)
-    atualizado_em: Mapped[datetime] = mapped_column(DATA)
+    num_lojas: Mapped[int | None] = mapped_column(Integer)
+    resumo_coleta_id: Mapped[int | None] = mapped_column(ForeignKey("coleta.id"))
+    resumo_em: Mapped[datetime | None] = mapped_column(DATA)
 
 
 class EstadoColetor(Base):
