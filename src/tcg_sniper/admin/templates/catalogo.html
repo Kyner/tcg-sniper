@@ -11,13 +11,15 @@
 </form>
 <p>{{ linhas|length }} produto(s).</p>
 <table>
-  <thead><tr><th>Nome</th><th>Edição</th><th>Mín</th><th>Lojas</th><th>Visto desde</th><th>Monitorar</th></tr></thead>
+  <thead><tr><th>Nome</th><th>Categoria</th><th>À partir de</th><th>Mín</th><th>Lojas</th><th>Visto desde</th><th>Monitorar</th></tr></thead>
   <tbody>
   {% for p, atual in linhas %}
     {% include "_linha_produto.html" %}
   {% else %}
-    <tr><td colspan="6">Nenhum produto encontrado.</td></tr>
+    <tr><td colspan="7">Nenhum produto encontrado.</td></tr>
   {% endfor %}
   </tbody>
 </table>
+<p><small>À partir de: menor preço pedido agora (listagem diária). Mín e Lojas: histórico de venda e
+nº de lojas da página do produto (só produtos monitorados).</small></p>
 {% endblock %}

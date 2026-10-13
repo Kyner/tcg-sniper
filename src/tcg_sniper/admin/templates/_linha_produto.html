@@ -1,8 +1,9 @@
 <tr id="produto-{{ p.id }}">
   <td><a href="/produto/{{ p.id }}">{{ p.nome }}</a></td>
-  <td>{{ p.edicao or "" }}</td>
+  <td>{{ p.tipo or "" }}</td>
+  <td>{% if atual and atual.listagem_em %}{{ atual.preco_a_partir|brl if atual.preco_a_partir is not none else "Indisponível" }}{% else %}—{% endif %}</td>
   <td>{{ (atual.preco_min if atual else None)|brl }}</td>
-  <td>{{ atual.num_lojas if atual else "—" }}</td>
+  <td>{{ atual.num_lojas if atual and atual.num_lojas is not none else "—" }}</td>
   <td>{{ p.visto_primeiro_em|data }}</td>
   <td>
     <button hx-post="/produto/{{ p.id }}/ativo" hx-target="#produto-{{ p.id }}" hx-swap="outerHTML"

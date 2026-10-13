@@ -5,9 +5,10 @@ from decimal import Decimal
 import pytest
 from fakes import T0, criar_produto
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from tcg_sniper.admin.app import criar_app, formatar_brl
-from tcg_sniper.coletor_liga.modelos import Resumo
+from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, ProdutoLiga, TipoColeta
 
@@ -144,3 +145,54 @@ def test_catalogo_mostra_preco_min_e_lojas(cliente, sessoes):
     r = cliente.get("/catalogo")
     assert "<th>Mín</th>" in r.text and "<th>Lojas</th>" in r.text
     assert "R$ 899,90" in r.text and "<td>12</td>" in r.text
+
+
+def item_listagem(liga_id, nome, preco):
+    return ItemListagem(
+        liga_id=liga_id,
+        nome=nome,
+        url=f"https://liga.test/{liga_id}",
+        preco_a_partir=None if preco is None else Decimal(preco),
+        tipo="Caixas de Boosters",
+    )
+
+
+def test_catalogo_mostra_preco_a_partir_e_indisponivel(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        itens = [item_listagem("1", "Caixa Aetherdrift", "525.43"), item_listagem("2", "Caixa Magic 2010", None)]
+        repo.gravar_listagem(s, c.id, itens, T0)
+    r = cliente.get("/catalogo")
+    assert "<th>À partir de</th>" in r.text and "<th>Categoria</th>" in r.text
+    assert "R$ 525,43" in r.text and "Indisponível" in r.text and "Caixas de Boosters" in r.text
+    assert "None" not in r.text  # sem resumo da página do produto, "Lojas" aparece como "—"
+
+
+def test_detalhe_mostra_historico_da_listagem_e_rotulo_de_venda(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        c1 = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.gravar_listagem(s, c1.id, [item_listagem("1", "Caixa Aetherdrift", "525.43")], T0)
+        c2 = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0 + timedelta(days=1))
+        repo.gravar_listagem(s, c2.id, [item_listagem("1", "Caixa Aetherdrift", None)], T0 + timedelta(days=1))
+        produto_id = s.scalar(select(ProdutoLiga.id).where(ProdutoLiga.liga_id == "1"))
+    r = cliente.get(f"/produto/{produto_id}")
+    assert r.status_code == 200
+    assert "Histórico do preço à partir de" in r.text and "Histórico de venda" in r.text
+    assert "R$ 525,43" in r.text and "Indisponível" in r.text
+    assert "13/10/2026 10:00" in r.text and "14/10/2026 10:00" in r.text  # T0 = 13:00 UTC = 10:00 em SP
+    assert "None" not in r.text
+
+
+def test_produto_so_com_listagem_mostra_traco_e_nunca_none(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.gravar_listagem(s, c.id, [item_listagem("1", "Caixa Aetherdrift", "525.43")], T0)
+        produto_id = s.scalar(select(ProdutoLiga.id).where(ProdutoLiga.liga_id == "1"))
+    for url in ("/catalogo", f"/produto/{produto_id}"):
+        r = cliente.get(url)
+        assert r.status_code == 200
+        assert "None" not in r.text
+        assert "R$ 525,43" in r.text
+    assert "<td>—</td>" in cliente.get("/catalogo").text
+    assert "<strong>Lojas:</strong> —" in cliente.get(f"/produto/{produto_id}").text
+    assert cliente.post(f"/produto/{produto_id}/ativo").status_code == 200

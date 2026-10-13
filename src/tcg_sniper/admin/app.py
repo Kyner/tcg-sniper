@@ -100,9 +100,16 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             resultado = consultas.detalhe_produto(s, produto_id)
             if resultado is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND)
-            p, atual, historico = resultado
+            p, atual, historico_resumo, historico_listagem = resultado
             return templates.TemplateResponse(
-                request, "produto.html", {"p": p, "atual": atual, "historico": historico}
+                request,
+                "produto.html",
+                {
+                    "p": p,
+                    "atual": atual,
+                    "historico_resumo": historico_resumo,
+                    "historico_listagem": historico_listagem,
+                },
             )
 
     return app

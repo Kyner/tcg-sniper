@@ -3,7 +3,13 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tcg_sniper.db.models import Coleta, PrecoAtualLiga, ProdutoLiga, ResumoPreco
+from tcg_sniper.db.models import (
+    Coleta,
+    PrecoAtualLiga,
+    PrecoListagem,
+    ProdutoLiga,
+    ResumoPreco,
+)
 
 FILTROS = ("todos", "ativos", "inativos", "novos")
 JANELA_NOVOS = timedelta(days=7)
@@ -46,11 +52,12 @@ def alternar_ativo(s: Session, produto_id: int) -> tuple[ProdutoLiga, PrecoAtual
 
 def detalhe_produto(
     s: Session, produto_id: int, limite_historico: int = 90
-) -> tuple[ProdutoLiga, PrecoAtualLiga | None, list[ResumoPreco]] | None:
+) -> tuple[ProdutoLiga, PrecoAtualLiga | None, list[ResumoPreco], list[PrecoListagem]] | None:
+    """Produto, preço atual, histórico de venda (resumo) e histórico do preço "à partir de"."""
     produto = s.get(ProdutoLiga, produto_id)
     if produto is None:
         return None
-    historico = list(
+    historico_resumo = list(
         s.scalars(
             select(ResumoPreco)
             .where(ResumoPreco.produto_id == produto_id)
@@ -58,4 +65,12 @@ def detalhe_produto(
             .limit(limite_historico)
         )
     )
-    return produto, s.get(PrecoAtualLiga, produto_id), historico
+    historico_listagem = list(
+        s.scalars(
+            select(PrecoListagem)
+            .where(PrecoListagem.produto_id == produto_id)
+            .order_by(PrecoListagem.coletado_em.desc())
+            .limit(limite_historico)
+        )
+    )
+    return produto, s.get(PrecoAtualLiga, produto_id), historico_resumo, historico_listagem
