@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}Catálogo · TCG Sniper{% endblock %}
+{% block conteudo %}
+<h2>Catálogo</h2>
+<form method="get" action="/catalogo" role="search">
+  <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar por nome">
+  <select name="filtro">
+    {% for f in filtros %}<option value="{{ f }}" {% if f == filtro %}selected{% endif %}>{{ f }}</option>{% endfor %}
+  </select>
+  <button type="submit">Filtrar</button>
+</form>
+<p>{{ linhas|length }} produto(s).</p>
+<table>
+  <thead><tr><th>Nome</th><th>Edição</th><th>Menor preço</th><th>Vendedores</th><th>Visto desde</th><th>Monitorar</th></tr></thead>
+  <tbody>
+  {% for p, atual in linhas %}
+    {% include "_linha_produto.html" %}
+  {% else %}
+    <tr><td colspan="6">Nenhum produto encontrado.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
