@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Categorias de selados de Magic na LigaMagic (levantamento de 2026-10-13).
 CATEGORIAS_SELADOS = (
-    "10", "11", "12", "13", "14", "15", "16", "17", "19", "20", "21",
+    "10", "11", "12", "13", "14", "15", "16", "17", "19", "21",
     "22", "31", "36", "37", "47", "50", "51", "52", "55", "56",
 )  # fmt: skip
 URL_LISTAGEM_PADRAO = (

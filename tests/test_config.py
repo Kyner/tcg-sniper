@@ -25,7 +25,7 @@ def test_padroes(monkeypatch):
     assert c.liga_max_cliques == 50
     assert c.zona == ZoneInfo("America/Sao_Paulo")
     assert c.categorias == list(CATEGORIAS_SELADOS)
-    assert len(c.categorias) == 21
+    assert len(c.categorias) == 20
     assert c.url_listagem("10") == (
         "https://www.ligamagic.com.br/?view=cards/search&card=categ%3D10+searchprod%3D1&tipo=1"
     )
