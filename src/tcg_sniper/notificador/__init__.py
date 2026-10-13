@@ -19,6 +19,8 @@ def criar_notificador(config: Config) -> Notificador:
         return LogNotificador()
     if not (config.evolution_url and chave and config.evolution_instancia):
         return LogNotificador()
+    if not config.whatsapp_grupo_admin:
+        log.warning("WHATSAPP_GRUPO_ADMIN vazio: alertas do admin (desafio, falhas) vão só para o log")
     grupos = {
         destino: grupo
         for destino, grupo in (

@@ -93,3 +93,27 @@ def test_criar_notificador_chave_padrao_usa_log_e_avisa(config, chave, caplog):
     with caplog.at_level(logging.WARNING):
         assert isinstance(criar_notificador(c), LogNotificador)
     assert "EVOLUTION_API_KEY" in caplog.text
+
+
+def test_criar_notificador_sem_grupo_admin_avisa_uma_vez(config, caplog):
+    c = config.model_copy(
+        update={"evolution_url": URL, "evolution_api_key": "chave", "evolution_instancia": "inst"}
+    )
+    with caplog.at_level(logging.WARNING):
+        assert isinstance(criar_notificador(c), EvolutionNotificador)
+    avisos = [r for r in caplog.records if "WHATSAPP_GRUPO_ADMIN" in r.getMessage()]
+    assert len(avisos) == 1
+
+
+def test_criar_notificador_com_grupo_admin_nao_avisa(config, caplog):
+    c = config.model_copy(
+        update={
+            "evolution_url": URL,
+            "evolution_api_key": "chave",
+            "evolution_instancia": "inst",
+            "whatsapp_grupo_admin": "g@g.us",
+        }
+    )
+    with caplog.at_level(logging.WARNING):
+        criar_notificador(c)
+    assert "WHATSAPP_GRUPO_ADMIN" not in caplog.text
