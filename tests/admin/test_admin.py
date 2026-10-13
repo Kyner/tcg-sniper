@@ -2,12 +2,14 @@ import base64
 import re
 from datetime import timedelta
 from decimal import Decimal
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fakes import T0, criar_produto
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from tcg_sniper.admin import consultas
 from tcg_sniper.admin.app import criar_app, formatar_brl
 from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.db import repositorio as repo
@@ -338,3 +340,143 @@ def test_catalogo_link_proxima_codifica_categoria_e_mantem_ordem(cliente, sessoe
         'href="/catalogo?categoria=Caixas+de+Boosters%2FPromo+%C3%A7%C3%A3o&amp;com_preco=1&amp;pagina=2"'
         in r.text
     )
+
+
+# --- ativação/desativação em lote ---
+
+
+def ids_ativos(sessoes):
+    with sessoes() as s:
+        return {p.nome for p in s.scalars(select(ProdutoLiga)) if p.ativo}
+
+
+def criar_lote(sessoes):
+    """Cenário: 120 caixas inativas (110 com preço) + um bundle inativo com preço + uma caixa já ativa."""
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        itens = [
+            item_listagem(f"c{i:03d}", f"Caixa {i:03d}", "10.00" if i < 110 else None) for i in range(120)
+        ]
+        itens.append(item_listagem("b1", "Bundle Um", "5.00", tipo="Bundles"))
+        itens.append(item_listagem("c-ativa", "Caixa Ativa", "7.00"))
+        repo.gravar_listagem(s, c.id, itens, T0)
+        s.execute(update(ProdutoLiga).where(ProdutoLiga.liga_id == "c-ativa").values(ativo=True))
+
+
+def test_condicoes_catalogo_compartilhadas_com_buscar_catalogo(sessoes):
+    criar_lote(sessoes)
+    agora = repo.agora_utc()
+    with sessoes() as s:
+        _, total, _, _ = consultas.buscar_catalogo(s, "caixa", "inativos", agora, "Caixas de Boosters", True)
+        condicoes = consultas.condicoes_catalogo("caixa", "inativos", "Caixas de Boosters", True, agora)
+        assert total == 110 and len(condicoes) == 4
+
+
+def test_lote_respeita_categoria_com_preco_busca_e_filtro_em_varias_paginas(sessoes):
+    criar_lote(sessoes)
+    agora = repo.agora_utc()
+    with sessoes() as s, s.begin():
+        n = consultas.alterar_ativo_em_lote(s, True, "caixa", "inativos", "Caixas de Boosters", True, agora)
+    assert n == 110  # 110 > POR_PAGINA: inclui as páginas seguintes; exclui sem preço, bundle e já ativa
+    ativos = ids_ativos(sessoes)
+    assert len(ativos) == 111 and "Caixa 109" in ativos and "Caixa 110" not in ativos
+    assert "Bundle Um" not in ativos
+
+
+def test_lote_conta_so_linhas_que_mudaram(sessoes):
+    criar_lote(sessoes)
+    agora = repo.agora_utc()
+    with sessoes() as s, s.begin():
+        assert consultas.alterar_ativo_em_lote(s, True, "", "todos", "Caixas de Boosters", False, agora) == 120
+    with sessoes() as s, s.begin():  # "Caixa Ativa" já estava ativa e as demais agora também
+        assert consultas.alterar_ativo_em_lote(s, True, "", "todos", "Caixas de Boosters", False, agora) == 0
+        assert consultas.alterar_ativo_em_lote(s, False, "", "ativos", "Caixas de Boosters", False, agora) == 121
+
+
+def test_lote_sem_com_preco_nao_precisa_de_juncao(sessoes):
+    criar_lote(sessoes)
+    with sessoes() as s, s.begin():
+        n = consultas.alterar_ativo_em_lote(s, True, "Bundle", "todos", None, False, repo.agora_utc())
+    assert n == 1
+
+
+def test_lote_nao_toca_outras_colunas_nem_produtos_fora_do_filtro(sessoes):
+    criar_lote(sessoes)
+    agora = repo.agora_utc()
+
+    def foto():
+        with sessoes() as s:
+            return {
+                p.id: (p.nome, p.url, p.tipo, p.visto_primeiro_em, p.visto_ultimo_em, p.ativo)
+                for p in s.scalars(select(ProdutoLiga))
+            }
+
+    antes = foto()
+    with sessoes() as s, s.begin():
+        consultas.alterar_ativo_em_lote(s, True, "", "todos", "Bundles", False, agora)
+    depois = foto()
+    mudou = [i for i in antes if antes[i] != depois[i]]
+    assert len(mudou) == 1
+    assert antes[mudou[0]][:-1] == depois[mudou[0]][:-1] and depois[mudou[0]][-1] is True
+
+
+def test_lote_acao_invalida_400(cliente, sessoes):
+    criar_lote(sessoes)
+    r = cliente.post("/catalogo/lote", data={"acao": "apagar"}, follow_redirects=False)
+    assert r.status_code == 400
+    assert cliente.post("/catalogo/lote", data={"acao": "ativar", "filtro": "xyz"}).status_code == 400
+    assert cliente.post("/catalogo/lote", data={"acao": "ativar", "categoria": "Nada"}).status_code == 400
+    assert ids_ativos(sessoes) == {"Caixa Ativa"}
+
+
+def test_lote_exige_autenticacao(sessoes, config):
+    c = config.model_copy(update={"admin_senha": "segredo"})
+    r = TestClient(criar_app(sessoes, c)).post("/catalogo/lote", data={"acao": "ativar"}, follow_redirects=False)
+    assert r.status_code == 401
+
+
+def test_lote_redireciona_com_filtros_e_mensagem(cliente, sessoes):
+    criar_lote(sessoes)
+    r = cliente.post(
+        "/catalogo/lote",
+        data={"acao": "ativar", "busca": "caixa", "filtro": "inativos", "categoria": "Caixas de Boosters", "com_preco": "1"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    destino = urlsplit(r.headers["location"])
+    assert destino.path == "/catalogo"
+    q = parse_qs(destino.query)
+    assert q == {
+        "busca": ["caixa"],
+        "filtro": ["inativos"],
+        "categoria": ["Caixas de Boosters"],
+        "com_preco": ["1"],
+        "pagina": ["1"],
+        "msg": ["110 produto(s) ativado(s)."],
+    }
+    pagina = cliente.get(r.headers["location"])
+    assert "110 produto(s) ativado(s)." in pagina.text
+    desativar = cliente.post("/catalogo/lote", data={"acao": "desativar"}, follow_redirects=True)
+    assert "111 produto(s) desativado(s)." in desativar.text
+
+
+def test_msg_do_catalogo_e_so_texto_do_servidor(cliente):
+    r = cliente.get("/catalogo", params={"msg": "<script>alert(1)</script>"})
+    assert "<script>alert(1)</script>" not in r.text
+
+
+def test_botoes_do_lote_mostram_total_e_confirmacao(cliente, sessoes):
+    criar_muitos(sessoes, 250)
+    r = cliente.get("/catalogo?busca=Produto&filtro=ativos")
+    assert 'action="/catalogo/lote"' in r.text
+    assert "Ativar todos os 250 deste filtro" in r.text and "Desativar todos os 250 deste filtro" in r.text
+    assert "confirm(" in r.text and "250" in r.text.split("confirm(")[1].split(")")[0]
+    assert '<input type="hidden" name="busca" value="Produto">' in r.text
+    assert '<input type="hidden" name="filtro" value="ativos">' in r.text
+    assert "17 s" in r.text
+
+
+def test_botoes_do_lote_escondidos_sem_resultados(cliente):
+    r = cliente.get("/catalogo")
+    assert "Ativar todos" not in r.text and "Desativar todos" not in r.text
+    assert "/catalogo/lote" not in r.text
