@@ -5,3 +5,8 @@
 dados
 tests
 docs
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.superpowers
+*.md

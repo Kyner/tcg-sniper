@@ -1,8 +1,18 @@
 import argparse
 import logging
+import signal
 
 from tcg_sniper.config import Config
 from tcg_sniper.db.session import criar_engine, criar_sessoes, migrar
+
+
+def _encerrar(signum, _frame) -> None:
+    raise SystemExit(128 + signum)
+
+
+def instalar_sigterm() -> None:
+    """SIGTERM (docker stop) vira SystemExit: o loop do agendador desenrola e o Chromium fecha."""
+    signal.signal(signal.SIGTERM, _encerrar)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -29,6 +39,7 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
         from tcg_sniper.notificador import criar_notificador
 
+        instalar_sigterm()
         Agendador(
             engine,
             sessoes,

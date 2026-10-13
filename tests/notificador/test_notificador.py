@@ -1,6 +1,8 @@
 import json
+import logging
 
 import httpx
+import pytest
 import respx
 
 from tcg_sniper.notificador import criar_notificador
@@ -76,3 +78,18 @@ def test_criar_notificador_com_evolution(config):
         }
     )
     assert isinstance(criar_notificador(c), EvolutionNotificador)
+
+
+@pytest.mark.parametrize("chave", ["", "   ", "trocar-esta-chave"])
+def test_criar_notificador_chave_padrao_usa_log_e_avisa(config, chave, caplog):
+    c = config.model_copy(
+        update={
+            "evolution_url": URL,
+            "evolution_api_key": chave,
+            "evolution_instancia": "inst",
+            "whatsapp_grupo_admin": "g@g.us",
+        }
+    )
+    with caplog.at_level(logging.WARNING):
+        assert isinstance(criar_notificador(c), LogNotificador)
+    assert "EVOLUTION_API_KEY" in caplog.text
