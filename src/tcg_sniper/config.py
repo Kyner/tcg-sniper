@@ -21,7 +21,7 @@ DIAS_SEMANA = {
 class Config(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://tcg:tcg@localhost:5432/tcg"
+    database_url: str = "postgresql+psycopg://tcg:tcg@127.0.0.1:5432/tcg"
     admin_senha: str = "trocar-esta-senha"
     coleta_hora: time = time(10, 0)
     coleta_jitter_min: int = Field(30, ge=0, le=180)
