@@ -1,0 +1,139 @@
+import logging
+import random
+import time as relogio_sistema
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import Engine, text
+from sqlalchemy.orm import Session, sessionmaker
+
+from tcg_sniper.coletor_liga.execucao import pausa_humana
+from tcg_sniper.coletor_liga.listagens import coletar_listagens
+from tcg_sniper.coletor_liga.navegador import Navegador
+from tcg_sniper.coletor_liga.produtos import coletar_produtos
+from tcg_sniper.config import Config
+from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db.models import EstadoColetorTipo, StatusColeta, TipoColeta
+from tcg_sniper.notificador.base import Destino, Notificador
+
+log = logging.getLogger(__name__)
+
+ID_LOCK = 7_202_610
+INTERVALO_TICK_S = 60
+
+
+def alvo_do_dia(dia: date, hora: time, jitter_min: int, fuso: ZoneInfo, rng: random.Random) -> datetime:
+    base = datetime.combine(dia, hora, tzinfo=fuso)
+    return base + timedelta(minutes=rng.uniform(-jitter_min, jitter_min))
+
+
+@contextmanager
+def lock_coleta(engine: Engine) -> Iterator[bool]:
+    with engine.connect() as conexao:
+        obtido = bool(conexao.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": ID_LOCK}).scalar_one())
+        try:
+            yield obtido
+        finally:
+            if obtido:
+                conexao.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": ID_LOCK})
+
+
+class Agendador:
+    def __init__(
+        self,
+        engine: Engine,
+        sessoes: sessionmaker[Session],
+        fabrica_navegador: Callable[[], AbstractContextManager[Navegador]],
+        notificador: Notificador,
+        config: Config,
+        relogio: Callable[[], datetime] | None = None,
+        rng: random.Random | None = None,
+        dormir: Callable[[float], None] = relogio_sistema.sleep,
+        executor: Callable[[bool], None] | None = None,
+    ):
+        self._engine = engine
+        self._sessoes = sessoes
+        self._fabrica_navegador = fabrica_navegador
+        self._notificador = notificador
+        self._config = config
+        self._relogio = relogio or (lambda: datetime.now(UTC))
+        self._rng = rng or random.Random()
+        self._dormir = dormir
+        self._executor = executor or self.executar_job
+        self._alvos: dict[date, datetime] = {}
+        self._datas_tentadas: set[date] = set()
+        self._atrasada_em: datetime | None = None
+
+    def inicializar(self) -> None:
+        agora = self._relogio()
+        with self._sessoes() as s, s.begin():
+            interrompidas = repo.marcar_interrompidas(s, agora)
+            ultima = repo.ultima_coleta_sucesso(s, TipoColeta.PRODUTOS)
+        if interrompidas:
+            log.warning("%d coleta(s) interrompida(s) marcadas como falha", interrompidas)
+        if ultima is None or agora - ultima > timedelta(hours=24):
+            self._atrasada_em = agora + timedelta(minutes=self._rng.uniform(0, self._config.coleta_jitter_min))
+            log.info("último job com sucesso: %s; execução atrasada em %s", ultima, self._atrasada_em)
+
+    def tick(self) -> str | None:
+        agora = self._relogio()
+        hoje = agora.astimezone(self._config.zona).date()
+        inicio_do_dia = datetime.combine(hoje, time(0), tzinfo=self._config.zona)
+        with self._sessoes() as s, s.begin():
+            if repo.obter_estado(s, agora).estado != EstadoColetorTipo.ATIVO:
+                return None
+            solicitada = repo.consumir_solicitacao(s, agora)
+            rodou_hoje = repo.coleta_iniciada_desde(s, TipoColeta.LISTAGEM, inicio_do_dia)
+            ultima_listagem_ok = repo.ultima_coleta_sucesso(s, TipoColeta.LISTAGEM)
+
+        if solicitada:
+            # Retomar/rodar agora: refaz as listagens só se ainda não houve uma com sucesso hoje.
+            listagem_ok_hoje = ultima_listagem_ok is not None and ultima_listagem_ok >= inicio_do_dia
+            return self._executar("solicitado", not listagem_ok_hoje, hoje)
+        pode_rodar_hoje = not rodou_hoje and hoje not in self._datas_tentadas
+        if self._atrasada_em is not None and agora >= self._atrasada_em:
+            self._atrasada_em = None
+            if pode_rodar_hoje:
+                return self._executar("atrasado", True, hoje)
+        alvo = self._alvos.setdefault(
+            hoje,
+            alvo_do_dia(hoje, self._config.coleta_hora, self._config.coleta_jitter_min, self._config.zona, self._rng),
+        )
+        if pode_rodar_hoje and agora >= alvo:
+            self._atrasada_em = None
+            return self._executar("agendado", True, hoje)
+        return None
+
+    def _executar(self, motivo: str, incluir_listagens: bool, hoje: date) -> str:
+        self._datas_tentadas.add(hoje)
+        log.info("iniciando job (%s, listagens=%s)", motivo, incluir_listagens)
+        try:
+            self._executor(incluir_listagens)
+        except Exception as erro:
+            log.exception("job %s falhou", motivo)
+            self._notificador.enviar(Destino.ADMIN, f"Erro inesperado no coletor ({motivo}): {erro!r}")
+        return motivo
+
+    def executar_job(self, incluir_listagens: bool) -> None:
+        with lock_coleta(self._engine) as obtido:
+            if not obtido:
+                log.warning("outra coleta em andamento; job ignorado")
+                return
+            with self._fabrica_navegador() as navegador:
+                if incluir_listagens:
+                    resultado = coletar_listagens(
+                        self._sessoes, navegador, self._notificador, self._config, self._dormir
+                    )
+                    if resultado is None or resultado.status is StatusColeta.PAUSADA_DESAFIO:
+                        return
+                    pausa_humana(self._config, self._dormir)
+                coletar_produtos(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+
+    def rodar(self) -> None:
+        self.inicializar()
+        log.info("agendador iniciado")
+        while True:
+            self.tick()
+            self._dormir(INTERVALO_TICK_S)
