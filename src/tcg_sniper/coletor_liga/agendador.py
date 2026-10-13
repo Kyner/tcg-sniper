@@ -79,6 +79,12 @@ class Agendador:
             ultima = repo.ultima_coleta_sucesso(s, TipoColeta.PRODUTOS)
         if interrompidas:
             log.warning("%d coleta(s) interrompida(s) marcadas como falha", interrompidas)
+            self._notificador.enviar(
+                Destino.ADMIN,
+                f"{interrompidas} coleta(s) interrompida(s) (o coletor reiniciou no meio do job) e marcadas "
+                f"como falha. A coleta de hoje pode não rodar de novo sozinha: clique em \"Rodar agora\" em "
+                f"http://{self._config.host_publico}:8000",
+            )
         if ultima is None or agora - ultima > timedelta(hours=24):
             self._atrasada_em = agora + timedelta(minutes=self._rng.uniform(0, self._config.coleta_jitter_min))
             log.info("último job com sucesso: %s; execução atrasada em %s", ultima, self._atrasada_em)
@@ -95,6 +101,8 @@ class Agendador:
             ultima_listagem_ok = repo.ultima_coleta_sucesso(s, TipoColeta.LISTAGEM)
 
         if solicitada:
+            # Uma atrasada pendente não roda depois disto (nem passa da meia-noite como job extra).
+            self._atrasada_em = None
             # Retomar/rodar agora: refaz as listagens só se ainda não houve uma com sucesso hoje.
             listagem_ok_hoje = ultima_listagem_ok is not None and ultima_listagem_ok >= inicio_do_dia
             return self._executar("solicitado", not listagem_ok_hoje, hoje)

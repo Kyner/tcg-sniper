@@ -14,6 +14,7 @@ from tcg_sniper.coletor_liga.agendador import (
 )
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import Coleta, StatusColeta, TipoColeta
+from tcg_sniper.notificador.base import Destino
 
 SP = ZoneInfo("America/Sao_Paulo")
 TERCA = date(2026, 10, 13)
@@ -557,3 +558,39 @@ def test_rodar_fecha_o_navegador_mantido_ao_sair(engine, sessoes, config):
     except Parar:
         pass
     assert fabrica.fechados == [navegador]
+
+
+def test_solicitado_limpa_atrasada_pendente(engine, sessoes, config):
+    """Restart às 23:50 sem job há > 24 h e "rodar agora" logo depois: a atrasada (até 00:20)
+    não roda de novo depois da meia-noite."""
+    job_ok(sessoes, TERCA - timedelta(days=2), 10)
+    relogio = Relogio(local(TERCA, 23, 50))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    with sessoes() as s, s.begin():
+        repo.solicitar_execucao(s, local(TERCA, 23, 50))
+    assert a.tick() == "solicitado"
+    relogio.agora = local(TERCA + timedelta(days=1), 0, 30)
+    assert a.tick() is None
+    assert chamadas == [True]
+
+
+def test_inicializar_avisa_admin_das_interrompidas(engine, sessoes, config):
+    coleta(sessoes, TipoColeta.LISTAGEM, local(TERCA, 10), status=StatusColeta.RODANDO)
+    coleta(sessoes, TipoColeta.PRODUTOS, local(TERCA, 10, 30), status=StatusColeta.RODANDO)
+    a, notificador = agendador(engine, sessoes, config, Relogio(local(TERCA, 12)), [])
+    a.inicializar()
+    assert len(notificador.mensagens) == 1
+    destino, texto = notificador.mensagens[0]
+    assert destino is Destino.ADMIN
+    assert "2 coleta(s) interrompida(s)" in texto
+    assert "http://host.test:8000" in texto
+    assert "Rodar agora" in texto
+
+
+def test_inicializar_sem_interrompidas_nao_avisa(engine, sessoes, config):
+    job_ok(sessoes, ONTEM, 14)
+    a, notificador = agendador(engine, sessoes, config, Relogio(local(TERCA, 12)), [])
+    a.inicializar()
+    assert notificador.mensagens == []
