@@ -13,6 +13,8 @@ TITULOS = {
     " | Busca de Produtos e Acessórios | LigaMagic",
     "produto_sem_estoque": "From the Vault: Relics Box Set | Busca de Produtos e Acessórios | LigaMagic",
     "produto_um_vendedor": "From the Vault: Exiled Box Set | Busca de Produtos e Acessórios | LigaMagic",
+    "catalogo_pagina_1": "Busca: categ=10 searchprod=1"
+    " | Busca de cards, produtos e preços de Magic: The Gathering | LigaMagic",
 }
 
 
