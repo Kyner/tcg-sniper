@@ -31,7 +31,9 @@ def alvo_do_dia(dia: date, hora: time, jitter_min: int, fuso: ZoneInfo, rng: ran
 
 @contextmanager
 def lock_coleta(engine: Engine) -> Iterator[bool]:
-    with engine.connect() as conexao:
+    # AUTOCOMMIT: o lock é de sessão; sem transação aberta a conexão não fica "idle in transaction"
+    # durante o job (e um idle_in_transaction_session_timeout não derruba o lock em silêncio).
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conexao:
         obtido = bool(conexao.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": ID_LOCK}).scalar_one())
         try:
             yield obtido
@@ -51,7 +53,7 @@ class Agendador:
         relogio: Callable[[], datetime] | None = None,
         rng: random.Random | None = None,
         dormir: Callable[[float], None] = relogio_sistema.sleep,
-        executor: Callable[[bool], None] | None = None,
+        executor: Callable[[bool], bool | None] | None = None,
     ):
         self._engine = engine
         self._sessoes = sessoes
@@ -97,11 +99,11 @@ class Agendador:
             self._atrasada_em = None
             if pode_rodar_hoje:
                 return self._executar("atrasado", True, hoje)
-        alvo = self._alvos.setdefault(
-            hoje,
-            alvo_do_dia(hoje, self._config.coleta_hora, self._config.coleta_jitter_min, self._config.zona, self._rng),
-        )
-        if pode_rodar_hoje and agora >= alvo:
+        if hoje not in self._alvos:
+            self._alvos[hoje] = alvo_do_dia(
+                hoje, self._config.coleta_hora, self._config.coleta_jitter_min, self._config.zona, self._rng
+            )
+        if pode_rodar_hoje and agora >= self._alvos[hoje]:
             self._atrasada_em = None
             return self._executar("agendado", True, hoje)
         return None
@@ -110,30 +112,43 @@ class Agendador:
         self._datas_tentadas.add(hoje)
         log.info("iniciando job (%s, listagens=%s)", motivo, incluir_listagens)
         try:
-            self._executor(incluir_listagens)
+            obtido = self._executor(incluir_listagens)
+            if obtido is False and motivo == "solicitado":
+                # Lock ocupado (outro container coletando): o pedido do admin não se perde.
+                with self._sessoes() as s, s.begin():
+                    repo.solicitar_execucao(s, self._relogio())
+                log.info("pedido de execução rearmado; tenta de novo no próximo tick")
         except Exception as erro:
             log.exception("job %s falhou", motivo)
             self._notificador.enviar(Destino.ADMIN, f"Erro inesperado no coletor ({motivo}): {erro!r}")
         return motivo
 
-    def executar_job(self, incluir_listagens: bool) -> None:
+    def executar_job(self, incluir_listagens: bool) -> bool:
+        """Devolve False se o advisory lock estava ocupado (nada rodou); True caso contrário."""
         with lock_coleta(self._engine) as obtido:
             if not obtido:
                 log.warning("outra coleta em andamento; job ignorado")
-                return
+                return False
             with self._fabrica_navegador() as navegador:
                 if incluir_listagens:
                     resultado = coletar_listagens(
                         self._sessoes, navegador, self._notificador, self._config, self._dormir
                     )
                     if resultado is None or resultado.status is StatusColeta.PAUSADA_DESAFIO:
-                        return
+                        return True
                     pausa_humana(self._config, self._dormir)
                 coletar_produtos(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+        return True
 
     def rodar(self) -> None:
-        self.inicializar()
-        log.info("agendador iniciado")
+        inicializado = False
         while True:
-            self.tick()
+            try:
+                if not inicializado:
+                    self.inicializar()
+                    inicializado = True
+                    log.info("agendador iniciado")
+                self.tick()
+            except Exception:
+                log.exception("erro no laço do agendador; tenta de novo no próximo tick")
             self._dormir(INTERVALO_TICK_S)

@@ -4,9 +4,14 @@ from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fakes import NavegadorFake, NotificadorFake, fixture_liga, pagina_html
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from tcg_sniper.coletor_liga.agendador import Agendador, alvo_do_dia, lock_coleta
+from tcg_sniper.coletor_liga.agendador import (
+    ID_LOCK,
+    Agendador,
+    alvo_do_dia,
+    lock_coleta,
+)
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import Coleta, StatusColeta, TipoColeta
 
@@ -265,3 +270,151 @@ def test_executar_job_respeita_lock(engine, sessoes, config):
     with lock_coleta(engine):
         agendador_real(engine, sessoes, config, navegador).executar_job(incluir_listagens=True)
     assert tipos_das_coletas(sessoes) == []
+
+
+class Parar(Exception):
+    pass
+
+
+def criar(engine, sessoes, config, relogio, executor, rng=None, dormir=lambda _: None):
+    return Agendador(
+        engine,
+        sessoes,
+        lambda: nullcontext(NavegadorFake({})),
+        NotificadorFake(),
+        config,
+        relogio=relogio,
+        rng=rng or random.Random(42),
+        dormir=dormir,
+        executor=executor,
+    )
+
+
+def dormir_ate(n):
+    """`dormir` que levanta `Parar` na n-ésima chamada, para sair do laço infinito de `rodar`."""
+    chamadas = []
+
+    def dormir(segundos):
+        chamadas.append(segundos)
+        if len(chamadas) >= n:
+            raise Parar
+
+    return dormir, chamadas
+
+
+def test_rodar_sobrevive_a_excecao_no_tick(engine, sessoes, config):
+    dormir, dormidas = dormir_ate(3)
+    a = criar(engine, sessoes, config, Relogio(local(TERCA, 8)), lambda _: None, dormir=dormir)
+    ticks = []
+
+    def tick_quebrado():
+        ticks.append(1)
+        raise RuntimeError("banco caiu")
+
+    a.tick = tick_quebrado
+    try:
+        a.rodar()
+    except Parar:
+        pass
+    assert len(ticks) == 3
+    assert dormidas == [60, 60, 60]
+
+
+def test_rodar_repete_inicializar_ate_conseguir(engine, sessoes, config):
+    dormir, _ = dormir_ate(3)
+    a = criar(engine, sessoes, config, Relogio(local(TERCA, 8)), lambda _: None, dormir=dormir)
+    eventos = []
+    inicializar_real = a.inicializar
+
+    def inicializar_instavel():
+        eventos.append("init")
+        if eventos.count("init") == 1:
+            raise RuntimeError("banco ainda subindo")
+        inicializar_real()
+
+    a.inicializar = inicializar_instavel
+    a.tick = lambda: eventos.append("tick")
+    try:
+        a.rodar()
+    except Parar:
+        pass
+    assert eventos == ["init", "init", "tick", "tick"]
+
+
+def test_solicitacao_com_lock_ocupado_e_rearmada(engine, sessoes, config):
+    job_ok(sessoes, TERCA, 10, 5)
+    with sessoes() as s, s.begin():
+        repo.solicitar_execucao(s, local(TERCA, 11))
+    relogio = Relogio(local(TERCA, 11, 1))
+    chamadas = []
+
+    def executor(incluir_listagens):
+        chamadas.append(incluir_listagens)
+        return len(chamadas) > 1  # 1ª vez: lock ocupado; 2ª: obtido
+
+    a = criar(engine, sessoes, config, relogio, executor)
+    a.inicializar()
+    assert a.tick() == "solicitado"
+    relogio.agora += timedelta(minutes=1)
+    assert a.tick() == "solicitado"
+    relogio.agora += timedelta(minutes=1)
+    assert a.tick() is None
+    assert chamadas == [False, False]
+
+
+def test_agendado_com_lock_ocupado_nao_tenta_de_novo_no_dia(engine, sessoes, config):
+    job_ok(sessoes, ONTEM, 14)
+    relogio = Relogio(local(TERCA, 10, 31))
+    chamadas = []
+
+    def executor(incluir_listagens):
+        chamadas.append(incluir_listagens)
+        return False
+
+    a = criar(engine, sessoes, config, relogio, executor)
+    a.inicializar()
+    assert a.tick() == "agendado"
+    relogio.agora += timedelta(minutes=1)
+    assert a.tick() is None
+    assert chamadas == [True]
+    with sessoes() as s:
+        assert repo.obter_estado(s).execucao_solicitada is False
+
+
+class RngContador(random.Random):
+    def __init__(self, semente):
+        super().__init__(semente)
+        self.sorteios = 0
+
+    def uniform(self, a, b):
+        self.sorteios += 1
+        return super().uniform(a, b)
+
+
+def test_alvo_do_dia_sorteado_uma_vez(engine, sessoes, config):
+    job_ok(sessoes, ONTEM, 14)  # < 24 h: sem execução atrasada, inicializar não sorteia
+    relogio = Relogio(local(TERCA, 9, 0))
+    rng = RngContador(7)
+    a = criar(engine, sessoes, config, relogio, lambda _: None, rng=rng)
+    a.inicializar()
+    assert a.tick() is None
+    alvo = a._alvos[TERCA]
+    for minuto in (1, 2, 3, 10, 20):
+        relogio.agora = local(TERCA, 9, minuto)
+        assert a.tick() is None
+    assert rng.sorteios == 1
+    assert a._alvos[TERCA] == alvo
+
+
+def test_lock_coleta_nao_fica_ocioso_em_transacao(engine):
+    with lock_coleta(engine) as obtido:
+        assert obtido is True
+        with engine.connect() as outra:
+            estados = outra.execute(
+                text(
+                    "SELECT a.state FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid "
+                    "WHERE l.locktype = 'advisory' AND l.objid = :id"
+                ),
+                {"id": ID_LOCK},
+            ).scalars().all()
+    assert estados == ["idle"]
