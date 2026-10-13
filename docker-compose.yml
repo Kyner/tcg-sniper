@@ -1,3 +1,15 @@
+x-app: &app
+  build: .
+  image: tcg-sniper
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://tcg:tcg@postgres:5432/tcg
+    DIR_DADOS: /data
+    EVOLUTION_URL: http://evolution:8080
+  volumes:
+    - dados:/data
+  restart: unless-stopped
+
 services:
   postgres:
     image: postgres:16
@@ -14,6 +26,55 @@ services:
       test: ["CMD-SHELL", "pg_isready -U tcg"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
+
+  evolution:
+    # v2.3.7: última versão estável (2.4.0 ainda é release candidate). Postgres sem Redis.
+    image: evoapicloud/evolution-api:v2.3.7
+    environment:
+      SERVER_URL: http://localhost:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://tcg:tcg@postgres:5432/evolution?schema=public
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+    volumes:
+      - evolution:/evolution/instances
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: tcg-sniper migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  coletor-liga:
+    <<: *app
+    entrypoint: ["/app/docker/coletor-entrypoint.sh"]
+    shm_size: 1gb
+    ports:
+      - "6080:6080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  admin:
+    <<: *app
+    command: tcg-sniper admin
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
+  dados:
+  evolution:
