@@ -15,6 +15,8 @@ TITULOS = {
     "produto_um_vendedor": "From the Vault: Exiled Box Set | Busca de Produtos e Acessórios | LigaMagic",
     "catalogo_pagina_1": "Busca: categ=10 searchprod=1"
     " | Busca de cards, produtos e preços de Magic: The Gathering | LigaMagic",
+    "listagem_expandida": "Busca: categ=10 searchprod=1"
+    " | Busca de cards, produtos e preços de Magic: The Gathering | LigaMagic",
 }
 
 
@@ -32,7 +34,23 @@ def test_parse_preco_brl(texto, esperado):
     assert parse_preco_brl(texto) == esperado
 
 
-@pytest.mark.parametrize("texto", ["", "Esgotado", "R$ --", "R$ 12"])
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "",
+        "Esgotado",
+        "R$ --",
+        "R$ 12",
+        # nada de truncar em silêncio: o texto inteiro tem de ser um preço
+        "R$ 1.234,567",
+        "R$ 10,001",
+        "R$ 1.2345,67",
+        "R$ 10,00 7",
+        "R$ 10,00abc",
+        "x R$ 10,00",
+        "R$ R$ 10,00",
+    ],
+)
 def test_parse_preco_brl_invalido(texto):
     with pytest.raises(ErroParser):
         parse_preco_brl(texto)
@@ -72,15 +90,12 @@ def test_produto_sem_estoque():
     )
 
 
-def test_produto_sem_quadro_de_precos():
-    html = '<html><body><div id="marketplace-stores"><div class="alertaErro">Nenhum item</div></div></body></html>'
-    assert parse_produto(html) == Resumo(None, None, None, 0)
-
-
 @pytest.mark.parametrize(
     "html",
     [
         "<html><body><p>layout novo</p></body></html>",
+        # sem o quadro "Preço Médio de Venda no Marketplace" (as 3 páginas reais o têm, até a sem lojas)
+        '<html><body><div id="marketplace-stores"><div class="alertaErro">Nenhum item</div></div></body></html>',
         # tem lojas na página, mas o contador "Lojas" sumiu
         '<html><body><div id="marketplace-stores"><div class="store"></div></div></body></html>',
         # quadro de preços sem um dos valores

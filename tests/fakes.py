@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tcg_sniper.coletor_liga.modelos import Pagina
+from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
 from tcg_sniper.db.models import ProdutoLiga
 from tcg_sniper.notificador.base import Destino
 
@@ -39,18 +39,66 @@ def pagina_html(html, url="https://liga.test/x", titulo="LigaMagic", status=200,
     return Pagina(url=url, status=status, html=html, titulo=titulo, headers=headers or {})
 
 
+def cartao_listagem(pcode: str, nome: str, preco: str | None, categoria: str = "Caixas de Boosters") -> str:
+    """Cartão no formato real da listagem (copiado de catalogo_pagina_1). `preco=None` = indisponível."""
+    if preco is None:
+        classe, bloco_preco = "card item-out-of-stock", '<div class="price-out-of-stock">Produto Indisponível</div>'
+    else:
+        classe = "card"
+        bloco_preco = (
+            '<div class="price-range-container gap-1 mt-auto"><p class="label-apartir">À partir de</p>'
+            f'<p class="smallest-price"> {preco}</p></div>'
+        )
+    href = f"/?view=prod/view&amp;pcode={pcode}&amp;prod={nome}"
+    return (
+        f'<div class="{classe}"><div class="p-3 card-lg gap-3">'
+        f'<h5 class="card-title text-center"><a href="{href}">\n    {nome}\n</a></h5>'
+        f"{bloco_preco}"
+        '<div class="card-bottom"><p class="card-section">em '
+        f'<a href="/?view=cards%2Fsearch&amp;card=categ%3D10+searchprod%3D1&amp;tipo=1">{categoria}</a>'
+        "</p></div></div></div>"
+    )
+
+
+def html_listagem(*cartoes: str) -> str:
+    return (
+        '<html><body><div class="mt-4 categoria">'
+        '<div class="mt-2 grid categoria__card-container mtg-linhas">'
+        + "".join(cartoes)
+        + '</div></div><div id="exibir_mais_cards"><input type="button" value="Exibir mais" class="exibir-mais"></div>'
+        "</body></html>"
+    )
+
+
 class NavegadorFake:
-    """Devolve páginas pré-definidas por URL. Uma lista é consumida em ordem (para testar retry)."""
+    """Devolve páginas pré-definidas por URL. Uma lista é consumida em ordem (para testar retry).
+
+    Em `abrir_expandindo`, um valor `Pagina` vira `PaginaExpandida(pagina, 0, False)`; um
+    `PaginaExpandida` é devolvido como está, depois de chamar `pausar()` uma vez por clique.
+    """
 
     def __init__(self, paginas):
         self.paginas = paginas
         self.visitadas: list[str] = []
+        self.expandidas: list[tuple[str, int]] = []
 
-    def abrir(self, url: str) -> Pagina:
+    def _proxima(self, url: str):
         self.visitadas.append(url)
         resposta = self.paginas[url]
         if isinstance(resposta, list):
             resposta = resposta.pop(0)
         if isinstance(resposta, Exception):
             raise resposta
+        return resposta
+
+    def abrir(self, url: str) -> Pagina:
+        return self._proxima(url)
+
+    def abrir_expandindo(self, url, max_cliques, pausar) -> PaginaExpandida:
+        self.expandidas.append((url, max_cliques))
+        resposta = self._proxima(url)
+        if isinstance(resposta, Pagina):
+            return PaginaExpandida(resposta, 0, False)
+        for _ in range(resposta.cliques):
+            pausar()
         return resposta

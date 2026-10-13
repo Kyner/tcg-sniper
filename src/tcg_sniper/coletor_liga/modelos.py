@@ -47,3 +47,27 @@ class Pagina:
     html: str
     titulo: str
     headers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ItemListagem:
+    """Cartão de uma listagem de categoria da LigaMagic.
+
+    `preco_a_partir` é o menor preço pedido AGORA ("À partir de R$ X"); `None` quando o cartão
+    diz "Produto Indisponível" (sem estoque). `tipo` é o nome da categoria mostrado no cartão.
+    """
+
+    liga_id: str
+    nome: str
+    url: str
+    preco_a_partir: Decimal | None
+    tipo: str | None = None
+
+
+@dataclass(frozen=True)
+class PaginaExpandida:
+    """Listagem depois de clicar em "Exibir mais" até acabar (ou até o limite de cliques)."""
+
+    pagina: Pagina
+    cliques: int
+    limite_atingido: bool
