@@ -1,0 +1,11 @@
+<tr id="produto-{{ p.id }}">
+  <td><a href="/produto/{{ p.id }}">{{ p.nome }}</a></td>
+  <td>{{ p.edicao or "" }}</td>
+  <td>{{ (atual.menor_preco_com_estoque if atual else None)|brl }}</td>
+  <td>{{ atual.num_vendedores_com_estoque if atual else "—" }}</td>
+  <td>{{ p.visto_primeiro_em|data }}</td>
+  <td>
+    <button hx-post="/produto/{{ p.id }}/ativo" hx-target="#produto-{{ p.id }}" hx-swap="outerHTML"
+            class="{{ '' if p.ativo else 'secondary outline' }}">{{ "Ativo" if p.ativo else "Inativo" }}</button>
+  </td>
+</tr>

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<h2>Coletor</h2>
+{% if estado.estado.value == "pausado_desafio" %}
+<div class="pausado">
+  <strong>Coleta pausada: desafio pendente.</strong> {{ estado.motivo or "" }}<br>
+  Resolva em <a href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em retomar.
+  <form method="post" action="/retomar"><button>Retomar</button></form>
+</div>
+{% else %}
+<p>Ativo.{% if estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
+<form method="post" action="/rodar-agora"><button>Rodar agora</button></form>
+{% endif %}
+
+<h2>Últimas coletas</h2>
+<table>
+  <thead><tr><th>#</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Status</th><th>OK</th><th>Falhas</th><th>Erro</th></tr></thead>
+  <tbody>
+  {% for c in coletas %}
+    <tr>
+      <td>{{ c.id }}</td><td>{{ c.tipo.value }}</td><td>{{ c.iniciada_em|data }}</td><td>{{ c.finalizada_em|data }}</td>
+      <td>{{ c.status.value }}</td><td>{{ c.produtos_ok }}</td><td>{{ c.produtos_falha }}</td><td>{{ c.erro or "" }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8">Nenhuma coleta ainda.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

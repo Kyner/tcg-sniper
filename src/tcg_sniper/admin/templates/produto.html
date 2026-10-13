@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block titulo %}{{ p.nome }} · TCG Sniper{% endblock %}
+{% block conteudo %}
+<h2>{{ p.nome }}</h2>
+<p><a href="{{ p.url }}" target="_blank" rel="noopener">Ver na LigaMagic</a> · {{ "Monitorado" if p.ativo else "Não monitorado" }}</p>
+<article>
+  <strong>Menor preço com estoque:</strong> {{ (atual.menor_preco_com_estoque if atual else None)|brl }}<br>
+  <strong>Vendedores com estoque:</strong> {{ atual.num_vendedores_com_estoque if atual else "—" }}<br>
+  <strong>Atualizado em:</strong> {{ (atual.atualizado_em if atual else None)|data }}
+</article>
+<h3>Histórico</h3>
+<table>
+  <thead><tr><th>Data</th><th>Menor preço</th><th>Vendedores com estoque</th><th>Ofertas</th></tr></thead>
+  <tbody>
+  {% for r in historico %}
+    <tr><td>{{ r.coletado_em|data }}</td><td>{{ r.menor_preco_com_estoque|brl }}</td><td>{{ r.num_vendedores_com_estoque }}</td><td>{{ r.num_ofertas }}</td></tr>
+  {% else %}
+    <tr><td colspan="4">Sem coletas ainda.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
