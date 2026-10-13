@@ -34,3 +34,8 @@ packages = ["src/tcg_sniper"]
 testpaths = ["tests"]
 pythonpath = ["tests"]
 addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["src/tcg_sniper/db/migrations/versions"]

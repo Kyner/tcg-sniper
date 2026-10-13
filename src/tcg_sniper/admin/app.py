@@ -15,7 +15,6 @@ from tcg_sniper.admin import consultas
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 
-
 SENHA_PADRAO = "trocar-esta-senha"
 
 

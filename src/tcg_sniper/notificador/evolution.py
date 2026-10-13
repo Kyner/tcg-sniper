@@ -41,7 +41,7 @@ class EvolutionNotificador:
                 )
                 resposta.raise_for_status()
                 return
-            except Exception as erro:  # envio nunca pode interromper a coleta
+            except Exception as erro:  # noqa: BLE001 - envio nunca pode interromper a coleta
                 log.warning("envio para %s falhou (tentativa %d): %s", destino.value, tentativa, erro)
                 if tentativa < self._tentativas:
                     self._dormir(2 ** (tentativa - 1))
