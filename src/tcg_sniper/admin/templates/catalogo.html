@@ -9,7 +9,7 @@
   </select>
   <button type="submit">Filtrar</button>
 </form>
-<p>{{ linhas|length }} produto(s).</p>
+<p>{{ linhas|length }} produto(s).{% if cortado %} <strong>mostrando os primeiros {{ limite }} — refine a busca.</strong>{% endif %}</p>
 <table>
   <thead><tr><th>Nome</th><th>Categoria</th><th>À partir de</th><th>Mín</th><th>Lojas</th><th>Visto desde</th><th>Monitorar</th></tr></thead>
   <tbody>

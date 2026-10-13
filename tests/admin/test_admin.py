@@ -10,7 +10,7 @@ from sqlalchemy import select
 from tcg_sniper.admin.app import criar_app, formatar_brl
 from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db.models import EstadoColetorTipo, ProdutoLiga, TipoColeta
+from tcg_sniper.db.models import EstadoColetorTipo, ProdutoLiga, StatusColeta, TipoColeta
 
 
 def basic(usuario, senha):
@@ -48,7 +48,8 @@ def test_criar_app_recusa_senha_vazia_ou_padrao(sessoes, config, senha):
 
 def test_index_mostra_estado_e_coletas(cliente, sessoes):
     with sessoes() as s, s.begin():
-        repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
+        c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
+        repo.finalizar_coleta(s, c.id, StatusColeta.OK, 1, 0, T0)
     r = cliente.get("/")
     assert r.status_code == 200
     assert "Rodar agora" in r.text
@@ -196,3 +197,26 @@ def test_produto_so_com_listagem_mostra_traco_e_nunca_none(cliente, sessoes):
     assert "<td>—</td>" in cliente.get("/catalogo").text
     assert "<strong>Lojas:</strong> —" in cliente.get(f"/produto/{produto_id}").text
     assert cliente.post(f"/produto/{produto_id}/ativo").status_code == 200
+
+
+def test_index_com_coleta_rodando_mostra_andamento_e_esconde_rodar_agora(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+    r = cliente.get("/")
+    assert "Coleta em andamento" in r.text
+    assert "Rodar agora" not in r.text
+
+
+def test_catalogo_avisa_quando_bate_no_limite(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        for i in range(501):
+            criar_produto(s, f"p{i:03d}", nome=f"Produto {i:03d}")
+    r = cliente.get("/catalogo")
+    assert "mostrando os primeiros 500 — refine a busca" in r.text
+    assert "Produto 499" in r.text and "Produto 500" not in r.text
+
+
+def test_catalogo_abaixo_do_limite_nao_avisa(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        criar_produto(s, "a", nome="Produto A")
+    assert "refine a busca" not in cliente.get("/catalogo").text

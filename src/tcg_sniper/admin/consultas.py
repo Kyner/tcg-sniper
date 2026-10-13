@@ -9,10 +9,12 @@ from tcg_sniper.db.models import (
     PrecoListagem,
     ProdutoLiga,
     ResumoPreco,
+    StatusColeta,
 )
 
 FILTROS = ("todos", "ativos", "inativos", "novos")
 JANELA_NOVOS = timedelta(days=7)
+LIMITE_CATALOGO = 500
 
 
 def _escapar_like(texto: str) -> str:
@@ -21,6 +23,10 @@ def _escapar_like(texto: str) -> str:
 
 def listar_coletas(s: Session, limite: int = 10) -> list[Coleta]:
     return list(s.scalars(select(Coleta).order_by(Coleta.id.desc()).limit(limite)))
+
+
+def coleta_em_andamento(s: Session) -> bool:
+    return s.scalar(select(Coleta.id).where(Coleta.status == StatusColeta.RODANDO).limit(1)) is not None
 
 
 def buscar_catalogo(

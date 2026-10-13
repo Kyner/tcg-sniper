@@ -7,6 +7,8 @@
   Resolva em <a href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em retomar.
   <form method="post" action="/retomar"><button>Retomar</button></form>
 </div>
+{% elif em_andamento %}
+<p>Ativo. <strong>Coleta em andamento.</strong></p>
 {% else %}
 <p>Ativo.{% if estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
 <form method="post" action="/rodar-agora"><button>Rodar agora</button></form>

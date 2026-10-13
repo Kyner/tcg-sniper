@@ -56,6 +56,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 {
                     "estado": repo.obter_estado(s),
                     "coletas": consultas.listar_coletas(s),
+                    "em_andamento": consultas.coleta_em_andamento(s),
                     "host": config.host_publico,
                 },
             )
@@ -77,11 +78,20 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         if filtro not in consultas.FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
         with sessoes() as s, s.begin():
-            linhas = consultas.buscar_catalogo(s, busca, filtro, repo.agora_utc())
+            # Busca um a mais que o limite só para saber se a lista foi cortada.
+            limite = consultas.LIMITE_CATALOGO
+            linhas = consultas.buscar_catalogo(s, busca, filtro, repo.agora_utc(), limite=limite + 1)
             return templates.TemplateResponse(
                 request,
                 "catalogo.html",
-                {"linhas": linhas, "busca": busca, "filtro": filtro, "filtros": consultas.FILTROS},
+                {
+                    "linhas": linhas[:limite],
+                    "cortado": len(linhas) > limite,
+                    "limite": limite,
+                    "busca": busca,
+                    "filtro": filtro,
+                    "filtros": consultas.FILTROS,
+                },
             )
 
     @app.post("/produto/{produto_id}/ativo", response_class=HTMLResponse)
