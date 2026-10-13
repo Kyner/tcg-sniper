@@ -16,6 +16,9 @@ from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 
 
+SENHA_PADRAO = "trocar-esta-senha"
+
+
 def formatar_brl(valor: Decimal | None) -> str:
     if valor is None:
         return "—"
@@ -28,6 +31,12 @@ def formatar_data(dt: datetime | None, zona: ZoneInfo) -> str:
 
 
 def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
+    senha = config.admin_senha
+    if not senha.strip() or senha == SENHA_PADRAO:
+        raise ValueError(
+            "ADMIN_SENHA não definida: configure uma senha própria para o admin "
+            "(vazia ou o valor padrão 'trocar-esta-senha' não são aceitos)"
+        )
     seguranca = HTTPBasic()
 
     def autenticar(credenciais: Annotated[HTTPBasicCredentials, Depends(seguranca)]) -> None:

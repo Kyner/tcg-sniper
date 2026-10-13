@@ -30,12 +30,20 @@ def test_formatar_brl():
 
 
 def test_sem_senha_401(sessoes, config):
-    assert TestClient(criar_app(sessoes, config)).get("/").status_code == 401
+    c = config.model_copy(update={"admin_senha": "segredo"})
+    assert TestClient(criar_app(sessoes, c)).get("/").status_code == 401
 
 
 def test_senha_errada_401(sessoes, config):
-    c = TestClient(criar_app(sessoes, config), headers={"Authorization": basic("admin", "errada")})
+    cfg = config.model_copy(update={"admin_senha": "segredo"})
+    c = TestClient(criar_app(sessoes, cfg), headers={"Authorization": basic("admin", "errada")})
     assert c.get("/").status_code == 401
+
+
+@pytest.mark.parametrize("senha", ["", "   ", "trocar-esta-senha"])
+def test_criar_app_recusa_senha_vazia_ou_padrao(sessoes, config, senha):
+    with pytest.raises(ValueError, match="ADMIN_SENHA"):
+        criar_app(sessoes, config.model_copy(update={"admin_senha": senha}))
 
 
 def test_index_mostra_estado_e_coletas(cliente, sessoes):
@@ -103,7 +111,7 @@ def test_toggle_ativo(cliente, sessoes):
         produto_id = criar_produto(s, "a", ativo=False).id
     r = cliente.post(f"/produto/{produto_id}/ativo")
     assert r.status_code == 200
-    assert f'id="produto-{produto_id}"' in r.text and "Ativo" in r.text
+    assert f'id="produto-{produto_id}"' in r.text and ">Ativo</button>" in r.text
     with sessoes() as s:
         assert s.get(ProdutoLiga, produto_id).ativo is True
 
