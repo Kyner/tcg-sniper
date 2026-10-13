@@ -17,3 +17,14 @@ def criar_produto(s, liga_id="p1", ativo=True, agora=T0, nome=None, url=None) ->
     s.add(produto)
     s.flush()
     return produto
+
+
+from tcg_sniper.notificador.base import Destino  # noqa: E402
+
+
+class NotificadorFake:
+    def __init__(self):
+        self.mensagens: list[tuple[Destino, str]] = []
+
+    def enviar(self, destino: Destino, texto: str) -> None:
+        self.mensagens.append((destino, texto))
