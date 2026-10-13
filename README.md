@@ -16,10 +16,10 @@ Design: `docs/superpowers/specs/2026-10-13-coletor-liga-design.md`.
 ## Desenvolvimento
 
 ```
+cp .env.example .env   # ajuste os valores (o compose lê o .env)
 docker compose up -d postgres
 uv sync
 uv run playwright install chromium
-cp .env.example .env   # ajuste os valores
 uv run pytest
 TESTAR_NAVEGADOR=1 uv run pytest tests/coletor_liga/test_navegador.py   # opcional: abre um Chromium com uma página local
 ```
@@ -38,6 +38,7 @@ TESTAR_NAVEGADOR=1 uv run pytest tests/coletor_liga/test_navegador.py   # opcion
 2. Suba tudo, menos o coletor: `docker compose up -d --build postgres evolution migrate admin`.
    - O `docker/postgres-init.sql` (que cria os bancos `evolution` e `tcg_test`) só roda num volume novo. Se o volume `pgdata` já existia, crie o banco à mão: `docker compose exec postgres psql -U tcg -c "CREATE DATABASE evolution;"`.
 3. Conecte o WhatsApp. Use um **chip secundário, nunca um número pessoal ou da loja**:
+   - Os comandos abaixo usam `$EVOLUTION_API_KEY` do shell. Carregue o `.env` antes: `set -a; . ./.env; set +a` (ou `export EVOLUTION_API_KEY=...`).
    - `curl -X POST http://localhost:8080/instance/create -H "apikey: $EVOLUTION_API_KEY" -H "Content-Type: application/json" -d '{"instanceName":"tcg-sniper","integration":"WHATSAPP-BAILEYS","qrcode":true}'`
    - Leia o QR code devolvido (ou `GET /instance/connect/tcg-sniper`) com o WhatsApp do chip.
    - Adicione o número ao grupo admin e descubra o ID: `curl "http://localhost:8080/group/fetchAllGroups/tcg-sniper?getParticipants=false" -H "apikey: $EVOLUTION_API_KEY"`.

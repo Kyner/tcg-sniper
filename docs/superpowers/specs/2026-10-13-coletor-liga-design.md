@@ -140,7 +140,7 @@ Histórico append-only do resumo da página do produto: uma linha por produto at
 | --- | --- |
 | `produto_id` | FK, parte da PK |
 | `coleta_id` | FK, parte da PK |
-| `preco_min` | numeric(10,2) NULL (NULL se a página não mostra o quadro de preços) |
+| `preco_min` | numeric(10,2) NULL (sem o quadro de preços o parser lança `ErroParser`: o produto conta como falha, o HTML vai para `/data/falhas/` e nada é gravado) |
 | `preco_medio` | numeric(10,2) NULL |
 | `preco_max` | numeric(10,2) NULL |
 | `num_lojas` | int |
@@ -228,8 +228,8 @@ O tamanho de cada categoria ainda não foi medido (só a primeira carga da categ
 
 A página é considerada desafio se qualquer um destes ocorrer:
 
-- Título "Just a moment...".
-- Presença de widget Turnstile ou `#challenge-form`.
+- Título "Just a moment..." (ou "Um momento...").
+- Marcadores exclusivos da página interstitial no HTML: `id="challenge-form"`, `_cf_chl_opt` ou `cf-chl-`. Por decisão de revisão, o widget Turnstile (`cf-turnstile`) e scripts de `/cdn-cgi/challenge-platform` sozinhos **não** contam como desafio: aparecem também em páginas normais.
 - Resposta 403 ou 503 com header `cf-mitigated`.
 
 A verificação vale para a carga de cada página e para a página depois de cada clique em "Exibir mais". Ao detectar:
