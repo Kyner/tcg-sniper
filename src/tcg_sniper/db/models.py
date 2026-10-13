@@ -3,13 +3,11 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
-    Index,
     Integer,
     Numeric,
     Text,
@@ -83,29 +81,15 @@ class Coleta(Base):
     erro: Mapped[str | None] = mapped_column(Text)
 
 
-class OfertaLiga(Base):
-    __tablename__ = "oferta_liga"
-    __table_args__ = (Index("ix_oferta_liga_produto_coletado", "produto_id", "coletado_em"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"))
-    produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"))
-    loja: Mapped[str] = mapped_column(Text)
-    preco: Mapped[Decimal] = mapped_column(DINHEIRO)
-    quantidade: Mapped[int] = mapped_column(Integer)
-    idioma: Mapped[str | None] = mapped_column(Text)
-    condicao: Mapped[str | None] = mapped_column(Text)
-    coletado_em: Mapped[datetime] = mapped_column(DATA)
-
-
 class ResumoPreco(Base):
     __tablename__ = "resumo_preco"
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"), primary_key=True)
-    menor_preco_com_estoque: Mapped[Decimal | None] = mapped_column(DINHEIRO)
-    num_vendedores_com_estoque: Mapped[int] = mapped_column(Integer)
-    num_ofertas: Mapped[int] = mapped_column(Integer)
+    preco_min: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_medio: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_max: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    num_lojas: Mapped[int] = mapped_column(Integer)
     coletado_em: Mapped[datetime] = mapped_column(DATA)
 
 
@@ -114,9 +98,10 @@ class PrecoAtualLiga(Base):
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"))
-    menor_preco_com_estoque: Mapped[Decimal | None] = mapped_column(DINHEIRO)
-    num_vendedores_com_estoque: Mapped[int] = mapped_column(Integer)
-    num_ofertas: Mapped[int] = mapped_column(Integer)
+    preco_min: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_medio: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    preco_max: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    num_lojas: Mapped[int] = mapped_column(Integer)
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
 
 

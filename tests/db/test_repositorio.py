@@ -4,13 +4,11 @@ from decimal import Decimal
 from fakes import T0, criar_produto
 from sqlalchemy import func, select
 
-from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Oferta
-from tcg_sniper.coletor_liga.resumo import calcular_resumo
+from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Resumo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import (
     Coleta,
     EstadoColetorTipo,
-    OfertaLiga,
     PrecoAtualLiga,
     ProdutoLiga,
     ResumoPreco,
@@ -68,23 +66,36 @@ def test_upsert_catalogo_lista_vazia(s):
 
 def test_gravar_precos_produto_grava_historico_e_atualiza_atual(s):
     produto = criar_produto(s)
-    ofertas = [
-        Oferta("Loja A", Decimal("899.90"), 2),
-        Oferta("Loja B", Decimal("850.00"), 0),
-    ]
     c1 = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
-    repo.gravar_precos_produto(s, c1.id, produto.id, ofertas, calcular_resumo(ofertas), T0)
+    resumo1 = Resumo(Decimal("850.00"), Decimal("874.95"), Decimal("899.90"), 2)
+    repo.gravar_precos_produto(s, c1.id, produto.id, resumo1, T0)
 
-    novas = [Oferta("Loja C", Decimal("799.00"), 1)]
     c2 = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0 + timedelta(days=1))
-    repo.gravar_precos_produto(s, c2.id, produto.id, novas, calcular_resumo(novas), T0 + timedelta(days=1))
+    resumo2 = Resumo(Decimal("799.00"), Decimal("799.00"), Decimal("799.00"), 1)
+    repo.gravar_precos_produto(s, c2.id, produto.id, resumo2, T0 + timedelta(days=1))
 
-    assert s.scalar(select(func.count()).select_from(OfertaLiga)) == 3
-    assert s.scalar(select(func.count()).select_from(ResumoPreco)) == 2
+    historico = s.scalars(select(ResumoPreco).order_by(ResumoPreco.coletado_em)).all()
+    assert [(r.coleta_id, r.preco_min, r.num_lojas) for r in historico] == [
+        (c1.id, Decimal("850.00"), 2),
+        (c2.id, Decimal("799.00"), 1),
+    ]
     atual = s.scalars(select(PrecoAtualLiga)).one()
     assert atual.coleta_id == c2.id
-    assert atual.menor_preco_com_estoque == Decimal("799.00")
-    assert atual.num_vendedores_com_estoque == 1
+    assert (atual.preco_min, atual.preco_medio, atual.preco_max, atual.num_lojas) == (
+        Decimal("799.00"),
+        Decimal("799.00"),
+        Decimal("799.00"),
+        1,
+    )
+    assert atual.atualizado_em == T0 + timedelta(days=1)
+
+
+def test_gravar_precos_produto_sem_precos(s):
+    produto = criar_produto(s)
+    c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
+    repo.gravar_precos_produto(s, c.id, produto.id, Resumo(None, None, None, 0), T0)
+    atual = s.scalars(select(PrecoAtualLiga)).one()
+    assert (atual.preco_min, atual.preco_medio, atual.preco_max, atual.num_lojas) == (None, None, None, 0)
 
 
 def test_estado_pausa_retoma_e_solicitacao(s):

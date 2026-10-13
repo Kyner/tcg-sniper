@@ -7,13 +7,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Oferta
-from tcg_sniper.coletor_liga.resumo import Resumo
+from tcg_sniper.coletor_liga.modelos import ItemCatalogo, Resumo
 from tcg_sniper.db.models import (
     Coleta,
     EstadoColetor,
     EstadoColetorTipo,
-    OfertaLiga,
     PrecoAtualLiga,
     ProdutoLiga,
     ResumoPreco,
@@ -68,44 +66,23 @@ def gravar_precos_produto(
     s: Session,
     coleta_id: int,
     produto_id: int,
-    ofertas: Sequence[Oferta],
     resumo: Resumo,
     agora: datetime,
 ) -> None:
-    s.add_all(
-        OfertaLiga(
-            coleta_id=coleta_id,
-            produto_id=produto_id,
-            loja=o.loja,
-            preco=o.preco,
-            quantidade=o.quantidade,
-            idioma=o.idioma,
-            condicao=o.condicao,
-            coletado_em=agora,
-        )
-        for o in ofertas
-    )
-    s.add(
-        ResumoPreco(
-            produto_id=produto_id,
-            coleta_id=coleta_id,
-            menor_preco_com_estoque=resumo.menor_preco_com_estoque,
-            num_vendedores_com_estoque=resumo.num_vendedores_com_estoque,
-            num_ofertas=resumo.num_ofertas,
-            coletado_em=agora,
-        )
-    )
+    """Acrescenta o resumo ao histórico (append-only) e faz upsert do preço atual."""
     valores = {
         "coleta_id": coleta_id,
-        "menor_preco_com_estoque": resumo.menor_preco_com_estoque,
-        "num_vendedores_com_estoque": resumo.num_vendedores_com_estoque,
-        "num_ofertas": resumo.num_ofertas,
-        "atualizado_em": agora,
+        "preco_min": resumo.preco_min,
+        "preco_medio": resumo.preco_medio,
+        "preco_max": resumo.preco_max,
+        "num_lojas": resumo.num_lojas,
     }
+    s.add(ResumoPreco(produto_id=produto_id, coletado_em=agora, **valores))
+    atual = {**valores, "atualizado_em": agora}
     s.execute(
         pg_insert(PrecoAtualLiga)
-        .values(produto_id=produto_id, **valores)
-        .on_conflict_do_update(index_elements=[PrecoAtualLiga.produto_id], set_=valores)
+        .values(produto_id=produto_id, **atual)
+        .on_conflict_do_update(index_elements=[PrecoAtualLiga.produto_id], set_=atual)
     )
     s.flush()
 

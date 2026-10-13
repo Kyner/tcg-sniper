@@ -11,12 +11,17 @@ class ErroRede(Exception):
 
 
 @dataclass(frozen=True)
-class Oferta:
-    loja: str
-    preco: Decimal
-    quantidade: int
-    idioma: str | None = None
-    condicao: str | None = None
+class Resumo:
+    """Quadro de preços da página de produto ("Preço Médio de Venda no Marketplace") + nº de lojas.
+
+    Os preços vêm do resumo textual da LigaMagic (os preços por oferta são ofuscados em
+    sprite e não são lidos). `None` quando a página não mostra o quadro.
+    """
+
+    preco_min: Decimal | None
+    preco_medio: Decimal | None
+    preco_max: Decimal | None
+    num_lojas: int
 
 
 @dataclass(frozen=True)

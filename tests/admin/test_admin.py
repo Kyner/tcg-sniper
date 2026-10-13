@@ -7,8 +7,7 @@ from fakes import T0, criar_produto
 from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app, formatar_brl
-from tcg_sniper.coletor_liga.modelos import Oferta
-from tcg_sniper.coletor_liga.resumo import calcular_resumo
+from tcg_sniper.coletor_liga.modelos import Resumo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, ProdutoLiga, TipoColeta
 
@@ -123,13 +122,25 @@ def test_toggle_inexistente_404(cliente):
 def test_detalhe_produto_mostra_preco_e_historico(cliente, sessoes):
     with sessoes() as s, s.begin():
         produto = criar_produto(s, "a", nome="Caixa Duskmourn")
-        ofertas = [Oferta("Loja", Decimal("1234.56"), 1)]
+        resumo = Resumo(Decimal("1234.56"), Decimal("1500.00"), Decimal("1999.90"), 7)
         c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
-        repo.gravar_precos_produto(s, c.id, produto.id, ofertas, calcular_resumo(ofertas), T0)
+        repo.gravar_precos_produto(s, c.id, produto.id, resumo, T0)
     r = cliente.get(f"/produto/{produto.id}")
     assert r.status_code == 200
-    assert "Caixa Duskmourn" in r.text and "R$ 1.234,56" in r.text
+    assert "Caixa Duskmourn" in r.text
+    for texto in ("Mín", "Médio", "Máx", "Lojas", "R$ 1.234,56", "R$ 1.500,00", "R$ 1.999,90", "<td>7</td>"):
+        assert texto in r.text
 
 
 def test_detalhe_inexistente_404(cliente):
     assert cliente.get("/produto/999999").status_code == 404
+
+
+def test_catalogo_mostra_preco_min_e_lojas(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        produto = criar_produto(s, "a", nome="Caixa Duskmourn")
+        c = repo.iniciar_coleta(s, TipoColeta.PRECOS, T0)
+        repo.gravar_precos_produto(s, c.id, produto.id, Resumo(Decimal("899.90"), None, None, 12), T0)
+    r = cliente.get("/catalogo")
+    assert "<th>Mín</th>" in r.text and "<th>Lojas</th>" in r.text
+    assert "R$ 899,90" in r.text and "<td>12</td>" in r.text
