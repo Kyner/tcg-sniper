@@ -29,6 +29,7 @@ Perfil do vendedor (`/sp?seller=<ID>`):
   "5 de 5 estrelas 100% positivo total (2 avaliações)".
 """
 
+import logging
 import re
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
@@ -38,6 +39,8 @@ from selectolax.lexbor import LexborHTMLParser, LexborNode
 from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, OfertaProduto, ResultadoBusca
 from tcg_sniper.db.models import Envio
 from tcg_sniper.parsing import ErroParser, parse_preco_brl
+
+log = logging.getLogger(__name__)
 
 BASE_AMAZON = "https://www.amazon.com.br"
 
@@ -165,6 +168,8 @@ def parse_vendedor(html: str, seller_id: str) -> AvaliacaoVendedor:
     texto = resumo.text(separator=" ", strip=True)
     pct = _RE_PCT_POSITIVAS.search(texto)
     num = _RE_NUM_AVALIACOES.search(texto)
+    if pct is None and num is None:
+        log.warning("resumo de avaliações do vendedor %s ilegível (layout novo?): %r", seller_id, texto[:200])
     return AvaliacaoVendedor(
         seller_id=seller_id,
         nome=_texto(arvore, SELETOR_NOME_VENDEDOR),

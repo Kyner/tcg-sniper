@@ -20,6 +20,7 @@ from tcg_sniper.db.models import (
     EstadoColetorTipo,
     OrigemPreco,
     StatusCasamento,
+    StatusColeta,
     TipoColeta,
 )
 
@@ -282,3 +283,18 @@ def test_produto_mostra_a_amazon(cliente, sessoes):
         ff, _, _, _ = preparar_ofertas(s)
     texto = cliente.get(f"/produto/{ff.id}").text
     assert "Amazon" in texto and "B02" in texto and "R$ 690,00" in texto and "vendido pela Amazon" in texto
+
+
+def test_ciclos_da_amazon_nao_empurram_as_coletas_da_liga(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        liga = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
+        repo.finalizar_coleta(s, liga.id, StatusColeta.OK, 1, 0, T0)
+        for i in range(12):
+            ciclo = repo.iniciar_coleta(s, TipoColeta.AMAZON, T0 + timedelta(hours=i))
+            repo.finalizar_coleta(s, ciclo.id, StatusColeta.OK, 3, 0, T0 + timedelta(hours=i))
+    texto = cliente.get("/").text
+    parte_liga, parte_amazon = texto.split("Últimos ciclos (Amazon)")
+    assert "Últimas coletas (LigaMagic)" in parte_liga
+    assert "<td>produtos</td>" in parte_liga and "<td>amazon</td>" not in parte_liga
+    assert parte_amazon.count("<td>amazon</td>") == 10
+    assert "<td>produtos</td>" not in parte_amazon

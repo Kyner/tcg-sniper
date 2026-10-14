@@ -110,6 +110,13 @@ def test_vendedor_real():
     assert parse_vendedor(fixture_amazon("vendedor"), VENDEDOR.seller_id) == VENDEDOR
 
 
+def test_vendedor_com_resumo_ilegivel_avisa_no_log_e_devolve_vazio(caplog):
+    html = '<html><body><div id="seller-info-feedback-summary">texto novo</div></body></html>'
+    avaliacao = parse_vendedor(html, "A1")
+    assert (avaliacao.pct_positivas, avaliacao.num_avaliacoes) == (None, None)
+    assert "A1" in caplog.text
+
+
 def test_vendedor_sem_resumo_e_erro():
     with pytest.raises(ErroParser):
         parse_vendedor("<html><body></body></html>", "A1")

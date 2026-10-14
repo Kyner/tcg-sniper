@@ -51,7 +51,9 @@ def upgrade() -> None:
 
     op.drop_constraint("ck_estado_coletor_linha_unica", "estado_coletor", type_="check")
     op.create_check_constraint("ck_estado_coletor_linhas", "estado_coletor", "id IN (1, 2)")
-    op.add_column("estado_coletor", sa.Column("coletor", sa.Text(), nullable=True))
+    # Default 'liga': o `obter_estado` antigo (coletor-liga/admin ainda não recriados no deploy) insere
+    # a linha 1 sem `coletor`; com o default o INSERT é válido e só conflita no id.
+    op.add_column("estado_coletor", sa.Column("coletor", sa.Text(), nullable=True, server_default="liga"))
     op.execute("UPDATE estado_coletor SET coletor = 'liga' WHERE id = 1")
     op.execute(
         "INSERT INTO estado_coletor (id, coletor, estado, execucao_solicitada, atualizado_em) "

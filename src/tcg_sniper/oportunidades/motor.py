@@ -61,8 +61,9 @@ class Acao(StrEnum):
 
 
 def atinge_desconto(preco_amazon: Decimal | None, preco_liga: Decimal | None, desconto_min_pct: int) -> bool:
-    """`1 − amazon/liga ≥ desconto/100`, em aritmética exata (sem arredondar): 25% conta."""
-    if preco_amazon is None or preco_liga is None or preco_liga <= 0:
+    """`1 − amazon/liga ≥ desconto/100`, em aritmética exata (sem arredondar): 25% conta.
+    Preço da Amazon zero ou negativo é leitura errada, não desconto de 100%."""
+    if preco_amazon is None or preco_liga is None or preco_amazon <= 0 or preco_liga <= 0:
         return False
     return preco_amazon * CEM <= preco_liga * (CEM - desconto_min_pct)
 

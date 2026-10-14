@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.coletor_amazon.busca import ContextoBusca, DesafioAmazon, processar_produto
+from tcg_sniper.coletor_amazon.busca import ContextoBusca, CotaHtmlFalha, DesafioAmazon, processar_produto
 from tcg_sniper.coletor_amazon.fila import Janela, TetoPorHora, intervalo_busca, janela_do_dia
 from tcg_sniper.coletor_liga.agendador import lock_coleta
 from tcg_sniper.config import Config
@@ -29,6 +29,7 @@ TIPOS_AMAZON = (TipoColeta.AMAZON,)
 ESPERA_OCIOSA_S = 60
 ESPERA_ERRO_S = 15 * 60
 MAX_ERROS_SEGUIDOS = 3
+MAX_FALHAS_SEGUIDAS = 10  # buscas seguidas com ErroParser/ErroRede (bloqueio ou layout novo)
 
 
 def mensagem_captcha(config: Config, url: str) -> str:
@@ -65,6 +66,8 @@ class VarreduraAmazon:
         self._ok = 0
         self._falha = 0
         self._erros_seguidos = 0
+        self._falhas_seguidas = 0
+        self._cota_falhas = CotaHtmlFalha()
         self._contexto_navegador: AbstractContextManager[Navegador] | None = None
         self._navegador: Navegador | None = None
 
@@ -98,6 +101,7 @@ class VarreduraAmazon:
             self._ciclo = repo.iniciar_coleta(s, TipoColeta.AMAZON, agora).id
         self._pendentes = set(na_fila)
         self._ok = self._falha = 0
+        self._cota_falhas = CotaHtmlFalha()
 
     def _encerrar_ciclo(self, cfg: ConfigAmazon) -> None:
         if self._ciclo is None:
@@ -188,16 +192,19 @@ class VarreduraAmazon:
             dormir=self._dormir,
             rng=self._rng,
             nome_falha=f"amazon-{self._ciclo}-{produto.id}",
+            cota_falhas=self._cota_falhas,
         )
         teve_candidato = False
         try:
             teve_candidato = processar_produto(contexto, produto) > 0
             self._ok += 1
+            self._falhas_seguidas = 0
         except DesafioAmazon as desafio:
             self._registrar_desafio(desafio.url)
             return ESPERA_OCIOSA_S
         except (ErroParser, ErroRede) as erro:
             self._falha += 1
+            self._falhas_seguidas += 1
             log.warning("busca do produto %s na Amazon falhou: %s", produto.id, erro)
         except Exception:
             # Um produto que quebra não pode travar a fila: conta falha, reagenda e deixa o erro subir.
@@ -226,7 +233,34 @@ class VarreduraAmazon:
         self._pendentes.discard(produto.id)
         if not self._pendentes:
             self._encerrar_ciclo(cfg)
+        if self._falhas_seguidas >= MAX_FALHAS_SEGUIDAS:
+            return self._pausar_por_falhas(cfg)
         return 0
+
+    def _pausar_por_falhas(self, cfg: ConfigAmazon) -> float:
+        """Bloqueio sem CAPTCHA ou layout novo: toda busca falha. Pausa em vez de seguir no ritmo normal."""
+        self._falhas_seguidas = 0
+        pasta = self._config.dir_dados / "falhas"
+        try:
+            with self._sessoes() as s, s.begin():
+                repo.pausar(s, "falhas seguidas", self._relogio(), COLETOR_AMAZON)
+        except Exception:
+            log.exception("não foi possível registrar a pausa da busca na Amazon")
+            self._notificador.enviar(
+                Destino.ADMIN,
+                f"{MAX_FALHAS_SEGUIDAS} buscas seguidas na Amazon falharam (bloqueio ou mudança de layout?); "
+                f"não foi possível registrar a pausa no banco. HTMLs em {pasta}.",
+            )
+            return ESPERA_ERRO_S
+        log.warning("%d buscas seguidas na Amazon falharam; varredura pausada", MAX_FALHAS_SEGUIDAS)
+        self._encerrar_ciclo(cfg)
+        self._notificador.enviar(
+            Destino.ADMIN,
+            f"Busca na Amazon pausada depois de {MAX_FALHAS_SEGUIDAS} buscas seguidas com falha (bloqueio ou "
+            f"mudança de layout?). HTMLs em {pasta}. Veja `docker compose logs coletor-amazon` e clique em "
+            f"Retomar (Amazon) em http://{self._config.host_publico}:8000",
+        )
+        return ESPERA_OCIOSA_S
 
     def tratar_erro(self, erro: Exception) -> float:
         """Erro inesperado num passo: avisa e espera; três seguidos pausam a varredura."""
