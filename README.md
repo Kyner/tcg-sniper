@@ -65,7 +65,7 @@ Todo dia, por volta das 10:00:
 1. **Listagens.** O coletor abre a listagem de cada categoria de selados (20 por padrão) e clica em "Exibir mais" até mostrar tudo. Daí saem o catálogo e o preço "À partir de" atual de cada produto.
 2. **Produtos ativos.** Depois abre a página de cada produto que você marcou como ativo no admin e guarda o número de lojas e o resumo do histórico de venda (mínimo, médio e máximo).
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
-4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** no admin.
+4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços.
 
 **Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas, sem o bloco "Enviado por") não contam como vendidas pela Amazon e nunca geram aviso, porque imposto de importação e prazo longo ficam fora da regra dos 25%. Tudo isso se ajusta em **Configurações** no admin (os valores ficam no banco, não no `.env`).
 
@@ -158,7 +158,7 @@ docker compose up -d --build coletor-liga
 
 **Deu certo se** `docker compose logs coletor-liga --tail 20` mostrar `agendador iniciado`, sem erro.
 
-Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** no admin (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://<HOST_PUBLICO>:6080/vnc.html`, com a `VNC_SENHA`.
+Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://<HOST_PUBLICO>:6080/vnc.html`, com a `VNC_SENHA`.
 
 Ao final, o grupo admin recebe "N produtos novos no catálogo" e o resumo da coleta.
 
@@ -168,7 +168,7 @@ Abra o admin em `http://<HOST_PUBLICO>:8000` (usuário qualquer, senha `ADMIN_SE
 
 Cada produto ativo é uma visita a mais por dia na LigaMagic (cerca de 17 segundos cada): 50 produtos somam uns 15 minutos; 250, pouco mais de uma hora. Comece com poucos.
 
-A partir da próxima coleta, os produtos ativos ganham histórico de venda e número de lojas. Para não esperar o dia seguinte, clique em **Rodar agora**: como as listagens do dia já foram feitas, só os produtos rodam.
+A partir da próxima coleta, os produtos ativos ganham histórico de venda e número de lojas. Para não esperar o dia seguinte, clique em **Rodar agora** em Serviços: como as listagens do dia já foram feitas, só os produtos rodam.
 
 ### 8. Ligue a Amazon
 
@@ -209,11 +209,12 @@ docker compose up -d --build
 
 | Tela | Para que serve |
 | --- | --- |
-| **Início** (`/`) | Estado do coletor e últimas coletas. Botões **Retomar** (depois de resolver um desafio) e **Rodar agora**. |
+| **Dashboard** (`/`) | Estado e histórico dos serviços (só leitura); avisa quando algum está pausado. |
+| **Serviços** (`/servicos`) | Rodar agora e Retomar (LigaMagic), Pausar e Retomar (Amazon). |
 | **Catálogo** (`/catalogo`) | Todos os produtos, 100 por página. Busca por nome; filtros por situação (todos, ativos, inativos, novos nos últimos 7 dias), por categoria e "só com preço". Ativa ou desativa um produto ou todos os do filtro. |
 | **Produto** (`/produto/<id>`) | Preço "À partir de" atual, resumo de venda (mínimo, médio, máximo), número de lojas e o histórico de cada coleta. |
-| **Casamentos** | Fila de revisão dos anúncios da Amazon: confirme ou rejeite a qual produto da Liga cada anúncio corresponde. Só os confirmados geram oportunidade. |
-| **Ofertas** | Ofertas da Amazon já casadas, com o preço, o vendedor e o desconto sobre a Liga. |
+| **Casamentos** | Produtos ativos da Liga com os anúncios da Amazon encontrados; confirmar, ignorar, trocar ou colar o link da Amazon à mão; filtros por situação, categoria e nome. |
+| **Ofertas** | Melhor oferta da Amazon por produto contra a Liga; filtros por nome, categoria, desconto mínimo, vendedor e situação; ordenação por desconto, diferença em R$, leitura ou nome. |
 | **Configurações** | Ajustes da Amazon e do motor de oportunidades (desconto mínimo, teto de buscas por hora, horário, idade máxima do preço da Liga e outros). Ficam no banco e valem na hora, sem editar o `.env`. |
 
 Preço que a página não mostra aparece como "—", nunca como zero.
@@ -225,17 +226,17 @@ Preço que a página não mostra aparece como "—", nunca como zero.
 | **Coleta de DD/MM concluída** | Ao fim de toda coleta sem desafio e sem erro. | Nada; é o resumo do dia. |
 | **N produtos novos no catálogo** | Quando a listagem encontra produtos que ainda não estavam no catálogo. | Se quiser acompanhá-los, ative-os pelo link (filtro "novos"). |
 | **Oportunidade:** | No grupo de oportunidades, quando uma oferta confirmada da Amazon fica pelo menos 25% abaixo do "À partir de" da Liga. | Conferir o anúncio pelo link e decidir a compra. |
-| **CAPTCHA na Amazon** | No grupo admin, quando a Amazon pede uma verificação. A fila da Amazon fica pausada. | Resolver pelo noVNC na porta 6081 e clicar em **Retomar (Amazon)** no admin. |
-| **Varredura da Amazon pausada** | No grupo admin, quando a fila da Amazon parou por erros seguidos. | Resolver pelo noVNC na 6081 e clicar em **Retomar (Amazon)**, ou ver `docker compose logs coletor-amazon`. |
-| **Desafio Cloudflare na LigaMagic** | Quando aparece uma verificação. A coleta fica pausada. | Resolver pelo noVNC e clicar em **Retomar** (ver abaixo). |
+| **CAPTCHA na Amazon** | No grupo admin, quando a Amazon pede uma verificação. A fila da Amazon fica pausada. | Resolver pelo noVNC na porta 6081 e clicar em **Retomar (Amazon)** em Serviços. |
+| **Varredura da Amazon pausada** | No grupo admin, quando a fila da Amazon parou por erros seguidos. | Resolver pelo noVNC na 6081 e clicar em **Retomar (Amazon)** em Serviços, ou ver `docker compose logs coletor-amazon`. |
+| **Desafio Cloudflare na LigaMagic** | Quando aparece uma verificação. A coleta fica pausada. | Resolver pelo noVNC e clicar em **Retomar** em Serviços (ver abaixo). |
 | **... falhou em X de Y** | Quando mais da metade das categorias ou dos produtos falhou. Em geral, a LigaMagic mudou o layout. | Ver os HTMLs salvos em `/data/falhas` e abrir uma issue. |
-| **Erro inesperado** / **coleta(s) interrompida(s)** | Erro no meio da coleta, ou o coletor reiniciou no meio de uma. | Ver `docker compose logs coletor-liga` e clicar em **Rodar agora**. |
+| **Erro inesperado** / **coleta(s) interrompida(s)** | Erro no meio da coleta, ou o coletor reiniciou no meio de uma. | Ver `docker compose logs coletor-liga` e clicar em **Rodar agora** em Serviços. |
 
 ### Quando chegar um aviso de desafio
 
 1. Abra o noVNC: `http://<HOST_PUBLICO>:6080/vnc.html` (senha `VNC_SENHA`). Funciona pelo celular, na mesma rede.
 2. O Chromium está aberto com a verificação na tela. Resolva-a nessa janela.
-3. Clique em **Retomar** no admin. Em até 1 minuto a coleta volta, no mesmo navegador.
+3. Clique em **Retomar** em Serviços. Em até 1 minuto a coleta volta, no mesmo navegador.
 
 O coletor nunca tenta de novo sozinho. Se a janela do Chromium for fechada, a próxima coleta abre outra.
 

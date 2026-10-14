@@ -328,19 +328,70 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             )
 
     @app.get("/ofertas", response_class=HTMLResponse)
-    def ofertas(request: Request, filtro: str = "todas"):
-        if filtro not in consultas_amazon.FILTROS_OFERTAS:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
+    def ofertas(
+        request: Request,
+        busca: str = "",
+        categoria: str = "",
+        desconto_min: str = "",
+        vendedor: str = "todos",
+        situacao: str = "todas",
+        ordem: str = "desconto",
+        pagina: str = "1",
+    ):
+        if (
+            vendedor not in consultas_amazon.VENDEDORES_OFERTAS
+            or situacao not in consultas_amazon.SITUACOES_OFERTAS
+            or ordem not in consultas_amazon.ORDENS_OFERTAS
+        ):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "filtro inválido")
+        texto_desconto = desconto_min.strip()
+        if texto_desconto and not (texto_desconto.isdecimal() and len(texto_desconto) <= 3 and int(texto_desconto) <= 100):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"desconto inválido: {desconto_min}")
         with sessoes() as s, s.begin():
-            config = repo_amz.obter_config(s)
+            categorias = consultas.listar_categorias(s)
+            if categoria and categoria not in categorias:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
+            cfg = repo_amz.obter_config(s)
+            filtro = consultas_amazon.FiltroOfertas(
+                busca=busca,
+                categoria=categoria or None,
+                desconto_min=int(texto_desconto) if texto_desconto else None,
+                vendedor=vendedor,
+                situacao=situacao,
+                ordem=ordem,
+            )
+            linhas = consultas_amazon.ofertas(s, filtro, cfg)
+            linhas_pagina, numero, paginas = consultas.paginar(
+                linhas, numero_pagina(pagina), consultas_amazon.POR_PAGINA_OFERTAS
+            )
+            parametros = {
+                "busca": busca,
+                "categoria": categoria,
+                "desconto_min": texto_desconto,
+                "vendedor": vendedor if vendedor != "todos" else "",
+                "situacao": situacao if situacao != "todas" else "",
+                "ordem": ordem if ordem != "desconto" else "",
+            }
+            parametros = {k: v for k, v in parametros.items() if v}
+
+            def link(destino: int) -> str:
+                return "/ofertas?" + urlencode({**parametros, "pagina": destino})
+
             return templates.TemplateResponse(
                 request,
                 "ofertas.html",
                 {
-                    "linhas": consultas_amazon.ofertas(s, filtro, config),
-                    "filtro": filtro,
-                    "filtros": consultas_amazon.FILTROS_OFERTAS,
-                    "desconto_min_pct": config.desconto_min_pct,
+                    "linhas": linhas_pagina,
+                    "total": len(linhas),
+                    "pagina": numero,
+                    "paginas": paginas,
+                    "link": link,
+                    "f": filtro,
+                    "desconto_texto": texto_desconto,
+                    "categorias": categorias,
+                    "vendedores": consultas_amazon.VENDEDORES_OFERTAS,
+                    "ordens": consultas_amazon.ORDENS_OFERTAS,
+                    "desconto_min_pct": cfg.desconto_min_pct,
                 },
             )
 

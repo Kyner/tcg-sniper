@@ -221,7 +221,20 @@ def buscar_produtos(s: Session, busca: str, limite: int = 20) -> list[tuple[Prod
     return _com_preco_liga(s, list(s.scalars(consulta)))
 
 
-FILTROS_OFERTAS = ("todas", "desconto", "abertas")
+VENDEDORES_OFERTAS = ("todos", "amazon", "fba", "elegiveis")
+SITUACOES_OFERTAS = ("todas", "abertas")
+ORDENS_OFERTAS = ("desconto", "diferenca", "recentes", "nome")
+POR_PAGINA_OFERTAS = 50
+
+
+@dataclass(frozen=True)
+class FiltroOfertas:
+    busca: str = ""
+    categoria: str | None = None
+    desconto_min: int | None = None
+    vendedor: str = "todos"
+    situacao: str = "todas"
+    ordem: str = "desconto"
 
 
 @dataclass(frozen=True)
@@ -235,28 +248,55 @@ class LinhaOferta:
     confiavel: bool
     coletado_em: datetime
     desconto: Decimal | None
+    diferenca: Decimal | None  # "À partir de" − preço da Amazon
     aberta: bool
 
 
-def ofertas(s: Session, filtro: str, config: ConfigAmazon) -> list[LinhaOferta]:
-    """Uma linha por produto da Liga com ASIN confirmado e preço: a oferta mais barata da Amazon
-    contra o "À partir de" da Liga, ordenadas pelo maior desconto."""
+def _vendedor_aceito(vendedor: str, envio: Envio, confiavel: bool) -> bool:
+    if vendedor == "amazon":
+        return envio is Envio.AMAZON
+    if vendedor == "fba":
+        return envio is Envio.FBA
+    if vendedor == "elegiveis":
+        return confiavel
+    return True
+
+
+_ORDENS = {
+    "desconto": lambda l: (l.desconto is None, -(l.desconto or 0), l.produto.nome, l.produto.id),
+    "diferenca": lambda l: (l.diferenca is None, -(l.diferenca or 0), l.produto.nome, l.produto.id),
+    "recentes": lambda l: (-l.coletado_em.timestamp(), l.produto.nome, l.produto.id),
+    "nome": lambda l: (l.produto.nome, l.produto.id),
+}
+
+
+def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[LinhaOferta]:
+    """Uma linha por produto da Liga com ASIN confirmado e preço: a oferta mais barata da Amazon entre
+    as aceitas pelo filtro de vendedor, contra o "À partir de" da Liga."""
+    condicoes = [AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, PrecoAtualAmazon.preco.is_not(None)]
+    if filtro.busca.strip():
+        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(filtro.busca.strip())}%", escape="\\"))
+    if filtro.categoria:
+        condicoes.append(ProdutoLiga.tipo == filtro.categoria)
     consulta = (
         select(AnuncioAmazon, ProdutoLiga, PrecoAtualAmazon, VendedorAmazon, PrecoAtualLiga.preco_a_partir)
         .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
         .join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
         .outerjoin(VendedorAmazon, VendedorAmazon.id == PrecoAtualAmazon.vendedor_id)
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, PrecoAtualAmazon.preco.is_not(None))
+        .where(*condicoes)
     )
     abertas = set(s.scalars(select(Oportunidade.produto_id).where(Oportunidade.fechada_em.is_(None))))
     regras = Regras.de(config)
     melhores: dict[int, LinhaOferta] = {}
     for anuncio, produto, atual, vendedor, preco_liga in s.execute(consulta):
+        info = Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes) if vendedor else None
+        confiavel = atual.envio is Envio.AMAZON or (atual.envio is Envio.FBA and vendedor_confiavel(info, regras))
+        if not _vendedor_aceito(filtro.vendedor, atual.envio, confiavel):
+            continue
         atual_melhor = melhores.get(produto.id)
         if atual_melhor is not None and atual_melhor.preco <= atual.preco:
             continue
-        info = Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes) if vendedor else None
         melhores[produto.id] = LinhaOferta(
             produto=produto,
             preco_liga=preco_liga,
@@ -264,17 +304,18 @@ def ofertas(s: Session, filtro: str, config: ConfigAmazon) -> list[LinhaOferta]:
             preco=atual.preco,
             envio=atual.envio,
             vendedor=vendedor,
-            confiavel=atual.envio is Envio.AMAZON or (atual.envio is Envio.FBA and vendedor_confiavel(info, regras)),
+            confiavel=confiavel,
             coletado_em=atual.coletado_em,
             desconto=desconto_pct(atual.preco, preco_liga) if preco_liga else None,
+            diferenca=preco_liga - atual.preco if preco_liga is not None else None,
             aberta=produto.id in abertas,
         )
     linhas = list(melhores.values())
-    if filtro == "desconto":
-        linhas = [l for l in linhas if atinge_desconto(l.preco, l.preco_liga, config.desconto_min_pct)]
-    elif filtro == "abertas":
+    if filtro.desconto_min is not None:
+        linhas = [l for l in linhas if l.desconto is not None and l.desconto >= filtro.desconto_min]
+    if filtro.situacao == "abertas":
         linhas = [l for l in linhas if l.aberta]
-    linhas.sort(key=lambda l: (l.desconto is None, -(l.desconto or 0), l.produto.nome))
+    linhas.sort(key=_ORDENS[filtro.ordem])
     return linhas
 
 
