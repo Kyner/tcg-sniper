@@ -18,7 +18,7 @@ from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
-from tcg_sniper.db.models import COLETOR_AMAZON
+from tcg_sniper.db.models import COLETOR_AMAZON, AnuncioAmazon, ProdutoLiga
 from tcg_sniper.formatacao import formatar_brl
 
 SENHA_PADRAO = "trocar-esta-senha"
@@ -234,6 +234,65 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "historico_resumo": historico_resumo,
                     "historico_listagem": historico_listagem,
                 },
+            )
+
+    ABAS_CASAMENTO = ("pendentes", "revisados")
+
+    @app.get("/casamentos", response_class=HTMLResponse)
+    def casamentos(request: Request, aba: str = "pendentes"):
+        if aba not in ABAS_CASAMENTO:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
+        with sessoes() as s, s.begin():
+            config = repo_amz.obter_config(s)
+            if aba == "pendentes":
+                linhas, total = consultas_amazon.pendentes(s, config.desconto_min_pct)
+            else:
+                linhas, total = [], consultas_amazon.contar_pendentes(s)
+            return templates.TemplateResponse(
+                request,
+                "casamentos.html",
+                {
+                    "aba": aba,
+                    "linhas": linhas,
+                    "total": total,
+                    "revisados": consultas_amazon.revisados(s) if aba == "revisados" else [],
+                    "desconto_min_pct": config.desconto_min_pct,
+                },
+            )
+
+    @app.post("/casamentos/{anuncio_id}")
+    async def revisar_casamento(request: Request, anuncio_id: int):
+        formulario = await ler_formulario(request)
+        acao, aba = formulario.get("acao", ""), formulario.get("aba", "pendentes")
+        if acao not in ("confirmar", "ignorar", "desfazer") or aba not in ABAS_CASAMENTO:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ação inválida: {acao}")
+        agora = repo.agora_utc()
+        with sessoes() as s, s.begin():
+            if s.get(AnuncioAmazon, anuncio_id) is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND)
+            if acao == "confirmar":
+                texto = formulario.get("produto_id", "").strip()
+                if not (texto.isdecimal() and len(texto) <= 9):
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "produto_id inválido")
+                if s.get(ProdutoLiga, int(texto)) is None:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND)
+                repo_amz.confirmar_casamento(s, anuncio_id, int(texto), agora)
+            elif acao == "ignorar":
+                repo_amz.ignorar_anuncio(s, anuncio_id, agora)
+            else:
+                repo_amz.desfazer_casamento(s, anuncio_id, agora)
+        return RedirectResponse(f"/casamentos?aba={aba}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.get("/casamentos/{anuncio_id}/trocar", response_class=HTMLResponse)
+    def trocar_casamento(request: Request, anuncio_id: int, busca: str = ""):
+        with sessoes() as s, s.begin():
+            anuncio = s.get(AnuncioAmazon, anuncio_id)
+            if anuncio is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND)
+            return templates.TemplateResponse(
+                request,
+                "trocar.html",
+                {"anuncio": anuncio, "busca": busca, "produtos": consultas_amazon.buscar_produtos(s, busca)},
             )
 
     return app

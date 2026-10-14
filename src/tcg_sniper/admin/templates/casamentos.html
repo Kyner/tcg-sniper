@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block titulo %}Casamentos · TCG Sniper{% endblock %}
+{% block conteudo %}
+<h2>Casamentos Amazon × Liga</h2>
+<p>
+  <a href="/casamentos"{% if aba == "pendentes" %} aria-current="page"{% endif %}>{{ total }} pendentes</a> ·
+  <a href="/casamentos?aba=revisados"{% if aba == "revisados" %} aria-current="page"{% endif %}>Revisados</a>
+</p>
+{% if aba == "pendentes" %}
+<p><small>Primeiro os que já estão pelo menos {{ desconto_min_pct }}% abaixo da sugestão. Só anúncios confirmados geram oportunidade.</small></p>
+<table>
+  <thead><tr><th>Amazon</th><th>Preço</th><th>Produto da Liga</th><th></th></tr></thead>
+  <tbody>
+  {% for l in linhas %}
+    <tr>
+      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo }}</a><br><small>{{ l.anuncio.asin }}</small></td>
+      <td>{{ l.preco|brl }}{% if l.candidato %}<br><mark>oportunidade</mark>{% endif %}</td>
+      <td>
+        {% if l.sugestao %}<a href="/produto/{{ l.sugestao.id }}">{{ l.sugestao.nome }}</a> ({{ l.preco_sugestao|brl }}){% else %}—{% endif %}
+        {% if l.alternativas %}<details><summary>Outros parecidos</summary>
+          {% for p in l.alternativas %}
+          <form method="post" action="/casamentos/{{ l.anuncio.id }}">
+            <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ p.id }}">
+            <button class="secondary outline">{{ p.nome }}</button>
+          </form>
+          {% endfor %}
+        </details>{% endif %}
+      </td>
+      <td>
+        {% if l.sugestao %}
+        <form method="post" action="/casamentos/{{ l.anuncio.id }}">
+          <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ l.sugestao.id }}">
+          <button>Confirmar</button>
+        </form>
+        {% endif %}
+        <a href="/casamentos/{{ l.anuncio.id }}/trocar" role="button" class="secondary">Trocar</a>
+        <form method="post" action="/casamentos/{{ l.anuncio.id }}">
+          <input type="hidden" name="acao" value="ignorar"><button class="secondary outline">Ignorar</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4">Nenhum anúncio pendente.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<table>
+  <thead><tr><th>Amazon</th><th>Situação</th><th>Produto da Liga</th><th>Revisado em</th><th></th></tr></thead>
+  <tbody>
+  {% for anuncio, produto in revisados %}
+    <tr>
+      <td><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.titulo }}</a><br><small>{{ anuncio.asin }}</small></td>
+      <td>{{ anuncio.status_casamento.value }}</td>
+      <td>{% if produto %}<a href="/produto/{{ produto.id }}">{{ produto.nome }}</a>{% else %}—{% endif %}</td>
+      <td>{{ anuncio.revisado_em|data }}</td>
+      <td>
+        <form method="post" action="/casamentos/{{ anuncio.id }}">
+          <input type="hidden" name="acao" value="desfazer"><input type="hidden" name="aba" value="revisados">
+          <button class="secondary outline">Desfazer</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5">Nenhum anúncio revisado ainda.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
