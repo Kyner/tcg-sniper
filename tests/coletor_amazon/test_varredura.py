@@ -218,18 +218,20 @@ def test_erros_inesperados_seguidos_pausam(engine, sessoes, config, monkeypatch)
 
     monkeypatch.setattr(modulo, "processar_produto", quebrar)
     _, urls = produtos(sessoes, "a")
-    v, _, fabrica, notificador = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()})
+    relogio = Relogio(MEIO_DIA)
+    v, _, fabrica, notificador = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio)
     esperas = []
     for _ in range(3):
         try:
             v.passo()
         except RuntimeError as erro:
             esperas.append(v.tratar_erro(erro))
+        relogio.agora += timedelta(hours=2)  # o produto que quebra é reagendado para daqui a 60 min
     assert esperas == [ESPERA_ERRO_S, ESPERA_ERRO_S, ESPERA_OCIOSA_S]
     with sessoes() as s:
         estado = repo.obter_estado(s, coletor=COLETOR_AMAZON)
     assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO, "erros seguidos")
-    assert len(notificador.mensagens) == 3
+    assert len([m for m in notificador.mensagens if "falhou" not in m[1]]) == 3
     assert fabrica.fechados == 3
 
 
@@ -252,3 +254,56 @@ def test_janela_nas_bordas(engine, sessoes, config, hora):
     v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio)
     assert v.passo() == ESPERA_OCIOSA_S
     assert navegador.visitadas == []
+
+
+def test_produto_que_quebra_nao_trava_a_fila(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_amazon import varredura as modulo
+
+    (a, b), urls = produtos(sessoes, "a", "b")
+    real = modulo.processar_produto
+
+    def quebra_so_a(contexto, produto):
+        if produto.id == a.id:
+            raise RuntimeError("bug no parser")
+        return real(contexto, produto)
+
+    monkeypatch.setattr(modulo, "processar_produto", quebra_so_a)
+    v, navegador, _, _ = varredura(engine, sessoes, config, {urls[b.id]: vazia(urls[b.id])})
+    with pytest.raises(RuntimeError) as info:
+        v.passo()
+    assert v.tratar_erro(info.value) == ESPERA_ERRO_S
+    with sessoes() as s:
+        assert s.get(FilaAmazon, a.id).proxima_busca_em > MEIO_DIA
+    assert v.passo() == 0
+    assert navegador.visitadas == [urls[b.id]]
+    [ciclo] = ciclos(sessoes)
+    assert (ciclo.produtos_ok, ciclo.produtos_falha) == (1, 1)
+
+
+def test_ciclo_de_um_produto_que_quebra_nao_fecha_como_ok(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_amazon import varredura as modulo
+
+    def quebrar(*_a, **_k):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(modulo, "processar_produto", quebrar)
+    _, urls = produtos(sessoes, "a")
+    v, _, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()})
+    with pytest.raises(RuntimeError):
+        v.passo()
+    [ciclo] = ciclos(sessoes)
+    assert ciclo.produtos_falha >= 1
+    assert ciclo.status is StatusColeta.FALHA
+
+
+def test_tratar_erro_nunca_levanta_se_a_pausa_falhar(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_amazon import varredura as modulo
+
+    def quebrar(*_a, **_k):
+        raise RuntimeError("banco fora")
+
+    monkeypatch.setattr(modulo.repo, "pausar", quebrar)
+    v, _, _, notificador = varredura(engine, sessoes, config, {})
+    esperas = [v.tratar_erro(RuntimeError("x")) for _ in range(3)]
+    assert esperas == [ESPERA_ERRO_S] * 3
+    assert len(notificador.mensagens) == 3

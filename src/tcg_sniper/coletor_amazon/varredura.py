@@ -5,7 +5,7 @@ import random
 import time as relogio_sistema
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -199,6 +199,21 @@ class VarreduraAmazon:
         except (ErroParser, ErroRede) as erro:
             self._falha += 1
             log.warning("busca do produto %s na Amazon falhou: %s", produto.id, erro)
+        except Exception:
+            # Um produto que quebra não pode travar a fila: conta falha, reagenda e deixa o erro subir.
+            self._falha += 1
+            depois = self._relogio()
+            try:
+                with self._sessoes() as s, s.begin():
+                    repo_amz.reagendar(
+                        s, produto.id, depois, depois + timedelta(minutes=cfg.intervalo_busca_min), False
+                    )
+            except Exception:
+                log.exception("não foi possível reagendar o produto %s da Amazon", produto.id)
+            self._pendentes.discard(produto.id)
+            if not self._pendentes:
+                self._encerrar_ciclo(cfg)
+            raise
         self._erros_seguidos = 0
         self._teto.registrar(agora)
 
@@ -220,8 +235,17 @@ class VarreduraAmazon:
         self._erros_seguidos += 1
         if self._erros_seguidos >= MAX_ERROS_SEGUIDOS:
             self._erros_seguidos = 0
-            with self._sessoes() as s, s.begin():
-                repo.pausar(s, "erros seguidos", self._relogio(), COLETOR_AMAZON)
+            try:
+                with self._sessoes() as s, s.begin():
+                    repo.pausar(s, "erros seguidos", self._relogio(), COLETOR_AMAZON)
+            except Exception:
+                log.exception("não foi possível registrar a pausa da varredura da Amazon")
+                self._notificador.enviar(
+                    Destino.ADMIN,
+                    f"Erros inesperados seguidos na varredura da Amazon (último: {erro!r}); não foi possível "
+                    "registrar a pausa no banco. Nova tentativa em 15 minutos.",
+                )
+                return ESPERA_ERRO_S
             self._notificador.enviar(
                 Destino.ADMIN,
                 f"Varredura da Amazon pausada depois de {MAX_ERROS_SEGUIDOS} erros inesperados seguidos "
