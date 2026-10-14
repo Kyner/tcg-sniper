@@ -32,7 +32,7 @@
 <form method="post" action="/amazon/pausar"><button class="secondary">Pausar (Amazon)</button></form>
 {% endif %}
 
-<h2>Últimas coletas</h2>
+{% macro tabela_coletas(coletas, vazio) %}
 <table>
   <thead><tr><th>#</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Status</th><th>OK</th><th>Falhas</th><th>Erro</th></tr></thead>
   <tbody>
@@ -42,8 +42,15 @@
       <td>{{ c.status.value }}</td><td>{{ c.produtos_ok }}</td><td>{{ c.produtos_falha }}</td><td>{{ c.erro or "" }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="8">Nenhuma coleta ainda.</td></tr>
+    <tr><td colspan="8">{{ vazio }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
+{% endmacro %}
+
+<h2>Últimas coletas (LigaMagic)</h2>
+{{ tabela_coletas(coletas, "Nenhuma coleta ainda.") }}
+
+<h2>Últimos ciclos (Amazon)</h2>
+{{ tabela_coletas(ciclos_amazon, "Nenhum ciclo ainda.") }}
 {% endblock %}

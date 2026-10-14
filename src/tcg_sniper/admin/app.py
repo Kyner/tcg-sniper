@@ -18,7 +18,7 @@ from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
-from tcg_sniper.db.models import COLETOR_AMAZON, AnuncioAmazon, ProdutoLiga
+from tcg_sniper.db.models import COLETOR_AMAZON, AnuncioAmazon, ProdutoLiga, TipoColeta
 from tcg_sniper.formatacao import formatar_brl
 
 SENHA_PADRAO = "trocar-esta-senha"
@@ -66,7 +66,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 "index.html",
                 {
                     "estado": repo.obter_estado(s),
-                    "coletas": consultas.listar_coletas(s),
+                    "coletas": consultas.listar_coletas(s, TIPOS_LIGA),
+                    "ciclos_amazon": consultas.listar_coletas(s, (TipoColeta.AMAZON,)),
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),

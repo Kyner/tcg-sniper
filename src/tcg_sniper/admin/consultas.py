@@ -23,8 +23,9 @@ def _escapar_like(texto: str) -> str:
     return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def listar_coletas(s: Session, limite: int = 10) -> list[Coleta]:
-    return list(s.scalars(select(Coleta).order_by(Coleta.id.desc()).limit(limite)))
+def listar_coletas(s: Session, tipos: Sequence[TipoColeta], limite: int = 10) -> list[Coleta]:
+    consulta = select(Coleta).where(Coleta.tipo.in_(tipos)).order_by(Coleta.id.desc()).limit(limite)
+    return list(s.scalars(consulta))
 
 
 def coleta_em_andamento(s: Session, tipos: Sequence[TipoColeta]) -> bool:
