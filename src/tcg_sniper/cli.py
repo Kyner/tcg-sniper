@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="comando", required=True)
     sub.add_parser("migrate", help="aplica as migrações do banco")
     sub.add_parser("coletor-liga", help="inicia o agendador de coletas da LigaMagic")
+    sub.add_parser("coletor-amazon", help="inicia a fila contínua de buscas na Amazon")
     admin = sub.add_parser("admin", help="inicia a página de admin")
     admin.add_argument("--porta", type=int, default=8000)
     args = parser.parse_args(argv)
@@ -44,6 +45,20 @@ def main(argv: list[str] | None = None) -> None:
             engine,
             sessoes,
             lambda: NavegadorPlaywright(config.dir_dados / "perfil"),
+            criar_notificador(config),
+            config,
+        ).rodar()
+    elif args.comando == "coletor-amazon":
+        from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
+        from tcg_sniper.coletor_amazon.varredura import VarreduraAmazon
+        from tcg_sniper.navegador.chromium import NavegadorChromium
+        from tcg_sniper.notificador import criar_notificador
+
+        instalar_sigterm()
+        VarreduraAmazon(
+            engine,
+            sessoes,
+            lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
             criar_notificador(config),
             config,
         ).rodar()

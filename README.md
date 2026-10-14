@@ -2,9 +2,9 @@
 
 Monitor de preços de produtos selados de Magic: The Gathering (boosters, caixas, kits) na [LigaMagic](https://www.ligamagic.com.br). Uma vez por dia ele lê o catálogo de selados com o menor preço anunciado de cada produto e, para os produtos que você escolher acompanhar, guarda o histórico de venda e o número de lojas. Você administra tudo por uma página web e recebe os avisos num grupo de WhatsApp.
 
-É o primeiro pedaço de um monitor de arbitragem: a ideia é comparar, mais adiante, o preço da LigaMagic com o de outros marketplaces (ver [Roadmap](#roadmap)).
+É o primeiro pedaço de um monitor de arbitragem: ele já compara o preço da LigaMagic com o da Amazon e avisa quando há uma oferta bem abaixo; outros marketplaces vêm depois (ver [Roadmap](#roadmap)).
 
-**Estado:** a coleta da LigaMagic, o admin e os avisos no WhatsApp estão prontos e rodando no dia a dia.
+**Estado:** a coleta da LigaMagic, o admin e os avisos no WhatsApp estão prontos e rodando no dia a dia. O sub-projeto 2 (coletor da Amazon, casamento de produtos e oportunidades) também está pronto.
 
 ## Índice
 
@@ -26,6 +26,7 @@ O tcg-sniper foi feito para acessar a LigaMagic como uma pessoa acessaria, em vo
 - **Um acesso por vez, com pausa humana.** Entre uma página e outra há uma pausa aleatória de 8 a 20 segundos. A coleta roda uma vez por dia e nunca há duas ao mesmo tempo.
 - **Navegador de verdade.** Usa o Chromium com janela (não headless), com perfil persistente, no seu próprio PC e na sua conexão.
 - **Sem burlar proteções.** Não há solucionador de CAPTCHA nem disfarce de navegador. Se o Cloudflare mostrar uma verificação, a coleta pausa, avisa você e espera que uma pessoa a resolva.
+- **Amazon com teto e horário.** Na Amazon, a fila tem teto de buscas por hora (200 por padrão) e só roda de 08:00 às 22:00; CAPTCHA pausa a fila até uma pessoa resolver.
 - **Só o que a página mostra em texto.** Lê o preço "À partir de" das listagens e o quadro de resumo da página do produto. Os preços de cada loja são desenhados como imagem na página e nunca são decodificados.
 
 Respeite os termos de uso da LigaMagic e não aumente o ritmo da coleta. Este projeto não é afiliado à LigaMagic nem à Wizards of the Coast; Magic: The Gathering é marca da Wizards of the Coast.
@@ -35,20 +36,27 @@ Respeite os termos de uso da LigaMagic e não aumente o ritmo da coleta. Este pr
 ```mermaid
 flowchart LR
     liga[(LigaMagic)]
+    amazon[(amazon.com.br)]
     subgraph pc[Seu PC - Docker Compose]
         coletor[coletor-liga<br/>Chromium + agendador]
+        coletor_amz[coletor-amazon<br/>Chromium + fila de buscas]
         admin[admin<br/>página web :8000]
         db[(Postgres)]
         evo[Evolution API]
         vnc[noVNC :6080]
+        vnc_amz[noVNC :6081]
     end
-    whats[Grupo admin<br/>no WhatsApp]
+    whats[Grupos admin e<br/>oportunidades no WhatsApp]
 
     coletor -- uma visita por vez --> liga
     coletor --> db
     admin --> db
     coletor --> evo --> whats
+    coletor_amz -- uma busca por vez --> amazon
+    coletor_amz --> db
+    coletor_amz --> evo
     vnc -. tela do Chromium .- coletor
+    vnc_amz -. tela do Chromium .- coletor_amz
 ```
 
 Todo dia, por volta das 10:00:
@@ -57,6 +65,8 @@ Todo dia, por volta das 10:00:
 2. **Produtos ativos.** Depois abre a página de cada produto que você marcou como ativo no admin e guarda o número de lojas e o resumo do histórico de venda (mínimo, médio e máximo).
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
 4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** no admin.
+
+**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas, sem o bloco "Enviado por") não contam como vendidas pela Amazon e nunca geram aviso, porque imposto de importação e prazo longo ficam fora da regra dos 25%. Tudo isso se ajusta em **Configurações** no admin (os valores ficam no banco, não no `.env`).
 
 Os serviços conversam só pelo banco: o admin grava pedidos ("retomar", "rodar agora") e o coletor os lê a cada minuto.
 
@@ -159,6 +169,26 @@ Cada produto ativo é uma visita a mais por dia na LigaMagic (cerca de 17 segund
 
 A partir da próxima coleta, os produtos ativos ganham histórico de venda e número de lojas. Para não esperar o dia seguinte, clique em **Rodar agora**: como as listagens do dia já foram feitas, só os produtos rodam.
 
+### 8. Ligue a Amazon
+
+1. Crie no WhatsApp o grupo de oportunidades (com o número secundário dentro), descubra o ID dele como no passo 5 e grave no `.env`:
+
+   ```
+   WHATSAPP_GRUPO_OPORTUNIDADES=120363xxxxxxxxxxxx@g.us
+   ```
+
+2. Suba o coletor da Amazon:
+
+   ```bash
+   docker compose up -d --build coletor-amazon
+   ```
+
+3. Abra `http://<HOST_PUBLICO>:6081/vnc.html` (senha `VNC_SENHA`), clique no endereço de entrega da Amazon e informe o CEP de onde as compras serão entregues. O preço e o "Enviado por" dependem dele; o CEP fica salvo no perfil do Chromium.
+
+**Deu certo se** `docker compose logs coletor-amazon --tail 20` mostrar `varredura da Amazon iniciada` e, na janela do noVNC, aparecerem buscas a cada 8 a 20 segundos (dentro do horário de 08:00 às 22:00).
+
+Os anúncios achados só viram oportunidade depois de confirmados em **Casamentos** no admin.
+
 ## Uso no dia a dia
 
 ### Página de admin
@@ -168,6 +198,9 @@ A partir da próxima coleta, os produtos ativos ganham histórico de venda e nú
 | **Início** (`/`) | Estado do coletor e últimas coletas. Botões **Retomar** (depois de resolver um desafio) e **Rodar agora**. |
 | **Catálogo** (`/catalogo`) | Todos os produtos, 100 por página. Busca por nome; filtros por situação (todos, ativos, inativos, novos nos últimos 7 dias), por categoria e "só com preço". Ativa ou desativa um produto ou todos os do filtro. |
 | **Produto** (`/produto/<id>`) | Preço "À partir de" atual, resumo de venda (mínimo, médio, máximo), número de lojas e o histórico de cada coleta. |
+| **Casamentos** | Fila de revisão dos anúncios da Amazon: confirme ou rejeite a qual produto da Liga cada anúncio corresponde. Só os confirmados geram oportunidade. |
+| **Ofertas** | Ofertas da Amazon já casadas, com o preço, o vendedor e o desconto sobre a Liga. |
+| **Configurações** | Ajustes da Amazon e do motor de oportunidades (desconto mínimo, teto de buscas por hora, horário, idade máxima do preço da Liga e outros). Ficam no banco e valem na hora, sem editar o `.env`. |
 
 Preço que a página não mostra aparece como "—", nunca como zero.
 
@@ -177,6 +210,9 @@ Preço que a página não mostra aparece como "—", nunca como zero.
 | --- | --- | --- |
 | **Coleta de DD/MM concluída** | Ao fim de toda coleta sem desafio e sem erro. | Nada; é o resumo do dia. |
 | **N produtos novos no catálogo** | Quando a listagem encontra produtos que ainda não estavam no catálogo. | Se quiser acompanhá-los, ative-os pelo link (filtro "novos"). |
+| **Oportunidade:** | No grupo de oportunidades, quando uma oferta confirmada da Amazon fica pelo menos 25% abaixo do "À partir de" da Liga. | Conferir o anúncio pelo link e decidir a compra. |
+| **CAPTCHA na Amazon** | No grupo admin, quando a Amazon pede uma verificação. A fila da Amazon fica pausada. | Resolver pelo noVNC na porta 6081 e clicar em **Retomar (Amazon)** no admin. |
+| **Varredura da Amazon pausada** | No grupo admin, quando a fila da Amazon parou por erros seguidos. | Resolver pelo noVNC na 6081 e clicar em **Retomar (Amazon)**, ou ver `docker compose logs coletor-amazon`. |
 | **Desafio Cloudflare na LigaMagic** | Quando aparece uma verificação. A coleta fica pausada. | Resolver pelo noVNC e clicar em **Retomar** (ver abaixo). |
 | **... falhou em X de Y** | Quando mais da metade das categorias ou dos produtos falhou. Em geral, a LigaMagic mudou o layout. | Ver os HTMLs salvos em `/data/falhas` e abrir uma issue. |
 | **Erro inesperado** / **coleta(s) interrompida(s)** | Erro no meio da coleta, ou o coletor reiniciou no meio de uma. | Ver `docker compose logs coletor-liga` e clicar em **Rodar agora**. |
@@ -191,11 +227,11 @@ O coletor nunca tenta de novo sozinho. Se a janela do Chromium for fechada, a pr
 
 ### Segurança
 
-O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as portas 8000 e 6080 para a internet. A Evolution API (8080) e o Postgres (5432) só escutam em `127.0.0.1`.
+O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as portas 8000, 6080 e 6081 para a internet. A Evolution API (8080) e o Postgres (5432) só escutam em `127.0.0.1`.
 
 ## Configuração
 
-Tudo fica no `.env`, e cada variável está explicada no [`.env.example`](.env.example). As que você mais vai querer mexer:
+Tudo da LigaMagic fica no `.env`, e cada variável está explicada no [`.env.example`](.env.example). As que você mais vai querer mexer:
 
 | Variável | Padrão | Para quê |
 | --- | --- | --- |
@@ -205,6 +241,8 @@ Tudo fica no `.env`, e cada variável está explicada no [`.env.example`](.env.e
 | `LIMITE_FALHA_PCT` | `50` | A partir de quantos % de falhas a coleta vira "falha" e avisa o grupo. |
 
 Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
+
+Os ajustes da Amazon e do motor de oportunidades não ficam no `.env`: edite-os na página **Configurações** do admin.
 
 ## Solução de problemas
 
@@ -216,6 +254,8 @@ Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
 `docker compose exec postgres psql -U tcg -c "CREATE DATABASE evolution;"`
 
 **Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA` e `WHATSAPP_GRUPO_ADMIN` estão preenchidos. Sem algum deles, os avisos vão só para o log (`docker compose logs coletor-liga`); com a chave padrão ou o grupo vazio, o coletor avisa isso no log ao subir.
+
+**Por que não chega alerta de um produto que está barato na Amazon?** As causas mais comuns: a oferta é vendida pela "Amazon Global" (importada, nunca gera alerta); é de um lojista com envio próprio; é de um lojista FBA com poucas avaliações; o casamento do anúncio com o produto da Liga ainda está pendente em **Casamentos**; ou o preço da Liga tem mais de 48 h.
 
 **Uma categoria falha todo dia.** Ela pode ter ficado vazia, ou ter um produto só (a LigaMagic então abre direto a página do produto). Tire o ID de `LIGA_CATEGORIAS`.
 
@@ -238,15 +278,16 @@ uv run ruff check
 
 Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
 
-Para rodar um serviço fora do Docker: `uv run tcg-sniper migrate`, `uv run tcg-sniper admin` ou `uv run tcg-sniper coletor-liga`.
+Para rodar um serviço fora do Docker: `uv run tcg-sniper migrate`, `uv run tcg-sniper admin`, `uv run tcg-sniper coletor-liga` ou `uv run tcg-sniper coletor-amazon`.
 
 ### Estrutura
 
 ```
 src/tcg_sniper/
-  cli.py              comandos migrate, admin e coletor-liga
+  cli.py              comandos migrate, admin, coletor-liga e coletor-amazon
   config.py           leitura do .env
   coletor_liga/       agendador, navegador (Playwright), parsers e as duas etapas da coleta
+  coletor_amazon/     fila de buscas, parsers da Amazon, casamento e motor de oportunidades
   admin/              página de admin (FastAPI + Jinja2 + HTMX)
   db/                 modelos, repositório e migrações (SQLAlchemy + Alembic)
   notificador/        envio para o WhatsApp (Evolution API) ou para o log
@@ -268,10 +309,9 @@ O desenho completo está em [`docs/superpowers/specs/2026-10-13-coletor-liga-des
 ## Roadmap
 
 1. **Coleta da LigaMagic, admin e avisos no WhatsApp.** Pronto.
-2. **Coletores de outros marketplaces** (Mercado Livre, Amazon e outros).
-3. **Casamento de produtos** entre os marketplaces, com uma fila de revisão manual.
-4. **Motor de oportunidades**, considerando cupons e cashback.
-5. **Mensagens de oportunidade** num segundo grupo de WhatsApp.
+2. **Mais marketplaces.** Em andamento: a Amazon, o casamento de produtos e as oportunidades estão prontos; Mercado Livre e outros são os próximos.
+3. **Cupons, cashback, frete e comissão no cálculo.**
+4. **Migração para servidor.**
 
 ## Licença
 
