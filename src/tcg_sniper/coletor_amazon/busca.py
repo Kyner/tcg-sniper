@@ -118,6 +118,8 @@ def _vendedor(ctx: ContextoBusca, oferta: OfertaProduto) -> VendedorAmazon | Non
         if oferta.envio is Envio.AMAZON:
             return repo.vendedor_da_amazon(s)
         if oferta.seller_id is None:
+            if oferta.envio is Envio.FBA:
+                log.warning("oferta FBA sem seller_id em %s; vendedor não avaliado", oferta.asin)
             return None
         conhecido = repo.obter_vendedor(s, oferta.seller_id)
     recente = conhecido is not None and conhecido.avaliado_em is not None and (
