@@ -197,7 +197,7 @@ def test_mudanca_na_config_vale_no_passo_seguinte(engine, sessoes, config):
 
 
 def test_produto_desativado_no_meio_do_ciclo_sai_e_o_ciclo_fecha(engine, sessoes, config):
-    (a, _b), urls = produtos(sessoes, "a", "b")
+    (a, b), urls = produtos(sessoes, "a", "b")
     v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()})
     v.passo()
     buscado = navegador.visitadas[0]
