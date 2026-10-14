@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block titulo %}Trocar casamento · TCG Sniper{% endblock %}
+{% block conteudo %}
+<h2>Escolher o produto da Liga</h2>
+<p><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.titulo }}</a> ({{ anuncio.asin }})</p>
+<form method="get" action="/casamentos/{{ anuncio.id }}/trocar">
+  <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar no catálogo da Liga">
+</form>
+<table>
+  <tbody>
+  {% for p in produtos %}
+    <tr>
+      <td>{{ p.nome }}</td>
+      <td>
+        <form method="post" action="/casamentos/{{ anuncio.id }}">
+          <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ p.id }}">
+          <button>Escolher</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="2">Nenhum produto encontrado.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
