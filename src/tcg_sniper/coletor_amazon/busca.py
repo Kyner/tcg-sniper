@@ -72,7 +72,8 @@ def _ler[T](ctx: ContextoBusca, pagina: Pagina, sufixo: str, parser: Callable[[s
 
 
 def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> int:
-    """Busca o produto e confirma os candidatos. Devolve quantos candidatos houve.
+    """Busca o produto e confirma os candidatos. Devolve quantos candidatos foram conferidos na página
+    do produto (não quantos foram confirmados).
     Lança DesafioAmazon (CAPTCHA), ErroParser (layout) ou ErroRede (depois de uma nova tentativa)."""
     pagina = _abrir(ctx, url_busca(ctx.cfg, produto.nome))
     itens = _ler(ctx, pagina, "busca", lambda html: parse_busca(html, ctx.cfg.resultados_por_busca))
@@ -84,6 +85,7 @@ def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> int:
             if motor.atinge_desconto(
                 linha.atual.preco, linha.liga.preco_a_partir if linha.liga else None, ctx.cfg.desconto_min_pct
             )
+            or repo.oportunidade_aberta(s, linha.anuncio.id) is not None  # reconferir para poder fechar
         ]
     for anuncio_id, asin, url in candidatos:
         _confirmar(ctx, anuncio_id, asin, url)

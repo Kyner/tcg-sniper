@@ -200,3 +200,46 @@ def test_pagina_que_nao_le_salva_o_html_e_levanta(sessoes, config, produto):
     with pytest.raises(ErroParser):
         processar_produto(ctx, produto)
     assert (config.dir_dados / "falhas" / "amazon-1-1-busca.html").exists()
+
+
+def _paginas_preco(url, preco):
+    return {
+        url: busca(url, cartao_busca("B01", "Caixa FF", preco)),
+        url_produto("B01"): pagina_html(html_produto_amazon("Caixa FF", preco, "Amazon.com.br", None)),
+    }
+
+
+def test_oportunidade_aberta_e_rechecada_fecha_e_reabre(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        criar_anuncio(s, "B01", produto=produto, status=StatusCasamento.CONFIRMADO)
+        url = url_busca(repo.obter_config(s), NOME)
+    ctx, _, notificador = contexto(sessoes, config, _paginas_preco(url, "R$ 700,00"))
+    processar_produto(ctx, produto)
+    assert len(notificador.mensagens) == 1
+
+    ctx2, navegador2, notificador2 = contexto(sessoes, config, _paginas_preco(url, "R$ 800,00"))
+    assert processar_produto(ctx2, produto) == 1
+    assert url_produto("B01") in navegador2.visitadas
+    assert notificador2.mensagens == []
+    with sessoes() as s:
+        assert s.scalar(select(Oportunidade)).fechada_em is not None
+
+    ctx3, _, notificador3 = contexto(sessoes, config, _paginas_preco(url, "R$ 700,00"))
+    processar_produto(ctx3, produto)
+    assert len(notificador3.mensagens) == 1
+    with sessoes() as s:
+        assert s.scalar(select(func.count()).select_from(Oportunidade)) == 2
+
+
+def test_oportunidade_aberta_realerta_quando_o_preco_cai_mais(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        criar_anuncio(s, "B01", produto=produto, status=StatusCasamento.CONFIRMADO)
+        url = url_busca(repo.obter_config(s), NOME)
+    ctx, _, notificador = contexto(sessoes, config, _paginas_preco(url, "R$ 700,00"))
+    processar_produto(ctx, produto)
+    ctx2, _, notificador2 = contexto(sessoes, config, _paginas_preco(url, "R$ 665,00"))
+    processar_produto(ctx2, produto)
+    assert len(notificador.mensagens) == 1 and len(notificador2.mensagens) == 1
+    with sessoes() as s:
+        op = s.scalar(select(Oportunidade).where(Oportunidade.fechada_em.is_(None)))
+    assert op.preco_alertado == Decimal("665.00")
