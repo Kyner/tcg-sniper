@@ -13,7 +13,9 @@ Página de produto (`?view=prod/view&pcode=N`), estrutura observada em 2026-10-1
   `.price-mkp .min .price`, `.price-mkp .medium .price`, `.price-mkp .max .price`
   (ex.: "R$ 29,89"). ATENÇÃO: é um indicador histórico do marketplace, não o menor preço
   pedido agora — a página sem nenhuma loja (pcode 276) ainda mostra R$ 5.450,00 nos três.
-  As três páginas reais o têm, inclusive a sem lojas; ausente → `ErroParser`.
+  As três primeiras páginas reais o têm, inclusive a sem lojas. Sem lojas e sem venda
+  registrada (pcode 1527, coleta de 2026-10-14) o quadro não aparece → preços `None`, 0 lojas.
+  Ausente com lojas na página → `ErroParser`.
 - Número de lojas: filtro "Vendedores" (`.group-filter` cujo `.filter-header .title` tem
   `data-label="Vendedores"`), opção `.filter-option` com `.filter-infos[title="Lojas"]`,
   contador em `.filter-counter` (ex.: 94 com só 16 linhas no HTML). Sem lojas, a página não
@@ -106,6 +108,8 @@ def parse_produto(html: str) -> Resumo:
         raise ErroParser("estrutura da página de produto não encontrada")
     quadro = arvore.css_first(SELETOR_QUADRO_PRECOS)
     if quadro is None:
+        if arvore.css_first(SELETOR_SEM_LOJAS) is not None:
+            return Resumo(preco_min=None, preco_medio=None, preco_max=None, num_lojas=0)
         raise ErroParser("quadro de preços do marketplace não encontrado")
     preco_min, preco_medio, preco_max = (
         parse_preco_brl(_texto(quadro, seletor)) for seletor in SELETORES_PRECO

@@ -22,11 +22,13 @@
 | 10 | DONE, em `main` |
 | 11 | DONE, em `main` (`debbdde`, `c16a0f4`) |
 | 12 | DONE, em `main` (`80d0d25`) |
-| 13 | Steps 1 a 6 e 8 DONE, em `main` (`d19d0b3`, `eb66984`); Step 7 (smoke test completo) sem registro de execução |
+| 13 | Steps 1 a 6 e 8 DONE, em `main` (`d19d0b3`, `eb66984`); Step 7 (smoke test completo) DONE em 2026-10-14 (ver abaixo) |
 
 Fora do plano, já em `main`: navegador mantém o Chromium aberto no desafio para resolver pelo noVNC, alerta de coleta interrompida, aviso de `WHATSAPP_GRUPO_ADMIN` vazio, ruff configurado, categoria 20 removida de `LIGA_CATEGORIAS`, e no catálogo do admin paginação, filtros por categoria e preço e ativar/desativar em lote (`POST /catalogo/lote`).
 
-Pendente: o smoke test (Task 13, Step 7) e o critério de sucesso da spec (uma semana de coleta diária sem desafio, ou com desafio avisado e retomado pelo admin).
+Smoke test (2026-10-14, job agendado, 241 produtos ativos): coleta 3 (listagens) `ok`, 20 de 20 categorias em 18 min, sem desafio e sem limite de cliques; coleta 4 (produtos) `parcial`, 233 ok e 8 falhas em 66 min. As 8 falhas eram páginas sem lojas e sem venda registrada, que não mostram o quadro de preços; o parser passou a devolver preços `None` e 0 lojas nesse caso (fixture `produto_sem_historico`). Nenhuma mensagem no WhatsApp era esperada (sem produtos novos, sem desafio, status não `falha`); a instância da Evolution API estava conectada.
+
+Pendente: o critério de sucesso da spec (uma semana de coleta diária sem desafio, ou com desafio avisado e retomado pelo admin).
 
 Ordem original: 6 (parte 2) → 7 → 8 → 9 → 11 → 12 → 13. No redesenho de 2026-10-13 a numeração das tasks pendentes mudou: a antiga Task 7 (coleta de preços) virou a Task 9, a antiga Task 8 (varredura semanal do catálogo) foi substituída pela Task 8 (coleta das listagens), a antiga Task 9 (agendador) virou a Task 11 e a antiga Task 11 (CLI e Docker) virou a Task 13. As Tasks 7 (banco) e 12 (ajustes do admin) são novas.
 

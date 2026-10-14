@@ -13,6 +13,8 @@ TITULOS = {
     " | Busca de Produtos e Acessórios | LigaMagic",
     "produto_sem_estoque": "From the Vault: Relics Box Set | Busca de Produtos e Acessórios | LigaMagic",
     "produto_um_vendedor": "From the Vault: Exiled Box Set | Busca de Produtos e Acessórios | LigaMagic",
+    "produto_sem_historico": "Kit de Pré Lançamento - Khans de Tarkir - Jeskai"
+    " | Busca de Produtos e Acessórios | LigaMagic",
     "catalogo_pagina_1": "Busca: categ=10 searchprod=1"
     " | Busca de cards, produtos e preços de Magic: The Gathering | LigaMagic",
     "listagem_expandida": "Busca: categ=10 searchprod=1"
@@ -91,12 +93,28 @@ def test_produto_sem_estoque():
     )
 
 
+def test_produto_sem_historico():
+    # Sem lojas e sem venda registrada (pcode 1527, coleta de 2026-10-14) a página não mostra o
+    # quadro "Preço Médio de Venda no Marketplace": preços None, nunca zero.
+    assert parse_produto(fixture_liga("produto_sem_historico")) == Resumo(
+        preco_min=None,
+        preco_medio=None,
+        preco_max=None,
+        num_lojas=0,
+    )
+
+
 @pytest.mark.parametrize(
     "html",
     [
         "<html><body><p>layout novo</p></body></html>",
-        # sem o quadro "Preço Médio de Venda no Marketplace" (as 3 páginas reais o têm, até a sem lojas)
-        '<html><body><div id="marketplace-stores"><div class="alertaErro">Nenhum item</div></div></body></html>',
+        # tem lojas na página, mas o quadro "Preço Médio de Venda no Marketplace" sumiu
+        (
+            '<html><body><div id="marketplace-stores"><div class="store"></div></div>'
+            '<div class="group-filter"><div class="filter-header"><div class="title" data-label="Vendedores">'
+            '</div></div><div class="filter-option"><div class="filter-infos" title="Lojas"></div>'
+            '<div class="filter-counter">3</div></div></div></body></html>'
+        ),
         # tem lojas na página, mas o contador "Lojas" sumiu
         '<html><body><div id="marketplace-stores"><div class="store"></div></div></body></html>',
         # quadro de preços sem um dos valores
