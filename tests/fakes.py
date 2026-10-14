@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
-from tcg_sniper.db.models import ProdutoLiga
+from tcg_sniper.db.models import AnuncioAmazon, PrecoAtualLiga, ProdutoLiga, StatusCasamento
 from tcg_sniper.notificador.base import Destino
 
 T0 = datetime(2026, 10, 13, 13, 0, tzinfo=UTC)
@@ -106,3 +107,31 @@ class NavegadorFake:
         for _ in range(resposta.cliques):
             pausar()
         return resposta
+
+
+def criar_anuncio(s, asin="B000000001", produto=None, status=StatusCasamento.PENDENTE, agora=T0) -> AnuncioAmazon:
+    anuncio = AnuncioAmazon(
+        asin=asin,
+        titulo=f"Anúncio {asin}",
+        url=f"https://www.amazon.com.br/dp/{asin}",
+        produto_id=produto.id if produto is not None else None,
+        status_casamento=status,
+        visto_primeiro_em=agora,
+        visto_ultimo_em=agora,
+    )
+    s.add(anuncio)
+    s.flush()
+    return anuncio
+
+
+def criar_preco_liga(s, produto, preco, listagem_em=T0, num_lojas=None, preco_medio=None) -> PrecoAtualLiga:
+    atual = PrecoAtualLiga(
+        produto_id=produto.id,
+        preco_a_partir=None if preco is None else Decimal(preco),
+        listagem_em=listagem_em,
+        num_lojas=num_lojas,
+        preco_medio=None if preco_medio is None else Decimal(preco_medio),
+    )
+    s.add(atual)
+    s.flush()
+    return atual
