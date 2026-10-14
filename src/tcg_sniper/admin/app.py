@@ -1,7 +1,6 @@
 import re
 import secrets
 from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import parse_qs, urlencode
@@ -17,16 +16,10 @@ from tcg_sniper.admin import consultas
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.formatacao import formatar_brl
 
 SENHA_PADRAO = "trocar-esta-senha"
 MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
-
-
-def formatar_brl(valor: Decimal | None) -> str:
-    if valor is None:
-        return "—"
-    texto = f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {texto}"
 
 
 def formatar_data(dt: datetime | None, zona: ZoneInfo) -> str:
