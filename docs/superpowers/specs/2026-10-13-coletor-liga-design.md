@@ -1,7 +1,7 @@
 # Sub-projeto 1: coletor-liga, banco, admin e alerta admin
 
 Data: 2026-10-13 (redesenho da coleta em 2026-10-13, ver "Decisões de 2026-10-13")
-Contexto: `Monitor de arbitragem de selados de Magic.md` (visão geral do sistema)
+Contexto: visão geral do monitor de arbitragem (documento de planejamento fora deste repositório; o resumo dos sub-projetos está no Roadmap do README)
 
 ## Objetivo
 
