@@ -3,10 +3,7 @@ from decimal import Decimal
 
 from tcg_sniper.navegador.modelos import ErroRede as ErroRede  # noqa: PLC0414
 from tcg_sniper.navegador.modelos import Pagina as Pagina  # noqa: PLC0414
-
-
-class ErroParser(Exception):
-    """HTML não tem a estrutura esperada (provável mudança de layout)."""
+from tcg_sniper.parsing import ErroParser as ErroParser  # noqa: PLC0414
 
 
 @dataclass(frozen=True)

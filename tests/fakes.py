@@ -135,3 +135,10 @@ def criar_preco_liga(s, produto, preco, listagem_em=T0, num_lojas=None, preco_me
     s.add(atual)
     s.flush()
     return atual
+
+
+DIR_FIXTURES_AMAZON = Path(__file__).parent / "fixtures" / "amazon"
+
+
+def fixture_amazon(nome: str) -> str:
+    return (DIR_FIXTURES_AMAZON / f"{nome}.html").read_text(encoding="utf-8")
