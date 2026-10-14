@@ -15,14 +15,14 @@
 | Task | Situação |
 | --- | --- |
 | 1 a 5 | DONE, em `main` |
-| 6 | DONE, em `main`: parte 1 (página de produto, só resumo) e parte 2 (listagem e "Exibir mais", `f894206`, merge `1006506`) |
-| 7 | DONE, em `main` (`68cfc43`) |
-| 8 | DONE, em `main` (`59ec7cf`, `df7b925`) |
-| 9 | DONE, em `main` (`4af168a`) |
+| 6 | DONE, em `main`: parte 1 (página de produto, só resumo) e parte 2 (listagem e "Exibir mais", `1c560c1`, merge `87bfa82`) |
+| 7 | DONE, em `main` (`e01b399`) |
+| 8 | DONE, em `main` (`473b539`, `aa0886c`) |
+| 9 | DONE, em `main` (`de0f82e`) |
 | 10 | DONE, em `main` |
-| 11 | DONE, em `main` (`debbdde`, `c16a0f4`) |
-| 12 | DONE, em `main` (`80d0d25`) |
-| 13 | Steps 1 a 6 e 8 DONE, em `main` (`d19d0b3`, `eb66984`); Step 7 (smoke test completo) DONE em 2026-10-14 (ver abaixo) |
+| 11 | DONE, em `main` (`59c85b1`, `1661202`) |
+| 12 | DONE, em `main` (`6ef2bae`) |
+| 13 | Steps 1 a 6 e 8 DONE, em `main` (`c82f6c8`, `4b5bbdf`); Step 7 (smoke test completo) DONE em 2026-10-14 (ver abaixo) |
 
 Fora do plano, já em `main`: navegador mantém o Chromium aberto no desafio para resolver pelo noVNC, alerta de coleta interrompida, aviso de `WHATSAPP_GRUPO_ADMIN` vazio, ruff configurado, categoria 20 removida de `LIGA_CATEGORIAS`, e no catálogo do admin paginação, filtros por categoria e preço e ativar/desativar em lote (`POST /catalogo/lote`).
 
@@ -406,7 +406,7 @@ git commit -m "chore: project skeleton, config and local postgres"
 
 ### Task 2: Modelos do banco e migração inicial (DONE)
 
-> **DONE** (`def518f`, em `main`; tabela `oferta_liga` removida em `8ce832f`). Texto mantido como registro; os modelos abaixo são os de antes do redesenho. A Task 7 troca `TipoColeta` para `LISTAGEM`/`PRODUTOS`, cria `preco_listagem`, divide `preco_atual_liga` em dois grupos de colunas e edita a migração inicial no lugar.
+> **DONE** (`def518f`, em `main`; tabela `oferta_liga` removida em `0a7476a`). Texto mantido como registro; os modelos abaixo são os de antes do redesenho. A Task 7 troca `TipoColeta` para `LISTAGEM`/`PRODUTOS`, cria `preco_listagem`, divide `preco_atual_liga` em dois grupos de colunas e edita a migração inicial no lugar.
 
 **Files:**
 - Create: `src/tcg_sniper/db/__init__.py`, `src/tcg_sniper/db/models.py`, `src/tcg_sniper/db/session.py`
@@ -706,7 +706,7 @@ git commit -m "feat: database models and initial migration"
 
 ### Task 3: Modelos de domínio, resumo de preço e repositório (DONE)
 
-> **DONE** (`dbdff54`, em `main`; revisado em `8ce832f`). Texto mantido como registro. A Task 7 troca `ItemCatalogo`/`PaginaCatalogo` por `ItemListagem` (Task 6) e reescreve `repositorio.py` e `tests/db/test_repositorio.py`.
+> **DONE** (`dbdff54`, em `main`; revisado em `0a7476a`). Texto mantido como registro. A Task 7 troca `ItemCatalogo`/`PaginaCatalogo` por `ItemListagem` (Task 6) e reescreve `repositorio.py` e `tests/db/test_repositorio.py`.
 
 > **Revisão 2026-10-13 (só resumo):** as ofertas por vendedor da LigaMagic são ofuscadas (sprite CSS) e só 16 aparecem sem JavaScript; por decisão do usuário o coletor guarda só o resumo textual da página (mín, médio, máx, nº de lojas). `Oferta`, `calcular_resumo` e `oferta_liga` foram removidos; os blocos abaixo já refletem o código atual. Ver a spec, "Decisão: só o resumo de preços".
 
@@ -1636,7 +1636,7 @@ git commit -m "feat: playwright browser wrapper, challenge detection and fixture
 
 ### Task 6: Parsers da LigaMagic e expansão da listagem (com fixtures reais)
 
-> **Parte 1 DONE (2026-10-13, `wip/task-6`, `8ce832f` a `337ac9b`): página de produto, só resumo.** A primeira captura mostrou que as ofertas por vendedor não são utilizáveis: preço e quantidade de cada oferta são desenhados com sprite CSS (classes aleatórias + `background-position`), a loja é só um logotipo, e a página mostra 16 ofertas com um botão "Ver Mais" (JavaScript) para o resto (16 de 94 na fixture). Decisão do usuário: não decodificar o sprite e não clicar em "Ver Mais"; ler só o quadro textual "Preço Médio de Venda no Marketplace" (mín, médio, máx; é histórico de venda, não o preço pedido agora) e o contador "Lojas". `parse_ofertas`/`parse_quantidade` saíram do contrato. Steps 1 a 6 abaixo.
+> **Parte 1 DONE (2026-10-13, `wip/task-6`, `0a7476a` a `1b99d28`): página de produto, só resumo.** A primeira captura mostrou que as ofertas por vendedor não são utilizáveis: preço e quantidade de cada oferta são desenhados com sprite CSS (classes aleatórias + `background-position`), a loja é só um logotipo, e a página mostra 16 ofertas com um botão "Ver Mais" (JavaScript) para o resto (16 de 94 na fixture). Decisão do usuário: não decodificar o sprite e não clicar em "Ver Mais"; ler só o quadro textual "Preço Médio de Venda no Marketplace" (mín, médio, máx; é histórico de venda, não o preço pedido agora) e o contador "Lojas". `parse_ofertas`/`parse_quantidade` saíram do contrato. Steps 1 a 6 abaixo.
 >
 > **Parte 2 (pendente): listagem de categoria.** Não existe listagem única de selados: são 20 categorias (a 21ª do levantamento, categoria 20, foi removida: tem um produto só e a URL da listagem cai na página do produto) (`?view=cards/search&card=categ%3D<ID>+searchprod%3D1&tipo=1`). Cada carga mostra 40 cartões com link (`pcode`), nome e o preço atual "À partir de"; mais cartões só pelo botão "Exibir mais" (`mcards.nextPage(40)`), sem link de próxima página. Decisão do usuário (2026-10-13): o job diário abre todas as categorias e clica em "Exibir mais" até acabar, com pausa humana entre cliques. `parse_catalogo`/`PaginaCatalogo` ficam obsoletos (removidos na Task 7). Steps 7 a 12 abaixo.
 
