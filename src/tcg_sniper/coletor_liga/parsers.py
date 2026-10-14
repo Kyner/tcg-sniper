@@ -1,4 +1,4 @@
-"""Parsers puros do HTML da LigaMagic, escritos a partir das fixtures reais em tests/fixtures/liga.
+"""Parsers puros do HTML da LigaMagic, escritos a partir de páginas reais (recortadas em tests/fixtures/liga).
 
 Página de produto (`?view=prod/view&pcode=N`), estrutura observada em 2026-10-13:
 

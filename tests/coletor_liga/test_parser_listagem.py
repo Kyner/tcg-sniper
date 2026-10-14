@@ -77,7 +77,8 @@ def test_listagem_sem_estrutura(html):
         parse_listagem(html, URL_CATEG_10)
 
 
-# Contagens de tests/fixtures/liga/listagem_expandida.html impressas na captura (Task 6, Step 11).
+# Contagens de tests/fixtures/liga/listagem_expandida.html impressas na captura (Task 6, Step 11);
+# o recorte (scripts/recortar_fixture.py) mantém a grade inteira, então valem igual.
 CARTOES_EXPANDIDA = 160
 UNICOS_EXPANDIDA = 160
 SEM_PRECO_EXPANDIDA = 0
