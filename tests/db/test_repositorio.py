@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import (
+    COLETOR_AMAZON,
     Coleta,
     EstadoColetorTipo,
     PrecoAtualLiga,
@@ -196,16 +197,32 @@ def test_estado_pausa_retoma_e_solicitacao(s):
     assert repo.consumir_solicitacao(s, T0) is False
 
 
-def test_marcar_interrompidas(s):
+def test_marcar_interrompidas_so_dos_tipos_pedidos(s):
     rodando = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
     pronta = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
     repo.finalizar_coleta(s, pronta.id, StatusColeta.OK, 1, 0, T0)
+    ciclo_amazon = repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
 
-    assert repo.marcar_interrompidas(s, T0 + timedelta(hours=1)) == 1
+    assert repo.marcar_interrompidas(s, T0 + timedelta(hours=1), (TipoColeta.LISTAGEM, TipoColeta.PRODUTOS)) == 1
     s.expire_all()
     assert s.get(Coleta, rodando.id).status is StatusColeta.FALHA
     assert s.get(Coleta, rodando.id).erro == "interrompida"
     assert s.get(Coleta, pronta.id).status is StatusColeta.OK
+    assert s.get(Coleta, ciclo_amazon.id).status is StatusColeta.RODANDO
+
+
+def test_estado_por_coletor_e_independente(s):
+    repo.pausar_por_desafio(s, "desafio em /x", T0)
+    assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
+
+    repo.pausar(s, "erros seguidos", T0, COLETOR_AMAZON)
+    amazon = repo.obter_estado(s, coletor=COLETOR_AMAZON)
+    assert (amazon.estado, amazon.motivo) == (EstadoColetorTipo.PAUSADO, "erros seguidos")
+    assert repo.obter_estado(s).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+
+    repo.retomar(s, T0, COLETOR_AMAZON)
+    assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
+    assert repo.obter_estado(s).estado is EstadoColetorTipo.PAUSADO_DESAFIO
 
 
 def test_ultima_coleta_sucesso_ignora_falha_e_pausada(s):

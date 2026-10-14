@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 ID_LOCK = 7_202_610
 INTERVALO_TICK_S = 60
+TIPOS_LIGA = (TipoColeta.LISTAGEM, TipoColeta.PRODUTOS)
 
 
 def alvo_do_dia(dia: date, hora: time, jitter_min: int, fuso: ZoneInfo, rng: random.Random) -> datetime:
@@ -30,16 +31,16 @@ def alvo_do_dia(dia: date, hora: time, jitter_min: int, fuso: ZoneInfo, rng: ran
 
 
 @contextmanager
-def lock_coleta(engine: Engine) -> Iterator[bool]:
+def lock_coleta(engine: Engine, id_lock: int = ID_LOCK) -> Iterator[bool]:
     # AUTOCOMMIT: o lock é de sessão; sem transação aberta a conexão não fica "idle in transaction"
     # durante o job (e um idle_in_transaction_session_timeout não derruba o lock em silêncio).
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conexao:
-        obtido = bool(conexao.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": ID_LOCK}).scalar_one())
+        obtido = bool(conexao.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": id_lock}).scalar_one())
         try:
             yield obtido
         finally:
             if obtido:
-                conexao.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": ID_LOCK})
+                conexao.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": id_lock})
 
 
 class Agendador:
@@ -75,7 +76,7 @@ class Agendador:
     def inicializar(self) -> None:
         agora = self._relogio()
         with self._sessoes() as s, s.begin():
-            interrompidas = repo.marcar_interrompidas(s, agora)
+            interrompidas = repo.marcar_interrompidas(s, agora, TIPOS_LIGA)
             ultima = repo.ultima_coleta_sucesso(s, TipoColeta.PRODUTOS)
         if interrompidas:
             log.warning("%d coleta(s) interrompida(s) marcadas como falha", interrompidas)
