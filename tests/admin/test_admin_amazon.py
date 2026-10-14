@@ -187,3 +187,27 @@ def test_acoes_invalidas(cliente, sessoes, dados, codigo):
 
 def test_anuncio_inexistente_404(cliente):
     assert cliente.post("/casamentos/999999", data={"acao": "ignorar"}).status_code == 404
+
+
+def test_pendentes_com_catalogo_grande_acha_as_alternativas_certas(s):
+    marcas = ["Alpha", "Bravo", "Cobalt", "Delta", "Echo", "Foxtrot"]
+    for i in range(300):
+        criar_produto(s, f"c{i}", nome=f"Caixa de Booster {marcas[i % 6]} Serie{i} Edicao Especial")
+    alvo = criar_produto(s, "alvo", nome="Caixa de Booster Zulu Colecionador")
+    criar_produto(s, "alvo2", nome="Caixa de Booster Zulu Colecionador Plus")
+    anuncio_com_preco(s, "B01", alvo, "100.00", titulo="Booster Zulu Colecionador Plus Box")
+    anuncio_com_preco(s, "B02", None, "100.00", titulo="Cobalt Serie42 Booster")
+    linhas, total = consultas_amazon.pendentes(s, desconto_min_pct=25)
+    assert total == 2
+    por_asin = {linha.anuncio.asin: linha for linha in linhas}
+    nomes = [p.nome for p in por_asin["B01"].alternativas]
+    assert nomes[0] == "Caixa de Booster Zulu Colecionador Plus"
+    assert len(nomes) <= 3 and alvo.nome not in nomes
+    assert len(por_asin["B02"].alternativas) <= 3
+    assert "Caixa de Booster Cobalt Serie42 Edicao Especial" in [p.nome for p in por_asin["B02"].alternativas]
+
+
+def test_aba_revisados_mostra_contagem_de_pendentes(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        anuncio_com_preco(s, "B01", criar_produto(s, "ff"), "700.00")
+    assert "1 pendentes" in cliente.get("/casamentos?aba=revisados").text

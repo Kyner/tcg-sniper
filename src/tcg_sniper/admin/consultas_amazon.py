@@ -4,7 +4,7 @@ import difflib
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.admin.consultas import _escapar_like
@@ -45,6 +45,16 @@ def _normalizar(texto: str) -> str:
     return termo_busca(texto).lower()
 
 
+def _tokens(texto_normalizado: str) -> set[str]:
+    return {token for token in texto_normalizado.split() if len(token) >= 3}
+
+
+def contar_pendentes(s: Session) -> int:
+    return s.scalar(
+        select(func.count()).select_from(AnuncioAmazon).where(AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE)
+    )
+
+
 def pendentes(s: Session, desconto_min_pct: int, limite: int = 20) -> tuple[list[LinhaCasamento], int]:
     """Pendentes que seriam oportunidade primeiro; depois os demais, mais recentes primeiro.
     Cada linha traz até 3 outros produtos do catálogo com título parecido (difflib)."""
@@ -61,15 +71,27 @@ def pendentes(s: Session, desconto_min_pct: int, limite: int = 20) -> tuple[list
     ]
     linhas.sort(key=lambda linha: (not linha[4], -linha[0].visto_primeiro_em.timestamp(), linha[0].id))
     total = len(linhas)
-    catalogo = list(s.scalars(select(ProdutoLiga).order_by(ProdutoLiga.id)))
-    por_nome: dict[str, ProdutoLiga] = {}
-    for produto in catalogo:
-        por_nome.setdefault(_normalizar(produto.nome), produto)
-    resultado = []
+    por_nome: dict[str, int] = {}
+    indice: dict[str, set[str]] = {}
+    for produto_id, nome in s.execute(select(ProdutoLiga.id, ProdutoLiga.nome).order_by(ProdutoLiga.id)):
+        normalizado = _normalizar(nome)
+        if por_nome.setdefault(normalizado, produto_id) != produto_id:
+            continue
+        for token in _tokens(normalizado):
+            indice.setdefault(token, set()).add(normalizado)
+    escolhidos = []
     for anuncio, preco, sugestao, preco_liga, candidato in linhas[:limite]:
-        parecidos = difflib.get_close_matches(_normalizar(anuncio.titulo), list(por_nome), n=4, cutoff=0.3)
-        alternativas = [por_nome[nome] for nome in parecidos if sugestao is None or por_nome[nome].id != sugestao.id]
-        resultado.append(LinhaCasamento(anuncio, preco, sugestao, preco_liga, alternativas[:3], candidato))
+        titulo = _normalizar(anuncio.titulo)
+        candidatos = sorted(set().union(*(indice.get(token, set()) for token in _tokens(titulo))))
+        parecidos = difflib.get_close_matches(titulo, candidatos, n=4, cutoff=0.3)
+        ids = [por_nome[nome] for nome in parecidos if sugestao is None or por_nome[nome] != sugestao.id]
+        escolhidos.append((anuncio, preco, sugestao, preco_liga, candidato, ids[:3]))
+    ids_usados = {i for *_, ids in escolhidos for i in ids}
+    produtos = {p.id: p for p in s.scalars(select(ProdutoLiga).where(ProdutoLiga.id.in_(ids_usados)))}
+    resultado = [
+        LinhaCasamento(anuncio, preco, sugestao, preco_liga, [produtos[i] for i in ids], candidato)
+        for anuncio, preco, sugestao, preco_liga, candidato, ids in escolhidos
+    ]
     return resultado, total
 
 

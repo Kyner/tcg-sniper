@@ -244,7 +244,10 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
         with sessoes() as s, s.begin():
             config = repo_amz.obter_config(s)
-            linhas, total = consultas_amazon.pendentes(s, config.desconto_min_pct)
+            if aba == "pendentes":
+                linhas, total = consultas_amazon.pendentes(s, config.desconto_min_pct)
+            else:
+                linhas, total = [], consultas_amazon.contar_pendentes(s)
             return templates.TemplateResponse(
                 request,
                 "casamentos.html",
