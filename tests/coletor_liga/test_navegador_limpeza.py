@@ -3,9 +3,10 @@
 import pytest
 from playwright.sync_api import Error as PlaywrightError
 
-from tcg_sniper.coletor_liga import navegador as modulo
+from tcg_sniper.coletor_liga.desafio import eh_desafio
 from tcg_sniper.coletor_liga.modelos import ErroRede
 from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
+from tcg_sniper.navegador import chromium as modulo
 
 
 class PaginaPw:
@@ -101,6 +102,7 @@ def test_falha_ao_fechar_o_contexto_ainda_para_o_playwright(monkeypatch, tmp_pat
 def navegador_com(pagina):
     n = NavegadorPlaywright.__new__(NavegadorPlaywright)
     n._timeout_ms, n._espera_ms = 1_000, 0
+    n._eh_desafio = eh_desafio
     n._pagina = pagina
     return n
 

@@ -1,13 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
+
+from tcg_sniper.navegador.modelos import ErroRede as ErroRede  # noqa: PLC0414
+from tcg_sniper.navegador.modelos import Pagina as Pagina  # noqa: PLC0414
 
 
 class ErroParser(Exception):
     """HTML não tem a estrutura esperada (provável mudança de layout)."""
-
-
-class ErroRede(Exception):
-    """Falha de navegação: timeout, conexão, DNS."""
 
 
 @dataclass(frozen=True)
@@ -22,15 +21,6 @@ class Resumo:
     preco_medio: Decimal | None
     preco_max: Decimal | None
     num_lojas: int
-
-
-@dataclass(frozen=True)
-class Pagina:
-    url: str
-    status: int
-    html: str
-    titulo: str
-    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
