@@ -49,10 +49,25 @@ def _tokens(texto_normalizado: str) -> set[str]:
     return {token for token in texto_normalizado.split() if len(token) >= 3}
 
 
+FREQUENCIA_MAXIMA_TOKEN = 0.10
+
+
+def candidatos_para(titulo_normalizado: str, nomes: list[str], indice: dict[str, set[str]]) -> list[str]:
+    """Nomes do catálogo (na ordem do catálogo) que compartilham ao menos um token raro com o título.
+    Tokens em mais de 10% dos nomes são genéricos e ignorados; sem token raro, compara com todos."""
+    limite = FREQUENCIA_MAXIMA_TOKEN * len(nomes)
+    raros = [t for t in _tokens(titulo_normalizado) if t in indice and len(indice[t]) <= limite]
+    if not raros:
+        return nomes
+    comuns = set().union(*(indice[t] for t in raros))
+    return [nome for nome in nomes if nome in comuns]
+
+
 def contar_pendentes(s: Session) -> int:
-    return s.scalar(
+    consulta = (
         select(func.count()).select_from(AnuncioAmazon).where(AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE)
     )
+    return int(s.scalar(consulta) or 0)
 
 
 def pendentes(s: Session, desconto_min_pct: int, limite: int = 20) -> tuple[list[LinhaCasamento], int]:
@@ -79,10 +94,11 @@ def pendentes(s: Session, desconto_min_pct: int, limite: int = 20) -> tuple[list
             continue
         for token in _tokens(normalizado):
             indice.setdefault(token, set()).add(normalizado)
+    nomes = list(por_nome)
     escolhidos = []
     for anuncio, preco, sugestao, preco_liga, candidato in linhas[:limite]:
         titulo = _normalizar(anuncio.titulo)
-        candidatos = sorted(set().union(*(indice.get(token, set()) for token in _tokens(titulo))))
+        candidatos = candidatos_para(titulo, nomes, indice)
         parecidos = difflib.get_close_matches(titulo, candidatos, n=4, cutoff=0.3)
         ids = [por_nome[nome] for nome in parecidos if sugestao is None or por_nome[nome] != sugestao.id]
         escolhidos.append((anuncio, preco, sugestao, preco_liga, candidato, ids[:3]))

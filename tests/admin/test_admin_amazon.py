@@ -190,21 +190,33 @@ def test_anuncio_inexistente_404(cliente):
 
 
 def test_pendentes_com_catalogo_grande_acha_as_alternativas_certas(s):
-    marcas = ["Alpha", "Bravo", "Cobalt", "Delta", "Echo", "Foxtrot"]
     for i in range(300):
-        criar_produto(s, f"c{i}", nome=f"Caixa de Booster {marcas[i % 6]} Serie{i} Edicao Especial")
-    alvo = criar_produto(s, "alvo", nome="Caixa de Booster Zulu Colecionador")
-    criar_produto(s, "alvo2", nome="Caixa de Booster Zulu Colecionador Plus")
-    anuncio_com_preco(s, "B01", alvo, "100.00", titulo="Booster Zulu Colecionador Plus Box")
-    anuncio_com_preco(s, "B02", None, "100.00", titulo="Cobalt Serie44 Booster")
+        criar_produto(s, f"c{i}", nome=f"Caixa de Booster Magic Edicao Serie{i}")
+    alvo = criar_produto(s, "alvo", nome="Caixa de Booster Magic Zulu Colecionador")
+    criar_produto(s, "alvo2", nome="Caixa de Booster Magic Zulu Colecionador Plus")
+    criar_produto(s, "alvo3", nome="Display Zulu Especial")
+    anuncio_com_preco(s, "B01", alvo, "100.00", titulo="Caixa de Booster Magic Zulu Colecionador Plus Box")
+    anuncio_com_preco(s, "B02", None, "100.00", titulo="Caixa de Booster Magic")  # so tokens genericos
     linhas, total = consultas_amazon.pendentes(s, desconto_min_pct=25)
     assert total == 2
     por_asin = {linha.anuncio.asin: linha for linha in linhas}
     nomes = [p.nome for p in por_asin["B01"].alternativas]
-    assert nomes[0] == "Caixa de Booster Zulu Colecionador Plus"
-    assert len(nomes) <= 3 and alvo.nome not in nomes
-    assert len(por_asin["B02"].alternativas) <= 3
-    assert "Caixa de Booster Cobalt Serie44 Edicao Especial" in [p.nome for p in por_asin["B02"].alternativas]
+    assert nomes[0] == "Caixa de Booster Magic Zulu Colecionador Plus"
+    assert alvo.nome not in nomes
+    assert len(por_asin["B02"].alternativas) == 3  # fallback: compara com o catalogo todo
+
+
+def test_candidatos_para_ignora_tokens_genericos_e_cai_para_todos():
+    nomes = [f"caixa de booster magic edicao serie{i}" for i in range(300)]
+    nomes += ["caixa de booster magic zulu colecionador", "display zulu especial"]
+    indice: dict[str, set[str]] = {}
+    for nome in nomes:
+        for token in consultas_amazon._tokens(nome):
+            indice.setdefault(token, set()).add(nome)
+    candidatos = consultas_amazon.candidatos_para("caixa de booster magic zulu colecionador plus", nomes, indice)
+    assert candidatos == ["caixa de booster magic zulu colecionador", "display zulu especial"]
+    assert len(candidatos) < len(nomes) / 50
+    assert consultas_amazon.candidatos_para("caixa de booster magic", nomes, indice) == nomes
 
 
 def test_aba_revisados_mostra_contagem_de_pendentes(cliente, sessoes):
