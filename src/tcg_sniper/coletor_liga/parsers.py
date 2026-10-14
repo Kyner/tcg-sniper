@@ -47,8 +47,8 @@ from urllib.parse import urljoin
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
 from tcg_sniper.coletor_liga.modelos import ErroParser, ItemListagem, Resumo
+from tcg_sniper.parsing import parse_preco_brl as parse_preco_brl  # noqa: PLC0414
 
-_RE_PRECO = re.compile(r"(\d{1,3}(?:\.\d{3})+|\d+),(\d{2})")
 _RE_INTEIRO = re.compile(r"^\d+$")
 
 SELETOR_ESTRUTURA_PRODUTO = "#marketplace-stores"
@@ -68,16 +68,6 @@ SELETOR_PRECO_A_PARTIR = ".smallest-price"
 SELETOR_SEM_ESTOQUE = ".price-out-of-stock"
 SELETOR_CATEGORIA_CARTAO = ".card-section a"
 _RE_PCODE = re.compile(r"[?&]pcode=(\d+)")
-
-
-def parse_preco_brl(texto: str) -> Decimal:
-    """"R$ 1.234,56" → Decimal("1234.56"). Sem "R$", NBSP e espaços nas pontas, o texto inteiro
-    tem de ser um preço: qualquer sobra → `ErroParser` (nunca truncar)."""
-    limpo = texto.replace("\xa0", " ").strip().removeprefix("R$").strip()
-    m = _RE_PRECO.fullmatch(limpo)
-    if not m:
-        raise ErroParser(f"preço inválido: {texto!r}")
-    return Decimal(f"{m.group(1).replace('.', '')}.{m.group(2)}")
 
 
 def _texto(no: LexborNode, seletor: str) -> str:
