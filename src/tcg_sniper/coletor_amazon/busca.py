@@ -29,6 +29,8 @@ from tcg_sniper.parsing import ErroParser
 
 log = logging.getLogger(__name__)
 
+MAX_CONFIRMADOS_AUSENTES = 5  # anúncios confirmados fora da busca conferidos por busca
+
 
 class DesafioAmazon(Exception):
     def __init__(self, url: str):
@@ -92,8 +94,8 @@ def _ler[T](ctx: ContextoBusca, pagina: Pagina, sufixo: str, parser: Callable[[s
 
 
 def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> int:
-    """Busca o produto e confirma os candidatos. Devolve quantos candidatos foram conferidos na página
-    do produto (não quantos foram confirmados).
+    """Busca o produto e confirma os candidatos. Devolve quantos anúncios foram conferidos na página
+    do produto (candidatos da busca mais confirmados ausentes da busca), não quantos foram confirmados.
     Lança DesafioAmazon (CAPTCHA), ErroParser (layout) ou ErroRede (depois de uma nova tentativa)."""
     pagina = _abrir(ctx, url_busca(ctx.cfg, produto.nome))
     itens = _ler(ctx, pagina, "busca", lambda html: parse_busca(html, ctx.cfg.resultados_por_busca))
@@ -107,9 +109,15 @@ def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> int:
             )
             or repo.oportunidade_aberta(s, linha.anuncio.id) is not None  # reconferir para poder fechar
         ]
-    for anuncio_id, asin, url in candidatos:
+        # Confirmados do produto que a busca não trouxe (link manual, anúncio que saiu da 1ª página).
+        ausentes = repo.confirmados_ausentes(
+            s, produto.id, {a.asin for a in anuncios}, MAX_CONFIRMADOS_AUSENTES
+        )
+    ja_conferidos = {anuncio_id for anuncio_id, _, _ in candidatos}
+    conferir = candidatos + [a for a in ausentes if a[0] not in ja_conferidos]
+    for anuncio_id, asin, url in conferir:
         _confirmar(ctx, anuncio_id, asin, url)
-    return len(candidatos)
+    return len(conferir)
 
 
 def _vendedor(ctx: ContextoBusca, oferta: OfertaProduto) -> VendedorAmazon | None:
@@ -147,6 +155,7 @@ def _confirmar(ctx: ContextoBusca, anuncio_id: int, asin: str, url: str) -> None
         repo.registrar_preco(
             s, anuncio_id, oferta.preco, OrigemPreco.PRODUTO, vendedor_id, oferta.envio, agora, ctx.config.zona
         )
+        repo.atualizar_leitura(s, anuncio_id, oferta.titulo, agora)
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
         if not linhas:  # o casamento foi desfeito no admin enquanto a página abria
             return
