@@ -17,10 +17,23 @@ from fakes import (
 )
 from sqlalchemy import func, select
 
-from tcg_sniper.coletor_amazon.busca import ContextoBusca, DesafioAmazon, processar_produto, url_busca
+from tcg_sniper.coletor_amazon.busca import (
+    MAX_CONFIRMADOS_AUSENTES,
+    ContextoBusca,
+    DesafioAmazon,
+    processar_produto,
+    url_busca,
+)
 from tcg_sniper.coletor_amazon.parsers import url_produto, url_vendedor
 from tcg_sniper.db import repositorio_amazon as repo
-from tcg_sniper.db.models import AnuncioAmazon, Oportunidade, StatusCasamento, VendedorAmazon
+from tcg_sniper.db.models import (
+    AnuncioAmazon,
+    Envio,
+    Oportunidade,
+    OrigemPreco,
+    StatusCasamento,
+    VendedorAmazon,
+)
 from tcg_sniper.notificador.base import Destino
 from tcg_sniper.parsing import ErroParser
 
@@ -243,3 +256,70 @@ def test_oportunidade_aberta_realerta_quando_o_preco_cai_mais(sessoes, config, p
     with sessoes() as s:
         op = s.scalar(select(Oportunidade).where(Oportunidade.fechada_em.is_(None)))
     assert op.preco_alertado == Decimal("665.00")
+
+
+def test_confirmado_ausente_da_busca_tem_a_pagina_lida_e_o_titulo_atualizado(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        manual = repo.casar_link_manual(s, produto.id, "B0MANUAL01", AGORA - timedelta(hours=1))
+        url = url_busca(repo.obter_config(s), NOME)
+    paginas = {
+        url: busca(url, cartao_busca("B01", "Outra coisa", "R$ 100,00")),
+        url_produto("B0MANUAL01"): pagina_html(
+            html_produto_amazon("Caixa FF lida na página", "R$ 699,90", "Amazon.com.br", "Amazon.com.br")
+        ),
+    }
+    ctx, navegador, notificador = contexto(sessoes, config, paginas)
+    assert processar_produto(ctx, produto) == 1
+    assert navegador.visitadas == [url, url_produto("B0MANUAL01")]
+    with sessoes() as s:
+        lido = s.get(AnuncioAmazon, manual.id)
+    assert (lido.titulo, lido.visto_ultimo_em) == ("Caixa FF lida na página", AGORA)
+    [(destino, texto)] = notificador.mensagens
+    assert destino is Destino.OPORTUNIDADES and "R$ 699,90" in texto
+
+
+def test_no_maximo_5_ausentes_por_busca_os_mais_antigos_primeiro(sessoes, config, produto):
+    asins = [f"B0AUSENT{i:02d}" for i in range(7)]
+    with sessoes() as s, s.begin():
+        url = url_busca(repo.obter_config(s), NOME)
+        for i, asin in enumerate(asins):
+            anuncio = criar_anuncio(s, asin, produto=produto, status=StatusCasamento.CONFIRMADO)
+            if i > 0:  # o 0 nunca foi lido; os demais, do mais antigo (1) ao mais novo (6)
+                repo.registrar_preco(
+                    s, anuncio.id, Decimal("900.00"), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO,
+                    AGORA - timedelta(hours=10 - i), config.zona,
+                )
+    paginas = {url: busca(url)}
+    for asin in asins:
+        paginas[url_produto(asin)] = pagina_html(html_produto_amazon(f"Item {asin}", "R$ 900,00", "Loja", "Loja"))
+    ctx, navegador, _ = contexto(sessoes, config, paginas)
+    assert processar_produto(ctx, produto) == MAX_CONFIRMADOS_AUSENTES == 5
+    assert navegador.visitadas == [url] + [url_produto(a) for a in asins[:5]]
+
+
+def test_ausente_que_ja_e_candidato_nao_e_lido_duas_vezes(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        criar_anuncio(s, "B01", produto=produto, status=StatusCasamento.CONFIRMADO)
+        url = url_busca(repo.obter_config(s), NOME)
+    paginas = {
+        url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 700,00")),
+        url_produto("B01"): pagina_html(html_produto_amazon("Caixa FF", "R$ 700,00", "Amazon.com.br", None)),
+    }
+    ctx, navegador, _ = contexto(sessoes, config, paginas)
+    assert processar_produto(ctx, produto) == 1
+    assert navegador.visitadas == [url, url_produto("B01")]
+
+
+def test_ausente_cuja_pagina_nao_le_segue_o_fluxo_de_erro(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        criar_anuncio(s, "B0SUMIU001", produto=produto, status=StatusCasamento.CONFIRMADO)
+        url = url_busca(repo.obter_config(s), NOME)
+    paginas = {
+        url: busca(url, cartao_busca("B0NOVO0001", "Novo pendente", "R$ 10,00")),
+        url_produto("B0SUMIU001"): pagina_html("<html><body>página não encontrada</body></html>"),
+    }
+    ctx, _, _ = contexto(sessoes, config, paginas)
+    with pytest.raises(ErroParser):
+        processar_produto(ctx, produto)
+    with sessoes() as s:  # a busca já tinha sido gravada antes da leitura que falhou
+        assert s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B0NOVO0001")) is not None
