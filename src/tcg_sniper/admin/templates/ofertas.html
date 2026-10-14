@@ -2,24 +2,51 @@
 {% block titulo %}Ofertas · TCG Sniper{% endblock %}
 {% block conteudo %}
 <h2>Ofertas Amazon × Liga</h2>
-<p>
-  {% for f in filtros %}<a href="/ofertas?filtro={{ f }}"{% if f == filtro %} aria-current="page"{% endif %}>{{ {"todas": "Todas", "desconto": "Só ≥ " ~ desconto_min_pct ~ "%", "abertas": "Só oportunidades abertas"}[f] }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
-</p>
+<form method="get" action="/ofertas" class="filtros">
+  <fieldset role="group">
+    <input type="search" name="busca" value="{{ f.busca }}" placeholder="Buscar produto">
+    <button type="submit">Filtrar</button>
+  </fieldset>
+  <div class="grid">
+    <select name="categoria" aria-label="Categoria">
+      <option value="">todas as categorias</option>
+      {% for c in categorias %}<option value="{{ c }}" {% if c == f.categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+    <input type="number" name="desconto_min" min="0" max="100" value="{{ desconto_texto }}" placeholder="Desconto mínimo (%)" aria-label="Desconto mínimo (%)">
+    <select name="vendedor" aria-label="Vendedor">
+      {% for v in vendedores %}<option value="{{ v }}" {% if v == f.vendedor %}selected{% endif %}>{{ {"todos": "todos os vendedores", "amazon": "vendido pela Amazon", "fba": "lojista FBA", "elegiveis": "só elegíveis"}[v] }}</option>{% endfor %}
+    </select>
+    <select name="situacao" aria-label="Situação">
+      <option value="todas" {% if f.situacao == "todas" %}selected{% endif %}>todas</option>
+      <option value="abertas" {% if f.situacao == "abertas" %}selected{% endif %}>só oportunidades abertas</option>
+    </select>
+    <select name="ordem" aria-label="Ordem">
+      {% for o in ordens %}<option value="{{ o }}" {% if o == f.ordem %}selected{% endif %}>{{ {"desconto": "maior desconto %", "diferenca": "maior diferença R$", "recentes": "leitura mais recente", "nome": "nome"}[o] }}</option>{% endfor %}
+    </select>
+  </div>
+</form>
+<p><a href="/ofertas?desconto_min={{ desconto_min_pct }}">≥ desconto configurado ({{ desconto_min_pct }}%)</a> · {{ total }} produto(s)</p>
 <table>
-  <thead><tr><th>Produto</th><th>Liga (à partir de)</th><th>Amazon</th><th>Diferença</th><th>Vendedor</th><th>Lido em</th></tr></thead>
+  <thead><tr><th>Produto</th><th>Liga (à partir de)</th><th>Amazon</th><th>Diferença (%)</th><th>Diferença (R$)</th><th>Vendedor</th><th>Lido em</th></tr></thead>
   <tbody>
   {% for l in linhas %}
     <tr>
-      <td><a href="/produto/{{ l.produto.id }}">{{ l.produto.nome }}</a>{% if l.aberta %} <mark>oportunidade</mark>{% endif %}</td>
+      <td><a href="/produto/{{ l.produto.id }}">{{ l.produto.nome }}</a>{% if l.aberta %} <mark>oportunidade</mark>{% endif %}<br><small>{{ l.anuncio.asin }}</small></td>
       <td>{{ l.preco_liga|brl }}</td>
       <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.preco|brl }}</a></td>
       <td>{{ (l.desconto|string).replace(".", ",") ~ "%" if l.desconto is not none else "—" }}</td>
+      <td>{{ l.diferenca|brl }}</td>
       <td>{{ l.envio|envio(l.vendedor) }}{% if not l.confiavel %} <small>(não elegível)</small>{% endif %}</td>
       <td>{{ l.coletado_em|data }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="6">Nenhum produto com anúncio da Amazon confirmado.</td></tr>
+    <tr><td colspan="7">Nenhuma oferta neste filtro.</td></tr>
   {% endfor %}
   </tbody>
 </table>
+<p>
+  {% if pagina > 1 %}<a href="{{ link(pagina - 1) }}">← anterior</a>{% endif %}
+  Página {{ pagina }} de {{ paginas }}
+  {% if pagina < paginas %}<a href="{{ link(pagina + 1) }}">próxima →</a>{% endif %}
+</p>
 {% endblock %}

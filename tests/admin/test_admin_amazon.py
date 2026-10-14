@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
+from tcg_sniper.admin.consultas_amazon import FiltroOfertas
 from tcg_sniper.coletor_amazon.modelos import AvaliacaoVendedor
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
@@ -151,14 +152,14 @@ def preparar_ofertas(s):
 def test_ofertas_melhor_oferta_por_produto_ordenada_por_desconto(s):
     ff, sem_desconto, _, _ = preparar_ofertas(s)
     config = repo_amz.obter_config(s)
-    linhas = consultas_amazon.ofertas(s, "todas", config)
+    linhas = consultas_amazon.ofertas(s, FiltroOfertas(), config)
     assert [(l.produto.id, l.anuncio.asin, l.preco, l.desconto) for l in linhas] == [
         (ff.id, "B02", Decimal("690.00"), Decimal("31.00")),
         (sem_desconto.id, "B03", Decimal("95.00"), Decimal("5.00")),
     ]
     assert linhas[0].aberta and linhas[0].confiavel and not linhas[1].aberta
-    assert [l.produto.id for l in consultas_amazon.ofertas(s, "desconto", config)] == [ff.id]
-    assert [l.produto.id for l in consultas_amazon.ofertas(s, "abertas", config)] == [ff.id]
+    assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(desconto_min=config.desconto_min_pct), config)] == [ff.id]
+    assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(situacao="abertas"), config)] == [ff.id]
 
 
 def test_lojista_fba_confiavel_ou_nao(s):
@@ -167,7 +168,7 @@ def test_lojista_fba_confiavel_ou_nao(s):
     anuncio = anuncio_com_preco(s, "B01", ff, "700.00", status=StatusCasamento.CONFIRMADO)
     loja = repo_amz.gravar_vendedor(s, AvaliacaoVendedor("A1", "Loja", Decimal(85), 50), T0)
     repo_amz.registrar_preco(s, anuncio.id, Decimal("700.00"), OrigemPreco.PRODUTO, loja.id, Envio.FBA, T0, SP)
-    [linha] = consultas_amazon.ofertas(s, "todas", repo_amz.obter_config(s))
+    [linha] = consultas_amazon.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
     assert (linha.envio, linha.vendedor.nome, linha.confiavel) == (Envio.FBA, "Loja", False)
 
 
@@ -176,8 +177,8 @@ def test_tela_de_ofertas(cliente, sessoes):
         preparar_ofertas(s)
     texto = cliente.get("/ofertas").text
     assert "Caixa FF" in texto and "R$ 690,00" in texto and "31,00%" in texto and "Caixa Sem Amazon" not in texto
-    assert "Caixa Sem Desconto" not in cliente.get("/ofertas?filtro=desconto").text
-    assert cliente.get("/ofertas?filtro=xyz").status_code == 400
+    assert "Caixa Sem Desconto" not in cliente.get("/ofertas?desconto_min=25").text
+    assert cliente.get("/ofertas?vendedor=xyz").status_code == 400
 
 
 def test_produto_mostra_a_amazon(cliente, sessoes):
