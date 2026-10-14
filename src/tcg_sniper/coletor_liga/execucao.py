@@ -4,6 +4,7 @@ import logging
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -33,6 +34,8 @@ class ResultadoColeta:
     produtos_ok: int
     produtos_falha: int
     novos: int = 0
+    # Fechada por erro inesperado (o admin já foi avisado por `encerrar_por_erro`).
+    interrompida: bool = False
 
 
 def pausa_humana(config: Config, dormir: Dormir) -> None:
@@ -86,6 +89,23 @@ def mensagem_desafio(config: Config, url: str) -> str:
         f"Resolver em http://{config.host_publico}:6080/vnc.html "
         f"e depois clicar em retomar em http://{config.host_publico}:8000"
     )
+
+
+def mensagem_resumo(
+    config: Config, dia: date, listagens: ResultadoColeta | None, produtos: ResultadoColeta
+) -> str:
+    """Resumo enviado ao admin no fim de um job concluído. `listagens` é None quando o job rodou
+    só os produtos. Nas listagens, ok/falha contam categorias."""
+    linhas = [f"Coleta de {dia:%d/%m} concluída."]
+    if listagens is not None:
+        total = listagens.produtos_ok + listagens.produtos_falha
+        linhas.append(
+            f"Listagens: {listagens.status.value} ({listagens.produtos_ok} de {total} categorias, "
+            f"{listagens.novos} produtos novos)."
+        )
+    linhas.append(f"Produtos: {produtos.status.value} ({produtos.produtos_ok} ok, {produtos.produtos_falha} falhas).")
+    linhas.append(f"Admin: http://{config.host_publico}:8000")
+    return "\n".join(linhas)
 
 
 def registrar_desafio(
@@ -156,4 +176,4 @@ def encerrar_por_erro(
     with sessoes() as s, s.begin():
         repo.finalizar_coleta(s, coleta_id, StatusColeta.FALHA, ok, falha, repo.agora_utc(), erro=repr(erro))
     notificador.enviar(Destino.ADMIN, f"{descricao} {coleta_id} interrompida por erro inesperado: {erro!r}")
-    return ResultadoColeta(coleta_id, StatusColeta.FALHA, ok, falha, novos)
+    return ResultadoColeta(coleta_id, StatusColeta.FALHA, ok, falha, novos, interrompida=True)

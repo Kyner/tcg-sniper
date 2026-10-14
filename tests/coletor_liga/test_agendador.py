@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fakes import NavegadorFake, NotificadorFake, fixture_liga, pagina_html
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from tcg_sniper.coletor_liga.agendador import (
     ID_LOCK,
@@ -12,8 +12,9 @@ from tcg_sniper.coletor_liga.agendador import (
     alvo_do_dia,
     lock_coleta,
 )
+from tcg_sniper.coletor_liga.execucao import ResultadoColeta
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db.models import Coleta, StatusColeta, TipoColeta
+from tcg_sniper.db.models import Coleta, ProdutoLiga, StatusColeta, TipoColeta
 from tcg_sniper.notificador.base import Destino
 
 SP = ZoneInfo("America/Sao_Paulo")
@@ -594,3 +595,86 @@ def test_inicializar_sem_interrompidas_nao_avisa(engine, sessoes, config):
     a, notificador = agendador(engine, sessoes, config, Relogio(local(TERCA, 12)), [])
     a.inicializar()
     assert notificador.mensagens == []
+
+
+def agendador_resumo(engine, sessoes, config, navegador):
+    notificador = NotificadorFake()
+    a = Agendador(
+        engine,
+        sessoes,
+        lambda: nullcontext(navegador),
+        notificador,
+        config,
+        relogio=Relogio(local(TERCA, 10, 40)),
+        rng=random.Random(1),
+        dormir=lambda _: None,
+    )
+    return a, notificador
+
+
+def resumos(notificador):
+    return [(d, t) for d, t in notificador.mensagens if t.startswith("Coleta de ")]
+
+
+def test_job_completo_envia_resumo(engine, sessoes, config):
+    c, url = config_uma_categoria(config)
+    navegador = NavegadorFake({url: pagina_html(fixture_liga("catalogo_pagina_1"), url=url)})
+    a, notificador = agendador_resumo(engine, sessoes, c, navegador)
+    a.executar_job(incluir_listagens=True)
+    with sessoes() as s:
+        novos = s.scalar(select(func.count()).select_from(ProdutoLiga))
+    assert resumos(notificador) == [
+        (
+            Destino.ADMIN,
+            (
+                "Coleta de 13/10 concluída.\n"
+                f"Listagens: ok (1 de 1 categorias, {novos} produtos novos).\n"
+                "Produtos: ok (0 ok, 0 falhas).\n"
+                "Admin: http://host.test:8000"
+            ),
+        )
+    ]
+
+
+def test_job_so_produtos_envia_resumo_sem_listagens(engine, sessoes, config):
+    a, notificador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a.executar_job(incluir_listagens=False)
+    assert resumos(notificador) == [
+        (Destino.ADMIN, "Coleta de 13/10 concluída.\nProdutos: ok (0 ok, 0 falhas).\nAdmin: http://host.test:8000")
+    ]
+
+
+def test_desafio_nao_envia_resumo(engine, sessoes, config):
+    c, url = config_uma_categoria(config)
+    a, notificador = agendador_resumo(engine, sessoes, c, NavegadorFake({url: DESAFIO}))
+    a.executar_job(incluir_listagens=True)
+    assert notificador.mensagens  # o aviso do desafio
+    assert resumos(notificador) == []
+
+
+def test_etapa_interrompida_por_erro_nao_envia_resumo(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_liga import agendador as modulo
+
+    monkeypatch.setattr(
+        modulo,
+        "coletar_produtos",
+        lambda *_a, **_k: ResultadoColeta(1, StatusColeta.FALHA, 0, 0, interrompida=True),
+    )
+    a, notificador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a.executar_job(incluir_listagens=False)
+    assert resumos(notificador) == []
+
+
+def test_excecao_no_job_nao_envia_resumo(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_liga import agendador as modulo
+
+    def quebrar(*_a, **_k):
+        raise RuntimeError("banco caiu")
+
+    monkeypatch.setattr(modulo, "coletar_produtos", quebrar)
+    a, notificador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    try:
+        a.executar_job(incluir_listagens=False)
+    except RuntimeError:
+        pass
+    assert resumos(notificador) == []

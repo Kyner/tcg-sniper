@@ -146,7 +146,7 @@ def test_erro_de_rede_tenta_de_novo_uma_vez(sessoes, config):
 def test_erro_inesperado_fecha_coleta_como_falha(sessoes, config):
     urls = preparar(sessoes, "a")
     resultado, _, notificador = coletar(sessoes, config, {urls["a"]: RuntimeError("chromium morreu")})
-    assert resultado.status is StatusColeta.FALHA
+    assert resultado.status is StatusColeta.FALHA and resultado.interrompida
     assert len(notificador.mensagens) == 1
     with sessoes() as s:
         coleta = s.get(Coleta, resultado.coleta_id)

@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.coletor_liga.execucao import pausa_humana
+from tcg_sniper.coletor_liga.execucao import mensagem_resumo, pausa_humana
 from tcg_sniper.coletor_liga.listagens import coletar_listagens
 from tcg_sniper.coletor_liga.navegador import Navegador
 from tcg_sniper.coletor_liga.produtos import coletar_produtos
@@ -153,16 +153,25 @@ class Agendador:
         return True
 
     def _coletar(self, navegador: Navegador, incluir_listagens: bool) -> bool:
-        """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare."""
+        """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare. Se o job vai até
+        o fim, sem desafio e sem etapa interrompida por erro, avisa o admin com um resumo."""
+        listagens = None
         if incluir_listagens:
-            resultado = coletar_listagens(self._sessoes, navegador, self._notificador, self._config, self._dormir)
-            if resultado is None:
+            listagens = coletar_listagens(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+            if listagens is None:
                 return False
-            if resultado.status is StatusColeta.PAUSADA_DESAFIO:
+            if listagens.status is StatusColeta.PAUSADA_DESAFIO:
                 return True
             pausa_humana(self._config, self._dormir)
-        resultado = coletar_produtos(self._sessoes, navegador, self._notificador, self._config, self._dormir)
-        return resultado is not None and resultado.status is StatusColeta.PAUSADA_DESAFIO
+        produtos = coletar_produtos(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+        if produtos is None:
+            return False
+        if produtos.status is StatusColeta.PAUSADA_DESAFIO:
+            return True
+        if not produtos.interrompida and not (listagens is not None and listagens.interrompida):
+            hoje = self._relogio().astimezone(self._config.zona).date()
+            self._notificador.enviar(Destino.ADMIN, mensagem_resumo(self._config, hoje, listagens, produtos))
+        return False
 
     def _obter_navegador(self) -> Navegador:
         """Reaproveita o navegador mantido aberto se ele ainda responde; senão (ex.: a janela foi
