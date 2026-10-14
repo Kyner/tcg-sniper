@@ -1,8 +1,6 @@
 """Peças compartilhadas pela coleta das listagens e pela coleta dos produtos ativos."""
 
 import logging
-import random
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -10,17 +8,18 @@ from pathlib import Path
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.coletor_liga.desafio import eh_desafio
-from tcg_sniper.coletor_liga.modelos import ErroRede, Pagina, PaginaExpandida
+from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
 from tcg_sniper.coletor_liga.navegador import Navegador
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, StatusColeta, TipoColeta
+from tcg_sniper.navegador import ritmo
+from tcg_sniper.navegador.ritmo import ESPERA_RETRY_S as ESPERA_RETRY_S  # noqa: PLC0414
+from tcg_sniper.navegador.ritmo import Dormir as Dormir  # noqa: PLC0414
+from tcg_sniper.navegador.ritmo import com_um_retry, pausa_aleatoria
 from tcg_sniper.notificador.base import Destino, Notificador
 
 log = logging.getLogger(__name__)
-
-Dormir = Callable[[float], None]
-ESPERA_RETRY_S = 30
 
 
 class DesafioDetectado(Exception):
@@ -39,7 +38,7 @@ class ResultadoColeta:
 
 
 def pausa_humana(config: Config, dormir: Dormir) -> None:
-    dormir(random.uniform(config.pausa_min_s, config.pausa_max_s))
+    pausa_aleatoria(config.pausa_min_s, config.pausa_max_s, dormir)
 
 
 def iniciar_se_ativo(sessoes: sessionmaker[Session], tipo: TipoColeta) -> int | None:
@@ -51,18 +50,9 @@ def iniciar_se_ativo(sessoes: sessionmaker[Session], tipo: TipoColeta) -> int | 
         return repo.iniciar_coleta(s, tipo, repo.agora_utc()).id
 
 
-def _com_um_retry[T](abrir: Callable[[], T], url: str, dormir: Dormir) -> T:
-    try:
-        return abrir()
-    except ErroRede as erro:
-        log.warning("erro de rede em %s (%s); nova tentativa em %ss", url, erro, ESPERA_RETRY_S)
-        dormir(ESPERA_RETRY_S)
-        return abrir()
-
-
 def abrir_pagina(navegador: Navegador, url: str, dormir: Dormir) -> Pagina:
     """Abre uma página. Um retry após 30 s em ErroRede; desafio → DesafioDetectado."""
-    pagina = _com_um_retry(lambda: navegador.abrir(url), url, dormir)
+    pagina = com_um_retry(lambda: navegador.abrir(url), url, dormir)
     if eh_desafio(pagina):
         raise DesafioDetectado(url)
     return pagina
@@ -73,7 +63,7 @@ def abrir_listagem(
 ) -> PaginaExpandida:
     """Abre a listagem clicando em "Exibir mais" (pausa humana antes de cada clique, no máximo
     `config.liga_max_cliques`). Um retry após 30 s em ErroRede; desafio → DesafioDetectado."""
-    expandida = _com_um_retry(
+    expandida = com_um_retry(
         lambda: navegador.abrir_expandindo(url, config.liga_max_cliques, lambda: pausa_humana(config, dormir)),
         url,
         dormir,
@@ -128,11 +118,7 @@ def registrar_desafio(
 
 
 def salvar_html_falha(config: Config, nome: str, html: str) -> Path:
-    pasta = config.dir_dados / "falhas"
-    pasta.mkdir(parents=True, exist_ok=True)
-    caminho = pasta / f"{nome}.html"
-    caminho.write_text(html, encoding="utf-8")
-    return caminho
+    return ritmo.salvar_html_falha(config.dir_dados, nome, html)
 
 
 def concluir_coleta(
