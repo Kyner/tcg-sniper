@@ -20,7 +20,10 @@ def extrair_asin(texto: str) -> str:
     bruto = texto.strip()
     if _ASIN.fullmatch(bruto.upper()):
         return bruto.upper()
-    partes = urlsplit(bruto if "://" in bruto else f"https://{bruto}")
+    try:
+        partes = urlsplit(bruto if "://" in bruto else f"https://{bruto}")
+    except ValueError:
+        raise LinkInvalido(MENSAGEM_SEM_ASIN) from None
     dominio = (partes.hostname or "").lower()
     if dominio in _ENCURTADORES:
         raise LinkInvalido(MENSAGEM_ENCURTADO)

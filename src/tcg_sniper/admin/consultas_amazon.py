@@ -37,16 +37,6 @@ def ciclo_atual(s: Session) -> Coleta | None:
     )
 
 
-@dataclass(frozen=True)
-class LinhaCasamento:
-    anuncio: AnuncioAmazon
-    preco: Decimal | None
-    sugestao: ProdutoLiga | None
-    preco_sugestao: Decimal | None
-    alternativas: list[ProdutoLiga]
-    candidato: bool  # o preço já está a pelo menos o desconto mínimo abaixo da sugestão
-
-
 def _normalizar(texto: str) -> str:
     return termo_busca(texto).lower()
 
@@ -69,29 +59,146 @@ def candidatos_para(titulo_normalizado: str, nomes: list[str], indice: dict[str,
     return [nome for nome in nomes if nome in comuns]
 
 
-def contar_pendentes(s: Session) -> int:
-    consulta = (
-        select(func.count()).select_from(AnuncioAmazon).where(AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE)
-    )
-    return int(s.scalar(consulta) or 0)
+SITUACOES_CASAMENTO = ("pendentes", "oportunidade", "sem_par", "casados", "todos")
+POR_PAGINA_CASAMENTOS = 20
 
 
-def pendentes(s: Session, desconto_min_pct: int, limite: int = 20) -> tuple[list[LinhaCasamento], int]:
-    """Pendentes que seriam oportunidade primeiro; depois os demais, mais recentes primeiro.
-    Cada linha traz até 3 outros produtos do catálogo com título parecido (difflib)."""
-    consulta = (
-        select(AnuncioAmazon, PrecoAtualAmazon.preco, ProdutoLiga, PrecoAtualLiga.preco_a_partir)
-        .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
-        .outerjoin(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
-        .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == AnuncioAmazon.produto_id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE)
-    )
+@dataclass(frozen=True)
+class LinhaProdutoCasamento:
+    produto: ProdutoLiga
+    preco_liga: Decimal | None
+    pendentes: int
+    confirmados: int
+    ignorados: int
+    oportunidade: bool  # algum pendente já está a pelo menos o desconto mínimo abaixo da Liga
+
+    @property
+    def sem_par(self) -> bool:
+        return self.pendentes == 0 and self.confirmados == 0
+
+
+_FILTROS_SITUACAO = {
+    "pendentes": lambda linha: linha.pendentes > 0,
+    "oportunidade": lambda linha: linha.oportunidade,
+    "sem_par": lambda linha: linha.sem_par,
+    "casados": lambda linha: linha.confirmados > 0,
+    "todos": lambda linha: True,
+}
+
+
+def produtos_para_casar(
+    s: Session, *, busca: str, categoria: str | None, situacao: str, com_preco: bool, desconto_min_pct: int
+) -> list[LinhaProdutoCasamento]:
+    """Produtos ativos da Liga com as contagens de anúncios da Amazon, filtrados e ordenados:
+    com pendente que seria oportunidade, depois com pendentes, depois os demais; por nome."""
+    condicoes = [ProdutoLiga.ativo.is_(True)]
+    if busca.strip():
+        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
+    if categoria:
+        condicoes.append(ProdutoLiga.tipo == categoria)
+    if com_preco:
+        condicoes.append(PrecoAtualLiga.preco_a_partir.is_not(None))
+    produtos = s.execute(
+        select(ProdutoLiga, PrecoAtualLiga.preco_a_partir)
+        .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+        .where(*condicoes)
+    ).all()
+    precos_liga = {produto.id: preco for produto, preco in produtos}
+    contagens: dict[tuple[int, StatusCasamento], int] = {}
+    oportunidade: set[int] = set()
+    if precos_liga:
+        consulta_contagens = (
+            select(AnuncioAmazon.produto_id, AnuncioAmazon.status_casamento, func.count())
+            .where(AnuncioAmazon.produto_id.in_(precos_liga))
+            .group_by(AnuncioAmazon.produto_id, AnuncioAmazon.status_casamento)
+        )
+        for produto_id, situacao_anuncio, quantidade in s.execute(consulta_contagens):
+            contagens[(produto_id, situacao_anuncio)] = quantidade
+        consulta_precos = (
+            select(AnuncioAmazon.produto_id, PrecoAtualAmazon.preco)
+            .join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
+            .where(
+                AnuncioAmazon.produto_id.in_(precos_liga),
+                AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE,
+            )
+        )
+        for produto_id, preco in s.execute(consulta_precos):
+            if atinge_desconto(preco, precos_liga[produto_id], desconto_min_pct):
+                oportunidade.add(produto_id)
     linhas = [
-        (anuncio, preco, sugestao, preco_liga, atinge_desconto(preco, preco_liga, desconto_min_pct))
-        for anuncio, preco, sugestao, preco_liga in s.execute(consulta)
+        LinhaProdutoCasamento(
+            produto=produto,
+            preco_liga=preco,
+            pendentes=contagens.get((produto.id, StatusCasamento.PENDENTE), 0),
+            confirmados=contagens.get((produto.id, StatusCasamento.CONFIRMADO), 0),
+            ignorados=contagens.get((produto.id, StatusCasamento.IGNORADO), 0),
+            oportunidade=produto.id in oportunidade,
+        )
+        for produto, preco in produtos
     ]
-    linhas.sort(key=lambda linha: (not linha[4], -linha[0].visto_primeiro_em.timestamp(), linha[0].id))
-    total = len(linhas)
+    linhas = [linha for linha in linhas if _FILTROS_SITUACAO[situacao](linha)]
+    linhas.sort(key=lambda linha: (not linha.oportunidade, linha.pendentes == 0, linha.produto.nome, linha.produto.id))
+    return linhas
+
+
+@dataclass(frozen=True)
+class LinhaAnuncio:
+    anuncio: AnuncioAmazon
+    atual: PrecoAtualAmazon | None
+    vendedor: VendedorAmazon | None
+    oportunidade: bool
+
+
+@dataclass(frozen=True)
+class DetalheCasamento:
+    produto: ProdutoLiga
+    preco_liga: Decimal | None
+    pendentes: list[LinhaAnuncio]
+    confirmados: list[LinhaAnuncio]
+    ignorados: list[LinhaAnuncio]
+
+
+def detalhe_casamento(s: Session, produto_id: int, desconto_min_pct: int) -> DetalheCasamento | None:
+    produto = s.get(ProdutoLiga, produto_id)
+    if produto is None or not produto.ativo:
+        return None
+    liga = s.get(PrecoAtualLiga, produto_id)
+    preco_liga = liga.preco_a_partir if liga else None
+    consulta = (
+        select(AnuncioAmazon, PrecoAtualAmazon, VendedorAmazon)
+        .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
+        .outerjoin(VendedorAmazon, VendedorAmazon.id == PrecoAtualAmazon.vendedor_id)
+        .where(AnuncioAmazon.produto_id == produto_id)
+        .order_by(PrecoAtualAmazon.preco.nulls_last(), AnuncioAmazon.id)
+    )
+    grupos: dict[StatusCasamento, list[LinhaAnuncio]] = {situacao: [] for situacao in StatusCasamento}
+    for anuncio, atual, vendedor in s.execute(consulta):
+        oportunidade = atinge_desconto(atual.preco if atual else None, preco_liga, desconto_min_pct)
+        grupos[anuncio.status_casamento].append(LinhaAnuncio(anuncio, atual, vendedor, oportunidade))
+    return DetalheCasamento(
+        produto,
+        preco_liga,
+        grupos[StatusCasamento.PENDENTE],
+        grupos[StatusCasamento.CONFIRMADO],
+        grupos[StatusCasamento.IGNORADO],
+    )
+
+
+def _com_preco_liga(s: Session, ids: list[int]) -> list[tuple[ProdutoLiga, Decimal | None]]:
+    if not ids:
+        return []
+    linhas = s.execute(
+        select(ProdutoLiga, PrecoAtualLiga.preco_a_partir)
+        .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+        .where(ProdutoLiga.id.in_(ids))
+    ).all()
+    por_id = {produto.id: (produto, preco) for produto, preco in linhas}
+    return [por_id[i] for i in ids if i in por_id]
+
+
+def sugestoes_para(s: Session, anuncio: AnuncioAmazon, limite: int = 3) -> list[tuple[ProdutoLiga, Decimal | None]]:
+    """Até `limite` produtos do catálogo com nome parecido com o título do anúncio (difflib),
+    sem o produto ao qual o anúncio já está ligado."""
     por_nome: dict[str, int] = {}
     indice: dict[str, set[str]] = {}
     for produto_id, nome in s.execute(select(ProdutoLiga.id, ProdutoLiga.nome).order_by(ProdutoLiga.id)):
@@ -100,39 +207,18 @@ def pendentes(s: Session, desconto_min_pct: int, limite: int = 20) -> tuple[list
             continue
         for token in _tokens(normalizado):
             indice.setdefault(token, set()).add(normalizado)
-    nomes = list(por_nome)
-    escolhidos = []
-    for anuncio, preco, sugestao, preco_liga, candidato in linhas[:limite]:
-        titulo = _normalizar(anuncio.titulo)
-        candidatos = candidatos_para(titulo, nomes, indice)
-        parecidos = difflib.get_close_matches(titulo, candidatos, n=4, cutoff=0.3)
-        ids = [por_nome[nome] for nome in parecidos if sugestao is None or por_nome[nome] != sugestao.id]
-        escolhidos.append((anuncio, preco, sugestao, preco_liga, candidato, ids[:3]))
-    ids_usados = {i for *_, ids in escolhidos for i in ids}
-    produtos = {p.id: p for p in s.scalars(select(ProdutoLiga).where(ProdutoLiga.id.in_(ids_usados)))}
-    resultado = [
-        LinhaCasamento(anuncio, preco, sugestao, preco_liga, [produtos[i] for i in ids], candidato)
-        for anuncio, preco, sugestao, preco_liga, candidato, ids in escolhidos
-    ]
-    return resultado, total
+    titulo = _normalizar(anuncio.titulo)
+    candidatos = candidatos_para(titulo, list(por_nome), indice)
+    parecidos = difflib.get_close_matches(titulo, candidatos, n=limite + 1, cutoff=0.3)
+    ids = [por_nome[nome] for nome in parecidos if por_nome[nome] != anuncio.produto_id][:limite]
+    return _com_preco_liga(s, ids)
 
 
-def revisados(s: Session, limite: int = 100) -> list[tuple[AnuncioAmazon, ProdutoLiga | None]]:
-    consulta = (
-        select(AnuncioAmazon, ProdutoLiga)
-        .outerjoin(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
-        .where(AnuncioAmazon.status_casamento != StatusCasamento.PENDENTE)
-        .order_by(AnuncioAmazon.revisado_em.desc().nulls_last(), AnuncioAmazon.id.desc())
-        .limit(limite)
-    )
-    return [(anuncio, produto) for anuncio, produto in s.execute(consulta)]
-
-
-def buscar_produtos(s: Session, busca: str, limite: int = 20) -> list[ProdutoLiga]:
-    consulta = select(ProdutoLiga).order_by(ProdutoLiga.nome).limit(limite)
+def buscar_produtos(s: Session, busca: str, limite: int = 20) -> list[tuple[ProdutoLiga, Decimal | None]]:
+    consulta = select(ProdutoLiga.id).order_by(ProdutoLiga.nome).limit(limite)
     if busca.strip():
         consulta = consulta.where(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
-    return list(s.scalars(consulta))
+    return _com_preco_liga(s, list(s.scalars(consulta)))
 
 
 FILTROS_OFERTAS = ("todas", "desconto", "abertas")

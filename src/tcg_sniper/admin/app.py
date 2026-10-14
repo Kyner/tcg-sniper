@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.admin import consultas, consultas_amazon
+from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config import Config
@@ -31,6 +32,16 @@ MENSAGENS_SERVICOS = {
     "amazon_pausar": "Busca na Amazon pausada.",
     "amazon_retomar": "Busca na Amazon retomada.",
 }
+
+
+MENSAGENS_CASAMENTO = {"link_salvo": "Link salvo; o anúncio será lido em alguns minutos."}
+
+
+def destino_seguro(voltar: str) -> str:
+    """Só volta para telas de Casamentos (nunca para fora do admin)."""
+    if voltar.startswith("/casamentos") and not voltar.startswith("//") and "\\" not in voltar:
+        return voltar
+    return "/casamentos"
 
 
 def numero_pagina(texto: str) -> int:
@@ -333,35 +344,115 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 },
             )
 
-    ABAS_CASAMENTO = ("pendentes", "revisados")
-
     @app.get("/casamentos", response_class=HTMLResponse)
-    def casamentos(request: Request, aba: str = "pendentes"):
-        if aba not in ABAS_CASAMENTO:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
+    def casamentos(
+        request: Request,
+        busca: str = "",
+        categoria: str = "",
+        situacao: str = "pendentes",
+        com_preco: str = "",
+        pagina: str = "1",
+    ):
+        if situacao not in consultas_amazon.SITUACOES_CASAMENTO:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
+        so_com_preco = com_preco == "1"
         with sessoes() as s, s.begin():
-            config = repo_amz.obter_config(s)
-            if aba == "pendentes":
-                linhas, total = consultas_amazon.pendentes(s, config.desconto_min_pct)
-            else:
-                linhas, total = [], consultas_amazon.contar_pendentes(s)
+            categorias = consultas.listar_categorias(s)
+            if categoria and categoria not in categorias:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
+            cfg = repo_amz.obter_config(s)
+            linhas = consultas_amazon.produtos_para_casar(
+                s,
+                busca=busca,
+                categoria=categoria or None,
+                situacao=situacao,
+                com_preco=so_com_preco,
+                desconto_min_pct=cfg.desconto_min_pct,
+            )
+            linhas_pagina, numero, paginas = consultas.paginar(
+                linhas, numero_pagina(pagina), consultas_amazon.POR_PAGINA_CASAMENTOS
+            )
+            parametros = {"busca": busca, "categoria": categoria, "situacao": situacao}
+            if so_com_preco:
+                parametros["com_preco"] = "1"
+            parametros = {k: v for k, v in parametros.items() if v}
+
+            def link(destino: int) -> str:
+                return "/casamentos?" + urlencode({**parametros, "pagina": destino})
+
             return templates.TemplateResponse(
                 request,
                 "casamentos.html",
                 {
-                    "aba": aba,
-                    "linhas": linhas,
-                    "total": total,
-                    "revisados": consultas_amazon.revisados(s) if aba == "revisados" else [],
-                    "desconto_min_pct": config.desconto_min_pct,
+                    "linhas": linhas_pagina,
+                    "total": len(linhas),
+                    "pagina": numero,
+                    "paginas": paginas,
+                    "link": link,
+                    "voltar_atual": link(numero),
+                    "busca": busca,
+                    "categoria": categoria,
+                    "categorias": categorias,
+                    "situacao": situacao,
+                    "situacoes": consultas_amazon.SITUACOES_CASAMENTO,
+                    "com_preco": so_com_preco,
                 },
             )
+
+    def _tela_produto_casamento(
+        request: Request, s: Session, produto_id: int, voltar: str, mensagem: str | None, erro: str | None,
+        link_digitado: str, codigo: int,
+    ):
+        cfg = repo_amz.obter_config(s)
+        detalhe = consultas_amazon.detalhe_casamento(s, produto_id, cfg.desconto_min_pct)
+        if detalhe is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND)
+        voltar = destino_seguro(voltar)
+        return templates.TemplateResponse(
+            request,
+            "casamentos_produto.html",
+            {
+                "d": detalhe,
+                "voltar": voltar,
+                "aqui": f"/casamentos/produto/{produto_id}?" + urlencode({"voltar": voltar}),
+                "mensagem": mensagem,
+                "erro": erro,
+                "link_digitado": link_digitado,
+            },
+            status_code=codigo,
+        )
+
+    @app.get("/casamentos/produto/{produto_id}", response_class=HTMLResponse)
+    def casamento_produto(request: Request, produto_id: int, voltar: str = "/casamentos", msg: str = ""):
+        with sessoes() as s, s.begin():
+            return _tela_produto_casamento(
+                request, s, produto_id, voltar, MENSAGENS_CASAMENTO.get(msg), None, "", status.HTTP_200_OK
+            )
+
+    @app.post("/casamentos/produto/{produto_id}/link", response_class=HTMLResponse)
+    async def link_manual(request: Request, produto_id: int):
+        formulario = await ler_formulario(request)
+        texto = formulario.get("link", "")
+        voltar = destino_seguro(formulario.get("voltar", "/casamentos"))
+        with sessoes() as s, s.begin():
+            produto = s.get(ProdutoLiga, produto_id)
+            if produto is None or not produto.ativo:
+                raise HTTPException(status.HTTP_404_NOT_FOUND)
+            try:
+                asin = extrair_asin(texto)
+            except LinkInvalido as erro:
+                return _tela_produto_casamento(
+                    request, s, produto_id, voltar, None, str(erro), texto, status.HTTP_400_BAD_REQUEST
+                )
+            repo_amz.casar_link_manual(s, produto_id, asin, repo.agora_utc())
+        destino = f"/casamentos/produto/{produto_id}?" + urlencode({"voltar": voltar, "msg": "link_salvo"})
+        return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/casamentos/{anuncio_id}")
     async def revisar_casamento(request: Request, anuncio_id: int):
         formulario = await ler_formulario(request)
-        acao, aba = formulario.get("acao", ""), formulario.get("aba", "pendentes")
-        if acao not in ("confirmar", "ignorar", "desfazer") or aba not in ABAS_CASAMENTO:
+        acao = formulario.get("acao", "")
+        if acao not in ("confirmar", "ignorar", "desfazer"):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ação inválida: {acao}")
         agora = repo.agora_utc()
         with sessoes() as s, s.begin():
@@ -378,7 +469,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 repo_amz.ignorar_anuncio(s, anuncio_id, agora)
             else:
                 repo_amz.desfazer_casamento(s, anuncio_id, agora)
-        return RedirectResponse(f"/casamentos?aba={aba}", status_code=status.HTTP_303_SEE_OTHER)
+        destino = destino_seguro(formulario.get("voltar", "/casamentos"))
+        return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/casamentos/{anuncio_id}/trocar", response_class=HTMLResponse)
     def trocar_casamento(request: Request, anuncio_id: int, busca: str = ""):
@@ -389,7 +481,12 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             return templates.TemplateResponse(
                 request,
                 "trocar.html",
-                {"anuncio": anuncio, "busca": busca, "produtos": consultas_amazon.buscar_produtos(s, busca)},
+                {
+                    "anuncio": anuncio,
+                    "busca": busca,
+                    "sugestoes": consultas_amazon.sugestoes_para(s, anuncio),
+                    "produtos": consultas_amazon.buscar_produtos(s, busca) if busca.strip() else [],
+                },
             )
 
     return app

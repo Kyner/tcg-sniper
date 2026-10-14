@@ -38,6 +38,7 @@ def test_recusa_link_encurtado(texto):
         "B0DT",
         "",
         "caixa de booster",
+        "https://[",
     ],
 )
 def test_recusa_sem_asin_ou_outro_dominio(texto):
