@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titulo %}Configurações · TCG Sniper{% endblock %}
+{% block conteudo %}
+<h2>Configurações da Amazon</h2>
+<p>Valem a partir da próxima busca, sem reiniciar o coletor.</p>
+{% if salvo %}<p><mark>Configurações salvas.</mark></p>{% endif %}
+{% if erros %}<div class="pausado">Nada foi salvo. Corrija os campos marcados.</div>{% endif %}
+<form method="post" action="/configuracoes">
+  {% for campo in campos %}
+  <label>{{ rotulos[campo] }}
+    <input name="{{ campo }}" value="{{ valores[campo] }}"{% if campo in erros %} aria-invalid="true"{% endif %}>
+    <small>{{ erros[campo] if campo in erros else explicacoes[campo] }}</small>
+  </label>
+  {% endfor %}
+  <button>Salvar</button>
+</form>
+{% endblock %}

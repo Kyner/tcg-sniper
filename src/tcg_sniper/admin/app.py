@@ -1,6 +1,6 @@
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import parse_qs, urlencode
@@ -12,10 +12,13 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.admin import consultas
+from tcg_sniper.admin import consultas, consultas_amazon
+from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db.models import COLETOR_AMAZON
 from tcg_sniper.formatacao import formatar_brl
 
 SENHA_PADRAO = "trocar-esta-senha"
@@ -24,6 +27,12 @@ MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
 
 def formatar_data(dt: datetime | None, zona: ZoneInfo) -> str:
     return "" if dt is None else dt.astimezone(zona).strftime("%d/%m/%Y %H:%M")
+
+
+async def ler_formulario(request: Request) -> dict[str, str]:
+    """Corpo urlencoded lido à mão: evita a dependência python-multipart só para os formulários."""
+    campos = parse_qs((await request.body()).decode("utf-8", "replace"), keep_blank_values=True)
+    return {nome: valores[0] for nome, valores in campos.items()}
 
 
 def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
@@ -54,6 +63,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "estado": repo.obter_estado(s),
                     "coletas": consultas.listar_coletas(s),
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
+                    "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
+                    "ciclo_amazon": consultas_amazon.ciclo_atual(s),
                     "host": config.host_publico,
                 },
             )
@@ -69,6 +80,56 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         with sessoes() as s, s.begin():
             repo.solicitar_execucao(s, repo.agora_utc())
         return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/amazon/pausar")
+    def pausar_amazon():
+        with sessoes() as s, s.begin():
+            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_AMAZON)
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/amazon/retomar")
+    def retomar_amazon():
+        with sessoes() as s, s.begin():
+            repo.retomar(s, repo.agora_utc(), COLETOR_AMAZON)
+        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+
+    def _tela_configuracoes(request: Request, valores: dict[str, str], erros: dict[str, str], salvo: bool, codigo: int):
+        return templates.TemplateResponse(
+            request,
+            "configuracoes.html",
+            {
+                "campos": CAMPOS,
+                "rotulos": ROTULOS,
+                "explicacoes": EXPLICACOES,
+                "valores": valores,
+                "erros": erros,
+                "salvo": salvo,
+            },
+            status_code=codigo,
+        )
+
+    @app.get("/configuracoes", response_class=HTMLResponse)
+    def configuracoes(request: Request, msg: str = ""):
+        with sessoes() as s, s.begin():
+            config = repo_amz.obter_config(s)
+            valores = {
+                campo: getattr(config, campo).strftime("%H:%M")
+                if isinstance(getattr(config, campo), time)
+                else str(getattr(config, campo))
+                for campo in CAMPOS
+            }
+        return _tela_configuracoes(request, valores, {}, msg == "salvo", status.HTTP_200_OK)
+
+    @app.post("/configuracoes", response_class=HTMLResponse)
+    async def salvar_configuracoes(request: Request):
+        formulario = await ler_formulario(request)
+        valores, erros = validar_config(formulario)
+        if erros:
+            digitados = {campo: formulario.get(campo, "") for campo in CAMPOS}
+            return _tela_configuracoes(request, digitados, erros, False, status.HTTP_400_BAD_REQUEST)
+        with sessoes() as s, s.begin():
+            aplicar_config(s, valores, repo.agora_utc())
+        return RedirectResponse("/configuracoes?msg=salvo", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/catalogo", response_class=HTMLResponse)
     def catalogo(
@@ -124,14 +185,10 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/catalogo/lote")
     async def alterar_lote(request: Request):
-        # Corpo urlencoded lido à mão: evita a dependência python-multipart só para este formulário.
-        campos = parse_qs((await request.body()).decode("utf-8", "replace"), keep_blank_values=True)
-
-        def campo(nome: str, padrao: str = "") -> str:
-            return campos.get(nome, [padrao])[0]
-
-        acao, busca, categoria, com_preco = campo("acao"), campo("busca"), campo("categoria"), campo("com_preco")
-        filtro = campo("filtro", "todos")
+        formulario = await ler_formulario(request)
+        acao, busca = formulario.get("acao", ""), formulario.get("busca", "")
+        categoria, com_preco = formulario.get("categoria", ""), formulario.get("com_preco", "")
+        filtro = formulario.get("filtro", "todos")
         if acao not in ("ativar", "desativar"):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ação inválida: {acao}")
         if filtro not in consultas.FILTROS:

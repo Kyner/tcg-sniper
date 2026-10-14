@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<h2>Coletor</h2>
+<h2>LigaMagic</h2>
 {% if estado.estado.value == "pausado_desafio" %}
 <div class="pausado">
   <strong>Coleta pausada: desafio pendente.</strong> {{ estado.motivo or "" }}<br>
@@ -12,6 +12,24 @@
 {% else %}
 <p>Ativo.{% if estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
 <form method="post" action="/rodar-agora"><button>Rodar agora</button></form>
+{% endif %}
+
+<h2>Amazon</h2>
+{% if estado_amazon.estado.value == "pausado_desafio" %}
+<div class="pausado">
+  <strong>Busca na Amazon pausada: CAPTCHA pendente.</strong> {{ estado_amazon.motivo or "" }}<br>
+  Resolva em <a href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em retomar.
+  <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
+</div>
+{% elif estado_amazon.estado.value == "pausado" %}
+<div class="pausado">
+  <strong>Busca na Amazon pausada.</strong> {{ estado_amazon.motivo or "" }}
+  <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
+</div>
+{% else %}
+<p>Ativo (busca só dentro da janela definida em <a href="/configuracoes">Configurações</a>).
+{% if ciclo_amazon %}<strong>Ciclo em andamento</strong> desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
+<form method="post" action="/amazon/pausar"><button class="secondary">Pausar (Amazon)</button></form>
 {% endif %}
 
 <h2>Últimas coletas</h2>
