@@ -50,6 +50,7 @@ def leitura(preco="700.00", envio=Envio.AMAZON, vendedor=None):
         (leitura("750.00"), LIGA, True),  # exatamente 25%: o limite é inclusivo
         (leitura("750.10"), LIGA, False),  # 24,99%
         (leitura(None), LIGA, False),
+        (leitura("0.00"), LIGA, False),  # preço zerado é leitura errada, não 100% de desconto
     ],
 )
 def test_elegivel(leit, ref, esperado):
@@ -62,6 +63,8 @@ def test_atinge_desconto_sem_arredondamento():
     assert not atinge_desconto(None, Decimal("1000.00"), 25)
     assert not atinge_desconto(Decimal("1.00"), None, 25)
     assert not atinge_desconto(Decimal("1.00"), Decimal(0), 25)
+    assert atinge_desconto(Decimal("0.00"), Decimal("1000.00"), 25) is False
+    assert atinge_desconto(Decimal("-1.00"), Decimal("1000.00"), 25) is False
 
 
 def test_desconto_pct():
