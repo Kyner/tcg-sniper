@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.admin import consultas
+from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 
@@ -59,7 +60,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 {
                     "estado": repo.obter_estado(s),
                     "coletas": consultas.listar_coletas(s),
-                    "em_andamento": consultas.coleta_em_andamento(s),
+                    "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
                     "host": config.host_publico,
                 },
             )

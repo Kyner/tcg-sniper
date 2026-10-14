@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.db.models import (
+    COLETOR_AMAZON,
+    COLETOR_LIGA,
     Coleta,
     EstadoColetor,
     EstadoColetorTipo,
@@ -163,31 +165,45 @@ def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], a
     return novos
 
 
-def obter_estado(s: Session, agora: datetime | None = None) -> EstadoColetor:
+ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2}
+
+
+def obter_estado(s: Session, agora: datetime | None = None, coletor: str = COLETOR_LIGA) -> EstadoColetor:
+    id_estado = ID_COLETOR[coletor]
     s.execute(
         pg_insert(EstadoColetor)
         .values(
-            id=1,
+            id=id_estado,
+            coletor=coletor,
             estado=EstadoColetorTipo.ATIVO,
             execucao_solicitada=False,
             atualizado_em=agora or agora_utc(),
         )
         .on_conflict_do_nothing(index_elements=[EstadoColetor.id])
     )
-    return s.get(EstadoColetor, 1, populate_existing=True)
+    return s.get(EstadoColetor, id_estado, populate_existing=True)
 
 
-def pausar_por_desafio(s: Session, motivo: str, agora: datetime) -> None:
-    estado = obter_estado(s, agora)
-    estado.estado = EstadoColetorTipo.PAUSADO_DESAFIO
+def pausar_por_desafio(s: Session, motivo: str, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
+    _mudar_estado(s, EstadoColetorTipo.PAUSADO_DESAFIO, motivo, agora, coletor)
+
+
+def pausar(s: Session, motivo: str, agora: datetime, coletor: str) -> None:
+    """Pausa manual (admin) ou por erros seguidos; só volta com retomar."""
+    _mudar_estado(s, EstadoColetorTipo.PAUSADO, motivo, agora, coletor)
+
+
+def _mudar_estado(s: Session, novo: EstadoColetorTipo, motivo: str, agora: datetime, coletor: str) -> None:
+    estado = obter_estado(s, agora, coletor)
+    estado.estado = novo
     estado.motivo = motivo
     estado.execucao_solicitada = False
     estado.atualizado_em = agora
     s.flush()
 
 
-def retomar(s: Session, agora: datetime) -> None:
-    estado = obter_estado(s, agora)
+def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
+    estado = obter_estado(s, agora, coletor)
     estado.estado = EstadoColetorTipo.ATIVO
     estado.motivo = None
     estado.execucao_solicitada = True
@@ -212,10 +228,11 @@ def consumir_solicitacao(s: Session, agora: datetime) -> bool:
     return True
 
 
-def marcar_interrompidas(s: Session, agora: datetime) -> int:
+def marcar_interrompidas(s: Session, agora: datetime, tipos: Sequence[TipoColeta]) -> int:
+    """Fecha como falha as coletas `rodando` dos tipos do coletor que está subindo."""
     resultado = s.execute(
         update(Coleta)
-        .where(Coleta.status == StatusColeta.RODANDO)
+        .where(Coleta.status == StatusColeta.RODANDO, Coleta.tipo.in_(tipos))
         .values(status=StatusColeta.FALHA, erro="interrompida", finalizada_em=agora)
     )
     return resultado.rowcount

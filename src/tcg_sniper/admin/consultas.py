@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 
 from sqlalchemy import ColumnElement, func, select, update
@@ -10,6 +11,7 @@ from tcg_sniper.db.models import (
     ProdutoLiga,
     ResumoPreco,
     StatusColeta,
+    TipoColeta,
 )
 
 FILTROS = ("todos", "ativos", "inativos", "novos")
@@ -25,8 +27,9 @@ def listar_coletas(s: Session, limite: int = 10) -> list[Coleta]:
     return list(s.scalars(select(Coleta).order_by(Coleta.id.desc()).limit(limite)))
 
 
-def coleta_em_andamento(s: Session) -> bool:
-    return s.scalar(select(Coleta.id).where(Coleta.status == StatusColeta.RODANDO).limit(1)) is not None
+def coleta_em_andamento(s: Session, tipos: Sequence[TipoColeta]) -> bool:
+    consulta = select(Coleta.id).where(Coleta.status == StatusColeta.RODANDO, Coleta.tipo.in_(tipos)).limit(1)
+    return s.scalar(consulta) is not None
 
 
 def listar_categorias(s: Session) -> list[str]:

@@ -480,3 +480,9 @@ def test_botoes_do_lote_escondidos_sem_resultados(cliente):
     r = cliente.get("/catalogo")
     assert "Ativar todos" not in r.text and "Desativar todos" not in r.text
     assert "/catalogo/lote" not in r.text
+
+
+def test_ciclo_da_amazon_rodando_nao_conta_como_coleta_da_liga_em_andamento(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
+    assert "Rodar agora" in cliente.get("/").text
