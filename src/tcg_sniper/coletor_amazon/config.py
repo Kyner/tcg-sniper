@@ -1,5 +1,6 @@
 """Validação do formulário de configuração da Amazon (admin), com os limites do banco."""
 
+import re
 from collections.abc import Mapping
 from datetime import datetime, time
 
@@ -7,6 +8,8 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import LIMITES_CONFIG_AMAZON, ConfigAmazon
+
+HORA_RE = re.compile(r"[0-9]{2}:[0-9]{2}")
 
 CAMPOS = (
     "url_busca",
@@ -49,11 +52,12 @@ EXPLICACOES = {
 
 
 def _hora(texto: str) -> time | None:
+    if not HORA_RE.fullmatch(texto):
+        return None
     try:
-        hora = time.fromisoformat(texto)
+        return time.fromisoformat(texto)
     except ValueError:
         return None
-    return hora if len(texto) == 5 else None
 
 
 def validar_config(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[str, str]]:

@@ -34,6 +34,7 @@ def test_todo_campo_tem_explicacao():
         ("url_busca", "https://www.amazon.com.br/s?k=x", "{termo}"),
         ("url_busca", "http://www.amazon.com.br/s?k={termo}", "https://"),
         ("janela_inicio", "25:00", "HH:MM"),
+        ("janela_inicio", "0800Z", "HH:MM"),
     ],
 )
 def test_campo_invalido(campo, valor, trecho):
