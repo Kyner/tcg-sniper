@@ -490,3 +490,16 @@ def test_ciclo_da_amazon_rodando_nao_conta_como_coleta_da_liga_em_andamento(clie
     with sessoes() as s, s.begin():
         repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
     assert "Rodar agora" in cliente.get("/servicos").text
+
+
+def test_produto_ativo_liga_para_os_casamentos_do_produto_e_inativo_nao(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.gravar_listagem(s, c.id, [item_listagem("1", "Caixa Aetherdrift", "525.43")], T0)
+        produto_id = s.scalar(select(ProdutoLiga.id).where(ProdutoLiga.liga_id == "1"))
+    assert f"/casamentos/produto/{produto_id}" not in cliente.get(f"/produto/{produto_id}").text  # nasce inativo
+    cliente.post(f"/produto/{produto_id}/ativo")
+    assert f'href="/casamentos/produto/{produto_id}"' in cliente.get(f"/produto/{produto_id}").text
+    cliente.post(f"/produto/{produto_id}/ativo")
+    texto = cliente.get(f"/produto/{produto_id}").text
+    assert f"/casamentos/produto/{produto_id}" not in texto and "aba=revisados" not in texto

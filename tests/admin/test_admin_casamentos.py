@@ -212,3 +212,31 @@ def test_sugestoes_para_acha_parecidos_e_exclui_o_atual(s):
     sugestoes = consultas_amazon.sugestoes_para(s, anuncio)
     assert sugestoes[0][0].id == alvo.id
     assert all(p.id != atual.id for p, _ in sugestoes) and len(sugestoes) <= 3
+
+
+def test_trocar_nao_oferece_produto_inativo(cliente, sessoes, cenario):
+    with sessoes() as s:
+        alfa = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B0ALFA0001"))
+        alfa.titulo = "Caixa Inativa"
+        s.commit()
+    texto = cliente.get(f"/casamentos/{alfa.id}/trocar", params={"busca": "Inativa"}).text
+    assert f"/casamentos/produto/{cenario['e'].id}" not in texto
+    with sessoes() as s:
+        assert all(p.ativo for p, _ in consultas_amazon.buscar_produtos(s, "Inativa"))
+        anuncio = s.get(AnuncioAmazon, alfa.id)
+        assert all(p.ativo for p, _ in consultas_amazon.sugestoes_para(s, anuncio))
+
+
+def test_confirmar_para_produto_inativo_404_e_nao_grava(cliente, sessoes, cenario):
+    with sessoes() as s:
+        alfa = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B0ALFA0001"))
+    r = cliente.post(f"/casamentos/{alfa.id}", data={"acao": "confirmar", "produto_id": str(cenario["e"].id)})
+    assert r.status_code == 404
+    with sessoes() as s:
+        assert s.get(AnuncioAmazon, alfa.id).status_casamento is StatusCasamento.PENDENTE
+        assert s.get(AnuncioAmazon, alfa.id).produto_id == cenario["a"].id
+
+
+def test_busca_com_nul_nao_quebra(cliente, cenario):
+    assert cliente.get("/casamentos", params={"busca": "a\x00b"}).status_code == 200
+    assert cliente.get("/ofertas", params={"busca": "a\x00b"}).status_code == 200

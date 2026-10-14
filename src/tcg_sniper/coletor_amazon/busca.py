@@ -93,10 +93,17 @@ def _ler[T](ctx: ContextoBusca, pagina: Pagina, sufixo: str, parser: Callable[[s
         raise
 
 
-def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> int:
+@dataclasses.dataclass(frozen=True)
+class Conferencia:
+    conferidos: int  # páginas de produto lidas: candidatos da busca mais confirmados ausentes da busca
+    candidatos: int  # só os candidatos da busca (os ausentes não contam para o ritmo da fila)
+
+
+def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> Conferencia:
     """Busca o produto e confirma os candidatos. Devolve quantos anúncios foram conferidos na página
-    do produto (candidatos da busca mais confirmados ausentes da busca), não quantos foram confirmados.
-    Lança DesafioAmazon (CAPTCHA), ErroParser (layout) ou ErroRede (depois de uma nova tentativa)."""
+    do produto e, desses, quantos eram candidatos da busca (não quantos foram confirmados).
+    Lança DesafioAmazon (CAPTCHA), ErroParser (layout; só depois de ler todos os ausentes) ou ErroRede
+    (depois de uma nova tentativa)."""
     pagina = _abrir(ctx, url_busca(ctx.cfg, produto.nome))
     itens = _ler(ctx, pagina, "busca", lambda html: parse_busca(html, ctx.cfg.resultados_por_busca))
     with ctx.sessoes() as s, s.begin():
@@ -113,11 +120,18 @@ def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> int:
         ausentes = repo.confirmados_ausentes(
             s, produto.id, {a.asin for a in anuncios}, MAX_CONFIRMADOS_AUSENTES
         )
-    ja_conferidos = {anuncio_id for anuncio_id, _, _ in candidatos}
-    conferir = candidatos + [a for a in ausentes if a[0] not in ja_conferidos]
-    for anuncio_id, asin, url in conferir:
+    for anuncio_id, asin, url in candidatos:
         _confirmar(ctx, anuncio_id, asin, url)
-    return len(conferir)
+    # Um ausente ilegível não pode impedir a leitura dos demais: guarda o primeiro erro e o lança no fim.
+    primeiro_erro: ErroParser | None = None
+    for anuncio_id, asin, url in ausentes:
+        try:
+            _confirmar(ctx, anuncio_id, asin, url)
+        except ErroParser as erro:
+            primeiro_erro = primeiro_erro or erro
+    if primeiro_erro is not None:
+        raise primeiro_erro
+    return Conferencia(len(candidatos) + len(ausentes), len(candidatos))
 
 
 def _vendedor(ctx: ContextoBusca, oferta: OfertaProduto) -> VendedorAmazon | None:

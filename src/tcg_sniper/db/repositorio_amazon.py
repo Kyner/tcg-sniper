@@ -6,7 +6,7 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, literal, select, update
+from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -338,7 +338,9 @@ def desfazer_casamento(s: Session, anuncio_id: int, agora: datetime) -> bool:
 def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> None:
     """Põe o produto na frente da fila da Amazon (sem linha na fila, não faz nada: a próxima
     sincronização o insere já vencido)."""
-    s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(proxima_busca_em=agora))
+    primeiro = s.scalar(select(func.min(FilaAmazon.proxima_busca_em)).where(FilaAmazon.produto_id != produto_id))
+    quando = agora if primeiro is None else min(agora, primeiro - timedelta(seconds=1))
+    s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(proxima_busca_em=quando))
     s.flush()
 
 

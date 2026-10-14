@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 
 from tcg_sniper.coletor_amazon.busca import (
     MAX_CONFIRMADOS_AUSENTES,
+    Conferencia,
     ContextoBusca,
     DesafioAmazon,
     processar_produto,
@@ -85,7 +86,7 @@ def test_asin_novo_fica_pendente_e_nao_abre_o_produto(sessoes, config, produto):
     with sessoes() as s:
         url = url_busca(repo.obter_config(s), NOME)
     ctx, navegador, notificador = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 100,00"))})
-    assert processar_produto(ctx, produto) == 0
+    assert processar_produto(ctx, produto) == Conferencia(0, 0)
     assert navegador.visitadas == [url]
     with sessoes() as s:
         anuncio = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B01"))
@@ -103,7 +104,7 @@ def test_confirmado_barato_vendido_pela_amazon_abre_oportunidade_e_alerta(sessoe
     }
     dormidas = []
     ctx, navegador, notificador = contexto(sessoes, config, paginas, dormidas)
-    assert processar_produto(ctx, produto) == 1
+    assert processar_produto(ctx, produto) == Conferencia(1, 1)
     assert navegador.visitadas == [url, url_produto("B01")]
     assert len(dormidas) == 2  # uma pausa humana antes de cada página
     [(destino, texto)] = notificador.mensagens
@@ -137,7 +138,7 @@ def test_confirmado_acima_do_limite_nao_abre_o_produto(sessoes, config, produto)
         criar_anuncio(s, "B01", produto=produto, status=StatusCasamento.CONFIRMADO)
         url = url_busca(repo.obter_config(s), NOME)
     ctx, navegador, _ = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 750,01"))})
-    assert processar_produto(ctx, produto) == 0
+    assert processar_produto(ctx, produto) == Conferencia(0, 0)
     assert navegador.visitadas == [url]
 
 
@@ -149,7 +150,7 @@ def test_asin_casado_com_outro_produto_compara_com_o_preco_dele(sessoes, config,
         url = url_busca(repo.obter_config(s), NOME)
     # R$ 700 é 30% abaixo do produto buscado (R$ 1.000), mas acima do produto casado (R$ 100).
     ctx, navegador, _ = contexto(sessoes, config, {url: busca(url, cartao_busca("B09", "Outro", "R$ 700,00"))})
-    assert processar_produto(ctx, produto) == 0
+    assert processar_produto(ctx, produto) == Conferencia(0, 0)
     assert navegador.visitadas == [url]
 
 
@@ -231,7 +232,7 @@ def test_oportunidade_aberta_e_rechecada_fecha_e_reabre(sessoes, config, produto
     assert len(notificador.mensagens) == 1
 
     ctx2, navegador2, notificador2 = contexto(sessoes, config, _paginas_preco(url, "R$ 800,00"))
-    assert processar_produto(ctx2, produto) == 1
+    assert processar_produto(ctx2, produto) == Conferencia(1, 1)
     assert url_produto("B01") in navegador2.visitadas
     assert notificador2.mensagens == []
     with sessoes() as s:
@@ -269,7 +270,7 @@ def test_confirmado_ausente_da_busca_tem_a_pagina_lida_e_o_titulo_atualizado(ses
         ),
     }
     ctx, navegador, notificador = contexto(sessoes, config, paginas)
-    assert processar_produto(ctx, produto) == 1
+    assert processar_produto(ctx, produto) == Conferencia(1, 0)
     assert navegador.visitadas == [url, url_produto("B0MANUAL01")]
     with sessoes() as s:
         lido = s.get(AnuncioAmazon, manual.id)
@@ -293,7 +294,7 @@ def test_no_maximo_5_ausentes_por_busca_os_mais_antigos_primeiro(sessoes, config
     for asin in asins:
         paginas[url_produto(asin)] = pagina_html(html_produto_amazon(f"Item {asin}", "R$ 900,00", "Loja", "Loja"))
     ctx, navegador, _ = contexto(sessoes, config, paginas)
-    assert processar_produto(ctx, produto) == MAX_CONFIRMADOS_AUSENTES == 5
+    assert processar_produto(ctx, produto) == Conferencia(MAX_CONFIRMADOS_AUSENTES, 0)
     assert navegador.visitadas == [url] + [url_produto(a) for a in asins[:5]]
 
 
@@ -306,8 +307,31 @@ def test_ausente_que_ja_e_candidato_nao_e_lido_duas_vezes(sessoes, config, produ
         url_produto("B01"): pagina_html(html_produto_amazon("Caixa FF", "R$ 700,00", "Amazon.com.br", None)),
     }
     ctx, navegador, _ = contexto(sessoes, config, paginas)
-    assert processar_produto(ctx, produto) == 1
+    assert processar_produto(ctx, produto) == Conferencia(1, 1)
     assert navegador.visitadas == [url, url_produto("B01")]
+
+
+def test_ausente_ilegivel_nao_impede_a_leitura_dos_outros_ausentes(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        url = url_busca(repo.obter_config(s), NOME)
+        criar_anuncio(s, "B0RUIM0001", produto=produto, status=StatusCasamento.CONFIRMADO)  # nunca lido: vem antes
+        bom = criar_anuncio(s, "B0BOM00001", produto=produto, status=StatusCasamento.CONFIRMADO)
+        repo.registrar_preco(
+            s, bom.id, Decimal("900.00"), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO,
+            AGORA - timedelta(hours=3), config.zona,
+        )
+        bom_id = bom.id
+    paginas = {
+        url: busca(url),
+        url_produto("B0RUIM0001"): pagina_html("<html><body>página não encontrada</body></html>"),
+        url_produto("B0BOM00001"): pagina_html(html_produto_amazon("Item bom", "R$ 850,00", "Loja", "Loja")),
+    }
+    ctx, navegador, _ = contexto(sessoes, config, paginas)
+    with pytest.raises(ErroParser):
+        processar_produto(ctx, produto)
+    assert navegador.visitadas == [url, url_produto("B0RUIM0001"), url_produto("B0BOM00001")]
+    with sessoes() as s:
+        assert s.get(AnuncioAmazon, bom_id).visto_ultimo_em == AGORA
 
 
 def test_ausente_cuja_pagina_nao_le_segue_o_fluxo_de_erro(sessoes, config, produto):

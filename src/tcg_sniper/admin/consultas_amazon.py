@@ -201,7 +201,8 @@ def sugestoes_para(s: Session, anuncio: AnuncioAmazon, limite: int = 3) -> list[
     sem o produto ao qual o anúncio já está ligado."""
     por_nome: dict[str, int] = {}
     indice: dict[str, set[str]] = {}
-    for produto_id, nome in s.execute(select(ProdutoLiga.id, ProdutoLiga.nome).order_by(ProdutoLiga.id)):
+    consulta_nomes = select(ProdutoLiga.id, ProdutoLiga.nome).where(ProdutoLiga.ativo.is_(True)).order_by(ProdutoLiga.id)
+    for produto_id, nome in s.execute(consulta_nomes):
         normalizado = _normalizar(nome)
         if por_nome.setdefault(normalizado, produto_id) != produto_id:
             continue
@@ -215,7 +216,7 @@ def sugestoes_para(s: Session, anuncio: AnuncioAmazon, limite: int = 3) -> list[
 
 
 def buscar_produtos(s: Session, busca: str, limite: int = 20) -> list[tuple[ProdutoLiga, Decimal | None]]:
-    consulta = select(ProdutoLiga.id).order_by(ProdutoLiga.nome).limit(limite)
+    consulta = select(ProdutoLiga.id).where(ProdutoLiga.ativo.is_(True)).order_by(ProdutoLiga.nome).limit(limite)
     if busca.strip():
         consulta = consulta.where(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
     return _com_preco_liga(s, list(s.scalars(consulta)))

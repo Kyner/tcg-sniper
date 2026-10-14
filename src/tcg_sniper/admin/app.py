@@ -513,7 +513,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 texto = formulario.get("produto_id", "").strip()
                 if not (texto.isdecimal() and len(texto) <= 9):
                     raise HTTPException(status.HTTP_400_BAD_REQUEST, "produto_id inválido")
-                if s.get(ProdutoLiga, int(texto)) is None:
+                destino_produto = s.get(ProdutoLiga, int(texto))
+                if destino_produto is None or not destino_produto.ativo:
                     raise HTTPException(status.HTTP_404_NOT_FOUND)
                 repo_amz.confirmar_casamento(s, anuncio_id, int(texto), agora)
             elif acao == "ignorar":

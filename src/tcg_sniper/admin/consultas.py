@@ -20,7 +20,7 @@ POR_PAGINA = 100
 
 
 def _escapar_like(texto: str) -> str:
-    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return texto.replace("\x00", "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 STATUS_HISTORICO = ("todos", "ok", "parcial", "falha", "pausada_desafio")

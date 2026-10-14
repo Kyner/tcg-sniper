@@ -237,6 +237,19 @@ def test_casar_link_manual_cria_confirmado_e_prioriza_na_fila(s):
     assert s.get(FilaAmazon, produto.id).proxima_busca_em == agora
 
 
+def test_link_manual_passa_na_frente_mesmo_com_a_fila_atrasada(s):
+    atrasado = criar_produto(s, "gg")
+    produto = criar_produto(s, "ff")
+    repo.sincronizar_fila(s, T0)
+    agora = T0 + timedelta(hours=5)
+    s.get(FilaAmazon, atrasado.id).proxima_busca_em = agora - timedelta(hours=1)
+    s.get(FilaAmazon, produto.id).proxima_busca_em = agora + timedelta(hours=1)
+    s.flush()
+
+    repo.casar_link_manual(s, produto.id, "B0MANUAL01", agora)
+    assert repo.proximo_da_fila(s, agora).produto_id == produto.id
+
+
 def test_casar_link_manual_de_asin_conhecido_troca_o_produto_e_fecha_oportunidade(s):
     antigo = criar_produto(s, "antigo")
     novo = criar_produto(s, "novo")

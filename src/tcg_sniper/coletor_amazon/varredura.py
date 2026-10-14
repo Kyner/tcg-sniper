@@ -196,7 +196,7 @@ class VarreduraAmazon:
         )
         teve_candidato = False
         try:
-            teve_candidato = processar_produto(contexto, produto) > 0
+            teve_candidato = processar_produto(contexto, produto).candidatos > 0
             self._ok += 1
             self._falhas_seguidas = 0
         except DesafioAmazon as desafio:
