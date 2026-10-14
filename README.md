@@ -12,6 +12,7 @@ Monitor de preços de produtos selados de Magic: The Gathering (boosters, caixas
 - [Como funciona](#como-funciona)
 - [Pré-requisitos](#pré-requisitos)
 - [Instalação passo a passo](#instalação-passo-a-passo)
+- [Atualizar uma instalação existente](#atualizar-uma-instalação-existente)
 - [Uso no dia a dia](#uso-no-dia-a-dia)
 - [Configuração](#configuração)
 - [Solução de problemas](#solução-de-problemas)
@@ -177,17 +178,30 @@ A partir da próxima coleta, os produtos ativos ganham histórico de venda e nú
    WHATSAPP_GRUPO_OPORTUNIDADES=120363xxxxxxxxxxxx@g.us
    ```
 
-2. Suba o coletor da Amazon:
+2. Suba o coletor da Amazon junto com todo o resto:
 
    ```bash
-   docker compose up -d --build coletor-amazon
+   docker compose up -d --build
    ```
+
+   Suba tudo de uma vez, não só o `coletor-amazon`: a nova versão muda o banco (o `migrate` roda antes) e o `coletor-liga` e o `admin` precisam ser recriados com o código novo junto. Ver [Atualizar uma instalação existente](#atualizar-uma-instalação-existente).
 
 3. Abra `http://<HOST_PUBLICO>:6081/vnc.html` (senha `VNC_SENHA`), clique no endereço de entrega da Amazon e informe o CEP de onde as compras serão entregues. O preço e o "Enviado por" dependem dele; o CEP fica salvo no perfil do Chromium.
 
 **Deu certo se** `docker compose logs coletor-amazon --tail 20` mostrar `varredura da Amazon iniciada` e, na janela do noVNC, aparecerem buscas a cada 8 a 20 segundos (dentro do horário de 08:00 às 22:00).
 
 Os anúncios achados só viram oportunidade depois de confirmados em **Casamentos** no admin.
+
+## Atualizar uma instalação existente
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+- Atualize fora do horário da coleta da LigaMagic (por volta das 10:00), para não interromper uma coleta no meio.
+- Recrie todos os serviços de uma vez, como acima. O `migrate` atualiza o banco antes e todos os containers sobem com o código novo.
+- Nunca reconstrua um serviço só (`docker compose up -d --build coletor-amazon`, por exemplo) depois de uma atualização que muda o banco: os outros continuam com o código antigo contra o banco novo e podem parar de funcionar.
 
 ## Uso no dia a dia
 
@@ -253,7 +267,7 @@ Os ajustes da Amazon e do motor de oportunidades não ficam no `.env`: edite-os 
 **A Evolution não sobe e o log reclama do banco `evolution`.** O script que cria o banco `evolution` só roda num volume novo do Postgres. Crie à mão:
 `docker compose exec postgres psql -U tcg -c "CREATE DATABASE evolution;"`
 
-**Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA` e `WHATSAPP_GRUPO_ADMIN` estão preenchidos. Sem algum deles, os avisos vão só para o log (`docker compose logs coletor-liga`); com a chave padrão ou o grupo vazio, o coletor avisa isso no log ao subir.
+**Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA` e `WHATSAPP_GRUPO_ADMIN` estão preenchidos. Sem algum deles, os avisos vão só para o log (`docker compose logs coletor-liga`); com a chave padrão ou o grupo vazio, o coletor avisa isso no log ao subir. Os avisos de oportunidade vão para outro grupo: confira também `WHATSAPP_GRUPO_OPORTUNIDADES` (sem ele, as oportunidades vão só para o log do `coletor-amazon`).
 
 **Por que não chega alerta de um produto que está barato na Amazon?** As causas mais comuns: a oferta é vendida pela "Amazon Global" (importada, nunca gera alerta); é de um lojista com envio próprio; é de um lojista FBA com poucas avaliações; o casamento do anúncio com o produto da Liga ainda está pendente em **Casamentos**; ou o preço da Liga tem mais de 48 h.
 

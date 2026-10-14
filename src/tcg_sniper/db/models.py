@@ -160,7 +160,8 @@ class EstadoColetor(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
-    coletor: Mapped[str] = mapped_column(Text)
+    # server_default: o código anterior à Amazon insere a linha 1 sem `coletor` (ver migração 7d3f1a2b9c4e).
+    coletor: Mapped[str] = mapped_column(Text, server_default="liga")
     estado: Mapped[EstadoColetorTipo] = mapped_column(_enum(EstadoColetorTipo, "estado_coletor_tipo"))
     motivo: Mapped[str | None] = mapped_column(Text)
     execucao_solicitada: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

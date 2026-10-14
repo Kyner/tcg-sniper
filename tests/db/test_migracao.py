@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from tcg_sniper.db.models import (
@@ -27,6 +27,17 @@ def test_estado_coletor_aceita_so_as_linhas_dos_coletores(s):
     s.add(EstadoColetor(id=3, coletor="outro", estado=EstadoColetorTipo.ATIVO, atualizado_em=agora))
     with pytest.raises(IntegrityError):
         s.flush()
+
+
+def test_insert_do_codigo_antigo_sem_coletor_nao_quebra(s):
+    """O `obter_estado` antigo (antes da Amazon) insere a linha 1 sem `coletor`: tem que conflitar em paz."""
+    s.execute(
+        text(
+            "INSERT INTO estado_coletor (id, estado, execucao_solicitada, atualizado_em) "
+            "VALUES (1, 'ativo', false, now()) ON CONFLICT (id) DO NOTHING"
+        )
+    )
+    assert s.get(EstadoColetor, 1).coletor == "liga"
 
 
 def test_migracao_cria_estado_da_amazon_ativo(s):
