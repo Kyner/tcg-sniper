@@ -6,7 +6,7 @@ import dataclasses
 import logging
 import random
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 
@@ -36,6 +36,22 @@ class DesafioAmazon(Exception):
         self.url = url
 
 
+MAX_HTMLS_FALHA = 3  # por ciclo: sob bloqueio ou layout novo toda busca falha e cada página tem 1-2 MB
+
+
+@dataclass
+class CotaHtmlFalha:
+    """Quantos HTMLs de falha ainda podem ser salvos; a varredura cria uma por ciclo."""
+
+    restante: int = MAX_HTMLS_FALHA
+
+    def consumir(self) -> bool:
+        if self.restante <= 0:
+            return False
+        self.restante -= 1
+        return True
+
+
 @dataclass
 class ContextoBusca:
     sessoes: sessionmaker[Session]
@@ -47,6 +63,7 @@ class ContextoBusca:
     dormir: Dormir
     rng: random.Random
     nome_falha: str  # prefixo do HTML salvo em <DIR_DADOS>/falhas quando um parser falha
+    cota_falhas: CotaHtmlFalha = field(default_factory=CotaHtmlFalha)
 
 
 def url_busca(cfg: ConfigAmazon, nome: str) -> str:
@@ -66,8 +83,11 @@ def _ler[T](ctx: ContextoBusca, pagina: Pagina, sufixo: str, parser: Callable[[s
     try:
         return parser(pagina.html)
     except ErroParser:
-        caminho = salvar_html_falha(ctx.config.dir_dados, f"{ctx.nome_falha}-{sufixo}", pagina.html)
-        log.warning("parser da Amazon falhou em %s; HTML em %s", pagina.url, caminho)
+        if ctx.cota_falhas.consumir():
+            caminho = salvar_html_falha(ctx.config.dir_dados, f"{ctx.nome_falha}-{sufixo}", pagina.html)
+            log.warning("parser da Amazon falhou em %s; HTML em %s", pagina.url, caminho)
+        else:
+            log.warning("parser da Amazon falhou em %s; HTML não salvo (limite do ciclo atingido)", pagina.url)
         raise
 
 

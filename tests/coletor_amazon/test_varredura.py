@@ -16,7 +16,12 @@ from sqlalchemy import select
 
 from tcg_sniper.coletor_amazon.busca import url_busca
 from tcg_sniper.coletor_amazon.config import aplicar_config
-from tcg_sniper.coletor_amazon.varredura import ESPERA_ERRO_S, ESPERA_OCIOSA_S, VarreduraAmazon
+from tcg_sniper.coletor_amazon.varredura import (
+    ESPERA_ERRO_S,
+    ESPERA_OCIOSA_S,
+    MAX_FALHAS_SEGUIDAS,
+    VarreduraAmazon,
+)
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import (
@@ -307,3 +312,51 @@ def test_tratar_erro_nunca_levanta_se_a_pausa_falhar(engine, sessoes, config, mo
     esperas = [v.tratar_erro(RuntimeError("x")) for _ in range(3)]
     assert esperas == [ESPERA_ERRO_S] * 3
     assert len(notificador.mensagens) == 3
+
+
+def quebrada(url):
+    return pagina_html("<html></html>", url=url)
+
+
+def nomes(n):
+    return [f"p{i:02d}" for i in range(n)]  # mesmo preço e vencimento: a fila segue a ordem de id
+
+
+def test_falhas_seguidas_pausam_a_busca(engine, sessoes, config):
+    _, urls = produtos(sessoes, *nomes(MAX_FALHAS_SEGUIDAS + 1))
+    v, navegador, _, notificador = varredura(engine, sessoes, config, {u: quebrada(u) for u in urls.values()})
+    for _ in range(MAX_FALHAS_SEGUIDAS):
+        v.passo()
+    with sessoes() as s:
+        estado = repo.obter_estado(s, coletor=COLETOR_AMAZON)
+    assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO, "falhas seguidas")
+    avisos = [t for d, t in notificador.mensagens if d is Destino.ADMIN and "seguidas com falha" in t]
+    assert len(avisos) == 1
+    assert "Retomar (Amazon)" in avisos[0]
+    [ciclo] = ciclos(sessoes)
+    assert (ciclo.status, ciclo.produtos_falha) == (StatusColeta.FALHA, MAX_FALHAS_SEGUIDAS)
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert len(navegador.visitadas) == MAX_FALHAS_SEGUIDAS
+
+
+def test_busca_com_sucesso_zera_as_falhas_seguidas(engine, sessoes, config):
+    criados, urls = produtos(sessoes, *nomes(2 * MAX_FALHAS_SEGUIDAS - 1))
+    meio = criados[MAX_FALHAS_SEGUIDAS - 1].id
+    paginas = {u: vazia(u) if pid == meio else quebrada(u) for pid, u in urls.items()}
+    v, navegador, _, notificador = varredura(engine, sessoes, config, paginas)
+    for _ in range(len(criados)):
+        v.passo()
+    assert navegador.visitadas[MAX_FALHAS_SEGUIDAS - 1] == urls[meio]
+    with sessoes() as s:
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
+    assert not any("seguidas com falha" in t for _, t in notificador.mensagens)
+
+
+def test_no_maximo_tres_htmls_de_falha_por_ciclo(engine, sessoes, config):
+    _, urls = produtos(sessoes, *nomes(5))
+    v, _, _, _ = varredura(engine, sessoes, config, {u: quebrada(u) for u in urls.values()})
+    for _ in range(5):
+        v.passo()
+    [ciclo] = ciclos(sessoes)
+    assert ciclo.produtos_falha == 5
+    assert len(list((config.dir_dados / "falhas").iterdir())) == 3
