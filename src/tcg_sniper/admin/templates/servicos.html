@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block titulo %}Serviços · TCG Sniper{% endblock %}
+{% block conteudo %}
+<h2>Serviços</h2>
+{% if mensagem %}<p><mark>{{ mensagem }}</mark></p>{% endif %}
+<div class="grid">
+  <article>
+    <header><strong>LigaMagic</strong></header>
+    {% if estado.estado.value == "pausado_desafio" %}
+      <p class="pausado">Pausada: desafio pendente. {{ estado.motivo or "" }}<br>
+      Resolva em <a href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em Retomar.</p>
+      <form method="post" action="/retomar"><button>Retomar</button></form>
+    {% elif em_andamento %}
+      <p>Ativa. <strong>Coleta em andamento.</strong></p>
+    {% else %}
+      <p>Ativa.{% if estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
+      <form method="post" action="/rodar-agora"><button>Rodar agora</button></form>
+    {% endif %}
+  </article>
+  <article>
+    <header><strong>Amazon</strong></header>
+    {% if estado_amazon.estado.value == "pausado_desafio" %}
+      <p class="pausado">Pausada: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}<br>
+      Resolva em <a href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar.</p>
+      <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
+    {% elif estado_amazon.estado.value == "pausado" %}
+      <p class="pausado">Pausada. {{ estado_amazon.motivo or "" }}</p>
+      <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
+    {% else %}
+      <p>Ativa.{% if ciclo_amazon %} Ciclo em andamento desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
+      <form method="post" action="/amazon/pausar"><button class="secondary">Pausar (Amazon)</button></form>
+    {% endif %}
+  </article>
+</div>
+{% endblock %}

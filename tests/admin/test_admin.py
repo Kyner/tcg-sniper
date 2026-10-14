@@ -55,7 +55,7 @@ def test_index_mostra_estado_e_coletas(cliente, sessoes):
         repo.finalizar_coleta(s, c.id, StatusColeta.OK, 1, 0, T0)
     r = cliente.get("/")
     assert r.status_code == 200
-    assert "Rodar agora" in r.text
+    assert "Rodar agora" in cliente.get("/servicos").text
     assert "<td>produtos</td>" in r.text
 
 
@@ -63,7 +63,9 @@ def test_index_pausado_mostra_retomar(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo.pausar_por_desafio(s, "desafio em /x", T0)
     r = cliente.get("/")
-    assert "Retomar" in r.text and "desafio em /x" in r.text and "host.test:6080" in r.text
+    assert "desafio em /x" in r.text and 'href="/servicos"' in r.text
+    servicos = cliente.get("/servicos").text
+    assert "Retomar" in servicos and "host.test:6080" in servicos
 
 
 def test_retomar(cliente, sessoes):
@@ -71,13 +73,15 @@ def test_retomar(cliente, sessoes):
         repo.pausar_por_desafio(s, "x", T0)
     r = cliente.post("/retomar", follow_redirects=False)
     assert r.status_code == 303
+    assert r.headers["location"] == "/servicos?msg=retomar"
     with sessoes() as s:
         estado = repo.obter_estado(s)
         assert estado.estado is EstadoColetorTipo.ATIVO and estado.execucao_solicitada
 
 
 def test_rodar_agora(cliente, sessoes):
-    assert cliente.post("/rodar-agora", follow_redirects=False).status_code == 303
+    r = cliente.post("/rodar-agora", follow_redirects=False)
+    assert (r.status_code, r.headers["location"]) == (303, "/servicos?msg=rodar")
     with sessoes() as s:
         assert repo.obter_estado(s).execucao_solicitada
 
@@ -207,7 +211,7 @@ def test_index_com_coleta_rodando_mostra_andamento_e_esconde_rodar_agora(cliente
         repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
     r = cliente.get("/")
     assert "Coleta em andamento" in r.text
-    assert "Rodar agora" not in r.text
+    assert "Rodar agora" not in cliente.get("/servicos").text
 
 
 def criar_muitos(sessoes, n):
@@ -485,4 +489,4 @@ def test_botoes_do_lote_escondidos_sem_resultados(cliente):
 def test_ciclo_da_amazon_rodando_nao_conta_como_coleta_da_liga_em_andamento(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
-    assert "Rodar agora" in cliente.get("/").text
+    assert "Rodar agora" in cliente.get("/servicos").text

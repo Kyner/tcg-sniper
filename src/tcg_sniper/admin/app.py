@@ -25,6 +25,20 @@ SENHA_PADRAO = "trocar-esta-senha"
 MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
 
 
+MENSAGENS_SERVICOS = {
+    "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
+    "retomar": "Coleta da LigaMagic retomada.",
+    "amazon_pausar": "Busca na Amazon pausada.",
+    "amazon_retomar": "Busca na Amazon retomada.",
+}
+
+
+def numero_pagina(texto: str) -> int:
+    """Número de página vindo da URL; texto inválido ou gigante vale 1 (nunca 500)."""
+    texto = texto.strip()
+    return int(texto) if texto.isdecimal() and len(texto) <= 9 else 1
+
+
 def formatar_data(dt: datetime | None, zona: ZoneInfo) -> str:
     return "" if dt is None else dt.astimezone(zona).strftime("%d/%m/%Y %H:%M")
 
@@ -59,19 +73,77 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.filters["data"] = lambda dt: formatar_data(dt, config.zona)
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request):
+    def dashboard(
+        request: Request,
+        liga_status: str = "todos",
+        liga_pagina: str = "1",
+        amazon_status: str = "todos",
+        amazon_pagina: str = "1",
+    ):
+        for valor in (liga_status, amazon_status):
+            if valor not in consultas.STATUS_HISTORICO:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"status inválido: {valor}")
+        agora = repo.agora_utc()
+        tipos_amazon = (TipoColeta.AMAZON,)
         with sessoes() as s, s.begin():
+            cfg = repo_amz.obter_config(s)
+            hora_local = agora.astimezone(config.zona).time()
+            coletas, pagina_liga, paginas_liga = consultas.historico_coletas(
+                s, TIPOS_LIGA, liga_status, numero_pagina(liga_pagina)
+            )
+            ciclos, pagina_amazon, paginas_amazon = consultas.historico_coletas(
+                s, tipos_amazon, amazon_status, numero_pagina(amazon_pagina)
+            )
+            parametros = {
+                "liga_status": liga_status,
+                "liga_pagina": pagina_liga,
+                "amazon_status": amazon_status,
+                "amazon_pagina": pagina_amazon,
+            }
+
+            def link(**mudancas) -> str:
+                return "/?" + urlencode({**parametros, **mudancas})
+
             return templates.TemplateResponse(
                 request,
                 "index.html",
                 {
                     "estado": repo.obter_estado(s),
-                    "coletas": consultas.listar_coletas(s, TIPOS_LIGA),
-                    "ciclos_amazon": consultas.listar_coletas(s, (TipoColeta.AMAZON,)),
+                    "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
+                    "ultima_liga": consultas.ultima_coleta_sucesso(s, TIPOS_LIGA),
+                    "coleta_hora": config.coleta_hora.strftime("%H:%M"),
+                    "coleta_jitter": config.coleta_jitter_min,
+                    "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
+                    "ciclo_amazon": consultas_amazon.ciclo_atual(s),
+                    "ultimo_ciclo": consultas.ultima_coleta_finalizada(s, tipos_amazon),
+                    "fora_da_janela": not (cfg.janela_inicio <= hora_local < cfg.janela_fim),
+                    "janela": f"{cfg.janela_inicio:%H:%M}–{cfg.janela_fim:%H:%M}",
+                    "coletas": coletas,
+                    "ciclos": ciclos,
+                    "pagina_liga": pagina_liga,
+                    "paginas_liga": paginas_liga,
+                    "pagina_amazon": pagina_amazon,
+                    "paginas_amazon": paginas_amazon,
+                    "liga_status": liga_status,
+                    "amazon_status": amazon_status,
+                    "status_historico": consultas.STATUS_HISTORICO,
+                    "link": link,
+                },
+            )
+
+    @app.get("/servicos", response_class=HTMLResponse)
+    def servicos(request: Request, msg: str = ""):
+        with sessoes() as s, s.begin():
+            return templates.TemplateResponse(
+                request,
+                "servicos.html",
+                {
+                    "estado": repo.obter_estado(s),
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
                     "host": config.host_publico,
+                    "mensagem": MENSAGENS_SERVICOS.get(msg),
                 },
             )
 
@@ -79,25 +151,25 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     def retomar():
         with sessoes() as s, s.begin():
             repo.retomar(s, repo.agora_utc())
-        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/servicos?msg=retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/rodar-agora")
     def rodar_agora():
         with sessoes() as s, s.begin():
             repo.solicitar_execucao(s, repo.agora_utc())
-        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/servicos?msg=rodar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/pausar")
     def pausar_amazon():
         with sessoes() as s, s.begin():
             repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_AMAZON)
-        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/servicos?msg=amazon_pausar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/retomar")
     def retomar_amazon():
         with sessoes() as s, s.begin():
             repo.retomar(s, repo.agora_utc(), COLETOR_AMAZON)
-        return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     def _tela_configuracoes(request: Request, valores: dict[str, str], erros: dict[str, str], salvo: bool, codigo: int):
         return templates.TemplateResponse(
