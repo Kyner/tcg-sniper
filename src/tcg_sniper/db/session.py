@@ -16,8 +16,12 @@ def criar_sessoes(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
-def migrar(url: str) -> None:
+def config_alembic(url: str) -> AlembicConfig:
     cfg = AlembicConfig()
     cfg.set_main_option("script_location", str(DIR_MIGRACOES))
     cfg.set_main_option("sqlalchemy.url", url)
-    command.upgrade(cfg, "head")
+    return cfg
+
+
+def migrar(url: str) -> None:
+    command.upgrade(config_alembic(url), "head")
