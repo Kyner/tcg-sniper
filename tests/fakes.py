@@ -142,3 +142,44 @@ DIR_FIXTURES_AMAZON = Path(__file__).parent / "fixtures" / "amazon"
 
 def fixture_amazon(nome: str) -> str:
     return (DIR_FIXTURES_AMAZON / f"{nome}.html").read_text(encoding="utf-8")
+
+
+def cartao_busca(asin: str, titulo: str, preco: str | None, patrocinado: bool = False) -> str:
+    """Cartão de resultado da busca da Amazon. `preco` no formato da página ("R$ 599,90") ou None."""
+    preco_html = f'<span class="a-price"><span class="a-offscreen">{preco}</span></span>' if preco else ""
+    marca = '<span class="puis-sponsored-label-text">Patrocinado</span>' if patrocinado else ""
+    return (
+        f'<div data-component-type="s-search-result" data-asin="{asin}">'
+        f"<h2><span>{titulo}</span></h2>{marca}{preco_html}</div>"
+    )
+
+
+def html_busca(*cartoes: str) -> str:
+    return f'<html><body><div class="s-main-slot">{"".join(cartoes)}</div></body></html>'
+
+
+def html_produto_amazon(
+    titulo: str, preco: str | None, vendido: str | None, enviado: str | None, seller_id: str | None = None
+) -> str:
+    partes = [f'<span id="productTitle">{titulo}</span>']
+    if preco:
+        partes.append(f'<div id="corePrice_feature_div"><span class="a-price"><span class="a-offscreen">{preco}</span></span></div>')
+    if vendido:
+        link = f'<a id="sellerProfileTriggerId" href="/gp/help/seller/at-a-glance.html?seller={seller_id}">{vendido}</a>' if seller_id else vendido
+        partes.append(
+            '<div offer-display-feature-name="desktop-merchant-info">'
+            f'<span class="offer-display-feature-text-message">{link}</span></div>'
+        )
+    if enviado:
+        partes.append(
+            '<div offer-display-feature-name="desktop-fulfiller-info">'
+            f'<span class="offer-display-feature-text-message">{enviado}</span></div>'
+        )
+    return f"<html><body>{''.join(partes)}</body></html>"
+
+
+def html_vendedor(nome: str, pct: int, avaliacoes: str) -> str:
+    return (
+        f'<html><body><h1 id="seller-name">{nome}</h1><div id="seller-info-feedback-summary">'
+        f"{pct}% positivas nos últimos 12 meses ({avaliacoes} avaliações)</div></body></html>"
+    )
