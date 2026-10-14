@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block titulo %}Ofertas · TCG Sniper{% endblock %}
+{% block conteudo %}
+<h2>Ofertas Amazon × Liga</h2>
+<p>
+  {% for f in filtros %}<a href="/ofertas?filtro={{ f }}"{% if f == filtro %} aria-current="page"{% endif %}>{{ {"todas": "Todas", "desconto": "Só ≥ " ~ desconto_min_pct ~ "%", "abertas": "Só oportunidades abertas"}[f] }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+</p>
+<table>
+  <thead><tr><th>Produto</th><th>Liga (à partir de)</th><th>Amazon</th><th>Diferença</th><th>Vendedor</th><th>Lido em</th></tr></thead>
+  <tbody>
+  {% for l in linhas %}
+    <tr>
+      <td><a href="/produto/{{ l.produto.id }}">{{ l.produto.nome }}</a>{% if l.aberta %} <mark>oportunidade</mark>{% endif %}</td>
+      <td>{{ l.preco_liga|brl }}</td>
+      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.preco|brl }}</a></td>
+      <td>{{ (l.desconto|string).replace(".", ",") ~ "%" if l.desconto is not none else "—" }}</td>
+      <td>{{ l.envio|envio(l.vendedor) }}{% if not l.confiavel %} <small>(não elegível)</small>{% endif %}</td>
+      <td>{{ l.coletado_em|data }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6">Nenhum produto com anúncio da Amazon confirmado.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

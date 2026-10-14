@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
+from tcg_sniper.coletor_amazon.modelos import AvaliacaoVendedor
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import (
@@ -223,3 +224,61 @@ def test_aba_revisados_mostra_contagem_de_pendentes(cliente, sessoes):
     with sessoes() as s, s.begin():
         anuncio_com_preco(s, "B01", criar_produto(s, "ff"), "700.00")
     assert "1 pendentes" in cliente.get("/casamentos?aba=revisados").text
+
+
+def preparar_ofertas(s):
+    ff = criar_produto(s, "ff", nome="Caixa FF")
+    sem_desconto = criar_produto(s, "sd", nome="Caixa Sem Desconto")
+    criar_produto(s, "sem_amazon", nome="Caixa Sem Amazon")
+    criar_preco_liga(s, ff, "1000.00")
+    criar_preco_liga(s, sem_desconto, "100.00")
+    amazon = repo_amz.vendedor_da_amazon(s)
+    caro = anuncio_com_preco(s, "B01", ff, "800.00", status=StatusCasamento.CONFIRMADO)
+    barato = anuncio_com_preco(s, "B02", ff, "700.00", status=StatusCasamento.CONFIRMADO)
+    repo_amz.registrar_preco(s, barato.id, Decimal("690.00"), OrigemPreco.PRODUTO, amazon.id, Envio.AMAZON, T0, SP)
+    anuncio_com_preco(s, "B03", sem_desconto, "95.00", status=StatusCasamento.CONFIRMADO)
+    anuncio_com_preco(s, "B04", ff, "10.00")  # pendente: não entra
+    repo_amz.abrir_oportunidade(
+        s, anuncio_id=barato.id, produto_id=ff.id, preco_amazon=Decimal("690.00"), preco_liga=Decimal("1000.00"),
+        desconto_pct=Decimal("31.00"), vendedor_id=amazon.id, envio=Envio.AMAZON, agora=T0,
+    )
+    return ff, sem_desconto, caro, barato
+
+
+def test_ofertas_melhor_oferta_por_produto_ordenada_por_desconto(s):
+    ff, sem_desconto, _, _ = preparar_ofertas(s)
+    config = repo_amz.obter_config(s)
+    linhas = consultas_amazon.ofertas(s, "todas", config)
+    assert [(l.produto.id, l.anuncio.asin, l.preco, l.desconto) for l in linhas] == [
+        (ff.id, "B02", Decimal("690.00"), Decimal("31.00")),
+        (sem_desconto.id, "B03", Decimal("95.00"), Decimal("5.00")),
+    ]
+    assert linhas[0].aberta and linhas[0].confiavel and not linhas[1].aberta
+    assert [l.produto.id for l in consultas_amazon.ofertas(s, "desconto", config)] == [ff.id]
+    assert [l.produto.id for l in consultas_amazon.ofertas(s, "abertas", config)] == [ff.id]
+
+
+def test_lojista_fba_confiavel_ou_nao(s):
+    ff = criar_produto(s, "ff")
+    criar_preco_liga(s, ff, "1000.00")
+    anuncio = anuncio_com_preco(s, "B01", ff, "700.00", status=StatusCasamento.CONFIRMADO)
+    loja = repo_amz.gravar_vendedor(s, AvaliacaoVendedor("A1", "Loja", Decimal(85), 50), T0)
+    repo_amz.registrar_preco(s, anuncio.id, Decimal("700.00"), OrigemPreco.PRODUTO, loja.id, Envio.FBA, T0, SP)
+    [linha] = consultas_amazon.ofertas(s, "todas", repo_amz.obter_config(s))
+    assert (linha.envio, linha.vendedor.nome, linha.confiavel) == (Envio.FBA, "Loja", False)
+
+
+def test_tela_de_ofertas(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        preparar_ofertas(s)
+    texto = cliente.get("/ofertas").text
+    assert "Caixa FF" in texto and "R$ 690,00" in texto and "31,00%" in texto and "Caixa Sem Amazon" not in texto
+    assert "Caixa Sem Desconto" not in cliente.get("/ofertas?filtro=desconto").text
+    assert cliente.get("/ofertas?filtro=xyz").status_code == 400
+
+
+def test_produto_mostra_a_amazon(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        ff, _, _, _ = preparar_ofertas(s)
+    texto = cliente.get(f"/produto/{ff.id}").text
+    assert "Amazon" in texto and "B02" in texto and "R$ 690,00" in texto and "vendido pela Amazon" in texto

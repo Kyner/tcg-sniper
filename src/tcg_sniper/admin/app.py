@@ -51,6 +51,11 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     app = FastAPI(title="TCG Sniper", dependencies=[Depends(autenticar)])
     templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
     templates.env.filters["brl"] = formatar_brl
+    templates.env.filters["envio"] = lambda envio, vendedor=None: {
+        "amazon": "vendido pela Amazon",
+        "fba": f"vendido por {vendedor.nome if vendedor and vendedor.nome else 'lojista'}, enviado pela Amazon",
+        "proprio": f"vendido e enviado por {vendedor.nome if vendedor and vendedor.nome else 'lojista'}",
+    }.get(envio.value, "—")
     templates.env.filters["data"] = lambda dt: formatar_data(dt, config.zona)
 
     @app.get("/", response_class=HTMLResponse)
@@ -233,6 +238,25 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "atual": atual,
                     "historico_resumo": historico_resumo,
                     "historico_listagem": historico_listagem,
+                    "amazon": consultas_amazon.amazon_do_produto(s, produto_id),
+                    "historico_amazon": consultas_amazon.historico_amazon(s, produto_id),
+                },
+            )
+
+    @app.get("/ofertas", response_class=HTMLResponse)
+    def ofertas(request: Request, filtro: str = "todas"):
+        if filtro not in consultas_amazon.FILTROS_OFERTAS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
+        with sessoes() as s, s.begin():
+            config = repo_amz.obter_config(s)
+            return templates.TemplateResponse(
+                request,
+                "ofertas.html",
+                {
+                    "linhas": consultas_amazon.ofertas(s, filtro, config),
+                    "filtro": filtro,
+                    "filtros": consultas_amazon.FILTROS_OFERTAS,
+                    "desconto_min_pct": config.desconto_min_pct,
                 },
             )
 
