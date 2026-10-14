@@ -198,3 +198,18 @@ def test_casamento_confirmar_trocar_ignorar_desfazer(s):
     assert (anuncio.status_casamento, anuncio.revisado_em) == (StatusCasamento.PENDENTE, None)
     assert repo.confirmar_casamento(s, 999_999, a.id, T0) is False
     assert s.scalar(select(func.count()).select_from(Oportunidade).where(Oportunidade.fechada_em.is_(None))) == 0
+
+
+def test_confirmados_com_referencia_reflete_preco_registrado_na_mesma_sessao(s):
+    produto = criar_produto(s)
+    criar_preco_liga(s, produto, "1000.00")
+    anuncio = criar_anuncio(s, produto=produto, status=StatusCasamento.CONFIRMADO)
+    repo.registrar_preco(s, anuncio.id, Decimal("700.00"), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, T0, SP)
+    antes = repo.confirmados_com_referencia(s, [anuncio.id])
+    assert antes[0].atual.preco == Decimal("700.00")
+
+    amazon = repo.vendedor_da_amazon(s)
+    depois_t = T0 + timedelta(hours=1)
+    repo.registrar_preco(s, anuncio.id, Decimal("600.00"), OrigemPreco.PRODUTO, amazon.id, Envio.AMAZON, depois_t, SP)
+    atual = repo.confirmados_com_referencia(s, [anuncio.id])[0].atual
+    assert (atual.preco, atual.vendedor_id, atual.envio) == (Decimal("600.00"), amazon.id, Envio.AMAZON)

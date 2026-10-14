@@ -181,6 +181,7 @@ def confirmados_com_referencia(s: Session, anuncio_ids: Sequence[int]) -> list[L
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .where(AnuncioAmazon.id.in_(anuncio_ids), AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO)
         .order_by(AnuncioAmazon.id)
+        .execution_options(populate_existing=True)
     )
     return [LinhaConfirmada(*linha) for linha in s.execute(consulta)]
 
