@@ -17,6 +17,36 @@
   <strong>Lojas:</strong> {{ atual.num_lojas if atual and atual.num_lojas is not none else "—" }}<br>
   <strong>Atualizado em:</strong> {{ (atual.resumo_em if atual else None)|data }}
 </article>
+<article>
+  <header><strong>Amazon</strong> (anúncios confirmados em <a href="/casamentos?aba=revisados">Casamentos</a>)</header>
+  <table>
+    <thead><tr><th>ASIN</th><th>Preço</th><th>Vendedor</th><th>Lido em</th></tr></thead>
+    <tbody>
+    {% for anuncio, atual, vendedor in amazon %}
+      <tr>
+        <td><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a></td>
+        <td>{{ (atual.preco if atual else None)|brl }}</td>
+        <td>{{ atual.envio|envio(vendedor) if atual else "—" }}</td>
+        <td>{{ (atual.coletado_em if atual else None)|data }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">Nenhum anúncio da Amazon confirmado.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if historico_amazon %}
+  <details><summary>Histórico de preço na Amazon</summary>
+    <table>
+      <thead><tr><th>Data</th><th>ASIN</th><th>Preço</th><th>Origem</th></tr></thead>
+      <tbody>
+      {% for preco, asin in historico_amazon %}
+        <tr><td>{{ preco.coletado_em|data }}</td><td>{{ asin }}</td><td>{{ preco.preco|brl }}</td><td>{{ preco.origem.value }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+</article>
 <h3>Histórico do preço à partir de</h3>
 <table>
   <thead><tr><th>Data</th><th>À partir de</th></tr></thead>

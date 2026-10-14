@@ -2,6 +2,7 @@
 
 import difflib
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -12,14 +13,19 @@ from tcg_sniper.coletor_amazon.termo import termo_busca
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     Coleta,
+    ConfigAmazon,
+    Envio,
+    Oportunidade,
+    PrecoAmazon,
     PrecoAtualAmazon,
     PrecoAtualLiga,
     ProdutoLiga,
     StatusCasamento,
     StatusColeta,
     TipoColeta,
+    VendedorAmazon,
 )
-from tcg_sniper.oportunidades.motor import atinge_desconto
+from tcg_sniper.oportunidades.motor import Regras, Vendedor, atinge_desconto, desconto_pct, vendedor_confiavel
 
 
 def ciclo_atual(s: Session) -> Coleta | None:
@@ -127,3 +133,84 @@ def buscar_produtos(s: Session, busca: str, limite: int = 20) -> list[ProdutoLig
     if busca.strip():
         consulta = consulta.where(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
     return list(s.scalars(consulta))
+
+
+FILTROS_OFERTAS = ("todas", "desconto", "abertas")
+
+
+@dataclass(frozen=True)
+class LinhaOferta:
+    produto: ProdutoLiga
+    preco_liga: Decimal | None
+    anuncio: AnuncioAmazon
+    preco: Decimal | None
+    envio: Envio
+    vendedor: VendedorAmazon | None
+    confiavel: bool
+    coletado_em: datetime
+    desconto: Decimal | None
+    aberta: bool
+
+
+def ofertas(s: Session, filtro: str, config: ConfigAmazon) -> list[LinhaOferta]:
+    """Uma linha por produto da Liga com ASIN confirmado e preço: a oferta mais barata da Amazon
+    contra o "À partir de" da Liga, ordenadas pelo maior desconto."""
+    consulta = (
+        select(AnuncioAmazon, ProdutoLiga, PrecoAtualAmazon, VendedorAmazon, PrecoAtualLiga.preco_a_partir)
+        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
+        .outerjoin(VendedorAmazon, VendedorAmazon.id == PrecoAtualAmazon.vendedor_id)
+        .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+        .where(AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, PrecoAtualAmazon.preco.is_not(None))
+    )
+    abertas = set(s.scalars(select(Oportunidade.produto_id).where(Oportunidade.fechada_em.is_(None))))
+    regras = Regras.de(config)
+    melhores: dict[int, LinhaOferta] = {}
+    for anuncio, produto, atual, vendedor, preco_liga in s.execute(consulta):
+        atual_melhor = melhores.get(produto.id)
+        if atual_melhor is not None and atual_melhor.preco <= atual.preco:
+            continue
+        info = Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes) if vendedor else None
+        melhores[produto.id] = LinhaOferta(
+            produto=produto,
+            preco_liga=preco_liga,
+            anuncio=anuncio,
+            preco=atual.preco,
+            envio=atual.envio,
+            vendedor=vendedor,
+            confiavel=atual.envio is Envio.AMAZON or (atual.envio is Envio.FBA and vendedor_confiavel(info, regras)),
+            coletado_em=atual.coletado_em,
+            desconto=desconto_pct(atual.preco, preco_liga) if preco_liga else None,
+            aberta=produto.id in abertas,
+        )
+    linhas = list(melhores.values())
+    if filtro == "desconto":
+        linhas = [l for l in linhas if atinge_desconto(l.preco, l.preco_liga, config.desconto_min_pct)]
+    elif filtro == "abertas":
+        linhas = [l for l in linhas if l.aberta]
+    linhas.sort(key=lambda l: (l.desconto is None, -(l.desconto or 0), l.produto.nome))
+    return linhas
+
+
+def amazon_do_produto(
+    s: Session, produto_id: int
+) -> list[tuple[AnuncioAmazon, PrecoAtualAmazon | None, VendedorAmazon | None]]:
+    consulta = (
+        select(AnuncioAmazon, PrecoAtualAmazon, VendedorAmazon)
+        .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
+        .outerjoin(VendedorAmazon, VendedorAmazon.id == PrecoAtualAmazon.vendedor_id)
+        .where(AnuncioAmazon.produto_id == produto_id, AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO)
+        .order_by(PrecoAtualAmazon.preco.nulls_last(), AnuncioAmazon.id)
+    )
+    return [(anuncio, atual, vendedor) for anuncio, atual, vendedor in s.execute(consulta)]
+
+
+def historico_amazon(s: Session, produto_id: int, limite: int = 90) -> list[tuple[PrecoAmazon, str]]:
+    consulta = (
+        select(PrecoAmazon, AnuncioAmazon.asin)
+        .join(AnuncioAmazon, AnuncioAmazon.id == PrecoAmazon.anuncio_id)
+        .where(AnuncioAmazon.produto_id == produto_id, AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO)
+        .order_by(PrecoAmazon.coletado_em.desc(), PrecoAmazon.id.desc())
+        .limit(limite)
+    )
+    return [(preco, asin) for preco, asin in s.execute(consulta)]
