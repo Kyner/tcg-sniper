@@ -67,3 +67,9 @@ def test_aplicar_config_grava(s):
     aplicar_config(s, valores, T0)
     config = s.get(ConfigAmazon, 1, populate_existing=True)
     assert (config.desconto_min_pct, config.atualizado_em) == (30, T0)
+
+
+def test_todo_campo_tem_rotulo():
+    from tcg_sniper.coletor_amazon.config import ROTULOS
+
+    assert set(ROTULOS) == set(CAMPOS)

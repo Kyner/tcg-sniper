@@ -29,6 +29,24 @@ CAMPOS = (
     "vendedor_reavaliar_dias",
 )
 
+ROTULOS = {
+    "url_busca": "URL da busca",
+    "janela_inicio": "Início da janela",
+    "janela_fim": "Fim da janela",
+    "pausa_min_s": "Pausa mínima (s)",
+    "pausa_max_s": "Pausa máxima (s)",
+    "resultados_por_busca": "Resultados por busca",
+    "intervalo_busca_min": "Intervalo entre buscas do mesmo produto (min)",
+    "max_buscas_hora": "Máximo de buscas por hora",
+    "limite_falha_pct": "Limite de falhas por ciclo (%)",
+    "desconto_min_pct": "Desconto mínimo sobre a Liga (%)",
+    "realerta_queda_pct": "Queda para novo aviso (%)",
+    "liga_preco_max_idade_h": "Idade máxima do preço da Liga (h)",
+    "vendedor_min_positivas_pct": "Lojista FBA: mínimo de positivas (%)",
+    "vendedor_min_avaliacoes": "Lojista FBA: mínimo de avaliações",
+    "vendedor_reavaliar_dias": "Reavaliar lojista a cada (dias)",
+}
+
 EXPLICACOES = {
     "url_busca": "Modelo da busca na Amazon; {termo} é trocado pelo nome do produto da Liga.",
     "janela_inicio": "Hora (HH:MM) em que a fila de buscas começa, com variação de até 15 minutos.",
