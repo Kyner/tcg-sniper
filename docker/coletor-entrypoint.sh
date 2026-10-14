@@ -18,7 +18,8 @@ umask 022
 
 # Restos de uma execução anterior (container reiniciado ou parado à força).
 # Só um coletor usa o volume, então os locks do perfil do Chromium são sempre obsoletos aqui.
-PERFIL="${DIR_DADOS:-/data}/perfil"
+# DIR_PERFIL separa o perfil de cada coletor (Liga: <DIR_DADOS>/perfil; Amazon: <DIR_DADOS>/perfil-amazon).
+PERFIL="${DIR_PERFIL:-${DIR_DADOS:-/data}/perfil}"
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 \
     "$PERFIL/SingletonLock" "$PERFIL/SingletonSocket" "$PERFIL/SingletonCookie"
 

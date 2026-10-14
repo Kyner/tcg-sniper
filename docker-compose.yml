@@ -71,6 +71,27 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  coletor-amazon:
+    <<: *app
+    entrypoint: ["/app/docker/coletor-entrypoint.sh"]
+    command: ["tcg-sniper", "coletor-amazon"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://tcg:tcg@postgres:5432/tcg
+      DIR_DADOS: /data
+      EVOLUTION_URL: http://evolution:8080
+      DIR_PERFIL: /data/perfil-amazon
+    # Mesmo arranjo do coletor-liga: tini, hostname fixo para o SingletonLock do perfil e o noVNC
+    # da Amazon na porta 6081 do host (a 6080 é da Liga).
+    init: true
+    hostname: coletor-amazon
+    stop_grace_period: 30s
+    shm_size: 1gb
+    ports:
+      - "6081:6080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   admin:
     <<: *app
     command: tcg-sniper admin
