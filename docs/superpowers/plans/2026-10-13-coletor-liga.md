@@ -10,17 +10,25 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-13-coletor-liga-design.md` (ver "Decisões de 2026-10-13").
 
-## Estado e ordem de execução (2026-10-13)
+## Estado e ordem de execução (atualizado em 2026-10-14)
 
 | Task | Situação |
 | --- | --- |
 | 1 a 5 | DONE, em `main` |
-| 6 | Parte 1 (página de produto, só resumo) DONE em `wip/task-6` (`8ce832f` a `337ac9b`); parte 2 (listagem e "Exibir mais") pendente |
-| 7, 8, 9 | Pendentes |
-| 10 | DONE, em `main` (ajustes de tela ficam na Task 12) |
-| 11, 12, 13 | Pendentes |
+| 6 | DONE, em `main`: parte 1 (página de produto, só resumo) e parte 2 (listagem e "Exibir mais", `f894206`, merge `1006506`) |
+| 7 | DONE, em `main` (`68cfc43`) |
+| 8 | DONE, em `main` (`59ec7cf`, `df7b925`) |
+| 9 | DONE, em `main` (`4af168a`) |
+| 10 | DONE, em `main` |
+| 11 | DONE, em `main` (`debbdde`, `c16a0f4`) |
+| 12 | DONE, em `main` (`80d0d25`) |
+| 13 | Steps 1 a 6 e 8 DONE, em `main` (`d19d0b3`, `eb66984`); Step 7 (smoke test completo) sem registro de execução |
 
-Ordem: 6 (parte 2) → 7 → 8 → 9 → 11 → 12 → 13. No redesenho de 2026-10-13 a numeração das tasks pendentes mudou: a antiga Task 7 (coleta de preços) virou a Task 9, a antiga Task 8 (varredura semanal do catálogo) foi substituída pela Task 8 (coleta das listagens), a antiga Task 9 (agendador) virou a Task 11 e a antiga Task 11 (CLI e Docker) virou a Task 13. As Tasks 7 (banco) e 12 (ajustes do admin) são novas.
+Fora do plano, já em `main`: navegador mantém o Chromium aberto no desafio para resolver pelo noVNC, alerta de coleta interrompida, aviso de `WHATSAPP_GRUPO_ADMIN` vazio, ruff configurado, categoria 20 removida de `LIGA_CATEGORIAS`, e no catálogo do admin paginação, filtros por categoria e preço e ativar/desativar em lote (`POST /catalogo/lote`).
+
+Pendente: o smoke test (Task 13, Step 7) e o critério de sucesso da spec (uma semana de coleta diária sem desafio, ou com desafio avisado e retomado pelo admin).
+
+Ordem original: 6 (parte 2) → 7 → 8 → 9 → 11 → 12 → 13. No redesenho de 2026-10-13 a numeração das tasks pendentes mudou: a antiga Task 7 (coleta de preços) virou a Task 9, a antiga Task 8 (varredura semanal do catálogo) foi substituída pela Task 8 (coleta das listagens), a antiga Task 9 (agendador) virou a Task 11 e a antiga Task 11 (CLI e Docker) virou a Task 13. As Tasks 7 (banco) e 12 (ajustes do admin) são novas.
 
 Cada task termina com a suíte inteira passando (`uv run pytest -q`). Os 3 testes de `tests/coletor_liga/test_navegador.py` (Task 6) ficam pulados sem `TESTAR_NAVEGADOR=1`.
 
@@ -31,7 +39,7 @@ Cada task termina com a suíte inteira passando (`uv run pytest -q`). Os 3 teste
 - Clicar no botão "Exibir mais" das listagens é interação normal de interface e é permitido, sempre pelo botão (nunca chamando `mcards.nextPage` ou endpoints internos direto), com pausa humana antes de cada clique e no máximo `LIGA_MAX_CLIQUES` (padrão 50) cliques por listagem. Atingir o limite conta como falha daquela categoria.
 - Chromium com `headless=False` e perfil persistente em `<DIR_DADOS>/perfil`.
 - Pausa aleatória de 8 a 20 segundos (`PAUSA_MIN_S`, `PAUSA_MAX_S`) entre páginas da LigaMagic e antes de cada clique em "Exibir mais".
-- Job diário às 10:00 ± 30 min (`COLETA_HORA`, `COLETA_JITTER_MIN`), fuso `America/Sao_Paulo`: primeiro as listagens de todas as categorias (`LIGA_CATEGORIAS`, 21 por padrão), depois as páginas dos produtos ativos. Não existe varredura semanal do catálogo.
+- Job diário às 10:00 ± 30 min (`COLETA_HORA`, `COLETA_JITTER_MIN`), fuso `America/Sao_Paulo`: primeiro as listagens de todas as categorias (`LIGA_CATEGORIAS`, 20 por padrão), depois as páginas dos produtos ativos. Não existe varredura semanal do catálogo.
 - Nunca duas coletas simultâneas (advisory lock do Postgres).
 - Dinheiro em `NUMERIC(10,2)`; datas `timestamptz` em UTC no banco, exibidas no fuso local.
 - `resumo_preco` e `preco_listagem` são append-only (uma linha por produto e coleta). `preco_atual_liga` é upsert e tem dois grupos de colunas: a coleta das listagens só grava `preco_a_partir`, `listagem_coleta_id` e `listagem_em`; a coleta dos produtos só grava `preco_min`, `preco_medio`, `preco_max`, `num_lojas`, `resumo_coleta_id` e `resumo_em`. `produto_liga` nunca é apagado e a coleta das listagens nunca altera `ativo`.
@@ -1628,7 +1636,7 @@ git commit -m "feat: playwright browser wrapper, challenge detection and fixture
 
 > **Parte 1 DONE (2026-10-13, `wip/task-6`, `8ce832f` a `337ac9b`): página de produto, só resumo.** A primeira captura mostrou que as ofertas por vendedor não são utilizáveis: preço e quantidade de cada oferta são desenhados com sprite CSS (classes aleatórias + `background-position`), a loja é só um logotipo, e a página mostra 16 ofertas com um botão "Ver Mais" (JavaScript) para o resto (16 de 94 na fixture). Decisão do usuário: não decodificar o sprite e não clicar em "Ver Mais"; ler só o quadro textual "Preço Médio de Venda no Marketplace" (mín, médio, máx; é histórico de venda, não o preço pedido agora) e o contador "Lojas". `parse_ofertas`/`parse_quantidade` saíram do contrato. Steps 1 a 6 abaixo.
 >
-> **Parte 2 (pendente): listagem de categoria.** Não existe listagem única de selados: são 21 categorias (`?view=cards/search&card=categ%3D<ID>+searchprod%3D1&tipo=1`). Cada carga mostra 40 cartões com link (`pcode`), nome e o preço atual "À partir de"; mais cartões só pelo botão "Exibir mais" (`mcards.nextPage(40)`), sem link de próxima página. Decisão do usuário (2026-10-13): o job diário abre todas as categorias e clica em "Exibir mais" até acabar, com pausa humana entre cliques. `parse_catalogo`/`PaginaCatalogo` ficam obsoletos (removidos na Task 7). Steps 7 a 12 abaixo.
+> **Parte 2 (pendente): listagem de categoria.** Não existe listagem única de selados: são 20 categorias (a 21ª do levantamento, categoria 20, foi removida: tem um produto só e a URL da listagem cai na página do produto) (`?view=cards/search&card=categ%3D<ID>+searchprod%3D1&tipo=1`). Cada carga mostra 40 cartões com link (`pcode`), nome e o preço atual "À partir de"; mais cartões só pelo botão "Exibir mais" (`mcards.nextPage(40)`), sem link de próxima página. Decisão do usuário (2026-10-13): o job diário abre todas as categorias e clica em "Exibir mais" até acabar, com pausa humana entre cliques. `parse_catalogo`/`PaginaCatalogo` ficam obsoletos (removidos na Task 7). Steps 7 a 12 abaixo.
 
 **Files (parte 2):**
 - Modify: `src/tcg_sniper/coletor_liga/modelos.py` (acrescenta `ItemListagem` e `PaginaExpandida`; `ItemCatalogo`/`PaginaCatalogo` continuam até a Task 7)
@@ -3494,7 +3502,7 @@ def test_padroes(monkeypatch):
     assert c.liga_max_cliques == 50
     assert c.zona == ZoneInfo("America/Sao_Paulo")
     assert c.categorias == list(CATEGORIAS_SELADOS)
-    assert len(c.categorias) == 21
+    assert len(c.categorias) == 20
     assert c.url_listagem("10") == (
         "https://www.ligamagic.com.br/?view=cards/search&card=categ%3D10+searchprod%3D1&tipo=1"
     )
@@ -3603,7 +3611,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Categorias de selados de Magic na LigaMagic (levantamento de 2026-10-13).
 CATEGORIAS_SELADOS = (
-    "10", "11", "12", "13", "14", "15", "16", "17", "19", "20", "21",
+    "10", "11", "12", "13", "14", "15", "16", "17", "19", "21",
     "22", "31", "36", "37", "47", "50", "51", "52", "55", "56",
 )  # fmt: skip
 URL_LISTAGEM_PADRAO = (
@@ -3677,7 +3685,7 @@ PAUSA_MIN_S=8
 PAUSA_MAX_S=20
 LIMITE_FALHA_PCT=50
 FUSO=America/Sao_Paulo
-LIGA_CATEGORIAS=10,11,12,13,14,15,16,17,19,20,21,22,31,36,37,47,50,51,52,55,56
+LIGA_CATEGORIAS=10,11,12,13,14,15,16,17,19,21,22,31,36,37,47,50,51,52,55,56
 LIGA_URL_LISTAGEM=https://www.ligamagic.com.br/?view=cards/search&card=categ%3D{categ}+searchprod%3D1&tipo=1
 LIGA_MAX_CLIQUES=50
 DIR_DADOS=./dados
@@ -6222,7 +6230,7 @@ Expected: `postgres`, `evolution`, `coletor-liga`, `admin` em `running`; `migrat
 Run: `docker compose logs coletor-liga --tail 50`
 Expected: `agendador iniciado`; sem traceback.
 
-Abra `http://localhost:8000` (status "Ativo") e `http://localhost:6080/vnc.html` (área de trabalho com o Chromium ao iniciar uma coleta). Clique em **Rodar agora** e acompanhe pelos logs e pelo noVNC: dentro de 1 minuto a coleta começa. Na primeira execução (nenhum job com sucesso) o job começaria sozinho em até 30 min, como execução atrasada; o **Rodar agora** só adianta. O job completo abre as listagens das 21 categorias (com os cliques em "Exibir mais") e depois as páginas dos produtos ativos; com o catálogo recém-criado nenhum produto está ativo, então a etapa de produtos termina `ok` com 0 produtos e o grupo admin recebe "N produtos novos no catálogo". Ative alguns produtos em `/catalogo` e clique em **Rodar agora** de novo: como as listagens do dia já deram certo, só os produtos rodam. Confira em `/produto/<id>` o preço "à partir de" e o histórico de venda.
+Abra `http://localhost:8000` (status "Ativo") e `http://localhost:6080/vnc.html` (área de trabalho com o Chromium ao iniciar uma coleta). Clique em **Rodar agora** e acompanhe pelos logs e pelo noVNC: dentro de 1 minuto a coleta começa. Na primeira execução (nenhum job com sucesso) o job começaria sozinho em até 30 min, como execução atrasada; o **Rodar agora** só adianta. O job completo abre as listagens das 20 categorias (com os cliques em "Exibir mais") e depois as páginas dos produtos ativos; com o catálogo recém-criado nenhum produto está ativo, então a etapa de produtos termina `ok` com 0 produtos e o grupo admin recebe "N produtos novos no catálogo". Ative alguns produtos em `/catalogo` e clique em **Rodar agora** de novo: como as listagens do dia já deram certo, só os produtos rodam. Confira em `/produto/<id>` o preço "à partir de" e o histórico de venda.
 
 Run: `uv run pytest -v`
 Expected: suíte inteira passa (3 skipped: o teste opcional do navegador).

@@ -196,7 +196,7 @@ Duas operações: `abrir(url)` (página de produto) e `abrir_expandindo(url, max
 
 1. Lê `estado_coletor`. Se `pausado_desafio`, não executa e registra em log.
 2. Cria `coleta` `listagem` com `status = rodando`.
-3. Para cada categoria de `LIGA_CATEGORIAS` (21 por padrão: 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 31, 36, 37, 47, 50, 51, 52, 55, 56):
+3. Para cada categoria de `LIGA_CATEGORIAS` (20 por padrão: 10, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22, 31, 36, 37, 47, 50, 51, 52, 55, 56; a categoria 20, Global Series - Jiang Yanggu e Mu Yanling, ficou de fora: tem um produto só e a URL da listagem cai na página do produto):
    1. Abre `LIGA_URL_LISTAGEM` com o ID da categoria e clica em "Exibir mais" até acabar.
    2. Verifica desafio.
    3. Extrai os cartões da grade (`parse_listagem`): `pcode`, nome, URL, preço "à partir de" (ou indisponível) e categoria.
@@ -270,7 +270,7 @@ Decisão do usuário em 2026-10-13: guardar só o resumo textual (mín, médio, 
 Fatos levantados no HTML real (relatório da Task 6):
 
 - O quadro "Preço Médio de Venda no Marketplace" da página de produto é histórico de venda, não o preço pedido agora: a página de um produto sem estoque (pcode 276, 0 lojas) mostra R$ 5.450,00 nos três valores. O contador "Lojas" é atual.
-- Não existe listagem única de selados. São 21 listagens de categoria (`?view=cards/search&card=categ%3D<ID>+searchprod%3D1&tipo=1`).
+- Não existe listagem única de selados. São 20 listagens de categoria (`?view=cards/search&card=categ%3D<ID>+searchprod%3D1&tipo=1`).
 - Cada carga de listagem mostra 40 cartões com link (`pcode`), nome, categoria e o preço atual "À partir de R$ X" em texto (ou "Produto Indisponível"). Mais cartões só pelo botão "Exibir mais" (`mcards.nextPage(40)`), sem link de próxima página.
 
 Decisões do usuário:
@@ -323,7 +323,7 @@ class Notificador(Protocol):
 
 ## Configuração (`.env`)
 
-`DATABASE_URL`, `ADMIN_SENHA`, `VNC_SENHA`, `FUSO` (padrão `America/Sao_Paulo`), `LIGA_CATEGORIAS` (IDs separados por vírgula; padrão as 21 categorias de selados), `LIGA_URL_LISTAGEM` (modelo com `{categ}`; padrão `https://www.ligamagic.com.br/?view=cards/search&card=categ%3D{categ}+searchprod%3D1&tipo=1`), `LIGA_MAX_CLIQUES` (padrão `50`), `DIR_DADOS` (padrão `/data`), `COLETA_HORA` (padrão `10:00`), `COLETA_JITTER_MIN` (padrão `30`), `PAUSA_MIN_S` (padrão `8`), `PAUSA_MAX_S` (padrão `20`), `LIMITE_FALHA_PCT` (padrão `50`), `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA`, `WHATSAPP_GRUPO_ADMIN`, `WHATSAPP_GRUPO_OPORTUNIDADES`, `HOST_PUBLICO` (usado nos links das mensagens).
+`DATABASE_URL`, `ADMIN_SENHA`, `VNC_SENHA`, `FUSO` (padrão `America/Sao_Paulo`), `LIGA_CATEGORIAS` (IDs separados por vírgula; padrão as 20 categorias de selados), `LIGA_URL_LISTAGEM` (modelo com `{categ}`; padrão `https://www.ligamagic.com.br/?view=cards/search&card=categ%3D{categ}+searchprod%3D1&tipo=1`), `LIGA_MAX_CLIQUES` (padrão `50`), `DIR_DADOS` (padrão `/data`), `COLETA_HORA` (padrão `10:00`), `COLETA_JITTER_MIN` (padrão `30`), `PAUSA_MIN_S` (padrão `8`), `PAUSA_MAX_S` (padrão `20`), `LIMITE_FALHA_PCT` (padrão `50`), `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA`, `WHATSAPP_GRUPO_ADMIN`, `WHATSAPP_GRUPO_OPORTUNIDADES`, `HOST_PUBLICO` (usado nos links das mensagens).
 
 Saíram em 2026-10-13: `CATALOGO_DIA_SEMANA` e `LIGA_URL_CATALOGO`.
 
