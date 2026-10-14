@@ -9,3 +9,7 @@ dados/
 
 # Planejamento interno, fora do repositório público.
 Monitor de arbitragem de selados de Magic.md
+
+# Páginas inteiras capturadas para estudo; só o recorte vai para tests/fixtures.
+.fixtures-brutas/
+.perfil-dev-amazon/
