@@ -196,7 +196,7 @@ def test_pendentes_com_catalogo_grande_acha_as_alternativas_certas(s):
     alvo = criar_produto(s, "alvo", nome="Caixa de Booster Zulu Colecionador")
     criar_produto(s, "alvo2", nome="Caixa de Booster Zulu Colecionador Plus")
     anuncio_com_preco(s, "B01", alvo, "100.00", titulo="Booster Zulu Colecionador Plus Box")
-    anuncio_com_preco(s, "B02", None, "100.00", titulo="Cobalt Serie42 Booster")
+    anuncio_com_preco(s, "B02", None, "100.00", titulo="Cobalt Serie44 Booster")
     linhas, total = consultas_amazon.pendentes(s, desconto_min_pct=25)
     assert total == 2
     por_asin = {linha.anuncio.asin: linha for linha in linhas}
@@ -204,7 +204,7 @@ def test_pendentes_com_catalogo_grande_acha_as_alternativas_certas(s):
     assert nomes[0] == "Caixa de Booster Zulu Colecionador Plus"
     assert len(nomes) <= 3 and alvo.nome not in nomes
     assert len(por_asin["B02"].alternativas) <= 3
-    assert "Caixa de Booster Cobalt Serie42 Edicao Especial" in [p.nome for p in por_asin["B02"].alternativas]
+    assert "Caixa de Booster Cobalt Serie44 Edicao Especial" in [p.nome for p in por_asin["B02"].alternativas]
 
 
 def test_aba_revisados_mostra_contagem_de_pendentes(cliente, sessoes):
