@@ -1,42 +1,50 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<h2>LigaMagic</h2>
-{% if estado.estado.value == "pausado_desafio" %}
-<div class="pausado">
-  <strong>Coleta pausada: desafio pendente.</strong> {{ estado.motivo or "" }}<br>
-  Resolva em <a href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em retomar.
-  <form method="post" action="/retomar"><button>Retomar</button></form>
-</div>
-{% elif em_andamento %}
-<p>Ativo. <strong>Coleta em andamento.</strong></p>
-{% else %}
-<p>Ativo.{% if estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
-<form method="post" action="/rodar-agora"><button>Rodar agora</button></form>
+<h2>Dashboard</h2>
+{% if estado.estado.value != "ativo" %}
+<div class="pausado"><strong>LigaMagic pausada.</strong> {{ estado.motivo or "" }} <a href="/servicos">Ir para Serviços</a></div>
+{% endif %}
+{% if estado_amazon.estado.value != "ativo" %}
+<div class="pausado"><strong>Amazon pausada{% if estado_amazon.estado.value == "pausado_desafio" %} (CAPTCHA pendente){% endif %}.</strong>
+  {{ estado_amazon.motivo or "" }} <a href="/servicos">Ir para Serviços</a></div>
 {% endif %}
 
-<h2>Amazon</h2>
-{% if estado_amazon.estado.value == "pausado_desafio" %}
-<div class="pausado">
-  <strong>Busca na Amazon pausada: CAPTCHA pendente.</strong> {{ estado_amazon.motivo or "" }}<br>
-  Resolva em <a href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em retomar.
-  <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
+<div class="grid">
+  <article>
+    <header><strong>LigaMagic</strong></header>
+    <p>Estado: {% if estado.estado.value == "ativo" %}ativo{% else %}pausado por desafio{% endif %}{% if em_andamento %} · <strong>Coleta em andamento</strong>{% endif %}</p>
+    <p>Última coleta com sucesso: {% if ultima_liga %}{{ ultima_liga.iniciada_em|data }} ({{ ultima_liga.status.value }}){% else %}—{% endif %}</p>
+    <p>Coleta diária às {{ coleta_hora }} (± {{ coleta_jitter }} min)</p>
+  </article>
+  <article>
+    <header><strong>Amazon</strong></header>
+    <p>Estado:
+      {% if estado_amazon.estado.value == "pausado_desafio" %}pausado (CAPTCHA pendente)
+      {% elif estado_amazon.estado.value == "pausado" %}pausado
+      {% elif fora_da_janela %}Fora da janela ({{ janela }})
+      {% else %}ativo{% endif %}</p>
+    <p>{% if ciclo_amazon %}<strong>Ciclo em andamento</strong> desde {{ ciclo_amazon.iniciada_em|data }}{% else %}Nenhum ciclo em andamento{% endif %}</p>
+    <p>Último ciclo: {% if ultimo_ciclo %}{{ ultimo_ciclo.finalizada_em|data }} · {{ ultimo_ciclo.status.value }} ({{ ultimo_ciclo.produtos_ok }} ok, {{ ultimo_ciclo.produtos_falha }} falhas){% else %}—{% endif %}</p>
+  </article>
 </div>
-{% elif estado_amazon.estado.value == "pausado" %}
-<div class="pausado">
-  <strong>Busca na Amazon pausada.</strong> {{ estado_amazon.motivo or "" }}
-  <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
-</div>
-{% else %}
-<p>Ativo (busca só dentro da janela definida em <a href="/configuracoes">Configurações</a>).
-{% if ciclo_amazon %}<strong>Ciclo em andamento</strong> desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
-<form method="post" action="/amazon/pausar"><button class="secondary">Pausar (Amazon)</button></form>
-{% endif %}
 
-{% macro tabela_coletas(coletas, vazio) %}
+{% macro historico(titulo, campo_status, campo_pagina, valor_status, linhas, pagina, paginas, vazio) %}
+<h3>{{ titulo }}</h3>
+<form method="get" action="/" class="filtros">
+  {% for nome, valor in [("liga_status", liga_status), ("amazon_status", amazon_status)] if nome != campo_status %}
+  <input type="hidden" name="{{ nome }}" value="{{ valor }}">
+  {% endfor %}
+  <fieldset role="group">
+    <select name="{{ campo_status }}" aria-label="Status">
+      {% for s in status_historico %}<option value="{{ s }}" {% if s == valor_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+    <button type="submit">Filtrar</button>
+  </fieldset>
+</form>
 <table>
   <thead><tr><th>#</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Status</th><th>OK</th><th>Falhas</th><th>Erro</th></tr></thead>
   <tbody>
-  {% for c in coletas %}
+  {% for c in linhas %}
     <tr>
       <td>{{ c.id }}</td><td>{{ c.tipo.value }}</td><td>{{ c.iniciada_em|data }}</td><td>{{ c.finalizada_em|data }}</td>
       <td>{{ c.status.value }}</td><td>{{ c.produtos_ok }}</td><td>{{ c.produtos_falha }}</td><td>{{ c.erro or "" }}</td>
@@ -46,11 +54,13 @@
   {% endfor %}
   </tbody>
 </table>
+<p>
+  {% if pagina > 1 %}<a href="{{ link(**{campo_pagina: pagina - 1}) }}">← anterior</a>{% endif %}
+  Página {{ pagina }} de {{ paginas }}
+  {% if pagina < paginas %}<a href="{{ link(**{campo_pagina: pagina + 1}) }}">próxima →</a>{% endif %}
+</p>
 {% endmacro %}
 
-<h2>Últimas coletas (LigaMagic)</h2>
-{{ tabela_coletas(coletas, "Nenhuma coleta ainda.") }}
-
-<h2>Últimos ciclos (Amazon)</h2>
-{{ tabela_coletas(ciclos_amazon, "Nenhum ciclo ainda.") }}
+{{ historico("Coletas da LigaMagic", "liga_status", "liga_pagina", liga_status, coletas, pagina_liga, paginas_liga, "Nenhuma coleta ainda.") }}
+{{ historico("Ciclos da Amazon", "amazon_status", "amazon_pagina", amazon_status, ciclos, pagina_amazon, paginas_amazon, "Nenhum ciclo ainda.") }}
 {% endblock %}
