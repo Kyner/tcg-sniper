@@ -10,6 +10,7 @@ GERAL = {
     "evolution_instancia": "TCG Sniper",
     "whatsapp_grupo_admin": "120363000000000001@g.us",
     "whatsapp_grupo_oportunidades": "",
+    "validade_oportunidade_h": "6",
 }
 LIGA = {
     "coleta_hora": "10:00",
@@ -32,6 +33,7 @@ def test_geral_valido():
         "evolution_instancia": "TCG Sniper",
         "whatsapp_grupo_admin": "120363000000000001@g.us",
         "whatsapp_grupo_oportunidades": None,
+        "validade_oportunidade_h": 6,
     }
 
 
@@ -51,6 +53,13 @@ def test_geral_valido():
         ("host_publico", "1.2.3.4:8000"),
         ("whatsapp_grupo_admin", "120363000000000001"),
         ("whatsapp_grupo_oportunidades", "@g.us"),
+        ("validade_oportunidade_h", "0"),
+        ("validade_oportunidade_h", "49"),
+        ("validade_oportunidade_h", "abc"),
+        ("validade_oportunidade_h", ""),
+        ("validade_oportunidade_h", "٣"),
+        ("validade_oportunidade_h", "１２"),
+        ("validade_oportunidade_h", "99999999999999999999"),
     ],
 )
 def test_geral_invalido(campo, valor):
@@ -107,3 +116,10 @@ def test_liga_aceita_url_http():
     valores, erros = validar_liga({**LIGA, "url_listagem": "http://liga.test/?categ={categ}"})
     assert not erros
     assert valores["url_listagem"] == "http://liga.test/?categ={categ}"
+
+
+@pytest.mark.parametrize(("texto", "esperado"), [("1", 1), ("48", 48), (" 6 ", 6)])
+def test_geral_aceita_validade_nos_limites(texto, esperado):
+    valores, erros = validar_geral({**GERAL, "validade_oportunidade_h": texto})
+    assert not erros
+    assert valores["validade_oportunidade_h"] == esperado
