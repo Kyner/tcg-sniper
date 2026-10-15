@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> None:
             engine,
             sessoes,
             lambda: NavegadorPlaywright(config.dir_dados / "perfil"),
-            criar_notificador(config),
+            criar_notificador(config, sessoes),
             config,
         ).rodar()
     elif args.comando == "coletor-amazon":
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> None:
             engine,
             sessoes,
             lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
-            criar_notificador(config),
+            criar_notificador(config, sessoes),
             config,
         ).rodar()
     elif args.comando == "admin":
