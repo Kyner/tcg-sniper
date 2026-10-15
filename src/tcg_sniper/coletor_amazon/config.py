@@ -69,7 +69,7 @@ EXPLICACOES = {
 }
 
 
-def _hora(texto: str) -> time | None:
+def ler_hora(texto: str) -> time | None:
     if not HORA_RE.fullmatch(texto):
         return None
     try:
@@ -91,7 +91,7 @@ def validar_config(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[s
         valores["url_busca"] = url
 
     for campo in ("janela_inicio", "janela_fim"):
-        hora = _hora((campos.get(campo) or "").strip())
+        hora = ler_hora((campos.get(campo) or "").strip())
         if hora is None:
             erros[campo] = "Use o formato HH:MM, por exemplo 08:00."
         else:
