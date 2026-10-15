@@ -213,3 +213,25 @@ def test_erro_no_ciclo_nao_derruba_o_laco(sessoes, env, caplog, monkeypatch):
     with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
         svc.rodar()
     assert len(chamadas) == 2 and "banco caiu" in caplog.text
+
+
+def test_erro_no_meio_do_lote_nao_desfaz_as_ja_enviadas(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.notificador import servico as modulo
+    from tcg_sniper.notificador.evolution import Resultado
+
+    ids = [nova(sessoes, "admin", f"m{i}", AGORA - timedelta(minutes=3 - i)) for i in range(3)]
+    chamadas = []
+
+    def envio(*args):
+        chamadas.append(1)
+        if len(chamadas) == 2:
+            raise RuntimeError("morreu no meio")
+        return Resultado.OK, None
+
+    monkeypatch.setattr(modulo, "enviar_uma_vez", envio)
+    with pytest.raises(RuntimeError):
+        servico(sessoes, env).ciclo()
+    primeira, segunda, terceira = (ler(sessoes, i) for i in ids)
+    assert primeira.status is StatusMensagem.ENVIADA
+    assert (segunda.status, segunda.tentativas) == (StatusMensagem.PENDENTE, 0)
+    assert (terceira.status, terceira.tentativas) == (StatusMensagem.PENDENTE, 0)
