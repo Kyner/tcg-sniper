@@ -107,3 +107,21 @@ def test_tela_com_filtros_paginacao_e_validacao(cliente, sessoes, cenario):
     assert pagina2.count("<small>B0") == 7  # 57 ofertas da Amazon → 50 + 7
     assert "vendedor=amazon" in pagina2
     assert cliente.get("/ofertas?pagina=999").status_code == 200
+
+
+def test_vendedor_lido_so_na_busca_aparece_como_nao_verificado(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        produto = criar_produto(s, "selo", nome="Caixa Selada")
+        criar_preco_liga(s, produto, "1000.00")
+        anuncio = criar_anuncio(s, "B0BUSCA001", produto=produto, status=StatusCasamento.CONFIRMADO)
+        repo_amz.registrar_preco(
+            s, anuncio.id, Decimal("960.00"), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, T0, SP
+        )
+        sem_bloco = criar_produto(s, "pagina", nome="Caixa Lida")
+        criar_preco_liga(s, sem_bloco, "1000.00")
+        oferta(s, "B0PAGINA01", sem_bloco, "900.00", Envio.DESCONHECIDO)
+    texto = cliente.get("/ofertas").text
+    linha_busca = texto[texto.index("Caixa Selada"):].split("</tr>")[0]
+    linha_pagina = texto[texto.index("Caixa Lida"):].split("</tr>")[0]
+    assert "vendedor não verificado" in linha_busca and "não elegível" not in linha_busca
+    assert "não elegível" in linha_pagina and "não verificado" not in linha_pagina

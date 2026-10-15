@@ -16,6 +16,7 @@ from tcg_sniper.db.models import (
     ConfigAmazon,
     Envio,
     Oportunidade,
+    OrigemPreco,
     PrecoAmazon,
     PrecoAtualAmazon,
     PrecoAtualLiga,
@@ -247,6 +248,8 @@ class LinhaOferta:
     envio: Envio
     vendedor: VendedorAmazon | None
     confiavel: bool
+    # False: o preço veio só do cartão da busca e a página do produto (vendedor, envio) não foi lida.
+    verificado: bool
     coletado_em: datetime
     desconto: Decimal | None
     diferenca: Decimal | None  # "À partir de" − preço da Amazon
@@ -306,6 +309,7 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
             envio=atual.envio,
             vendedor=vendedor,
             confiavel=confiavel,
+            verificado=atual.origem is OrigemPreco.PRODUTO,
             coletado_em=atual.coletado_em,
             desconto=desconto_pct(atual.preco, preco_liga) if preco_liga else None,
             diferenca=preco_liga - atual.preco if preco_liga is not None else None,

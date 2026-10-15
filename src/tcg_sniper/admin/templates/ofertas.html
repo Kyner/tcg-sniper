@@ -36,7 +36,7 @@
       <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.preco|brl }}</a></td>
       <td>{{ (l.desconto|string).replace(".", ",") ~ "%" if l.desconto is not none else "—" }}</td>
       <td>{{ l.diferenca|brl }}</td>
-      <td>{{ l.envio|envio(l.vendedor) }}{% if not l.confiavel %} <small>(não elegível)</small>{% endif %}</td>
+      <td>{% if not l.verificado %}— <small>(vendedor não verificado: preço lido só na busca)</small>{% else %}{{ l.envio|envio(l.vendedor) }}{% if not l.confiavel %} <small>(não elegível)</small>{% endif %}{% endif %}</td>
       <td>{{ l.coletado_em|data }}</td>
     </tr>
   {% else %}
