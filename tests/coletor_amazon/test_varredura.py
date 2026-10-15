@@ -149,6 +149,18 @@ def test_fora_da_janela_nao_busca_e_fecha_o_navegador(engine, sessoes, config):
     assert navegador.visitadas == []
 
 
+def test_fuso_salvo_na_tela_muda_a_janela_do_dia(engine, sessoes, config):
+    _, urls = produtos(sessoes, "a", "b")
+    v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()})
+    assert v.passo() == 0  # meio-dia em São Paulo: dentro da janela; sobra um produto na fila
+    with sessoes() as s, s.begin():
+        repo.obter_config_geral(s, config)
+        repo.salvar_config_geral(s, {"fuso": "Asia/Singapore"}, MEIO_DIA)  # lá são 23h do mesmo dia
+    assert len(navegador.visitadas) == 1
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert len(navegador.visitadas) == 1
+
+
 def test_pausado_nao_busca(engine, sessoes, config):
     _, urls = produtos(sessoes, "a")
     with sessoes() as s, s.begin():

@@ -43,6 +43,12 @@ def test_geral_valido():
         ("fuso", "America/Atlantida"),
         ("fuso", ""),
         ("fuso", "../etc"),
+        ("fuso", "America"),
+        ("fuso", "Etc"),
+        ("fuso", "localtime"),
+        ("fuso", "Factory"),
+        ("host_publico", "http://1.2.3.4"),
+        ("host_publico", "1.2.3.4:8000"),
         ("whatsapp_grupo_admin", "120363000000000001"),
         ("whatsapp_grupo_oportunidades", "@g.us"),
     ],
@@ -75,6 +81,7 @@ def test_liga_valida_normaliza_categorias_e_pausas():
         ("categorias", "10,abc"),
         ("url_listagem", "https://liga.test/sem-marcador"),
         ("url_listagem", "ftp://liga.test/{categ}"),
+        ("url_listagem", "liga.test/{categ}"),
         ("max_cliques", "0"),
         ("max_cliques", "9999999"),
     ],
@@ -87,3 +94,16 @@ def test_liga_invalida(campo, valor):
 def test_liga_recusa_pausa_minima_maior_que_a_maxima():
     _, erros = validar_liga({**LIGA, "pausa_min_s": "30", "pausa_max_s": "20"})
     assert "pausa_min_s" in erros
+
+
+@pytest.mark.parametrize("fuso", ["America/Sao_Paulo", "UTC"])
+def test_geral_aceita_fusos_da_base(fuso):
+    valores, erros = validar_geral({**GERAL, "fuso": fuso})
+    assert not erros
+    assert valores["fuso"] == fuso
+
+
+def test_liga_aceita_url_http():
+    valores, erros = validar_liga({**LIGA, "url_listagem": "http://liga.test/?categ={categ}"})
+    assert not erros
+    assert valores["url_listagem"] == "http://liga.test/?categ={categ}"

@@ -1,6 +1,7 @@
 import logging
 import time
 from collections.abc import Callable
+from urllib.parse import quote
 
 import httpx
 
@@ -42,7 +43,7 @@ class EvolutionNotificador:
         if not grupo:
             log.warning("sem grupo configurado para %s; mensagem descartada: %s", destino.value, texto)
             return
-        endpoint = f"{self._url}/message/sendText/{instancia}"
+        endpoint = f"{self._url}/message/sendText/{quote(instancia, safe='')}"
         for tentativa in range(1, self._tentativas + 1):
             try:
                 resposta = self._cliente.post(

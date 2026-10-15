@@ -61,7 +61,7 @@ class VarreduraAmazon:
         self._relogio = relogio or (lambda: datetime.now(UTC))
         self._rng = rng or random.Random()
         self._dormir = dormir
-        self._janelas: dict[tuple[date, time, time], Janela] = {}
+        self._janelas: dict[tuple[date, time, time, str], Janela] = {}
         self._teto = TetoPorHora()
         self._ciclo: int | None = None
         self._pendentes: set[int] = set()
@@ -150,7 +150,7 @@ class VarreduraAmazon:
 
     def _janela(self, agora: datetime, cfg: ConfigAmazon) -> Janela:
         dia = agora.astimezone(self._config.zona).date()
-        chave = (dia, cfg.janela_inicio, cfg.janela_fim)
+        chave = (dia, cfg.janela_inicio, cfg.janela_fim, self._config.fuso)
         if chave not in self._janelas:
             self._janelas[chave] = janela_do_dia(dia, cfg.janela_inicio, cfg.janela_fim, self._config.zona, self._rng)
         return self._janelas[chave]

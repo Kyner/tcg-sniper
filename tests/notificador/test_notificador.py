@@ -32,6 +32,14 @@ def test_envia_para_o_grupo_do_destino():
 
 
 @respx.mock
+@pytest.mark.parametrize(("instancia", "codificada"), [("TCG Sniper", "TCG%20Sniper"), ("a/b?c", "a%2Fb%3Fc")])
+def test_nome_da_instancia_vai_codificado_na_url(instancia, codificada):
+    rota = respx.post(f"{URL}/message/sendText/{codificada}").mock(return_value=httpx.Response(201))
+    notificador([], instancia=instancia).enviar(Destino.ADMIN, "olá")
+    assert rota.call_count == 1
+
+
+@respx.mock
 def test_tenta_de_novo_e_desiste_sem_lancar_excecao():
     rota = respx.post(f"{URL}/message/sendText/inst").mock(return_value=httpx.Response(500))
     pausas = []

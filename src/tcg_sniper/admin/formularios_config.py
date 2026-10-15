@@ -1,13 +1,23 @@
 """Validação das seções Geral e LigaMagic da tela de Configurações, com os limites do banco."""
 
+import functools
 import re
+import zoneinfo
 from collections.abc import Mapping
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tcg_sniper.coletor_amazon.config import ler_hora
 from tcg_sniper.db.models import LIMITES_CONFIG_LIGA
 
 PAUSA_RE = re.compile(r"[0-9]{1,3}(\.[0-9]{1,2})?")
+
+
+
+@functools.cache
+def _fusos() -> frozenset[str]:
+    """Nomes de fuso aceitos. `ZoneInfo("America")` estoura OSError no Linux e "localtime"/"Factory"
+    passam sem serem fusos de verdade, então a validação é por pertencimento à lista."""
+    return frozenset(zoneinfo.available_timezones() - {"localtime", "Factory", "posixrules"})
+
 
 CAMPOS_GERAL = (
     "host_publico",
@@ -70,16 +80,15 @@ def validar_geral(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[st
     host = (campos.get("host_publico") or "").strip()
     if not host or any(c.isspace() for c in host):
         erros["host_publico"] = "Informe o IP ou o nome deste PC, sem espaços."
+    elif "/" in host or ":" in host:
+        erros["host_publico"] = "Informe só o IP ou o nome deste PC, sem http:// nem porta."
     else:
         valores["host_publico"] = host
 
     fuso = (campos.get("fuso") or "").strip()
-    try:
-        if not fuso:
-            raise ValueError(fuso)
-        ZoneInfo(fuso)
+    if fuso in _fusos():
         valores["fuso"] = fuso
-    except (ZoneInfoNotFoundError, ValueError):
+    else:
         erros["fuso"] = "Fuso desconhecido. Use o formato America/Sao_Paulo."
 
     valores["evolution_instancia"] = (campos.get("evolution_instancia") or "").strip() or None
@@ -134,8 +143,8 @@ def validar_liga(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[str
         valores["categorias"] = ",".join(dict.fromkeys(ids))
 
     url = (campos.get("url_listagem") or "").strip()
-    if not url.startswith("https://"):
-        erros["url_listagem"] = "Use uma URL que comece com https://."
+    if not url.startswith(("http://", "https://")):
+        erros["url_listagem"] = "Use uma URL que comece com http:// ou https://."
     elif "{categ}" not in url:
         erros["url_listagem"] = "A URL precisa conter {categ}."
     else:
