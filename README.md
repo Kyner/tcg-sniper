@@ -108,15 +108,15 @@ Abra o `.env` num editor e troque pelo menos:
 
 O IP deste PC, a instância e os grupos do WhatsApp não ficam no `.env`: você os preenche em **Configurações** no admin (passos 4 e 5). Cada variável do `.env` está explicada no próprio [`.env.example`](.env.example).
 
-### 3. Suba o banco, a Evolution API e o admin
+### 3. Suba o banco, a Evolution API, o admin e o notificador
 
 O coletor fica para o passo 6: ao subir, ele já acessa a LigaMagic.
 
 ```bash
-docker compose up -d --build postgres evolution migrate admin
+docker compose up -d --build postgres evolution migrate admin notificador
 ```
 
-**Deu certo se** `docker compose ps -a` mostrar `postgres`, `evolution` e `admin` em `Up` e `migrate` em `Exited (0)`.
+**Deu certo se** `docker compose ps -a` mostrar `postgres`, `evolution`, `admin` e `notificador` em `Up` e `migrate` em `Exited (0)`, e **Serviços** no admin mostrar o Notificador "rodando". Enquanto o WhatsApp não estiver configurado (passos 4 e 5), as mensagens esperam em **Mensagens**, com o motivo em "Último erro".
 
 ### 4. Conecte o WhatsApp
 
@@ -194,6 +194,7 @@ docker compose up -d --build
 
 - Atualize fora do horário da coleta da LigaMagic (por volta das 10:00), para não interromper uma coleta no meio.
 - Recrie todos os serviços de uma vez, como acima. O `migrate` atualiza o banco antes e todos os containers sobem com o código novo.
+- Voltar a migração (downgrade) apaga a tabela `mensagem_saida`, com as mensagens pendentes e o histórico. Faça backup do banco antes de qualquer rollback.
 - Nunca reconstrua um serviço só (`docker compose up -d --build coletor-amazon`, por exemplo) depois de uma atualização que muda o banco: os outros continuam com o código antigo contra o banco novo e podem parar de funcionar.
 
 ## Uso no dia a dia
@@ -259,9 +260,9 @@ Quem já tinha os antigos `HOST_PUBLICO`, `FUSO`, `COLETA_*`, `PAUSA_*`, `LIGA_*
 **A Evolution não sobe e o log reclama do banco `evolution`.** O script que cria o banco `evolution` só roda num volume novo do Postgres. Crie à mão:
 `docker compose exec postgres psql -U tcg -c "CREATE DATABASE evolution;"`
 
-**Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY` (no `.env`) e a instância e o grupo admin (em **Configurações** → Geral) estão preenchidos. Sem algum deles, os avisos vão só para o log (`docker compose logs coletor-liga`); com a chave padrão, o coletor avisa isso no log ao subir; com a instância ou o grupo vazio, o log diz a cada mensagem que ela foi descartada. Os avisos de oportunidade vão para outro grupo: confira também o grupo de oportunidades em **Configurações** → Geral (sem ele, as oportunidades vão só para o log do `coletor-amazon`).
+**Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY` (no `.env`) e a instância e o grupo admin (em **Configurações** → Geral) estão preenchidos. Sem algum deles, as mensagens ficam pendentes em **Mensagens**, com o motivo em "Último erro" (as oportunidades expiram depois da validade). Quem envia é o `notificador`: veja `docker compose logs notificador` (com a chave padrão ele avisa isso ao subir) e o cartão do Notificador em **Serviços**. Os avisos de oportunidade vão para outro grupo: confira também o grupo de oportunidades em **Configurações** → Geral.
 
-**Aviso 'Mensagens do WhatsApp paradas' no Dashboard:** abra Mensagens e leia o último erro. 'sem instância' ou 'sem grupo': preencha em Configurações → Geral. 'HTTP 4xx': confira se a instância está conectada na Evolution e se o ID do grupo está certo, depois clique em Reenviar. 'HTTP 5xx' ou erro de conexão: a Evolution está fora; as mensagens saem sozinhas quando ela voltar.
+**Aviso 'Mensagens do WhatsApp paradas' no Dashboard:** abra Mensagens e leia o último erro. 'sem instância' ou 'sem grupo': preencha em Configurações → Geral. 'HTTP 4xx': confira se a instância está conectada na Evolution e se o ID do grupo está certo, depois clique em Reenviar. 'HTTP 5xx' ou erro de conexão: a Evolution está fora; as mensagens saem sozinhas quando ela voltar. Pendentes sem "Último erro": confira o Notificador em **Serviços** e `docker compose logs notificador`.
 
 **Por que não chega alerta de um produto que está barato na Amazon?** As causas mais comuns: é de um lojista com envio próprio; é de um lojista FBA com poucas avaliações; o casamento do anúncio com o produto da Liga ainda está pendente em **Casamentos**; ou o preço da Liga tem mais de 48 h.
 
@@ -286,13 +287,13 @@ uv run ruff check
 
 Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
 
-Para rodar um serviço fora do Docker: `uv run tcg-sniper migrate`, `uv run tcg-sniper admin`, `uv run tcg-sniper coletor-liga` ou `uv run tcg-sniper coletor-amazon`.
+Para rodar um serviço fora do Docker: `uv run tcg-sniper migrate`, `uv run tcg-sniper admin`, `uv run tcg-sniper coletor-liga`, `uv run tcg-sniper coletor-amazon` ou `uv run tcg-sniper notificador`.
 
 ### Estrutura
 
 ```
 src/tcg_sniper/
-  cli.py              comandos migrate, admin, coletor-liga e coletor-amazon
+  cli.py              comandos migrate, admin, coletor-liga, coletor-amazon e notificador
   config.py           leitura do .env
   coletor_liga/       agendador, navegador (Playwright), parsers e as duas etapas da coleta
   coletor_amazon/     fila de buscas, parsers da Amazon, casamento e motor de oportunidades

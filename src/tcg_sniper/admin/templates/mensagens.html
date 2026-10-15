@@ -21,7 +21,7 @@
     <tr>
       <td>{{ m.criada_em|data }}</td>
       <td>{{ m.destino }}</td>
-      <td>{{ partes[:2]|join("\n") }}{% if partes|length > 2 %}<details><summary>mais</summary><pre>{{ m.texto }}</pre></details>{% endif %}</td>
+      <td style="white-space: pre-line">{{ partes[:2]|join("\n") }}{% if partes|length > 2 %}<details><summary>mais</summary><pre>{{ m.texto }}</pre></details>{% endif %}</td>
       <td>{{ m.status.value }}</td>
       <td>{{ m.tentativas }}</td>
       <td>{{ m.ultimo_erro or "—" }}</td>

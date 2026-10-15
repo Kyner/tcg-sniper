@@ -50,6 +50,21 @@ def lote_pendente(s: Session, agora: datetime, limite: int = 20) -> list[Mensage
     return list(s.scalars(consulta))
 
 
+def acordar_pendentes(s: Session, agora: datetime) -> int:
+    """Pendentes que já tentaram e esperam um backoff voltam para agora (a Evolution respondeu).
+    As sem tentativas (esperando configuração) ficam como estão."""
+    resultado = s.execute(
+        update(MensagemSaida)
+        .where(
+            MensagemSaida.status == StatusMensagem.PENDENTE,
+            MensagemSaida.tentativas > 0,
+            MensagemSaida.proxima_tentativa_em > agora,
+        )
+        .values(proxima_tentativa_em=agora, atualizado_em=agora)
+    )
+    return resultado.rowcount
+
+
 def registrar_ciclo(s: Session, agora: datetime) -> None:
     s.execute(update(EstadoNotificador).where(EstadoNotificador.id == 1).values(ultimo_ciclo_em=agora))
     s.flush()

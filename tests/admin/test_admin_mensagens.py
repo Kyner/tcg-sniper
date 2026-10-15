@@ -117,3 +117,39 @@ def test_servicos_mostra_o_estado_do_notificador(cliente, sessoes):
 
 def test_configuracoes_tem_a_validade(cliente):
     assert 'name="validade_oportunidade_h" value="6"' in cliente.get("/configuracoes").text
+
+
+def test_aviso_so_de_pendente_leva_para_pendentes(cliente, sessoes):
+    criar(sessoes, idade=timedelta(minutes=31), erro="HTTP 503: fora")
+    assert 'href="/mensagens?situacao=pendente"' in cliente.get("/").text
+    criar(sessoes, status=StatusMensagem.FALHA)
+    assert 'href="/mensagens?situacao=falha"' in cliente.get("/").text
+
+
+def test_aviso_cita_notificador_que_nunca_rodou(cliente, sessoes):
+    criar(sessoes, idade=timedelta(minutes=31))
+    assert "O notificador nunca rodou" in cliente.get("/").text
+
+
+def test_aviso_cita_notificador_parado_desde(cliente, sessoes):
+    criar(sessoes, idade=timedelta(minutes=31))
+    with sessoes() as s, s.begin():
+        repo_msg.registrar_ciclo(s, repo.agora_utc() - timedelta(minutes=5))
+    texto = cliente.get("/").text
+    assert "O notificador está parado desde" in texto and "veja Serviços" in texto
+
+
+def test_aviso_nao_cita_notificador_rodando(cliente, sessoes):
+    criar(sessoes, idade=timedelta(minutes=31))
+    with sessoes() as s, s.begin():
+        repo_msg.registrar_ciclo(s, repo.agora_utc())
+    assert "O notificador" not in cliente.get("/").text
+
+
+def test_id_fora_do_inteiro_do_postgres_da_404(cliente):
+    assert cliente.post("/mensagens/1000000000000", data={"acao": "descartar"}).status_code == 404
+
+
+def test_celula_do_texto_preserva_quebras(cliente, sessoes):
+    criar(sessoes, texto="linha 1\nlinha 2")
+    assert 'style="white-space: pre-line"' in cliente.get("/mensagens").text

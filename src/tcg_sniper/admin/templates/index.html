@@ -10,7 +10,7 @@
 {% endif %}
 
 {% if resumo_msgs.aviso %}
-<div class="pausado"><strong>{{ resumo_msgs.aviso }}</strong> <a href="/mensagens?situacao=falha">Ir para Mensagens</a></div>
+<div class="pausado"><strong>{{ resumo_msgs.aviso }}</strong>{% if resumo_msgs.notificador_parado == "nunca" %} O notificador nunca rodou — veja Serviços.{% elif resumo_msgs.notificador_parado %} O notificador está parado desde {{ resumo_msgs.notificador_ultimo_ciclo|data }} — veja Serviços.{% endif %} <a href="{{ resumo_msgs.link_aviso }}">Ir para Mensagens</a></div>
 {% endif %}
 
 <div class="grid">

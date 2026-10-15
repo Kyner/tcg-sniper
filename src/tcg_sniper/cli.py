@@ -66,8 +66,10 @@ def main(argv: list[str] | None = None) -> None:
     elif args.comando == "notificador":
         from tcg_sniper.notificador import servico
 
-        instalar_sigterm()
-        servico.ServicoNotificador(sessoes, config).rodar()
+        notificador = servico.ServicoNotificador(sessoes, config)
+        # SIGTERM pede parada limpa: não corta o envio HTTP no meio (SystemExit).
+        signal.signal(signal.SIGTERM, lambda _signum, _frame: notificador.parar())
+        notificador.rodar()
     elif args.comando == "admin":
         import uvicorn
 

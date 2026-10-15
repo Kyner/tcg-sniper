@@ -21,6 +21,9 @@ class ResumoMensagens:
     falhas: int
     ultimo_envio: datetime | None
     aviso: str | None
+    link_aviso: str = "/mensagens?situacao=falha"
+    notificador_parado: str | None = None  # "nunca" ou "parado", só com pendentes presas
+    notificador_ultimo_ciclo: datetime | None = None
 
 
 def listar(s: Session, situacao: str, destino: str, pagina: int) -> tuple[list[MensagemSaida], int, int]:
@@ -54,6 +57,9 @@ def resumo(s: Session, agora: datetime) -> ResumoMensagens:
         s, MensagemSaida.status == StatusMensagem.PENDENTE, MensagemSaida.criada_em < agora - PENDENTE_PARADA
     )
     aviso = None
+    link_aviso = "/mensagens?situacao=falha" if falhas else "/mensagens?situacao=pendente"
+    notificador_parado = None
+    ultimo_ciclo = None
     if falhas or paradas:
         ultimo_erro = s.scalar(
             select(MensagemSaida.ultimo_erro)
@@ -72,7 +78,11 @@ def resumo(s: Session, agora: datetime) -> ResumoMensagens:
         aviso = "Mensagens do WhatsApp paradas: " + " e ".join(partes) + "."
         if ultimo_erro:
             aviso += f" Último erro: {ultimo_erro}"
-    return ResumoMensagens(pendentes, falhas, ultimo_envio, aviso)
+        if paradas:
+            situacao, ultimo_ciclo = estado_notificador(s, agora)
+            if situacao != "rodando":
+                notificador_parado = situacao
+    return ResumoMensagens(pendentes, falhas, ultimo_envio, aviso, link_aviso, notificador_parado, ultimo_ciclo)
 
 
 def estado_notificador(s: Session, agora: datetime) -> tuple[str, datetime | None]:

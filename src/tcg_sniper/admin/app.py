@@ -231,6 +231,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/mensagens/{mensagem_id}")
     async def acao_mensagem(request: Request, mensagem_id: int):
+        if not 1 <= mensagem_id <= 2**31 - 1:  # fora do integer do Postgres
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "mensagem não encontrada")
         formulario = await ler_formulario(request)
         acoes = {"reenviar": repo_msg.reenviar, "descartar": repo_msg.descartar}
         acao = acoes.get(formulario.get("acao", ""))

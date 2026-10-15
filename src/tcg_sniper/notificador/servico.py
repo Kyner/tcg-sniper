@@ -1,7 +1,7 @@
 """Serviço `notificador`: envia a tabela de saída pela Evolution, com tentativas, validade e limpeza."""
 
 import logging
-import time
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -44,16 +44,21 @@ class ServicoNotificador:
         config_env: Config,
         cliente: httpx.Client | None = None,
         relogio: Callable[[], datetime] | None = None,
-        dormir: Callable[[float], None] = time.sleep,
+        dormir: Callable[[float], None] | None = None,
     ):
         self._sessoes = sessoes
         self._config_env = config_env
         self._cliente = cliente or httpx.Client(timeout=TIMEOUT_S)
         self._relogio = relogio or repo.agora_utc
         self._dormir = dormir
+        self._parar = threading.Event()
         self._ultima_limpeza: datetime | None = None
         chave = (config_env.evolution_api_key or "").strip()
         self._chave = chave if config_env.evolution_url and chave not in ("", CHAVE_PADRAO) else None
+
+    def parar(self) -> None:
+        """Pede o encerramento: o ciclo em andamento termina a mensagem atual e `rodar` volta."""
+        self._parar.set()
 
     def ciclo(self) -> int:
         """Um ciclo: registra que está vivo, limpa (1x/dia) e processa até `LOTE` mensagens, cada uma
@@ -77,22 +82,36 @@ class ServicoNotificador:
         if limpou:
             self._ultima_limpeza = agora
         processadas = 0
+        enviou = False
         for _ in range(LOTE):
+            if self._parar.is_set():
+                break
             agora = self._relogio()
             with self._sessoes() as s, s.begin():
                 lote = repo_msg.lote_pendente(s, agora, 1)
                 if not lote:
                     break
-                self._processar(lote[0], cfg, agora)
+                resultado = self._processar(lote[0], cfg, agora)
             processadas += 1
+            if resultado is Resultado.OK:
+                enviou = True
+            elif resultado is Resultado.TRANSITORIO:
+                break  # a Evolution está fora ou lenta: o resto espera o próximo ciclo
+        if enviou:
+            # a Evolution voltou: o que esperava um backoff de falha transitória tenta já
+            with self._sessoes() as s, s.begin():
+                acordadas = repo_msg.acordar_pendentes(s, self._relogio())
+            if acordadas:
+                log.info("%d mensagem(ns) em espera voltam à fila", acordadas)
         return processadas
 
-    def _processar(self, m: MensagemSaida, geral: _Destinos, agora: datetime) -> None:
+    def _processar(self, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
+        """Devolve o resultado do envio, ou `None` se a mensagem nem chegou a ser enviada."""
         m.atualizado_em = agora
         validade = timedelta(hours=geral.validade_oportunidade_h)
         if m.destino == "oportunidades" and not m.ignorar_validade and agora - m.criada_em > validade:
             m.status = StatusMensagem.EXPIRADA
-            return
+            return None
         grupo = geral.whatsapp_grupo_admin if m.destino == "admin" else geral.whatsapp_grupo_oportunidades
         falta = None
         if self._chave is None:
@@ -104,7 +123,7 @@ class ServicoNotificador:
         if falta is not None:
             m.ultimo_erro = falta
             m.proxima_tentativa_em = agora + ESPERA_SEM_DESTINO
-            return
+            return None
         resultado, erro = enviar_uma_vez(
             self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, m.texto
         )
@@ -112,21 +131,30 @@ class ServicoNotificador:
             m.status = StatusMensagem.ENVIADA
             m.enviada_em = agora
             m.ultimo_erro = None
-            return
+            return resultado
         m.tentativas += 1
         m.ultimo_erro = erro
         if resultado is Resultado.DEFINITIVO and m.tentativas >= MAX_TENTATIVAS_DEFINITIVAS:
             m.status = StatusMensagem.FALHA
             log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
-            return
+            return resultado
         m.proxima_tentativa_em = agora + timedelta(minutes=min(2 ** min(m.tentativas - 1, 5), ESPERA_MAX_MIN))
         log.warning("mensagem %d para %s não saiu (tentativa %d): %s", m.id, m.destino, m.tentativas, erro)
+        return resultado
 
     def rodar(self) -> None:
         log.info("notificador iniciado")
+        if self._chave is None:
+            log.warning("EVOLUTION_URL ou EVOLUTION_API_KEY ausente (ou com o valor padrão) no .env: as mensagens ficam pendentes")
         while True:
             try:
                 self.ciclo()
             except Exception:
                 log.exception("erro no ciclo do notificador; tenta de novo em %d s", INTERVALO_S)
-            self._dormir(INTERVALO_S)
+            if self._parar.is_set():
+                break
+            if self._dormir is not None:
+                self._dormir(INTERVALO_S)
+            else:
+                self._parar.wait(INTERVALO_S)
+        log.info("notificador encerrado")

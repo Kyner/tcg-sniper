@@ -235,3 +235,62 @@ def test_erro_no_meio_do_lote_nao_desfaz_as_ja_enviadas(sessoes, env, configurad
     assert primeira.status is StatusMensagem.ENVIADA
     assert (segunda.status, segunda.tentativas) == (StatusMensagem.PENDENTE, 0)
     assert (terceira.status, terceira.tentativas) == (StatusMensagem.PENDENTE, 0)
+
+
+@respx.mock
+def test_chave_ausente_avisa_no_log_ao_iniciar(sessoes, env, configurado, caplog):
+    svc = servico(sessoes, env.model_copy(update={"evolution_api_key": "trocar-esta-chave"}))
+    svc.parar()
+    with caplog.at_level(logging.WARNING):
+        svc.rodar()
+    assert "EVOLUTION_URL ou EVOLUTION_API_KEY ausente" in caplog.text
+
+
+@respx.mock
+def test_transitorio_interrompe_o_ciclo(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(503))
+    ids = [nova(sessoes, "admin", f"m{i}", AGORA - timedelta(minutes=3 - i)) for i in range(3)]
+    assert servico(sessoes, env).ciclo() == 1
+    assert rota.call_count == 1
+    assert [ler(sessoes, i).tentativas for i in ids] == [1, 0, 0]
+
+
+@respx.mock
+def test_parar_no_meio_do_ciclo_interrompe_entre_mensagens(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    ids = [nova(sessoes, "admin", f"m{i}", AGORA - timedelta(minutes=3 - i)) for i in range(3)]
+    svc = servico(sessoes, env)
+    rota.side_effect = lambda request: (svc.parar(), httpx.Response(201))[1]
+    assert svc.ciclo() == 1
+    assert [ler(sessoes, i).status for i in ids] == [StatusMensagem.ENVIADA, StatusMensagem.PENDENTE, StatusMensagem.PENDENTE]
+
+
+@respx.mock
+def test_rodar_para_apos_o_ciclo_em_andamento(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    svc = ServicoNotificador(sessoes, env, cliente=httpx.Client(), relogio=Relogio(AGORA))
+    mid = nova(sessoes)
+    rota.side_effect = lambda request: (svc.parar(), httpx.Response(201))[1]
+    svc.rodar()  # sem `parar` isso nunca voltaria
+    assert ler(sessoes, mid).status is StatusMensagem.ENVIADA
+
+
+@respx.mock
+def test_envio_ok_acorda_pendentes_em_espera_de_falha_transitoria(sessoes, env, configurado):
+    respx.post(ROTA).mock(return_value=httpx.Response(201))
+    esperando = []
+    for _ in range(2):
+        mid = nova(sessoes, "oportunidades", "o", AGORA - timedelta(minutes=5))
+        with sessoes() as s, s.begin():
+            m = s.get(MensagemSaida, mid)
+            m.tentativas, m.proxima_tentativa_em = 3, AGORA + timedelta(minutes=10)
+        esperando.append(mid)
+    sem_config = nova(sessoes, "admin", "a", AGORA)
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, sem_config).proxima_tentativa_em = AGORA + timedelta(minutes=1)
+    envio = nova(sessoes, "admin", "envia", AGORA - timedelta(minutes=9))
+    servico(sessoes, env).ciclo()
+    assert ler(sessoes, envio).status is StatusMensagem.ENVIADA
+    assert ler(sessoes, sem_config).proxima_tentativa_em == AGORA + timedelta(minutes=1)
+    for mid in esperando:
+        assert ler(sessoes, mid).proxima_tentativa_em == AGORA

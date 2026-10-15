@@ -38,9 +38,9 @@ ROTULOS_GERAL = {
 EXPLICACOES_GERAL = {
     "host_publico": "Vai nos links das mensagens (admin e noVNC). No Windows: ipconfig, \"Endereço IPv4\".",
     "fuso": "Usado no horário da coleta e nas datas do admin e das mensagens. Ex.: America/Sao_Paulo.",
-    "evolution_instancia": "Nome da instância criada na Evolution. Vazio: as mensagens vão só para o log.",
-    "whatsapp_grupo_admin": "ID do grupo (120363...@g.us) que recebe desafios, falhas e resumos. Vazio: só log.",
-    "whatsapp_grupo_oportunidades": "ID do grupo (120363...@g.us) que recebe as ofertas com desconto. Vazio: só log.",
+    "evolution_instancia": "Nome da instância criada na Evolution. Vazio: as mensagens ficam pendentes em Mensagens.",
+    "whatsapp_grupo_admin": "ID do grupo (120363...@g.us) que recebe desafios, falhas e resumos. Vazio: as mensagens ficam pendentes em Mensagens.",
+    "whatsapp_grupo_oportunidades": "ID do grupo (120363...@g.us) que recebe as ofertas com desconto. Vazio: as mensagens ficam pendentes em Mensagens.",
     "validade_oportunidade_h": "Oportunidade que não saiu em até tantas horas, por o WhatsApp estar fora, é descartada como expirada.",
 }
 

@@ -87,14 +87,20 @@ def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+        def parar(self):
+            paradas.append(True)
+
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
 
+    paradas = []
     monkeypatch.setattr(servico, "ServicoNotificador", ServicoFalso)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     try:
         cli.main(["notificador"])
         assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        assert paradas == [True]  # SIGTERM pede parada limpa, sem SystemExit
     finally:
         signal.signal(signal.SIGTERM, anterior)
