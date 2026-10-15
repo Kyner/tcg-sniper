@@ -678,3 +678,48 @@ def test_excecao_no_job_nao_envia_resumo(engine, sessoes, config, monkeypatch):
     except RuntimeError:
         pass
     assert resumos(notificador) == []
+
+
+def salvar_liga(sessoes, config, **valores):
+    with sessoes() as s, s.begin():
+        repo.obter_config_liga(s, config)
+        repo.salvar_config_liga(s, valores, local(TERCA, 0))
+
+
+def test_horario_salvo_na_tela_vale_no_proximo_tick(engine, sessoes, config):
+    job_ok(sessoes, ONTEM, 14)
+    relogio = Relogio(local(TERCA, 7, 0))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() is None  # alvo sorteado para ~10:00
+    salvar_liga(sessoes, config, coleta_hora=time(7, 30), coleta_jitter_min=0)
+    relogio.agora = local(TERCA, 7, 31)
+    assert a.tick() == "agendado"
+    assert chamadas == [True]
+
+
+def test_horario_mudado_depois_do_job_do_dia_nao_roda_de_novo(engine, sessoes, config):
+    job_ok(sessoes, ONTEM, 14)
+    relogio = Relogio(local(TERCA, 10, 31))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() == "agendado"
+    job_ok(sessoes, TERCA, 10, 31)
+    salvar_liga(sessoes, config, coleta_hora=time(11, 0), coleta_jitter_min=0)
+    relogio.agora = local(TERCA, 11, 5)
+    assert a.tick() is None
+    assert chamadas == [True]
+
+
+def test_job_usa_as_categorias_salvas_na_tela(engine, sessoes, config):
+    job_ok(sessoes, ONTEM, 14)
+    relogio = Relogio(local(TERCA, 10, 31))
+    vistas = []
+    a, _ = agendador(engine, sessoes, config, relogio, [])
+    a._executor = lambda _incluir: vistas.append(a._config.categorias)
+    salvar_liga(sessoes, config, categorias="21,22")
+    a.inicializar()
+    a.tick()
+    assert vistas == [["21", "22"]]

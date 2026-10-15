@@ -381,3 +381,15 @@ def test_no_maximo_tres_htmls_de_falha_por_ciclo(engine, sessoes, config):
     [ciclo] = ciclos(sessoes)
     assert ciclo.produtos_falha == 5
     assert len(list((config.dir_dados / "falhas").iterdir())) == 3
+
+
+def test_host_salvo_na_tela_vale_na_mensagem_do_captcha(engine, sessoes, config):
+    _, urls = produtos(sessoes, "a")
+    [url] = urls.values()
+    with sessoes() as s, s.begin():
+        repo.obter_config_geral(s, config)
+        repo.salvar_config_geral(s, {"host_publico": "10.9.8.7"}, MEIO_DIA)
+    v, _, _, notificador = varredura(engine, sessoes, config, {url: pagina_html(CAPTCHA, url=url)})
+    v.passo()
+    [(_, texto)] = notificador.mensagens
+    assert "http://10.9.8.7:6081/vnc.html" in texto
