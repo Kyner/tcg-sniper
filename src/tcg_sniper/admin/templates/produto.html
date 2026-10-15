@@ -24,7 +24,7 @@
     <tbody>
     {% for anuncio, atual, vendedor in amazon %}
       <tr>
-        <td><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a></td>
+        <td><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<br><small>{{ anuncio.variacao }}</small>{% endif %}</td>
         <td>{{ (atual.preco if atual else None)|brl }}</td>
         <td>{{ atual.envio|envio(vendedor) if atual else "—" }}</td>
         <td>{{ (atual.coletado_em if atual else None)|data }}</td>

@@ -41,3 +41,17 @@ def test_mensagem_fba_sem_resumo_da_liga():
         "Amazon: R$ 599,90 (vendido por Loja X (97,5% de 2.340 avaliações), enviado pela Amazon), 32% abaixo da Liga"
     )
     assert linhas[2] == "Liga: a partir de R$ 889,00"
+
+
+def test_mensagem_mostra_a_opcao_da_variacao():
+    texto = mensagem_oportunidade(
+        nome_produto=NOME,
+        leitura=Leitura(Decimal("599.90"), Envio.AMAZON, None),
+        ref=RefLiga(Decimal("889.00"), AGORA),
+        url_amazon="https://www.amazon.com.br/dp/B0TESTE123",
+        host="host.test",
+        produto_id=123,
+        variacao="Collector Booster Box",
+    )
+    linhas = texto.split("\n")
+    assert linhas[1] == "Amazon (Collector Booster Box): R$ 599,90 (vendido pela Amazon), 32% abaixo da Liga"

@@ -179,12 +179,21 @@ class AnuncioAmazon(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     asin: Mapped[str] = mapped_column(Text, unique=True)
     titulo: Mapped[str] = mapped_column(Text)
+    # Opção do seletor de variações lida na página do produto ("Collector Booster Box"); a busca não a mostra.
+    variacao: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)
     produto_id: Mapped[int | None] = mapped_column(ForeignKey("produto_liga.id"))
     status_casamento: Mapped[StatusCasamento] = mapped_column(_enum(StatusCasamento, "status_casamento"))
     revisado_em: Mapped[datetime | None] = mapped_column(DATA)
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
+
+    @property
+    def titulo_exibicao(self) -> str:
+        """Título com a opção da variação, quando o título ainda não a menciona."""
+        if self.variacao and self.variacao.casefold() not in self.titulo.casefold():
+            return f"{self.titulo} — {self.variacao}"
+        return self.titulo
 
 
 class VendedorAmazon(Base):

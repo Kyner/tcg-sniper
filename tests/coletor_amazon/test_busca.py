@@ -10,6 +10,7 @@ from fakes import (
     criar_anuncio,
     criar_preco_liga,
     criar_produto,
+    fixture_amazon,
     html_busca,
     html_produto_amazon,
     html_vendedor,
@@ -347,3 +348,20 @@ def test_ausente_cuja_pagina_nao_le_segue_o_fluxo_de_erro(sessoes, config, produ
         processar_produto(ctx, produto)
     with sessoes() as s:  # a busca já tinha sido gravada antes da leitura que falhou
         assert s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B0NOVO0001")) is not None
+
+
+def test_leitura_grava_a_opcao_da_variacao(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        manual = repo.casar_link_manual(s, produto.id, "B0DTS76B5L", AGORA - timedelta(hours=1))
+        url = url_busca(repo.obter_config(s), NOME)
+    paginas = {
+        url: busca(url),
+        url_produto("B0DTS76B5L"): pagina_html(fixture_amazon("produto_variacao")),
+        url_vendedor("ANP69P8PNCJ0B"): pagina_html(fixture_amazon("vendedor")),
+    }
+    ctx, _, _ = contexto(sessoes, config, paginas)
+    processar_produto(ctx, produto)
+    with sessoes() as s:
+        lido = s.get(AnuncioAmazon, manual.id)
+    assert lido.variacao == "Collector Booster Box"
+    assert lido.titulo_exibicao.endswith(" — Collector Booster Box")

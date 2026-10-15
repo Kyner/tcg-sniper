@@ -22,6 +22,8 @@ Produto (`/dp/<ASIN>`):
   `.offer-display-feature-text-message`. O bloco "Enviado por" não existe em envio próprio nem
   em "Amazon Global". O bloco antigo `#merchant-info` não existe mais.
 - Vendedor: link `#sellerProfileTriggerId`, com `seller=<ID>` no href.
+- Opção do seletor de variações (página com envelope, caixa, deck... cada um com o seu ASIN):
+  `#inline-twister-expanded-dimension-text-<dimensão>` (ex.: "Collector Booster Box"); sem seletor → `None`.
 
 Perfil do vendedor (`/sp?seller=<ID>`):
 - Nome: `#seller-name`.
@@ -57,6 +59,9 @@ SELETORES_PRECO_PRODUTO = (
 SELETOR_VENDIDO_POR = '[offer-display-feature-name="desktop-merchant-info"] .offer-display-feature-text-message'
 SELETOR_ENVIADO_POR = '[offer-display-feature-name="desktop-fulfiller-info"] .offer-display-feature-text-message'
 SELETOR_LINK_VENDEDOR = "#sellerProfileTriggerId"
+# Valor selecionado de cada dimensão do seletor de variações (estilo, tamanho...): o título da
+# página muitas vezes não diz qual opção é ("Final Fantasy, multicolorido" para a caixa de boosters).
+SELETOR_VARIACAO = '[id^="inline-twister-expanded-dimension-text-"]'
 
 SELETOR_NOME_VENDEDOR = "#seller-name"
 SELETOR_RESUMO_VENDEDOR = "#seller-info-feedback-summary"
@@ -71,6 +76,7 @@ BLOCOS_PRODUTO = (
     '[offer-display-feature-name="desktop-merchant-info"]',
     '[offer-display-feature-name="desktop-fulfiller-info"]',
     SELETOR_LINK_VENDEDOR,
+    SELETOR_VARIACAO,
 )
 BLOCOS_VENDEDOR = (SELETOR_NOME_VENDEDOR, SELETOR_RESUMO_VENDEDOR)
 
@@ -158,7 +164,13 @@ def parse_produto_amazon(html: str, asin: str) -> OfertaProduto:
     vendido_por = _texto(arvore, SELETOR_VENDIDO_POR)
     envio = classificar_envio(vendido_por, _texto(arvore, SELETOR_ENVIADO_POR))
     seller_id = SELLER_AMAZON if envio is Envio.AMAZON else _seller_id(arvore)
-    return OfertaProduto(asin, titulo, preco, vendido_por, seller_id, envio)
+    return OfertaProduto(asin, titulo, preco, vendido_por, seller_id, envio, _variacao(arvore))
+
+
+def _variacao(arvore: LexborHTMLParser) -> str | None:
+    """As opções selecionadas no seletor de variações, unidas por " · " (None sem seletor)."""
+    valores = [v for no in arvore.css(SELETOR_VARIACAO) if (v := no.text(separator=" ", strip=True))]
+    return " · ".join(valores) or None
 
 
 def parse_vendedor(html: str, seller_id: str) -> AvaliacaoVendedor:

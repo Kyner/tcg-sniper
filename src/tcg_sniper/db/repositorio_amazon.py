@@ -390,9 +390,14 @@ def confirmados_ausentes(
     return [(anuncio_id, asin, url) for anuncio_id, asin, url in s.execute(consulta)]
 
 
-def atualizar_leitura(s: Session, anuncio_id: int, titulo: str, agora: datetime) -> None:
-    """Título lido na página do produto e "visto por último" (vale para anúncios fora da busca)."""
+def atualizar_leitura(
+    s: Session, anuncio_id: int, titulo: str, variacao: str | None, agora: datetime
+) -> None:
+    """Título e opção da variação lidos na página do produto, e "visto por último" (vale para
+    anúncios fora da busca)."""
     s.execute(
-        update(AnuncioAmazon).where(AnuncioAmazon.id == anuncio_id).values(titulo=titulo, visto_ultimo_em=agora)
+        update(AnuncioAmazon)
+        .where(AnuncioAmazon.id == anuncio_id)
+        .values(titulo=titulo, variacao=variacao, visto_ultimo_em=agora)
     )
     s.flush()

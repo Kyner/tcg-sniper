@@ -21,7 +21,14 @@ def _quem_vende(leitura: Leitura) -> str:
 
 
 def mensagem_oportunidade(
-    *, nome_produto: str, leitura: Leitura, ref: RefLiga, url_amazon: str, host: str, produto_id: int
+    *,
+    nome_produto: str,
+    leitura: Leitura,
+    ref: RefLiga,
+    url_amazon: str,
+    host: str,
+    produto_id: int,
+    variacao: str | None = None,
 ) -> str:
     desconto = desconto_pct(leitura.preco, ref.preco_a_partir).quantize(Decimal(1), ROUND_DOWN)
     liga = f"Liga: a partir de {formatar_brl(ref.preco_a_partir)}"
@@ -29,10 +36,11 @@ def mensagem_oportunidade(
         liga += f", {ref.num_lojas} lojas"
     if ref.preco_medio is not None:
         liga += f", média de venda {formatar_brl(ref.preco_medio)}"
+    amazon = f"Amazon ({variacao})" if variacao else "Amazon"
     return "\n".join(
         [
             f"Oportunidade: {nome_produto}",
-            f"Amazon: {formatar_brl(leitura.preco)} ({_quem_vende(leitura)}), {desconto}% abaixo da Liga",
+            f"{amazon}: {formatar_brl(leitura.preco)} ({_quem_vende(leitura)}), {desconto}% abaixo da Liga",
             liga,
             url_amazon,
             f"Admin: http://{host}:8000/produto/{produto_id}",

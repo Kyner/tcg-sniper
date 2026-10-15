@@ -27,6 +27,8 @@ class OfertaProduto:
     vendido_por: str | None
     seller_id: str | None
     envio: Envio
+    # Opção escolhida no seletor de variações ("Collector Booster Box"); None sem seletor.
+    variacao: str | None = None
 
 
 @dataclass(frozen=True)
