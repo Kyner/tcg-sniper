@@ -62,6 +62,14 @@ class Envio(enum.StrEnum):
     DESCONHECIDO = "desconhecido"
 
 
+class StatusMensagem(enum.StrEnum):
+    PENDENTE = "pendente"
+    ENVIADA = "enviada"
+    FALHA = "falha"  # 4xx cinco vezes: precisa de alguém olhar (instância, grupo)
+    EXPIRADA = "expirada"  # oportunidade que passou da validade sem sair
+    DESCARTADA = "descartada"  # descartada no admin
+
+
 COLETOR_LIGA = "liga"
 COLETOR_AMAZON = "amazon"
 
@@ -359,6 +367,7 @@ class ConfigGeral(Base):
         CheckConstraint("id = 1", name="ck_config_geral_linha_unica"),
         CheckConstraint("host_publico <> ''", name="ck_config_geral_host"),
         CheckConstraint("fuso <> ''", name="ck_config_geral_fuso"),
+        CheckConstraint("validade_oportunidade_h BETWEEN 1 AND 48", name="ck_config_geral_validade"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
@@ -367,6 +376,7 @@ class ConfigGeral(Base):
     evolution_instancia: Mapped[str | None] = mapped_column(Text)
     whatsapp_grupo_admin: Mapped[str | None] = mapped_column(Text)
     whatsapp_grupo_oportunidades: Mapped[str | None] = mapped_column(Text)
+    validade_oportunidade_h: Mapped[int] = mapped_column(Integer, server_default="6")
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
 
 
@@ -396,3 +406,38 @@ class ConfigLiga(Base):
     url_listagem: Mapped[str] = mapped_column(Text)
     max_cliques: Mapped[int] = mapped_column(Integer)
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
+
+
+class MensagemSaida(Base):
+    """Tabela de saída do WhatsApp: os serviços gravam aqui (`NotificadorFila`) e o serviço
+    `notificador` envia, com tentativas, validade e registro do resultado."""
+
+    __tablename__ = "mensagem_saida"
+    __table_args__ = (
+        CheckConstraint("destino IN ('admin', 'oportunidades')", name="ck_mensagem_saida_destino"),
+        CheckConstraint("texto <> ''", name="ck_mensagem_saida_texto"),
+        CheckConstraint("tentativas >= 0", name="ck_mensagem_saida_tentativas"),
+        Index("ix_mensagem_saida_fila", "status", "proxima_tentativa_em"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    destino: Mapped[str] = mapped_column(Text)
+    texto: Mapped[str] = mapped_column(Text)
+    status: Mapped[StatusMensagem] = mapped_column(_enum(StatusMensagem, "status_mensagem"))
+    tentativas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    proxima_tentativa_em: Mapped[datetime] = mapped_column(DATA)
+    ultimo_erro: Mapped[str | None] = mapped_column(Text)
+    ignorar_validade: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    criada_em: Mapped[datetime] = mapped_column(DATA)
+    atualizado_em: Mapped[datetime] = mapped_column(DATA)
+    enviada_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
+class EstadoNotificador(Base):
+    """Uma linha (id 1): quando o serviço notificador terminou o último ciclo (Serviços mostra se está vivo)."""
+
+    __tablename__ = "estado_notificador"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_estado_notificador_linha_unica"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    ultimo_ciclo_em: Mapped[datetime | None] = mapped_column(DATA)

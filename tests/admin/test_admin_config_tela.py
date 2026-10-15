@@ -15,6 +15,7 @@ GERAL = {
     "evolution_instancia": "TCG Sniper",
     "whatsapp_grupo_admin": "120363000000000001@g.us",
     "whatsapp_grupo_oportunidades": "",
+    "validade_oportunidade_h": "6",
 }
 LIGA = {
     "coleta_hora": "07:30",

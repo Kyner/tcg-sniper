@@ -25,6 +25,7 @@ CAMPOS_GERAL = (
     "evolution_instancia",
     "whatsapp_grupo_admin",
     "whatsapp_grupo_oportunidades",
+    "validade_oportunidade_h",
 )
 ROTULOS_GERAL = {
     "host_publico": "IP ou nome deste PC na rede",
@@ -32,6 +33,7 @@ ROTULOS_GERAL = {
     "evolution_instancia": "Instância da Evolution API",
     "whatsapp_grupo_admin": "Grupo de WhatsApp do admin",
     "whatsapp_grupo_oportunidades": "Grupo de WhatsApp de oportunidades",
+    "validade_oportunidade_h": "Validade das oportunidades (h)",
 }
 EXPLICACOES_GERAL = {
     "host_publico": "Vai nos links das mensagens (admin e noVNC). No Windows: ipconfig, \"Endereço IPv4\".",
@@ -39,6 +41,7 @@ EXPLICACOES_GERAL = {
     "evolution_instancia": "Nome da instância criada na Evolution. Vazio: as mensagens vão só para o log.",
     "whatsapp_grupo_admin": "ID do grupo (120363...@g.us) que recebe desafios, falhas e resumos. Vazio: só log.",
     "whatsapp_grupo_oportunidades": "ID do grupo (120363...@g.us) que recebe as ofertas com desconto. Vazio: só log.",
+    "validade_oportunidade_h": "Oportunidade que não saiu em até tantas horas, por o WhatsApp estar fora, é descartada como expirada.",
 }
 
 CAMPOS_LIGA = (
@@ -101,6 +104,12 @@ def validar_geral(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[st
             erros[campo] = "Use o ID do grupo, terminado em @g.us (passo 5 do README)."
         else:
             valores[campo] = grupo
+
+    texto = (campos.get("validade_oportunidade_h") or "").strip()
+    if not (texto.isascii() and texto.isdecimal()) or len(texto) > 3 or not 1 <= int(texto) <= 48:
+        erros["validade_oportunidade_h"] = "Informe um número inteiro de horas entre 1 e 48."
+    else:
+        valores["validade_oportunidade_h"] = int(texto)
     return valores, erros
 
 
