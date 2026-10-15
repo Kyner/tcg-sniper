@@ -1,6 +1,7 @@
 import logging
 import time
 from collections.abc import Callable
+from urllib.parse import quote
 
 import httpx
 
@@ -10,32 +11,43 @@ log = logging.getLogger(__name__)
 
 
 class EvolutionNotificador:
+    """Envia texto pela Evolution API. A instância e os grupos são lidos a cada envio (`destinos`),
+    para que o que for salvo na tela de Configurações valha na mensagem seguinte."""
+
     def __init__(
         self,
         url: str,
         api_key: str,
-        instancia: str,
-        grupos: dict[Destino, str],
+        destinos: Callable[[], tuple[str | None, dict[Destino, str]]],
         cliente: httpx.Client | None = None,
         dormir: Callable[[float], None] = time.sleep,
         tentativas: int = 3,
     ):
-        self._endpoint = f"{url.rstrip('/')}/message/sendText/{instancia}"
+        self._url = url.rstrip("/")
         self._api_key = api_key
-        self._grupos = grupos
+        self._destinos = destinos
         self._cliente = cliente or httpx.Client(timeout=15)
         self._dormir = dormir
         self._tentativas = tentativas
 
     def enviar(self, destino: Destino, texto: str) -> None:
-        grupo = self._grupos.get(destino)
+        try:
+            instancia, grupos = self._destinos()
+        except Exception:  # envio nunca pode interromper a coleta
+            log.exception("não consegui ler a configuração do WhatsApp; mensagem descartada: %s", texto)
+            return
+        if not instancia:
+            log.warning("sem instância da Evolution configurada; mensagem descartada: %s", texto)
+            return
+        grupo = grupos.get(destino)
         if not grupo:
             log.warning("sem grupo configurado para %s; mensagem descartada: %s", destino.value, texto)
             return
+        endpoint = f"{self._url}/message/sendText/{quote(instancia, safe='')}"
         for tentativa in range(1, self._tentativas + 1):
             try:
                 resposta = self._cliente.post(
-                    self._endpoint,
+                    endpoint,
                     headers={"apikey": self._api_key},
                     json={"number": grupo, "text": texto},
                 )

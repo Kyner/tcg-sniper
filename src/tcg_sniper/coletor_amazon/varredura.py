@@ -14,6 +14,7 @@ from tcg_sniper.coletor_amazon.busca import ContextoBusca, CotaHtmlFalha, Desafi
 from tcg_sniper.coletor_amazon.fila import Janela, TetoPorHora, intervalo_busca, janela_do_dia
 from tcg_sniper.coletor_liga.agendador import lock_coleta
 from tcg_sniper.config import Config
+from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import COLETOR_AMAZON, ConfigAmazon, EstadoColetorTipo, ProdutoLiga, StatusColeta, TipoColeta
@@ -55,11 +56,12 @@ class VarreduraAmazon:
         self._sessoes = sessoes
         self._fabrica_navegador = fabrica_navegador
         self._notificador = notificador
+        self._config_env = config
         self._config = config
         self._relogio = relogio or (lambda: datetime.now(UTC))
         self._rng = rng or random.Random()
         self._dormir = dormir
-        self._janelas: dict[tuple[date, time, time], Janela] = {}
+        self._janelas: dict[tuple[date, time, time, str], Janela] = {}
         self._teto = TetoPorHora()
         self._ciclo: int | None = None
         self._pendentes: set[int] = set()
@@ -135,6 +137,7 @@ class VarreduraAmazon:
     # --- laço --------------------------------------------------------------------------------
 
     def inicializar(self) -> None:
+        self._config = carregar_config(self._sessoes, self._config_env)
         with self._sessoes() as s, s.begin():
             interrompidos = repo.marcar_interrompidas(s, self._relogio(), TIPOS_AMAZON)
         if interrompidos:
@@ -147,13 +150,14 @@ class VarreduraAmazon:
 
     def _janela(self, agora: datetime, cfg: ConfigAmazon) -> Janela:
         dia = agora.astimezone(self._config.zona).date()
-        chave = (dia, cfg.janela_inicio, cfg.janela_fim)
+        chave = (dia, cfg.janela_inicio, cfg.janela_fim, self._config.fuso)
         if chave not in self._janelas:
             self._janelas[chave] = janela_do_dia(dia, cfg.janela_inicio, cfg.janela_fim, self._config.zona, self._rng)
         return self._janelas[chave]
 
     def passo(self) -> float:
         """Faz no máximo uma busca. Devolve quantos segundos dormir antes do próximo passo."""
+        self._config = carregar_config(self._sessoes, self._config_env)
         agora = self._relogio()
         with self._sessoes() as s, s.begin():
             cfg = repo_amz.obter_config(s)

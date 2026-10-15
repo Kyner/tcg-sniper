@@ -1,17 +1,26 @@
 {% extends "base.html" %}
 {% block titulo %}Configurações · TCG Sniper{% endblock %}
 {% block conteudo %}
-<h2>Configurações da Amazon</h2>
-<p>Valem a partir da próxima busca, sem reiniciar o coletor.</p>
-{% if salvo %}<p><mark>Configurações salvas.</mark></p>{% endif %}
-{% if erros %}<div class="pausado">Nada foi salvo. Corrija os campos marcados.</div>{% endif %}
-<form method="post" action="/configuracoes">
-  {% for campo in campos %}
-  <label>{{ rotulos[campo] }}
-    <input name="{{ campo }}" value="{{ valores[campo] }}"{% if campo in erros %} aria-invalid="true"{% endif %}>
-    <small>{{ erros[campo] if campo in erros else explicacoes[campo] }}</small>
-  </label>
-  {% endfor %}
-  <button>Salvar</button>
-</form>
+<h2>Configurações</h2>
+<p>As mudanças valem a partir da próxima coleta ou ciclo, sem reiniciar nada.</p>
+{% if mensagem %}<p><mark>{{ mensagem }}</mark></p>{% endif %}
+{% for secao in secoes %}
+<article id="{{ secao.id }}">
+  <header><strong>{{ secao.titulo }}</strong></header>
+  {% if secao.erros %}<div class="pausado">Nada foi salvo. Corrija os campos marcados.</div>{% endif %}
+  <form method="post" action="/configuracoes/{{ secao.id }}">
+    {% for campo in secao.campos %}
+    <label>{{ secao.rotulos[campo] }}
+      <input id="{{ secao.id }}-{{ campo }}" name="{{ campo }}" value="{{ secao.valores[campo] }}"{% if campo in secao.erros %} aria-invalid="true"{% endif %}>
+      <small>{{ secao.erros[campo] if campo in secao.erros else secao.explicacoes[campo] }}</small>
+      {% if secao.id == "liga" and campo == "categorias" %}
+      <small>Padrão: {{ categorias_padrao }} · <a href="#" onclick="document.getElementById('liga-categorias').value='{{ categorias_padrao }}'; return false;">restaurar padrão</a> (depois clique em Salvar)</small>
+      {% endif %}
+    </label>
+    {% endfor %}
+    <button>Salvar {{ secao.titulo }}</button>
+  </form>
+</article>
+{% endfor %}
+<footer><small>Senhas, banco e chave da Evolution ficam no .env: ADMIN_SENHA, VNC_SENHA, EVOLUTION_API_KEY, DATABASE_URL, DIR_DADOS, EVOLUTION_URL.</small></footer>
 {% endblock %}

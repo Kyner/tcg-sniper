@@ -1,6 +1,6 @@
 """Operações de banco usadas pelo coletor e pelo agendador."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
@@ -8,10 +8,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
+from tcg_sniper.config import Config
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_LIGA,
     Coleta,
+    ConfigGeral,
+    ConfigLiga,
     EstadoColetor,
     EstadoColetorTipo,
     PrecoAtualLiga,
@@ -251,3 +254,72 @@ def coleta_iniciada_desde(s: Session, tipo: TipoColeta, desde: datetime) -> bool
         select(func.count()).select_from(Coleta).where(Coleta.tipo == tipo, Coleta.iniciada_em >= desde)
     )
     return total > 0
+
+
+# --- configuração em tela (geral e LigaMagic) ------------------------------------------------
+
+
+def _vazio_para_none(texto: str | None) -> str | None:
+    return (texto or "").strip() or None
+
+
+def _pausa(valor: float) -> float:
+    return min(max(valor, 0.0), 120.0)
+
+
+def obter_config_geral(s: Session, padrao: Config) -> ConfigGeral:
+    """A configuração geral. Na primeira leitura cria a linha com os valores do .env (`padrao`),
+    ajustados aos limites do banco; depois o .env é ignorado."""
+    geral = s.get(ConfigGeral, 1, populate_existing=True)
+    if geral is not None:
+        return geral
+    s.execute(
+        pg_insert(ConfigGeral)
+        .values(
+            id=1,
+            host_publico=padrao.host_publico.strip() or "localhost",
+            fuso=padrao.fuso.strip() or "America/Sao_Paulo",
+            evolution_instancia=_vazio_para_none(padrao.evolution_instancia),
+            whatsapp_grupo_admin=_vazio_para_none(padrao.whatsapp_grupo_admin),
+            whatsapp_grupo_oportunidades=_vazio_para_none(padrao.whatsapp_grupo_oportunidades),
+            atualizado_em=agora_utc(),
+        )
+        .on_conflict_do_nothing(index_elements=["id"])
+    )
+    return s.get(ConfigGeral, 1, populate_existing=True)
+
+
+def obter_config_liga(s: Session, padrao: Config) -> ConfigLiga:
+    """A configuração da coleta da Liga. Na primeira leitura cria a linha com os valores do .env
+    (`padrao`), ajustados aos limites do banco; depois o .env é ignorado."""
+    liga = s.get(ConfigLiga, 1, populate_existing=True)
+    if liga is not None:
+        return liga
+    pausa_min, pausa_max = _pausa(padrao.pausa_min_s), _pausa(padrao.pausa_max_s)
+    s.execute(
+        pg_insert(ConfigLiga)
+        .values(
+            id=1,
+            coleta_hora=padrao.coleta_hora,
+            coleta_jitter_min=padrao.coleta_jitter_min,
+            pausa_min_s=min(pausa_min, pausa_max),
+            pausa_max_s=pausa_max,
+            limite_falha_pct=padrao.limite_falha_pct,
+            categorias=padrao.liga_categorias,
+            url_listagem=padrao.liga_url_listagem,
+            max_cliques=padrao.liga_max_cliques,
+            atualizado_em=agora_utc(),
+        )
+        .on_conflict_do_nothing(index_elements=["id"])
+    )
+    return s.get(ConfigLiga, 1, populate_existing=True)
+
+
+def salvar_config_geral(s: Session, valores: Mapping[str, object], agora: datetime) -> None:
+    s.execute(update(ConfigGeral).where(ConfigGeral.id == 1).values(**valores, atualizado_em=agora))
+    s.flush()
+
+
+def salvar_config_liga(s: Session, valores: Mapping[str, object], agora: datetime) -> None:
+    s.execute(update(ConfigLiga).where(ConfigLiga.id == 1).values(**valores, atualizado_em=agora))
+    s.flush()

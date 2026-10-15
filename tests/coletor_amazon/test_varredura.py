@@ -149,6 +149,18 @@ def test_fora_da_janela_nao_busca_e_fecha_o_navegador(engine, sessoes, config):
     assert navegador.visitadas == []
 
 
+def test_fuso_salvo_na_tela_muda_a_janela_do_dia(engine, sessoes, config):
+    _, urls = produtos(sessoes, "a", "b")
+    v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()})
+    assert v.passo() == 0  # meio-dia em São Paulo: dentro da janela; sobra um produto na fila
+    with sessoes() as s, s.begin():
+        repo.obter_config_geral(s, config)
+        repo.salvar_config_geral(s, {"fuso": "Asia/Singapore"}, MEIO_DIA)  # lá são 23h do mesmo dia
+    assert len(navegador.visitadas) == 1
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert len(navegador.visitadas) == 1
+
+
 def test_pausado_nao_busca(engine, sessoes, config):
     _, urls = produtos(sessoes, "a")
     with sessoes() as s, s.begin():
@@ -381,3 +393,15 @@ def test_no_maximo_tres_htmls_de_falha_por_ciclo(engine, sessoes, config):
     [ciclo] = ciclos(sessoes)
     assert ciclo.produtos_falha == 5
     assert len(list((config.dir_dados / "falhas").iterdir())) == 3
+
+
+def test_host_salvo_na_tela_vale_na_mensagem_do_captcha(engine, sessoes, config):
+    _, urls = produtos(sessoes, "a")
+    [url] = urls.values()
+    with sessoes() as s, s.begin():
+        repo.obter_config_geral(s, config)
+        repo.salvar_config_geral(s, {"host_publico": "10.9.8.7"}, MEIO_DIA)
+    v, _, _, notificador = varredura(engine, sessoes, config, {url: pagina_html(CAPTCHA, url=url)})
+    v.passo()
+    [(_, texto)] = notificador.mensagens
+    assert "http://10.9.8.7:6081/vnc.html" in texto

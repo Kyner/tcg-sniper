@@ -11,6 +11,8 @@ from tcg_sniper.db.models import (
     PADROES_CONFIG_AMAZON,
     Base,
     ConfigAmazon,
+    ConfigGeral,
+    ConfigLiga,
     EstadoColetor,
     EstadoColetorTipo,
     VendedorAmazon,
@@ -132,3 +134,8 @@ def test_migracao_amazon_preserva_os_dados_da_liga(engine):
                     {"estado": linha_liga_antes.estado, "motivo": linha_liga_antes.motivo},
                 )
         proprio.dispose()
+
+
+def test_migracao_cria_config_geral_e_liga_vazias(s):
+    assert s.get(ConfigGeral, 1) is None
+    assert s.get(ConfigLiga, 1) is None

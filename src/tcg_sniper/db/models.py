@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -337,4 +338,61 @@ class ConfigAmazon(Base):
     vendedor_min_positivas_pct: Mapped[int] = mapped_column(Integer)
     vendedor_min_avaliacoes: Mapped[int] = mapped_column(Integer)
     vendedor_reavaliar_dias: Mapped[int] = mapped_column(Integer)
+    atualizado_em: Mapped[datetime] = mapped_column(DATA)
+
+
+LIMITES_CONFIG_LIGA: dict[str, tuple[int, int]] = {
+    "coleta_jitter_min": (0, 180),
+    "pausa_min_s": (0, 120),
+    "pausa_max_s": (0, 120),
+    "limite_falha_pct": (0, 100),
+    "max_cliques": (1, 500),
+}
+
+
+class ConfigGeral(Base):
+    """Configuração geral (links, fuso, WhatsApp): uma linha, editável no admin. Criada na primeira
+    leitura com os valores do .env (`repositorio.obter_config_geral`)."""
+
+    __tablename__ = "config_geral"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_config_geral_linha_unica"),
+        CheckConstraint("host_publico <> ''", name="ck_config_geral_host"),
+        CheckConstraint("fuso <> ''", name="ck_config_geral_fuso"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    host_publico: Mapped[str] = mapped_column(Text)
+    fuso: Mapped[str] = mapped_column(Text)
+    evolution_instancia: Mapped[str | None] = mapped_column(Text)
+    whatsapp_grupo_admin: Mapped[str | None] = mapped_column(Text)
+    whatsapp_grupo_oportunidades: Mapped[str | None] = mapped_column(Text)
+    atualizado_em: Mapped[datetime] = mapped_column(DATA)
+
+
+class ConfigLiga(Base):
+    """Configuração da coleta da LigaMagic: uma linha, editável no admin. Criada na primeira leitura
+    com os valores do .env (`repositorio.obter_config_liga`)."""
+
+    __tablename__ = "config_liga"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_config_liga_linha_unica"),
+        CheckConstraint("position('{categ}' in url_listagem) > 0", name="ck_config_liga_url"),
+        CheckConstraint("categorias ~ '^[0-9]+(,[0-9]+)*$'", name="ck_config_liga_categorias"),
+        CheckConstraint("pausa_min_s <= pausa_max_s", name="ck_config_liga_pausas"),
+        *(
+            CheckConstraint(f"{campo} BETWEEN {minimo} AND {maximo}", name=f"ck_config_liga_{campo}")
+            for campo, (minimo, maximo) in LIMITES_CONFIG_LIGA.items()
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    coleta_hora: Mapped[time] = mapped_column(Time)
+    coleta_jitter_min: Mapped[int] = mapped_column(Integer)
+    pausa_min_s: Mapped[float] = mapped_column(Float)
+    pausa_max_s: Mapped[float] = mapped_column(Float)
+    limite_falha_pct: Mapped[int] = mapped_column(Integer)
+    categorias: Mapped[str] = mapped_column(Text)
+    url_listagem: Mapped[str] = mapped_column(Text)
+    max_cliques: Mapped[int] = mapped_column(Integer)
     atualizado_em: Mapped[datetime] = mapped_column(DATA)

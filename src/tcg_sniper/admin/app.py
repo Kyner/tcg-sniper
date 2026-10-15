@@ -10,13 +10,16 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.admin import consultas, consultas_amazon
+from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
-from tcg_sniper.config import Config
+from tcg_sniper.config import CATEGORIAS_SELADOS, Config
+from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import COLETOR_AMAZON, AnuncioAmazon, ProdutoLiga, TipoColeta
@@ -73,7 +76,11 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         if not secrets.compare_digest(credenciais.password.encode(), config.admin_senha.encode()):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Basic"})
 
-    app = FastAPI(title="TCG Sniper", dependencies=[Depends(autenticar)])
+    def config_da_requisicao(request: Request) -> None:
+        """Configuração efetiva (.env + tela) desta requisição, em `request.state.config`."""
+        request.state.config = carregar_config(sessoes, config)
+
+    app = FastAPI(title="TCG Sniper", dependencies=[Depends(autenticar), Depends(config_da_requisicao)])
     templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
     templates.env.filters["brl"] = formatar_brl
     templates.env.filters["envio"] = lambda envio, vendedor=None: {
@@ -81,7 +88,12 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         "fba": f"vendido por {vendedor.nome if vendedor and vendedor.nome else 'lojista'}, enviado pela Amazon",
         "proprio": f"vendido e enviado por {vendedor.nome if vendedor and vendedor.nome else 'lojista'}",
     }.get(envio.value, "—")
-    templates.env.filters["data"] = lambda dt: formatar_data(dt, config.zona)
+
+    @pass_context
+    def _data(contexto, dt):
+        return formatar_data(dt, contexto["request"].state.config.zona)
+
+    templates.env.filters["data"] = _data
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard(
@@ -94,11 +106,12 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         for valor in (liga_status, amazon_status):
             if valor not in consultas.STATUS_HISTORICO:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"status inválido: {valor}")
+        efetiva = request.state.config
         agora = repo.agora_utc()
         tipos_amazon = (TipoColeta.AMAZON,)
         with sessoes() as s, s.begin():
             cfg = repo_amz.obter_config(s)
-            hora_local = agora.astimezone(config.zona).time()
+            hora_local = agora.astimezone(efetiva.zona).time()
             coletas, pagina_liga, paginas_liga = consultas.historico_coletas(
                 s, TIPOS_LIGA, liga_status, numero_pagina(liga_pagina)
             )
@@ -122,8 +135,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "estado": repo.obter_estado(s),
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
                     "ultima_liga": consultas.ultima_coleta_sucesso(s, TIPOS_LIGA),
-                    "coleta_hora": config.coleta_hora.strftime("%H:%M"),
-                    "coleta_jitter": config.coleta_jitter_min,
+                    "coleta_hora": efetiva.coleta_hora.strftime("%H:%M"),
+                    "coleta_jitter": efetiva.coleta_jitter_min,
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
                     "ultimo_ciclo": consultas.ultima_coleta_finalizada(s, tipos_amazon),
@@ -153,7 +166,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
-                    "host": config.host_publico,
+                    "host": request.state.config.host_publico,
                     "mensagem": MENSAGENS_SERVICOS.get(msg),
                 },
             )
@@ -182,43 +195,101 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             repo.retomar(s, repo.agora_utc(), COLETOR_AMAZON)
         return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
-    def _tela_configuracoes(request: Request, valores: dict[str, str], erros: dict[str, str], salvo: bool, codigo: int):
+    MENSAGEM_CONFIG = "Salvo; vale a partir da próxima coleta ou ciclo."
+
+    def _texto(valor) -> str:
+        if valor is None:
+            return ""
+        if isinstance(valor, time):
+            return valor.strftime("%H:%M")
+        if isinstance(valor, float):
+            return f"{valor:g}"
+        return str(valor)
+
+    def _salvos() -> dict[str, dict[str, str]]:
+        with sessoes() as s, s.begin():
+            geral = repo.obter_config_geral(s, config)
+            liga = repo.obter_config_liga(s, config)
+            amazon = repo_amz.obter_config(s)
+            return {
+                "geral": {c: _texto(getattr(geral, c)) for c in form_cfg.CAMPOS_GERAL},
+                "liga": {c: _texto(getattr(liga, c)) for c in form_cfg.CAMPOS_LIGA},
+                "amazon": {c: _texto(getattr(amazon, c)) for c in CAMPOS},
+            }
+
+    def _tela_configuracoes(
+        request: Request,
+        msg: str = "",
+        secao_com_erro: str | None = None,
+        digitados: dict[str, str] | None = None,
+        erros: dict[str, str] | None = None,
+    ):
+        valores = _salvos()
+        if secao_com_erro is not None:
+            valores[secao_com_erro] = digitados or {}
+        secoes = [
+            ("geral", "Geral", form_cfg.CAMPOS_GERAL, form_cfg.ROTULOS_GERAL, form_cfg.EXPLICACOES_GERAL),
+            ("liga", "LigaMagic", form_cfg.CAMPOS_LIGA, form_cfg.ROTULOS_LIGA, form_cfg.EXPLICACOES_LIGA),
+            ("amazon", "Amazon", CAMPOS, ROTULOS, EXPLICACOES),
+        ]
         return templates.TemplateResponse(
             request,
             "configuracoes.html",
             {
-                "campos": CAMPOS,
-                "rotulos": ROTULOS,
-                "explicacoes": EXPLICACOES,
-                "valores": valores,
-                "erros": erros,
-                "salvo": salvo,
+                "secoes": [
+                    {
+                        "id": id_,
+                        "titulo": titulo,
+                        "campos": campos,
+                        "rotulos": rotulos,
+                        "explicacoes": explicacoes,
+                        "valores": valores[id_],
+                        "erros": (erros or {}) if id_ == secao_com_erro else {},
+                    }
+                    for id_, titulo, campos, rotulos, explicacoes in secoes
+                ],
+                "mensagem": MENSAGEM_CONFIG if msg in ("geral", "liga", "amazon") else None,
+                "categorias_padrao": ",".join(CATEGORIAS_SELADOS),
             },
-            status_code=codigo,
+            status_code=status.HTTP_400_BAD_REQUEST if secao_com_erro else status.HTTP_200_OK,
         )
 
     @app.get("/configuracoes", response_class=HTMLResponse)
     def configuracoes(request: Request, msg: str = ""):
-        with sessoes() as s, s.begin():
-            config = repo_amz.obter_config(s)
-            valores = {
-                campo: getattr(config, campo).strftime("%H:%M")
-                if isinstance(getattr(config, campo), time)
-                else str(getattr(config, campo))
-                for campo in CAMPOS
-            }
-        return _tela_configuracoes(request, valores, {}, msg == "salvo", status.HTTP_200_OK)
+        return _tela_configuracoes(request, msg)
 
-    @app.post("/configuracoes", response_class=HTMLResponse)
-    async def salvar_configuracoes(request: Request):
+    async def _salvar_secao(request: Request, secao: str, campos, validar, gravar):
         formulario = await ler_formulario(request)
-        valores, erros = validar_config(formulario)
+        valores, erros = validar(formulario)
         if erros:
-            digitados = {campo: formulario.get(campo, "") for campo in CAMPOS}
-            return _tela_configuracoes(request, digitados, erros, False, status.HTTP_400_BAD_REQUEST)
+            digitados = {campo: formulario.get(campo, "") for campo in campos}
+            return _tela_configuracoes(request, secao_com_erro=secao, digitados=digitados, erros=erros)
         with sessoes() as s, s.begin():
+            gravar(s, valores)
+        return RedirectResponse(f"/configuracoes?msg={secao}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/configuracoes/geral", response_class=HTMLResponse)
+    async def salvar_geral(request: Request):
+        def gravar(s, valores):
+            repo.obter_config_geral(s, config)
+            repo.salvar_config_geral(s, valores, repo.agora_utc())
+
+        return await _salvar_secao(request, "geral", form_cfg.CAMPOS_GERAL, form_cfg.validar_geral, gravar)
+
+    @app.post("/configuracoes/liga", response_class=HTMLResponse)
+    async def salvar_liga(request: Request):
+        def gravar(s, valores):
+            repo.obter_config_liga(s, config)
+            repo.salvar_config_liga(s, valores, repo.agora_utc())
+
+        return await _salvar_secao(request, "liga", form_cfg.CAMPOS_LIGA, form_cfg.validar_liga, gravar)
+
+    @app.post("/configuracoes/amazon", response_class=HTMLResponse)
+    async def salvar_amazon(request: Request):
+        def gravar(s, valores):
             aplicar_config(s, valores, repo.agora_utc())
-        return RedirectResponse("/configuracoes?msg=salvo", status_code=status.HTTP_303_SEE_OTHER)
+
+        return await _salvar_secao(request, "amazon", CAMPOS, validar_config, gravar)
 
     @app.get("/catalogo", response_class=HTMLResponse)
     def catalogo(
