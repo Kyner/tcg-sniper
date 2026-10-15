@@ -96,6 +96,13 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  notificador:
+    <<: *app
+    command: tcg-sniper notificador
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   admin:
     <<: *app
     command: tcg-sniper admin
