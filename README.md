@@ -299,7 +299,7 @@ src/tcg_sniper/
   coletor_amazon/     fila de buscas, parsers da Amazon, casamento e motor de oportunidades
   admin/              página de admin (FastAPI + Jinja2 + HTMX)
   db/                 modelos, repositório e migrações (SQLAlchemy + Alembic)
-  notificador/        envio para o WhatsApp (Evolution API) ou para o log
+  notificador/        tabela de saída do WhatsApp e o serviço que envia pela Evolution API
 docker/               entrypoint do coletor (Xvfb, VNC, noVNC) e script inicial do Postgres
 scripts/              captura de páginas reais para as fixtures
 tests/                testes (pytest)

@@ -294,3 +294,30 @@ def test_envio_ok_acorda_pendentes_em_espera_de_falha_transitoria(sessoes, env, 
     assert ler(sessoes, sem_config).proxima_tentativa_em == AGORA + timedelta(minutes=1)
     for mid in esperando:
         assert ler(sessoes, mid).proxima_tentativa_em == AGORA
+
+
+@respx.mock
+def test_falha_transitoria_no_mesmo_ciclo_de_um_envio_ok_mantem_a_espera(sessoes, env, configurado):
+    def responder(pedido):
+        return httpx.Response(503 if b'"falha"' in pedido.content else 201)
+
+    respx.post(ROTA).mock(side_effect=responder)
+    ok = nova(sessoes, "admin", "ok", AGORA - timedelta(minutes=2))
+    falha = nova(sessoes, "admin", "falha", AGORA - timedelta(minutes=1))
+    servico(sessoes, env).ciclo()
+    assert ler(sessoes, ok).status is StatusMensagem.ENVIADA
+    m = ler(sessoes, falha)
+    assert (m.tentativas, m.proxima_tentativa_em) == (1, AGORA + timedelta(minutes=1))
+
+
+@respx.mock
+def test_envio_ok_nao_acorda_erro_4xx_em_espera(sessoes, env, configurado):
+    respx.post(ROTA).mock(return_value=httpx.Response(201))
+    recusada = nova(sessoes, "admin", "recusada", AGORA - timedelta(minutes=5))
+    with sessoes() as s, s.begin():
+        m = s.get(MensagemSaida, recusada)
+        m.tentativas, m.ultimo_erro = 2, "HTTP 400: grupo inválido"
+        m.proxima_tentativa_em = AGORA + timedelta(minutes=10)
+    nova(sessoes, "admin", "envia", AGORA - timedelta(minutes=9))
+    servico(sessoes, env).ciclo()
+    assert ler(sessoes, recusada).proxima_tentativa_em == AGORA + timedelta(minutes=10)

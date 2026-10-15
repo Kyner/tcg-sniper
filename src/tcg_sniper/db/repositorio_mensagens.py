@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import EstadoNotificador, MensagemSaida, StatusMensagem
@@ -50,15 +50,18 @@ def lote_pendente(s: Session, agora: datetime, limite: int = 20) -> list[Mensage
     return list(s.scalars(consulta))
 
 
-def acordar_pendentes(s: Session, agora: datetime) -> int:
-    """Pendentes que já tentaram e esperam um backoff voltam para agora (a Evolution respondeu).
-    As sem tentativas (esperando configuração) ficam como estão."""
+def acordar_pendentes(s: Session, agora: datetime, antes_de: datetime) -> int:
+    """Pendentes que esperam o backoff de uma falha transitória voltam para agora (a Evolution
+    respondeu). Ficam como estão: as sem tentativas (esperando configuração), as recusadas com 4xx
+    (o problema é a instância ou o grupo) e as que falharam a partir de `antes_de` (neste ciclo)."""
     resultado = s.execute(
         update(MensagemSaida)
         .where(
             MensagemSaida.status == StatusMensagem.PENDENTE,
             MensagemSaida.tentativas > 0,
             MensagemSaida.proxima_tentativa_em > agora,
+            MensagemSaida.atualizado_em < antes_de,
+            ~func.coalesce(MensagemSaida.ultimo_erro, "").startswith("HTTP 4"),
         )
         .values(proxima_tentativa_em=agora, atualizado_em=agora)
     )

@@ -64,7 +64,7 @@ class ServicoNotificador:
         """Um ciclo: registra que está vivo, limpa (1x/dia) e processa até `LOTE` mensagens, cada uma
         na sua transação (o que já saiu não volta a `pendente` se algo falhar depois).
         Devolve quantas mensagens processou."""
-        agora = self._relogio()
+        agora = inicio = self._relogio()
         with self._sessoes() as s, s.begin():
             geral = repo.obter_config_geral(s, self._config_env)
             cfg = _Destinos(
@@ -100,7 +100,7 @@ class ServicoNotificador:
         if enviou:
             # a Evolution voltou: o que esperava um backoff de falha transitória tenta já
             with self._sessoes() as s, s.begin():
-                acordadas = repo_msg.acordar_pendentes(s, self._relogio())
+                acordadas = repo_msg.acordar_pendentes(s, self._relogio(), antes_de=inicio)
             if acordadas:
                 log.info("%d mensagem(ns) em espera voltam à fila", acordadas)
         return processadas
