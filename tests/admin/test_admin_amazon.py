@@ -89,15 +89,15 @@ def formulario_padrao(**mudancas):
 
 
 def test_configuracoes_grava_valores_validos(cliente, sessoes):
-    r = cliente.post("/configuracoes", data=formulario_padrao(desconto_min_pct=30), follow_redirects=False)
+    r = cliente.post("/configuracoes/amazon", data=formulario_padrao(desconto_min_pct=30), follow_redirects=False)
     assert r.status_code == 303
     with sessoes() as s:
         assert repo_amz.obter_config(s).desconto_min_pct == 30
-    assert "Configurações salvas" in cliente.get(r.headers["location"]).text
+    assert "Salvo; vale a partir da próxima coleta ou ciclo." in cliente.get(r.headers["location"]).text
 
 
 def test_configuracoes_recusa_valor_invalido_e_nao_grava_nada(cliente, sessoes):
-    r = cliente.post("/configuracoes", data=formulario_padrao(desconto_min_pct=0, max_buscas_hora=150))
+    r = cliente.post("/configuracoes/amazon", data=formulario_padrao(desconto_min_pct=0, max_buscas_hora=150))
     assert r.status_code == 400
     assert "entre 1 e 90" in r.text
     assert 'name="max_buscas_hora" value="150"' in r.text  # o formulário volta com o que foi digitado
