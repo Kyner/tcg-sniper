@@ -36,7 +36,10 @@ class NavegadorChromium:
                 headless=False,
                 locale="pt-BR",
                 timezone_id="America/Sao_Paulo",
-                viewport={"width": 1366, "height": 768},
+                # A janela ocupa a tela do Xvfb (1366x768) com abas e barra de endereço visíveis no
+                # noVNC; a página usa o espaço que sobra, como num navegador maximizado de verdade.
+                no_viewport=True,
+                args=["--start-maximized", "--window-position=0,0", "--window-size=1366,768"],
             )
             paginas = self._contexto.pages
             self._pagina = paginas[0] if paginas else self._contexto.new_page()
