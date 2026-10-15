@@ -14,6 +14,7 @@ from tcg_sniper.coletor_liga.listagens import coletar_listagens
 from tcg_sniper.coletor_liga.navegador import Navegador
 from tcg_sniper.coletor_liga.produtos import coletar_produtos
 from tcg_sniper.config import Config
+from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, StatusColeta, TipoColeta
 from tcg_sniper.notificador.base import Destino, Notificador
@@ -60,12 +61,16 @@ class Agendador:
         self._sessoes = sessoes
         self._fabrica_navegador = fabrica_navegador
         self._notificador = notificador
+        self._config_env = config
         self._config = config
         self._relogio = relogio or (lambda: datetime.now(UTC))
         self._rng = rng or random.Random()
         self._dormir = dormir
         self._executor = executor or self.executar_job
         self._alvos: dict[date, datetime] = {}
+        # Parâmetros (hora, variação, fuso) com que o alvo de cada dia foi sorteado: se mudarem na
+        # tela antes do job do dia, o alvo é sorteado de novo.
+        self._parametros_alvo: dict[date, tuple[time, int, str]] = {}
         self._datas_tentadas: set[date] = set()
         self._atrasada_em: datetime | None = None
         # Navegador aberto sob demanda. Fica aberto quando um job termina pausado por desafio,
@@ -73,7 +78,13 @@ class Agendador:
         self._contexto_navegador: AbstractContextManager[Navegador] | None = None
         self._navegador: Navegador | None = None
 
+    def _recarregar(self) -> None:
+        """Valores salvos na tela de Configurações valem a partir do próximo tick (o job em andamento
+        termina com os valores com que começou)."""
+        self._config = carregar_config(self._sessoes, self._config_env)
+
     def inicializar(self) -> None:
+        self._recarregar()
         agora = self._relogio()
         with self._sessoes() as s, s.begin():
             interrompidas = repo.marcar_interrompidas(s, agora, TIPOS_LIGA)
@@ -91,6 +102,7 @@ class Agendador:
             log.info("último job com sucesso: %s; execução atrasada em %s", ultima, self._atrasada_em)
 
     def tick(self) -> str | None:
+        self._recarregar()
         agora = self._relogio()
         hoje = agora.astimezone(self._config.zona).date()
         inicio_do_dia = datetime.combine(hoje, time(0), tzinfo=self._config.zona)
@@ -112,7 +124,9 @@ class Agendador:
             self._atrasada_em = None
             if pode_rodar_hoje:
                 return self._executar("atrasado", True, hoje)
-        if hoje not in self._alvos:
+        parametros = (self._config.coleta_hora, self._config.coleta_jitter_min, self._config.fuso)
+        if self._parametros_alvo.get(hoje) != parametros:
+            self._parametros_alvo[hoje] = parametros
             self._alvos[hoje] = alvo_do_dia(
                 hoje, self._config.coleta_hora, self._config.coleta_jitter_min, self._config.zona, self._rng
             )
