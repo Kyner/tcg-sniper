@@ -9,6 +9,10 @@
   {{ estado_amazon.motivo or "" }} <a href="/servicos">Ir para Serviços</a></div>
 {% endif %}
 
+{% if resumo_msgs.aviso %}
+<div class="pausado"><strong>{{ resumo_msgs.aviso }}</strong> <a href="/mensagens?situacao=falha">Ir para Mensagens</a></div>
+{% endif %}
+
 <div class="grid">
   <article>
     <header><strong>LigaMagic</strong></header>
@@ -25,6 +29,12 @@
       {% else %}ativo{% endif %}</p>
     <p>{% if ciclo_amazon %}<strong>Ciclo em andamento</strong> desde {{ ciclo_amazon.iniciada_em|data }}{% else %}Nenhum ciclo em andamento{% endif %}</p>
     <p>Último ciclo: {% if ultimo_ciclo %}{{ ultimo_ciclo.finalizada_em|data }} · {{ ultimo_ciclo.status.value }} ({{ ultimo_ciclo.produtos_ok }} ok, {{ ultimo_ciclo.produtos_falha }} falhas){% else %}—{% endif %}</p>
+  </article>
+  <article>
+    <header><strong>WhatsApp</strong></header>
+    <p>Pendentes: {{ resumo_msgs.pendentes }} · Falhas: {{ resumo_msgs.falhas }}</p>
+    <p>Último envio: {{ resumo_msgs.ultimo_envio|data if resumo_msgs.ultimo_envio else "—" }}</p>
+    <p><a href="/mensagens">Ver mensagens</a></p>
   </article>
 </div>
 

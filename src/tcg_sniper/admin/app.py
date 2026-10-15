@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.admin import consultas, consultas_amazon
+from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
@@ -22,6 +22,7 @@ from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import COLETOR_AMAZON, AnuncioAmazon, ProdutoLiga, TipoColeta
 from tcg_sniper.formatacao import formatar_brl
 
@@ -40,11 +41,11 @@ MENSAGENS_SERVICOS = {
 MENSAGENS_CASAMENTO = {"link_salvo": "Link salvo; o anúncio será lido em alguns minutos."}
 
 
-def destino_seguro(voltar: str) -> str:
-    """Só volta para telas de Casamentos (nunca para fora do admin)."""
-    if voltar.startswith("/casamentos") and not voltar.startswith("//") and "\\" not in voltar:
+def destino_seguro(voltar: str, prefixo: str = "/casamentos") -> str:
+    """Só volta para telas do próprio admin que começam com `prefixo` (nunca para fora)."""
+    if voltar.startswith(prefixo) and not voltar.startswith("//") and "\\" not in voltar:
         return voltar
-    return "/casamentos"
+    return prefixo
 
 
 def numero_pagina(texto: str) -> int:
@@ -152,6 +153,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "amazon_status": amazon_status,
                     "status_historico": consultas.STATUS_HISTORICO,
                     "link": link,
+                    "resumo_msgs": consultas_mensagens.resumo(s, agora),
                 },
             )
 
@@ -168,6 +170,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
                     "host": request.state.config.host_publico,
                     "mensagem": MENSAGENS_SERVICOS.get(msg),
+                    "notificador": consultas_mensagens.estado_notificador(s, repo.agora_utc()),
                 },
             )
 
@@ -196,6 +199,52 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     MENSAGEM_CONFIG = "Salvo; vale a partir da próxima coleta ou ciclo."
+
+    @app.get("/mensagens", response_class=HTMLResponse)
+    def mensagens(request: Request, situacao: str = "todas", destino: str = "todos", pagina: str = "1"):
+        if situacao not in consultas_mensagens.SITUACOES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
+        if destino not in consultas_mensagens.DESTINOS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"destino inválido: {destino}")
+        with sessoes() as s, s.begin():
+            linhas, pagina_atual, paginas = consultas_mensagens.listar(s, situacao, destino, numero_pagina(pagina))
+            parametros = {"situacao": situacao, "destino": destino, "pagina": pagina_atual}
+
+            def link(**mudancas) -> str:
+                return "/mensagens?" + urlencode({**parametros, **mudancas})
+
+            return templates.TemplateResponse(
+                request,
+                "mensagens.html",
+                {
+                    "linhas": linhas,
+                    "situacao": situacao,
+                    "destino": destino,
+                    "situacoes": consultas_mensagens.SITUACOES,
+                    "destinos": consultas_mensagens.DESTINOS,
+                    "pagina": pagina_atual,
+                    "paginas": paginas,
+                    "link": link,
+                    "aqui": link(),
+                },
+            )
+
+    @app.post("/mensagens/{mensagem_id}")
+    async def acao_mensagem(request: Request, mensagem_id: int):
+        formulario = await ler_formulario(request)
+        acoes = {"reenviar": repo_msg.reenviar, "descartar": repo_msg.descartar}
+        acao = acoes.get(formulario.get("acao", ""))
+        if acao is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "ação inválida")
+        try:
+            with sessoes() as s, s.begin():
+                acao(s, mensagem_id, repo.agora_utc())
+        except repo_msg.MensagemNaoEncontrada:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "mensagem não encontrada") from None
+        except repo_msg.AcaoInvalida as erro:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(erro)) from None
+        voltar = destino_seguro(formulario.get("voltar", "/mensagens"), "/mensagens")
+        return RedirectResponse(voltar, status_code=status.HTTP_303_SEE_OTHER)
 
     def _texto(valor) -> str:
         if valor is None:
