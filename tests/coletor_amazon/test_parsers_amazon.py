@@ -57,8 +57,8 @@ PRODUTOS = {
         "Magic: The Gathering FINAL FANTASY VI Commander Deck - Revival Trance",
         Decimal("358.78"),
         "Amazon Global",
-        "A2EB9PYM83FCP9",
-        Envio.DESCONHECIDO,
+        SELLER_AMAZON,
+        Envio.AMAZON,
     ),
     "produto_indisponivel": OfertaProduto(
         "B0DTMQBLSY", "MTG Final Fantasy - Play Booster - Inglês", None, None, None, Envio.DESCONHECIDO
@@ -129,7 +129,7 @@ def test_vendedor_sem_resumo_e_erro():
         ("  amazon  ", True),
         ("AMAZON", True),
         ("Amazonas Games", False),
-        ("Amazon Global", False),
+        ("Amazon Global", True),
         ("Loja X", False),
     ],
 )
@@ -147,7 +147,7 @@ def test_eh_vendido_pela_amazon(texto, esperado):
         ("Amazonas Games", "Amazonas Games", Envio.PROPRIO),
         ("Loja X", "Loja X", Envio.PROPRIO),
         ("Loja X", None, Envio.DESCONHECIDO),
-        ("Amazon Global", None, Envio.DESCONHECIDO),
+        ("Amazon Global", None, Envio.AMAZON),
         (None, "Amazon", Envio.DESCONHECIDO),
         (None, None, Envio.DESCONHECIDO),
     ],

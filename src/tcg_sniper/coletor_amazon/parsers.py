@@ -74,7 +74,8 @@ BLOCOS_PRODUTO = (
 )
 BLOCOS_VENDEDOR = (SELETOR_NOME_VENDEDOR, SELETOR_RESUMO_VENDEDOR)
 
-_NOMES_AMAZON = {"amazon", "amazon.com.br"}
+# "Amazon Global" (importação pela própria Amazon) conta como a Amazon: decisão do grupo em 2026-10-15.
+_NOMES_AMAZON = {"amazon", "amazon.com.br", "amazon global"}
 
 
 def url_produto(asin: str) -> str:
@@ -86,7 +87,7 @@ def url_vendedor(seller_id: str) -> str:
 
 
 def eh_vendido_pela_amazon(texto: str) -> bool:
-    """Só "Amazon" ou "Amazon.com.br": um lojista chamado "Amazonas Games" não é a Amazon."""
+    """Só "Amazon", "Amazon.com.br" ou "Amazon Global": um lojista chamado "Amazonas Games" não é a Amazon."""
     return texto.strip().lower() in _NOMES_AMAZON
 
 

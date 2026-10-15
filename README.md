@@ -67,7 +67,7 @@ Todo dia, por volta das 10:00:
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
 4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços.
 
-**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas, sem o bloco "Enviado por") não contam como vendidas pela Amazon e nunca geram aviso, porque imposto de importação e prazo longo ficam fora da regra dos 25%. Tudo isso se ajusta em **Configurações** no admin (os valores ficam no banco, não no `.env`).
+**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Tudo isso se ajusta em **Configurações** no admin (os valores ficam no banco, não no `.env`).
 
 Os serviços conversam só pelo banco: o admin grava pedidos ("retomar", "rodar agora") e o coletor os lê a cada minuto.
 
@@ -270,7 +270,7 @@ Os ajustes da Amazon e do motor de oportunidades não ficam no `.env`: edite-os 
 
 **Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA` e `WHATSAPP_GRUPO_ADMIN` estão preenchidos. Sem algum deles, os avisos vão só para o log (`docker compose logs coletor-liga`); com a chave padrão ou o grupo vazio, o coletor avisa isso no log ao subir. Os avisos de oportunidade vão para outro grupo: confira também `WHATSAPP_GRUPO_OPORTUNIDADES` (sem ele, as oportunidades vão só para o log do `coletor-amazon`).
 
-**Por que não chega alerta de um produto que está barato na Amazon?** As causas mais comuns: a oferta é vendida pela "Amazon Global" (importada, nunca gera alerta); é de um lojista com envio próprio; é de um lojista FBA com poucas avaliações; o casamento do anúncio com o produto da Liga ainda está pendente em **Casamentos**; ou o preço da Liga tem mais de 48 h.
+**Por que não chega alerta de um produto que está barato na Amazon?** As causas mais comuns: é de um lojista com envio próprio; é de um lojista FBA com poucas avaliações; o casamento do anúncio com o produto da Liga ainda está pendente em **Casamentos**; ou o preço da Liga tem mais de 48 h.
 
 **Uma categoria falha todo dia.** Ela pode ter ficado vazia, ou ter um produto só (a LigaMagic então abre direto a página do produto). Tire o ID de `LIGA_CATEGORIAS`.
 
