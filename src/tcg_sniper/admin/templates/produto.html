@@ -18,7 +18,7 @@
   <strong>Atualizado em:</strong> {{ (atual.resumo_em if atual else None)|data }}
 </article>
 <article>
-  <header><strong>Amazon</strong> (anúncios confirmados em <a href="/casamentos?aba=revisados">Casamentos</a>)</header>
+  <header><strong>Amazon</strong> (anúncios confirmados em {% if p.ativo %}<a href="/casamentos/produto/{{ p.id }}">Casamentos</a>{% else %}Casamentos{% endif %})</header>
   <table>
     <thead><tr><th>ASIN</th><th>Preço</th><th>Vendedor</th><th>Lido em</th></tr></thead>
     <tbody>

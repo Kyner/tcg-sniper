@@ -6,7 +6,7 @@ from datetime import datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, literal, select, update
+from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -330,3 +330,69 @@ def desfazer_casamento(s: Session, anuncio_id: int, agora: datetime) -> bool:
     anuncio.revisado_em = None
     s.flush()
     return True
+
+
+# --- link manual e anúncios confirmados fora da busca ----------------------------------------
+
+
+def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> None:
+    """Põe o produto na frente da fila da Amazon (sem linha na fila, não faz nada: a próxima
+    sincronização o insere já vencido)."""
+    primeiro = s.scalar(select(func.min(FilaAmazon.proxima_busca_em)).where(FilaAmazon.produto_id != produto_id))
+    quando = agora if primeiro is None else min(agora, primeiro - timedelta(seconds=1))
+    s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(proxima_busca_em=quando))
+    s.flush()
+
+
+def casar_link_manual(s: Session, produto_id: int, asin: str, agora: datetime) -> AnuncioAmazon:
+    """Casa o ASIN informado à mão com o produto: confirma o anúncio existente (trocando de produto
+    se preciso) ou cria um já confirmado; e põe o produto na frente da fila."""
+    anuncio = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == asin))
+    if anuncio is None:
+        anuncio = AnuncioAmazon(
+            asin=asin,
+            titulo="Informado manualmente",
+            url=f"https://www.amazon.com.br/dp/{asin}",
+            produto_id=produto_id,
+            status_casamento=StatusCasamento.CONFIRMADO,
+            revisado_em=agora,
+            visto_primeiro_em=agora,
+            visto_ultimo_em=agora,
+        )
+        s.add(anuncio)
+        s.flush()
+    else:
+        confirmar_casamento(s, anuncio.id, produto_id, agora)
+        anuncio.visto_ultimo_em = agora
+        s.flush()
+    priorizar_na_fila(s, produto_id, agora)
+    return anuncio
+
+
+def confirmados_ausentes(
+    s: Session, produto_id: int, asins_vistos: set[str], limite: int
+) -> list[tuple[int, str, str]]:
+    """Anúncios confirmados do produto que não estão em `asins_vistos`, os de leitura mais antiga
+    primeiro (sem leitura primeiro). Devolve (id, asin, url)."""
+    condicoes = [
+        AnuncioAmazon.produto_id == produto_id,
+        AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO,
+    ]
+    if asins_vistos:
+        condicoes.append(AnuncioAmazon.asin.not_in(asins_vistos))
+    consulta = (
+        select(AnuncioAmazon.id, AnuncioAmazon.asin, AnuncioAmazon.url)
+        .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
+        .where(*condicoes)
+        .order_by(PrecoAtualAmazon.coletado_em.asc().nulls_first(), AnuncioAmazon.id)
+        .limit(limite)
+    )
+    return [(anuncio_id, asin, url) for anuncio_id, asin, url in s.execute(consulta)]
+
+
+def atualizar_leitura(s: Session, anuncio_id: int, titulo: str, agora: datetime) -> None:
+    """Título lido na página do produto e "visto por último" (vale para anúncios fora da busca)."""
+    s.execute(
+        update(AnuncioAmazon).where(AnuncioAmazon.id == anuncio_id).values(titulo=titulo, visto_ultimo_em=agora)
+    )
+    s.flush()

@@ -20,12 +20,52 @@ POR_PAGINA = 100
 
 
 def _escapar_like(texto: str) -> str:
-    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return texto.replace("\x00", "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def listar_coletas(s: Session, tipos: Sequence[TipoColeta], limite: int = 10) -> list[Coleta]:
-    consulta = select(Coleta).where(Coleta.tipo.in_(tipos)).order_by(Coleta.id.desc()).limit(limite)
-    return list(s.scalars(consulta))
+STATUS_HISTORICO = ("todos", "ok", "parcial", "falha", "pausada_desafio")
+POR_PAGINA_HISTORICO = 20
+
+
+def paginar[T](itens: list[T], pagina: int, por_pagina: int) -> tuple[list[T], int, int]:
+    """Itens da página pedida (limitada entre 1 e a última), a página efetiva e o total de páginas."""
+    paginas = max(1, -(-len(itens) // por_pagina))
+    pagina = min(max(pagina, 1), paginas)
+    inicio = (pagina - 1) * por_pagina
+    return itens[inicio : inicio + por_pagina], pagina, paginas
+
+
+def historico_coletas(
+    s: Session, tipos: Sequence[TipoColeta], status: str, pagina: int, por_pagina: int = POR_PAGINA_HISTORICO
+) -> tuple[list[Coleta], int, int]:
+    condicoes = [Coleta.tipo.in_(tipos)]
+    if status != "todos":
+        condicoes.append(Coleta.status == StatusColeta(status))
+    total = s.scalar(select(func.count()).select_from(Coleta).where(*condicoes)) or 0
+    paginas = max(1, -(-total // por_pagina))
+    pagina = min(max(pagina, 1), paginas)
+    consulta = (
+        select(Coleta).where(*condicoes).order_by(Coleta.id.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina)
+    )
+    return list(s.scalars(consulta)), pagina, paginas
+
+
+def ultima_coleta_sucesso(s: Session, tipos: Sequence[TipoColeta]) -> Coleta | None:
+    return s.scalar(
+        select(Coleta)
+        .where(Coleta.tipo.in_(tipos), Coleta.status.in_([StatusColeta.OK, StatusColeta.PARCIAL]))
+        .order_by(Coleta.id.desc())
+        .limit(1)
+    )
+
+
+def ultima_coleta_finalizada(s: Session, tipos: Sequence[TipoColeta]) -> Coleta | None:
+    return s.scalar(
+        select(Coleta)
+        .where(Coleta.tipo.in_(tipos), Coleta.finalizada_em.is_not(None))
+        .order_by(Coleta.id.desc())
+        .limit(1)
+    )
 
 
 def coleta_em_andamento(s: Session, tipos: Sequence[TipoColeta]) -> bool:

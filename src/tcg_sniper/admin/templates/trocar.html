@@ -3,23 +3,37 @@
 {% block conteudo %}
 <h2>Escolher o produto da Liga</h2>
 <p><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.titulo }}</a> ({{ anuncio.asin }})</p>
+
+{% macro linha(p, preco) %}
+<tr>
+  <td><a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.nome }}</a></td>
+  <td>{{ preco|brl }}</td>
+  <td>
+    <form method="post" action="/casamentos/{{ anuncio.id }}">
+      <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ p.id }}">
+      <input type="hidden" name="voltar" value="/casamentos/produto/{{ p.id }}">
+      <button>Escolher</button>
+    </form>
+  </td>
+</tr>
+{% endmacro %}
+
+{% if sugestoes %}
+<h3>Parecidos</h3>
+<table><tbody>{% for p, preco in sugestoes %}{{ linha(p, preco) }}{% endfor %}</tbody></table>
+{% endif %}
+
+<h3>Buscar no catálogo da Liga</h3>
 <form method="get" action="/casamentos/{{ anuncio.id }}/trocar">
-  <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar no catálogo da Liga">
+  <fieldset role="group">
+    <input type="search" name="busca" value="{{ busca }}" placeholder="Nome do produto na Liga">
+    <button type="submit">Buscar</button>
+  </fieldset>
 </form>
 <table>
   <tbody>
-  {% for p in produtos %}
-    <tr>
-      <td>{{ p.nome }}</td>
-      <td>
-        <form method="post" action="/casamentos/{{ anuncio.id }}">
-          <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ p.id }}">
-          <button>Escolher</button>
-        </form>
-      </td>
-    </tr>
-  {% else %}
-    <tr><td colspan="2">Nenhum produto encontrado.</td></tr>
+  {% for p, preco in produtos %}{{ linha(p, preco) }}{% else %}
+    {% if busca %}<tr><td colspan="3">Nenhum produto encontrado.</td></tr>{% endif %}
   {% endfor %}
   </tbody>
 </table>

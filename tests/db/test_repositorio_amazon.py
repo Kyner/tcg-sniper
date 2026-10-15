@@ -213,3 +213,89 @@ def test_confirmados_com_referencia_reflete_preco_registrado_na_mesma_sessao(s):
     repo.registrar_preco(s, anuncio.id, Decimal("600.00"), OrigemPreco.PRODUTO, amazon.id, Envio.AMAZON, depois_t, SP)
     atual = repo.confirmados_com_referencia(s, [anuncio.id])[0].atual
     assert (atual.preco, atual.vendedor_id, atual.envio) == (Decimal("600.00"), amazon.id, Envio.AMAZON)
+
+
+def test_casar_link_manual_cria_confirmado_e_prioriza_na_fila(s):
+    produto = criar_produto(s, "ff")
+    repo.sincronizar_fila(s, T0)
+    s.get(FilaAmazon, produto.id).proxima_busca_em = T0 + timedelta(hours=1)
+    s.flush()
+
+    agora = T0 + timedelta(minutes=5)
+    anuncio = repo.casar_link_manual(s, produto.id, "B0MANUAL01", agora)
+    assert (anuncio.asin, anuncio.titulo, anuncio.url) == (
+        "B0MANUAL01",
+        "Informado manualmente",
+        "https://www.amazon.com.br/dp/B0MANUAL01",
+    )
+    assert (anuncio.produto_id, anuncio.status_casamento, anuncio.revisado_em) == (
+        produto.id,
+        StatusCasamento.CONFIRMADO,
+        agora,
+    )
+    assert (anuncio.visto_primeiro_em, anuncio.visto_ultimo_em) == (agora, agora)
+    assert s.get(FilaAmazon, produto.id).proxima_busca_em == agora
+
+
+def test_link_manual_passa_na_frente_mesmo_com_a_fila_atrasada(s):
+    atrasado = criar_produto(s, "gg")
+    produto = criar_produto(s, "ff")
+    repo.sincronizar_fila(s, T0)
+    agora = T0 + timedelta(hours=5)
+    s.get(FilaAmazon, atrasado.id).proxima_busca_em = agora - timedelta(hours=1)
+    s.get(FilaAmazon, produto.id).proxima_busca_em = agora + timedelta(hours=1)
+    s.flush()
+
+    repo.casar_link_manual(s, produto.id, "B0MANUAL01", agora)
+    assert repo.proximo_da_fila(s, agora).produto_id == produto.id
+
+
+def test_casar_link_manual_de_asin_conhecido_troca_o_produto_e_fecha_oportunidade(s):
+    antigo = criar_produto(s, "antigo")
+    novo = criar_produto(s, "novo")
+    anuncio = criar_anuncio(s, "B0CONHEC01", produto=antigo, status=StatusCasamento.IGNORADO)
+    op = repo.abrir_oportunidade(
+        s, anuncio_id=anuncio.id, produto_id=antigo.id, preco_amazon=Decimal(1), preco_liga=Decimal(2),
+        desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0,
+    )
+    resultado = repo.casar_link_manual(s, novo.id, "B0CONHEC01", T0 + timedelta(hours=1))
+    s.refresh(op)
+    assert resultado.id == anuncio.id
+    assert (resultado.produto_id, resultado.status_casamento) == (novo.id, StatusCasamento.CONFIRMADO)
+    assert op.fechada_em == T0 + timedelta(hours=1)
+
+
+def test_casar_link_manual_sem_linha_na_fila_nao_quebra(s):
+    produto = criar_produto(s, "recem_ativado")
+    anuncio = repo.casar_link_manual(s, produto.id, "B0SEMFILA1", T0)
+    assert anuncio.status_casamento is StatusCasamento.CONFIRMADO
+    repo.sincronizar_fila(s, T0 + timedelta(minutes=1))
+    assert s.get(FilaAmazon, produto.id).proxima_busca_em == T0 + timedelta(minutes=1)
+
+
+def test_confirmados_ausentes_mais_antigos_primeiro_e_com_limite(s):
+    produto = criar_produto(s, "ff")
+    outro = criar_produto(s, "outro")
+    sem_leitura = criar_anuncio(s, "B0SEMLEIT1", produto=produto, status=StatusCasamento.CONFIRMADO)
+    velho = criar_anuncio(s, "B0VELHO001", produto=produto, status=StatusCasamento.CONFIRMADO)
+    novo = criar_anuncio(s, "B0NOVO0001", produto=produto, status=StatusCasamento.CONFIRMADO)
+    visto = criar_anuncio(s, "B0VISTO001", produto=produto, status=StatusCasamento.CONFIRMADO)
+    criar_anuncio(s, "B0PENDENT1", produto=produto)
+    criar_anuncio(s, "B0OUTRO001", produto=outro, status=StatusCasamento.CONFIRMADO)
+    for anuncio, quando in ((velho, T0), (novo, T0 + timedelta(hours=2)), (visto, T0)):
+        repo.registrar_preco(s, anuncio.id, Decimal(10), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, quando, SP)
+
+    ausentes = repo.confirmados_ausentes(s, produto.id, {"B0VISTO001"}, limite=5)
+    assert [asin for _, asin, _ in ausentes] == ["B0SEMLEIT1", "B0VELHO001", "B0NOVO0001"]
+    assert ausentes[0] == (sem_leitura.id, "B0SEMLEIT1", sem_leitura.url)
+    assert [asin for _, asin, _ in repo.confirmados_ausentes(s, produto.id, set(), limite=2)] == [
+        "B0SEMLEIT1",
+        "B0VELHO001",
+    ]
+
+
+def test_atualizar_leitura(s):
+    anuncio = criar_anuncio(s, "B0LEITURA1")
+    repo.atualizar_leitura(s, anuncio.id, "Título real da página", T0 + timedelta(days=2))
+    s.refresh(anuncio)
+    assert (anuncio.titulo, anuncio.visto_ultimo_em) == ("Título real da página", T0 + timedelta(days=2))
