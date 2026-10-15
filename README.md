@@ -67,7 +67,7 @@ Todo dia, por volta das 10:00:
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
 4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços.
 
-**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Tudo isso se ajusta em **Configurações** no admin (os valores ficam no banco, não no `.env`).
+**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Tudo isso se ajusta em **Configurações** no admin (seções Geral, LigaMagic e Amazon; os valores ficam no banco, não no `.env`).
 
 Os serviços conversam só pelo banco: o admin grava pedidos ("retomar", "rodar agora") e o coletor os lê a cada minuto.
 
@@ -103,9 +103,8 @@ Abra o `.env` num editor e troque pelo menos:
 | `ADMIN_SENHA` | Senha da página de admin. |
 | `VNC_SENHA` | Senha da tela remota do Chromium. Só os 8 primeiros caracteres valem. |
 | `EVOLUTION_API_KEY` | Uma chave longa e aleatória, inventada por você. |
-| `HOST_PUBLICO` | O IP deste PC na rede local. No Windows: `ipconfig`, "Endereço IPv4". |
 
-Deixe `WHATSAPP_GRUPO_ADMIN` vazio por enquanto: ele sai do passo 5. Cada variável está explicada no próprio [`.env.example`](.env.example).
+O IP deste PC, a instância e os grupos do WhatsApp não ficam no `.env`: você os preenche em **Configurações** no admin (passos 4 e 5). Cada variável do `.env` está explicada no próprio [`.env.example`](.env.example).
 
 ### 3. Suba o banco, a Evolution API e o admin
 
@@ -119,7 +118,7 @@ docker compose up -d --build postgres evolution migrate admin
 
 ### 4. Conecte o WhatsApp
 
-Carregue a chave do `.env` no terminal e crie a instância (use um nome sem espaços, igual ao `EVOLUTION_INSTANCIA`):
+Carregue a chave do `.env` no terminal e crie a instância (use um nome sem espaços, igual ao campo **Instância da Evolution API** em **Configurações** → Geral):
 
 ```bash
 set -a; . ./.env; set +a
@@ -142,11 +141,7 @@ curl "http://localhost:8080/group/fetchAllGroups/tcg-sniper?getParticipants=fals
   -H "apikey: $EVOLUTION_API_KEY"
 ```
 
-Procure o grupo pelo nome (`subject`) e copie o `id`, que termina em `@g.us`. Grave no `.env`:
-
-```
-WHATSAPP_GRUPO_ADMIN=120363xxxxxxxxxxxx@g.us
-```
+Procure o grupo pelo nome (`subject`) e copie o `id`, que termina em `@g.us`. Abra o admin em `http://<IP deste PC>:8000/configuracoes` e, em **Configurações** → Geral, cole-o em **Grupo de WhatsApp do admin**. Aproveite para preencher **IP ou nome deste PC na rede** (no Windows: `ipconfig`, "Endereço IPv4") e **Instância da Evolution API**. Salve: não precisa reiniciar nada.
 
 ### 6. Suba o coletor
 
@@ -158,13 +153,13 @@ docker compose up -d --build coletor-liga
 
 **Deu certo se** `docker compose logs coletor-liga --tail 20` mostrar `agendador iniciado`, sem erro.
 
-Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://<HOST_PUBLICO>:6080/vnc.html`, com a `VNC_SENHA`.
+Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://<IP deste PC>:6080/vnc.html`, com a `VNC_SENHA`.
 
 Ao final, o grupo admin recebe "N produtos novos no catálogo" e o resumo da coleta.
 
 ### 7. Escolha os produtos que quer acompanhar
 
-Abra o admin em `http://<HOST_PUBLICO>:8000` (usuário qualquer, senha `ADMIN_SENHA`) e vá em **Catálogo**. Todo produto novo entra inativo. Ative um por um ou use os filtros e **Ativar todos deste filtro**.
+Abra o admin em `http://<IP deste PC>:8000` (usuário qualquer, senha `ADMIN_SENHA`) e vá em **Catálogo**. Todo produto novo entra inativo. Ative um por um ou use os filtros e **Ativar todos deste filtro**.
 
 Cada produto ativo é uma visita a mais por dia na LigaMagic (cerca de 17 segundos cada): 50 produtos somam uns 15 minutos; 250, pouco mais de uma hora. Comece com poucos.
 
@@ -172,11 +167,7 @@ A partir da próxima coleta, os produtos ativos ganham histórico de venda e nú
 
 ### 8. Ligue a Amazon
 
-1. Crie no WhatsApp o grupo de oportunidades (com o número secundário dentro), descubra o ID dele como no passo 5 e grave no `.env`:
-
-   ```
-   WHATSAPP_GRUPO_OPORTUNIDADES=120363xxxxxxxxxxxx@g.us
-   ```
+1. Crie no WhatsApp o grupo de oportunidades (com o número secundário dentro), descubra o ID dele como no passo 5 e cole em **Configurações** → Geral, no campo **Grupo de WhatsApp de oportunidades**.
 
 2. Suba o coletor da Amazon junto com todo o resto:
 
@@ -186,7 +177,7 @@ A partir da próxima coleta, os produtos ativos ganham histórico de venda e nú
 
    Suba tudo de uma vez, não só o `coletor-amazon`: a nova versão muda o banco (o `migrate` roda antes) e o `coletor-liga` e o `admin` precisam ser recriados com o código novo junto. Ver [Atualizar uma instalação existente](#atualizar-uma-instalação-existente).
 
-3. Abra `http://<HOST_PUBLICO>:6081/vnc.html` (senha `VNC_SENHA`), clique no endereço de entrega da Amazon e informe o CEP de onde as compras serão entregues. O preço e o "Enviado por" dependem dele; o CEP fica salvo no perfil do Chromium.
+3. Abra `http://<IP deste PC>:6081/vnc.html` (senha `VNC_SENHA`), clique no endereço de entrega da Amazon e informe o CEP de onde as compras serão entregues. O preço e o "Enviado por" dependem dele; o CEP fica salvo no perfil do Chromium.
 
 **Deu certo se** `docker compose logs coletor-amazon --tail 20` mostrar `varredura da Amazon iniciada` e, na janela do noVNC, aparecerem buscas a cada 8 a 20 segundos (dentro do horário de 08:00 às 22:00).
 
@@ -215,7 +206,7 @@ docker compose up -d --build
 | **Produto** (`/produto/<id>`) | Preço "À partir de" atual, resumo de venda (mínimo, médio, máximo), número de lojas e o histórico de cada coleta. |
 | **Casamentos** | Produtos ativos da Liga com os anúncios da Amazon encontrados; confirmar, ignorar, trocar ou colar o link da Amazon à mão; filtros por situação, categoria e nome. |
 | **Ofertas** | Melhor oferta da Amazon por produto contra a Liga; filtros por nome, categoria, desconto mínimo, vendedor e situação; ordenação por desconto, diferença em R$, leitura ou nome. |
-| **Configurações** | Ajustes da Amazon e do motor de oportunidades (desconto mínimo, teto de buscas por hora, horário, idade máxima do preço da Liga e outros). Ficam no banco e valem na hora, sem editar o `.env`. |
+| **Configurações** | Três seções (Geral, LigaMagic, Amazon); cada uma salva sozinha e vale a partir da próxima coleta ou ciclo. Senhas, banco e chave da Evolution continuam no `.env`. |
 
 Preço que a página não mostra aparece como "—", nunca como zero.
 
@@ -234,7 +225,7 @@ Preço que a página não mostra aparece como "—", nunca como zero.
 
 ### Quando chegar um aviso de desafio
 
-1. Abra o noVNC: `http://<HOST_PUBLICO>:6080/vnc.html` (senha `VNC_SENHA`). Funciona pelo celular, na mesma rede.
+1. Abra o noVNC: `http://<IP deste PC>:6080/vnc.html` (senha `VNC_SENHA`). Funciona pelo celular, na mesma rede.
 2. O Chromium está aberto com a verificação na tela. Resolva-a nessa janela.
 3. Clique em **Retomar** em Serviços. Em até 1 minuto a coleta volta, no mesmo navegador.
 
@@ -246,18 +237,15 @@ O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as po
 
 ## Configuração
 
-Tudo da LigaMagic fica no `.env`, e cada variável está explicada no [`.env.example`](.env.example). As que você mais vai querer mexer:
+Os ajustes de operação ficam na página **Configurações** do admin, em três seções que salvam separadamente e valem a partir da próxima coleta ou ciclo, sem reiniciar:
 
-| Variável | Padrão | Para quê |
-| --- | --- | --- |
-| `COLETA_HORA` / `COLETA_JITTER_MIN` | `10:00` / `30` | Horário da coleta diária e a variação aleatória em minutos. |
-| `LIGA_CATEGORIAS` | 20 categorias de selados | Quais listagens varrer. Tire uma categoria que falhe todo dia. |
-| `PAUSA_MIN_S` / `PAUSA_MAX_S` | `8` / `20` | Pausa entre páginas. Reduzir aumenta a chance de desafio. |
-| `LIMITE_FALHA_PCT` | `50` | A partir de quantos % de falhas a coleta vira "falha" e avisa o grupo. |
+- **Geral**: IP ou nome deste PC na rede, fuso horário, instância da Evolution e os grupos de WhatsApp (admin e oportunidades).
+- **LigaMagic**: horário da coleta diária e variação, pausas entre páginas, limite de falhas, categorias, URL da listagem e máximo de cliques. Tire de **Categorias** uma que falhe todo dia; pausas menores aumentam a chance de desafio do Cloudflare.
+- **Amazon**: desconto mínimo, teto de buscas por hora, horário e demais ajustes do motor de oportunidades.
 
-Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
+No `.env` ficam só as senhas e a infraestrutura: `ADMIN_SENHA`, `VNC_SENHA`, `EVOLUTION_API_KEY`, `DATABASE_URL`, `DIR_DADOS` e `EVOLUTION_URL`, explicadas no [`.env.example`](.env.example). Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
 
-Os ajustes da Amazon e do motor de oportunidades não ficam no `.env`: edite-os na página **Configurações** do admin.
+Quem já tinha os antigos `HOST_PUBLICO`, `FUSO`, `COLETA_*`, `PAUSA_*`, `LIGA_*` etc. no `.env`: na primeira subida o sistema copia esses valores para a tela; depois disso eles são ignorados e podem ser apagados.
 
 ## Solução de problemas
 
@@ -268,11 +256,11 @@ Os ajustes da Amazon e do motor de oportunidades não ficam no `.env`: edite-os 
 **A Evolution não sobe e o log reclama do banco `evolution`.** O script que cria o banco `evolution` só roda num volume novo do Postgres. Crie à mão:
 `docker compose exec postgres psql -U tcg -c "CREATE DATABASE evolution;"`
 
-**Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA` e `WHATSAPP_GRUPO_ADMIN` estão preenchidos. Sem algum deles, os avisos vão só para o log (`docker compose logs coletor-liga`); com a chave padrão ou o grupo vazio, o coletor avisa isso no log ao subir. Os avisos de oportunidade vão para outro grupo: confira também `WHATSAPP_GRUPO_OPORTUNIDADES` (sem ele, as oportunidades vão só para o log do `coletor-amazon`).
+**Nenhuma mensagem chega no WhatsApp.** Confira se a instância está conectada no painel da Evolution e se `EVOLUTION_API_KEY` (no `.env`) e a instância e o grupo admin (em **Configurações** → Geral) estão preenchidos. Sem algum deles, os avisos vão só para o log (`docker compose logs coletor-liga`); com a chave padrão ou o grupo vazio, o coletor avisa isso no log ao subir. Os avisos de oportunidade vão para outro grupo: confira também o grupo de oportunidades em **Configurações** → Geral (sem ele, as oportunidades vão só para o log do `coletor-amazon`).
 
 **Por que não chega alerta de um produto que está barato na Amazon?** As causas mais comuns: é de um lojista com envio próprio; é de um lojista FBA com poucas avaliações; o casamento do anúncio com o produto da Liga ainda está pendente em **Casamentos**; ou o preço da Liga tem mais de 48 h.
 
-**Uma categoria falha todo dia.** Ela pode ter ficado vazia, ou ter um produto só (a LigaMagic então abre direto a página do produto). Tire o ID de `LIGA_CATEGORIAS`.
+**Uma categoria falha todo dia.** Ela pode ter ficado vazia, ou ter um produto só (a LigaMagic então abre direto a página do produto). Tire o ID de **Categorias** em **Configurações** → LigaMagic.
 
 **Um produto aparece sem preço e com 0 lojas.** É normal: a LigaMagic não mostra o quadro de preços de produtos sem nenhuma loja e sem venda registrada.
 
