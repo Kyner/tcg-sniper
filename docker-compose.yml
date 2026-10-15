@@ -96,6 +96,14 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  notificador:
+    <<: *app
+    command: tcg-sniper notificador
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   admin:
     <<: *app
     command: tcg-sniper admin

@@ -15,6 +15,7 @@ from tcg_sniper.db.models import (
     ConfigLiga,
     EstadoColetor,
     EstadoColetorTipo,
+    EstadoNotificador,
     VendedorAmazon,
 )
 from tcg_sniper.db.session import config_alembic
@@ -139,3 +140,13 @@ def test_migracao_amazon_preserva_os_dados_da_liga(engine):
 def test_migracao_cria_config_geral_e_liga_vazias(s):
     assert s.get(ConfigGeral, 1) is None
     assert s.get(ConfigLiga, 1) is None
+
+
+def test_migracao_cria_estado_do_notificador(s):
+    assert s.get(EstadoNotificador, 1).ultimo_ciclo_em is None
+
+
+def test_validade_padrao_na_config_geral(s, config):
+    from tcg_sniper.db import repositorio as repo
+
+    assert repo.obter_config_geral(s, config).validade_oportunidade_h == 6

@@ -75,3 +75,32 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
     finally:
         signal.signal(signal.SIGTERM, anterior)
+
+
+def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
+    from tcg_sniper.notificador import servico
+
+    anterior = signal.getsignal(signal.SIGTERM)
+    vistos = []
+
+    class ServicoFalso:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def parar(self):
+            paradas.append(True)
+
+        def rodar(self):
+            vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
+
+    paradas = []
+    monkeypatch.setattr(servico, "ServicoNotificador", ServicoFalso)
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    try:
+        cli.main(["notificador"])
+        assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        assert paradas == [True]  # SIGTERM pede parada limpa, sem SystemExit
+    finally:
+        signal.signal(signal.SIGTERM, anterior)
