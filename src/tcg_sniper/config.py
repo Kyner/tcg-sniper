@@ -16,6 +16,10 @@ URL_LISTAGEM_PADRAO = (
 
 
 class Config(BaseSettings):
+    """Valores do .env. Os campos de operação (host, fuso, WhatsApp e coleta da Liga) só valem como
+    valor inicial: depois da primeira leitura vêm das tabelas config_geral e config_liga
+    (`config_banco.carregar_config`)."""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "postgresql+psycopg://tcg:tcg@127.0.0.1:5432/tcg"
