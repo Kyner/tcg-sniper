@@ -60,6 +60,16 @@ PRODUTOS = {
         SELLER_AMAZON,
         Envio.AMAZON,
     ),
+    # Página real com seletor de variações: o título não diz que é a caixa; a opção selecionada diz.
+    "produto_variacao": OfertaProduto(
+        "B0DTS76B5L",
+        "Magic The Gathering - Final Fantasy, multicolorido (Wizards Of The Coast D3868000)",
+        Decimal("10999.99"),
+        "PuguBR",
+        "ANP69P8PNCJ0B",
+        Envio.FBA,
+        "Collector Booster Box",
+    ),
     "produto_indisponivel": OfertaProduto(
         "B0DTMQBLSY", "MTG Final Fantasy - Play Booster - Inglês", None, None, None, Envio.DESCONHECIDO
     ),
@@ -154,3 +164,11 @@ def test_eh_vendido_pela_amazon(texto, esperado):
 )
 def test_classificar_envio(vendido, enviado, envio):
     assert classificar_envio(vendido, enviado) is envio
+
+
+def test_variacao_com_duas_dimensoes():
+    html = fixture_amazon("produto_variacao").replace(
+        "</body>",
+        '<span id="inline-twister-expanded-dimension-text-size_name"> 12 unidades </span></body>',
+    )
+    assert parse_produto_amazon(html, "B0DTS76B5L").variacao == "Collector Booster Box · 12 unidades"

@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from sqlalchemy import func, select
 
@@ -296,6 +297,25 @@ def test_confirmados_ausentes_mais_antigos_primeiro_e_com_limite(s):
 
 def test_atualizar_leitura(s):
     anuncio = criar_anuncio(s, "B0LEITURA1")
-    repo.atualizar_leitura(s, anuncio.id, "Título real da página", T0 + timedelta(days=2))
+    repo.atualizar_leitura(s, anuncio.id, "Título real da página", "Collector Booster Box", T0 + timedelta(days=2))
     s.refresh(anuncio)
-    assert (anuncio.titulo, anuncio.visto_ultimo_em) == ("Título real da página", T0 + timedelta(days=2))
+    assert (anuncio.titulo, anuncio.variacao, anuncio.visto_ultimo_em) == (
+        "Título real da página",
+        "Collector Booster Box",
+        T0 + timedelta(days=2),
+    )
+    repo.atualizar_leitura(s, anuncio.id, "Título real da página", None, T0 + timedelta(days=3))
+    s.refresh(anuncio)
+    assert anuncio.variacao is None  # a página deixou de ter o seletor
+
+
+@pytest.mark.parametrize(
+    ("titulo", "variacao", "esperado"),
+    [
+        ("Final Fantasy, multicolorido", "Collector Booster Box", "Final Fantasy, multicolorido — Collector Booster Box"),
+        ("Final Fantasy - Collector Booster Box", "collector booster box", "Final Fantasy - Collector Booster Box"),
+        ("Final Fantasy", None, "Final Fantasy"),
+    ],
+)
+def test_titulo_exibicao(titulo, variacao, esperado):
+    assert AnuncioAmazon(titulo=titulo, variacao=variacao).titulo_exibicao == esperado

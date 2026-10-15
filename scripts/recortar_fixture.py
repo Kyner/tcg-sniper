@@ -13,7 +13,7 @@ resultado mudar, não grava e sai com erro.
 - Página de produto: `#marketplace-stores` sem as ofertas das lojas (só o aviso "Nenhum item
   encontrado", quando houver), o aviso oculto `#marketplace-stores-noregisters`, o quadro
   `.price-mkp` e o filtro "Vendedores".
-- Amazon: busca (só os cartões de resultado, dentro da grade), produto (título, preço, vendido/enviado por, link do vendedor), perfil do vendedor (nome e resumo) e CAPTCHA (o formulário e o texto da verificação).
+- Amazon: busca (só os cartões de resultado, dentro da grade), produto (título, preço, vendido/enviado por, link do vendedor, opção do seletor de variações), perfil do vendedor (nome e resumo) e CAPTCHA (o formulário e o texto da verificação).
 """
 
 import re

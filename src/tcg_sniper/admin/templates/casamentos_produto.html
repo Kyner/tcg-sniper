@@ -27,7 +27,7 @@
   <tbody>
   {% for l in d.pendentes %}
     <tr>
-      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo }}</a><br><small>{{ l.anuncio.asin }}</small></td>
+      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a><br><small>{{ l.anuncio.asin }}</small></td>
       <td>{{ (l.atual.preco if l.atual else None)|brl }}{% if l.oportunidade %}<br><mark>oportunidade</mark>{% endif %}</td>
       <td>
         {{ botao(l.anuncio, "confirmar", "Confirmar", produto_id=d.produto.id) }}
@@ -46,7 +46,7 @@
   <tbody>
   {% for l in d.confirmados %}
     <tr>
-      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo }}</a><br><small>{{ l.anuncio.asin }}</small></td>
+      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a><br><small>{{ l.anuncio.asin }}</small></td>
       <td>{{ (l.atual.preco if l.atual else None)|brl }}</td>
       <td>{{ l.atual.envio|envio(l.vendedor) if l.atual else "—" }}</td>
       <td>{{ (l.atual.coletado_em if l.atual else None)|data }}</td>
@@ -63,7 +63,7 @@
   <tbody>
   {% for l in d.ignorados %}
     <tr>
-      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo }}</a><br><small>{{ l.anuncio.asin }}</small></td>
+      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a><br><small>{{ l.anuncio.asin }}</small></td>
       <td>{{ botao(l.anuncio, "desfazer", "Desfazer", "secondary outline") }}</td>
     </tr>
   {% else %}

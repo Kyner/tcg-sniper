@@ -240,3 +240,14 @@ def test_confirmar_para_produto_inativo_404_e_nao_grava(cliente, sessoes, cenari
 def test_busca_com_nul_nao_quebra(cliente, cenario):
     assert cliente.get("/casamentos", params={"busca": "a\x00b"}).status_code == 200
     assert cliente.get("/ofertas", params={"busca": "a\x00b"}).status_code == 200
+
+
+def test_opcao_da_variacao_aparece_nas_telas(cliente, sessoes, cenario):
+    d = cenario["d"]
+    with sessoes() as s, s.begin():
+        s.execute(update(AnuncioAmazon).where(AnuncioAmazon.asin == "B0DELTA001").values(variacao="Collector Booster Box"))
+        anuncio_id = s.scalar(select(AnuncioAmazon.id).where(AnuncioAmazon.asin == "B0DELTA001"))
+    assert "— Collector Booster Box" in cliente.get(f"/casamentos/produto/{d.id}").text
+    assert "— Collector Booster Box" in cliente.get(f"/casamentos/{anuncio_id}/trocar").text
+    assert "Collector Booster Box" in cliente.get(f"/produto/{d.id}").text
+    assert "B0DELTA001 · Collector Booster Box" in cliente.get("/ofertas").text

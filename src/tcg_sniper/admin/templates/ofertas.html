@@ -31,7 +31,7 @@
   <tbody>
   {% for l in linhas %}
     <tr>
-      <td><a href="/produto/{{ l.produto.id }}">{{ l.produto.nome }}</a>{% if l.aberta %} <mark>oportunidade</mark>{% endif %}<br><small>{{ l.anuncio.asin }}</small></td>
+      <td><a href="/produto/{{ l.produto.id }}">{{ l.produto.nome }}</a>{% if l.aberta %} <mark>oportunidade</mark>{% endif %}<br><small>{{ l.anuncio.asin }}{% if l.anuncio.variacao %} · {{ l.anuncio.variacao }}{% endif %}</small></td>
       <td>{{ l.preco_liga|brl }}</td>
       <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.preco|brl }}</a></td>
       <td>{{ (l.desconto|string).replace(".", ",") ~ "%" if l.desconto is not none else "—" }}</td>

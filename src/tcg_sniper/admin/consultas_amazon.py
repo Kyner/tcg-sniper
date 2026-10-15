@@ -208,7 +208,7 @@ def sugestoes_para(s: Session, anuncio: AnuncioAmazon, limite: int = 3) -> list[
             continue
         for token in _tokens(normalizado):
             indice.setdefault(token, set()).add(normalizado)
-    titulo = _normalizar(anuncio.titulo)
+    titulo = _normalizar(anuncio.titulo_exibicao)
     candidatos = candidatos_para(titulo, list(por_nome), indice)
     parecidos = difflib.get_close_matches(titulo, candidatos, n=limite + 1, cutoff=0.3)
     ids = [por_nome[nome] for nome in parecidos if por_nome[nome] != anuncio.produto_id][:limite]

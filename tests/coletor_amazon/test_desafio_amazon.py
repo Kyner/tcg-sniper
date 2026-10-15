@@ -39,6 +39,7 @@ NORMAIS = [
     "produto_envio_proprio",
     "produto_amazon_global",
     "produto_indisponivel",
+    "produto_variacao",
     "vendedor",
 ]
 
