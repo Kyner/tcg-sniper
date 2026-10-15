@@ -109,3 +109,18 @@ def test_acao_que_nao_vale_para_a_situacao(s, acao, status):
 def test_mensagem_inexistente(s):
     with pytest.raises(repo_msg.MensagemNaoEncontrada):
         repo_msg.reenviar(s, 999_999, AGORA)
+
+
+def test_acao_confere_a_situacao_atual_e_nao_a_do_cache_da_sessao(engine):
+    with Session(engine) as s, s.begin():
+        mid = repo_msg.enfileirar(s, "admin", "obsoleta", AGORA).id
+    try:
+        with Session(engine) as s1, s1.begin():
+            assert s1.get(MensagemSaida, mid).status is StatusMensagem.PENDENTE
+            with Session(engine) as s2, s2.begin():
+                s2.get(MensagemSaida, mid).status = StatusMensagem.ENVIADA
+            with pytest.raises(repo_msg.AcaoInvalida):
+                repo_msg.descartar(s1, mid, AGORA)
+    finally:
+        with Session(engine) as s, s.begin():
+            s.execute(delete(MensagemSaida).where(MensagemSaida.id == mid))

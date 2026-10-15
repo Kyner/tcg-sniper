@@ -56,6 +56,10 @@ def test_geral_valido():
         ("validade_oportunidade_h", "0"),
         ("validade_oportunidade_h", "49"),
         ("validade_oportunidade_h", "abc"),
+        ("validade_oportunidade_h", ""),
+        ("validade_oportunidade_h", "٣"),
+        ("validade_oportunidade_h", "１２"),
+        ("validade_oportunidade_h", "99999999999999999999"),
     ],
 )
 def test_geral_invalido(campo, valor):
@@ -112,3 +116,10 @@ def test_liga_aceita_url_http():
     valores, erros = validar_liga({**LIGA, "url_listagem": "http://liga.test/?categ={categ}"})
     assert not erros
     assert valores["url_listagem"] == "http://liga.test/?categ={categ}"
+
+
+@pytest.mark.parametrize(("texto", "esperado"), [("1", 1), ("48", 48), (" 6 ", 6)])
+def test_geral_aceita_validade_nos_limites(texto, esperado):
+    valores, erros = validar_geral({**GERAL, "validade_oportunidade_h": texto})
+    assert not erros
+    assert valores["validade_oportunidade_h"] == esperado

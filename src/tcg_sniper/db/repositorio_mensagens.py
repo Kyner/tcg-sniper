@@ -45,6 +45,7 @@ def lote_pendente(s: Session, agora: datetime, limite: int = 20) -> list[Mensage
         .order_by(MensagemSaida.criada_em, MensagemSaida.id)
         .limit(limite)
         .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
     )
     return list(s.scalars(consulta))
 
@@ -65,7 +66,7 @@ def limpar_antigas(s: Session, agora: datetime, dias: int = 30) -> int:
 
 
 def _obter(s: Session, mensagem_id: int) -> MensagemSaida:
-    mensagem = s.get(MensagemSaida, mensagem_id, with_for_update=True)
+    mensagem = s.get(MensagemSaida, mensagem_id, with_for_update=True, populate_existing=True)
     if mensagem is None:
         raise MensagemNaoEncontrada(mensagem_id)
     return mensagem
