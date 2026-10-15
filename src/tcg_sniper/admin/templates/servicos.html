@@ -31,5 +31,12 @@
       <form method="post" action="/amazon/pausar"><button class="secondary">Pausar (Amazon)</button></form>
     {% endif %}
   </article>
+  <article>
+    <header><strong>Notificador</strong></header>
+    {% set estado_notif, ultimo_ciclo = notificador %}
+    {% if estado_notif == "rodando" %}<p>rodando</p>
+    {% elif estado_notif == "parado" %}<p class="pausado">parado desde {{ ultimo_ciclo|data }}</p>
+    {% else %}<p class="pausado">nunca rodou</p>{% endif %}
+  </article>
 </div>
 {% endblock %}
