@@ -2,66 +2,107 @@
 {% from "_componentes.html" import selo, cabecalho, aviso %}
 {% block titulo %}Serviços · TCG Sniper{% endblock %}
 {% block conteudo %}
-{{ cabecalho("Serviços", "Comandos dos coletores e estado do notificador") }}
+{{ cabecalho("Serviços", "Ligar, desligar e rodar cada serviço. O histórico fica em Logs.") }}
 {% if mensagem %}{{ aviso("success", mensagem) }}{% endif %}
-<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-  <div class="card bg-base-100 shadow-sm"><div class="card-body">
-    <h2 class="card-title">LigaMagic
-      {% if estado.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "desafio pendente") }}
-      {% elif em_andamento %}{{ selo("rodando", "coleta em andamento") }}
-      {% else %}{{ selo("ativo") }}{% endif %}</h2>
-    {% if estado.estado.value == "pausado_desafio" %}
-      <p>Pausada: desafio pendente. {{ estado.motivo or "" }}</p>
-      <p>Resolva em <a class="link" href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em Retomar.</p>
-      <div class="card-actions"><form method="post" action="/retomar"><button class="btn btn-primary">Retomar</button></form></div>
-    {% elif em_andamento %}
-      <p>Ativa. <strong>Coleta em andamento.</strong></p>
-    {% else %}
-      <p>Ativa.{% if estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
-      <div class="card-actions"><form method="post" action="/rodar-agora"><button class="btn btn-primary">Rodar agora</button></form></div>
-    {% endif %}
+
+{# Chave liga/desliga: o formulário vai para `acao` ao mudar; sem JavaScript, o botão do <noscript> envia. #}
+{% macro chave(acao, ligado, nome) %}
+<form method="post" action="{{ acao }}" class="flex items-center gap-2">
+  <label class="label gap-2 text-sm"><input type="checkbox" class="toggle toggle-success"{% if ligado %} checked{% endif %} aria-label="Ligar {{ nome }}" onchange="this.form.submit()"> {{ "Ligado" if ligado else "Desligado" }}</label>
+  <noscript><button class="btn btn-xs">{{ "Desligar" if ligado else "Ligar" }}</button></noscript>
+</form>
+{% endmacro %}
+{% macro selo_ligado(ligado) %}{{ selo("ok", "ligado") if ligado else selo("pausado", "desligado") }}{% endmacro %}
+
+<div class="grid gap-3 md:grid-cols-2">
+  {# LigaMagic #}
+  {% set liga = estado.estado.value %}
+  {% if liga == "pausado_desafio" %}
+  <div data-servico="liga" class="card border border-error bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <h2 class="card-title text-base">LigaMagic {{ selo("pausado_desafio", "desafio pendente") }}</h2>
+    <p class="text-sm">Pausada: desafio pendente. {{ estado.motivo or "" }}</p>
+    <p class="text-sm">Resolva em <a class="link" href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em Retomar.</p>
+    <div class="card-actions"><form method="post" action="/retomar"><button class="btn btn-sm btn-primary">Retomar</button></form><a class="btn btn-sm btn-ghost" href="/logs?aba=liga">Ver histórico</a></div>
   </div></div>
-  <div class="card bg-base-100 shadow-sm"><div class="card-body">
-    <h2 class="card-title">Amazon
-      {% if estado_amazon.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "CAPTCHA pendente") }}
-      {% elif estado_amazon.estado.value == "pausado" %}{{ selo("pausado") }}
-      {% else %}{{ selo("ativo") }}{% endif %}</h2>
-    {% if estado_amazon.estado.value == "pausado_desafio" %}
-      <p>Pausada: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}</p>
-      <p>Resolva em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar.</p>
-      <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-primary">Retomar (Amazon)</button></form></div>
-    {% elif estado_amazon.estado.value == "pausado" %}
-      <p>Pausada. {{ estado_amazon.motivo or "" }}</p>
-      <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-primary">Retomar (Amazon)</button></form></div>
+  {% else %}
+  <div data-servico="liga" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="card-title text-base">LigaMagic {{ selo_ligado(liga == "ativo") }}{% if em_andamento %} {{ selo("rodando", "coleta em andamento") }}{% endif %}</h2>
+      {{ chave("/liga/pausar" if liga == "ativo" else "/liga/retomar", liga == "ativo", "LigaMagic") }}
+    </div>
+    {% if liga == "ativo" %}
+    <p class="text-sm">Coleta diária por volta das {{ coleta_hora }} (variação de {{ coleta_jitter }} min).{% if ultima_liga %} Última ok {{ ultima_liga.iniciada_em|data }}.{% endif %}{% if em_andamento %} <strong>Coleta em andamento.</strong>{% elif estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
     {% else %}
-      <p>Ativa.{% if ciclo_amazon %} Ciclo em andamento desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
-      <div class="card-actions"><form method="post" action="/amazon/pausar"><button class="btn btn-outline btn-error">Pausar (Amazon)</button></form></div>
+    <p class="text-sm">Desligada: {{ estado.motivo or "sem motivo" }}. Não coleta (nem no horário, nem a pedido) até ligar de novo.</p>
     {% endif %}
+    <div class="card-actions">
+      {% if liga == "ativo" and not em_andamento %}<form method="post" action="/rodar-agora"><button class="btn btn-sm btn-primary">Rodar agora</button></form>{% endif %}
+      <a class="btn btn-sm btn-ghost" href="/logs?aba=liga">Ver histórico</a>
+    </div>
   </div></div>
-  <div class="card bg-base-100 shadow-sm"><div class="card-body">
-    <h2 class="card-title">Casador (IA)
-      {% if estado_casador.estado.value == "pausado" %}{{ selo("pausado") }}
-      {% elif not ia_ligada %}{{ selo("inativo", "desligada") }}
-      {% elif not ia_chave %}{{ selo("pausado", "sem chave") }}
-      {% else %}{{ selo("ativo") }}{% endif %}</h2>
-    {% if estado_casador.estado.value == "pausado" %}
-      <p>Pausado. {{ estado_casador.motivo or "" }}</p>
-      <div class="card-actions"><form method="post" action="/casador/retomar"><button class="btn btn-primary">Retomar (casador)</button></form></div>
+  {% endif %}
+
+  {# Amazon #}
+  {% set amazon = estado_amazon.estado.value %}
+  {% if amazon == "pausado_desafio" %}
+  <div data-servico="amazon" class="card border border-error bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <h2 class="card-title text-base">Amazon {{ selo("pausado_desafio", "desafio pendente") }}</h2>
+    <p class="text-sm">Pausada: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}</p>
+    <p class="text-sm">Resolva em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar.</p>
+    <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-sm btn-primary">Retomar</button></form><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
+  </div></div>
+  {% else %}
+  <div data-servico="amazon" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="card-title text-base">Amazon {{ selo_ligado(amazon == "ativo") }}{% if ciclo_amazon %} {{ selo("rodando", "ciclo em andamento") }}{% endif %}</h2>
+      {{ chave("/amazon/pausar" if amazon == "ativo" else "/amazon/retomar", amazon == "ativo", "Amazon") }}
+    </div>
+    {% if amazon == "ativo" %}
+    <p class="text-sm">Fila contínua de buscas, das {{ janela[0] }} às {{ janela[1] }}.{% if ciclo_amazon %} Ciclo em andamento desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
     {% else %}
-      <p>{% if ia_ligada and not ia_chave %}IA ligada, mas sem chave: defina OPENAI_API_KEY no .env e reinicie o casador.{% elif ia_ligada %}Ativo.{% else %}IA desligada em <a class="link" href="/configuracoes">Configurações → IA</a>.{% endif %}{% if estado_casador.execucao_solicitada %} Rodada solicitada; começa em até 1 minuto.{% endif %}</p>
-      <div class="card-actions">
-        <form method="post" action="/casador/rodar-agora"><button class="btn btn-primary">Executar (casador)</button></form>
-        <form method="post" action="/casador/pausar"><button class="btn btn-outline btn-error">Pausar (casador)</button></form>
-      </div>
+    <p class="text-sm">Desligada: {{ estado_amazon.motivo or "sem motivo" }}. Volta quando você ligar de novo.</p>
     {% endif %}
+    <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
   </div></div>
-  <div class="card bg-base-100 shadow-sm"><div class="card-body">
-    {% set estado_notif, ultimo_ciclo = notificador %}
-    <h2 class="card-title">Notificador
-      {% if estado_notif == "rodando" %}{{ selo("ativo", "rodando") }}{% else %}{{ selo("falha", "parado") }}{% endif %}</h2>
-    {% if estado_notif == "rodando" %}<p>rodando</p>
-    {% elif estado_notif == "parado" %}<p>parado desde {{ ultimo_ciclo|data }}</p>
-    {% else %}<p>nunca rodou</p>{% endif %}
+  {% endif %}
+
+  {# Casador (IA) #}
+  {% set casador_ativo = estado_casador.estado.value == "ativo" %}
+  <div data-servico="casador" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="card-title text-base">Casador (IA)
+        {% if not casador_ativo %}{{ selo("pausado", "desligado") }}
+        {% elif not cfg_ia.ligado %}{{ selo("inativo", "IA desligada") }}
+        {% elif not ia_chave %}{{ selo("pausado", "sem chave") }}
+        {% else %}{{ selo("ok", "ligado") }}{% endif %}</h2>
+      {{ chave("/casador/pausar" if casador_ativo else "/casador/retomar", casador_ativo, "casador") }}
+    </div>
+    {% if not casador_ativo %}
+    <p class="text-sm">Desligado: {{ estado_casador.motivo or "sem motivo" }}.</p>
+    {% elif not cfg_ia.ligado %}
+    <p class="text-sm">IA desligada em <a class="link" href="/configuracoes">Configurações → IA</a>.</p>
+    {% elif not ia_chave %}
+    <p class="text-sm">IA ligada, mas sem chave: defina OPENAI_API_KEY no .env e reinicie o casador.</p>
+    {% else %}
+    <p class="text-sm">Avalia {{ cfg_ia.lote }} anúncios a cada {{ cfg_ia.intervalo_min }} min. Automático {% if cfg_ia.automatico %}ligado ({{ cfg_ia.confianca_confirmar }}%){% else %}desligado{% endif %}.{% if estado_casador.execucao_solicitada %} Rodada solicitada; começa em até 1 minuto.{% endif %} <a class="link" href="/configuracoes">Ajustar em Configurações → IA</a></p>
+    {% endif %}
+    <div class="card-actions">
+      {% if casador_ativo %}<form method="post" action="/casador/rodar-agora"><button class="btn btn-sm btn-primary">Rodar agora</button></form>{% endif %}
+      <a class="btn btn-sm btn-ghost" href="/logs?aba=ia">Ver chamadas</a>
+    </div>
+  </div></div>
+
+  {# WhatsApp (notificador) #}
+  {% set notificador_ativo = estado_notificador.estado.value == "ativo" %}
+  {% set processo, ultimo_ciclo = notificador %}
+  <div data-servico="notificador" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="card-title text-base">WhatsApp (notificador) {{ selo_ligado(notificador_ativo) }}</h2>
+      {{ chave("/notificador/pausar" if notificador_ativo else "/notificador/retomar", notificador_ativo, "notificador") }}
+    </div>
+    <p class="text-sm">{% if notificador_ativo %}Envia a fila de mensagens. Desligado, as mensagens ficam guardadas e saem quando ligar.{% else %}Desligado: as mensagens ficam guardadas e saem quando ligar.{% endif %}</p>
+    <p class="text-sm">{% if processo == "rodando" %}{{ selo("ok", "rodando") }} Notificador rodando.{% elif processo == "parado" %}{{ selo("falha", "parado") }} Notificador parado desde {{ ultimo_ciclo|data }}.{% else %}{{ selo("falha", "parado") }} Notificador nunca rodou.{% endif %}</p>
+    <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/mensagens">Abrir Mensagens</a></div>
   </div></div>
 </div>
 {% endblock %}

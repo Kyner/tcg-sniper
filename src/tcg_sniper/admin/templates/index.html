@@ -41,9 +41,9 @@
   <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
     <div class="flex items-center justify-between gap-2"><h2 class="card-title text-base">IA</h2><a class="link text-sm" href="/configuracoes">Configurações → IA</a></div>
     <div class="stats stats-vertical sm:stats-horizontal">
-      <div class="stat px-3"><div class="stat-title">Avaliados</div><div class="stat-value text-2xl tabular-nums">{{ n.avaliados|milhar }}</div><div class="stat-desc">de {{ n.pendentes|milhar }} pendentes</div></div>
-      <div class="stat px-3"><div class="stat-title">Pelo automático</div><div class="stat-value text-2xl tabular-nums">{{ n.pelo_automatico|milhar }}</div><div class="stat-desc">confirmados ou ignorados</div></div>
-      <div class="stat px-3"><div class="stat-title">Esperando você</div><div class="stat-value text-2xl tabular-nums text-info">{{ n.esperando_voce|milhar }}</div><div class="stat-desc">{% if n.automatico %}"mesmo produto" abaixo de {{ n.confianca_confirmar }}%{% else %}"mesmo produto", automático desligado{% endif %}</div></div>
+      <div class="stat px-3"><div class="stat-title">Avaliados</div><div class="stat-value text-2xl tabular-nums">{{ n.avaliados|milhar }}</div><div class="stat-desc whitespace-normal">de {{ n.pendentes|milhar }} pendentes</div></div>
+      <div class="stat px-3"><div class="stat-title">Pelo automático</div><div class="stat-value text-2xl tabular-nums">{{ n.pelo_automatico|milhar }}</div><div class="stat-desc whitespace-normal">confirmados ou ignorados</div></div>
+      <div class="stat px-3"><div class="stat-title">Esperando você</div><div class="stat-value text-2xl tabular-nums text-info">{{ n.esperando_voce|milhar }}</div><div class="stat-desc whitespace-normal">{% if n.automatico %}"mesmo produto" abaixo de {{ n.confianca_confirmar }}%{% else %}"mesmo produto", automático desligado{% endif %}</div></div>
     </div>
     <div class="space-y-1">
       <div class="flex justify-between text-sm"><span>Gasto do mês</span><span class="tabular-nums">{{ n.gasto_mes|usd }} de {{ n.teto_mes|usd }}</span></div>

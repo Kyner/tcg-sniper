@@ -279,14 +279,14 @@ def avisos(s: Session, agora: datetime, config_efetiva: Config, chave_ia: bool) 
     resumo = consultas_mensagens.resumo(s, agora)
     if resumo.aviso:
         lista.append(Aviso("warning", resumo.aviso, resumo.link_aviso, "Ir para Mensagens"))
-    for nome, tipos, aba in (("da LigaMagic", TIPOS_LIGA, "liga"), ("da Amazon", (TipoColeta.AMAZON,), "amazon")):
+    for tipos, aba in ((TIPOS_LIGA, "liga"), ((TipoColeta.AMAZON,), "amazon")):
         ultima = consultas.ultima_coleta_finalizada(s, tipos)
         if ultima is not None and ultima.status is StatusColeta.FALHA:
-            o_que = "A última coleta" if aba == "liga" else "O último ciclo"
-            texto = (
-                f"{o_que} {nome} ({ultima.tipo.value}, {_quando(ultima.iniciada_em, agora, config_efetiva.zona)}) "
-                f"terminou com falha."
-            )
+            quando = _quando(ultima.iniciada_em, agora, config_efetiva.zona)
+            if aba == "liga":
+                texto = f"A última coleta da LigaMagic ({ultima.tipo.value}, {quando}) terminou com falha."
+            else:
+                texto = f"O último ciclo da Amazon ({quando}) terminou com falha."
             if ultima.erro:
                 texto += f" {ultima.erro}"
             lista.append(Aviso("warning", texto, f"/logs?aba={aba}", "Ver nos logs"))

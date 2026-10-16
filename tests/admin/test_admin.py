@@ -210,7 +210,7 @@ def test_index_com_coleta_rodando_mostra_andamento_e_esconde_rodar_agora(cliente
         repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
     r = cliente.get("/")
     assert "Coleta em andamento" in r.text
-    assert "Rodar agora" not in cliente.get("/servicos").text
+    assert 'action="/rodar-agora"' not in cliente.get("/servicos").text
 
 
 def criar_muitos(sessoes, n):

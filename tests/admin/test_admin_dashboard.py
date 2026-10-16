@@ -111,13 +111,15 @@ def test_um_aviso_por_problema_com_link(cliente, sessoes):
 
 def test_servicos_mostra_os_botoes_por_estado(cliente, sessoes):
     texto = cliente.get("/servicos").text
-    assert "Rodar agora" in texto and "Pausar (Amazon)" in texto and "Retomar (Amazon)" not in texto
+    assert 'action="/rodar-agora"' in texto and 'action="/amazon/pausar"' in texto
+    assert 'action="/amazon/retomar"' not in texto
     with sessoes() as s, s.begin():
         repo.pausar_por_desafio(s, "desafio em /x", T0)
         repo.pausar_por_desafio(s, "desafio em /y", T0, COLETOR_AMAZON)
     texto = cliente.get("/servicos").text
     assert "host.test:6080" in texto and "host.test:6081" in texto
-    assert "Retomar (Amazon)" in texto and "Pausar (Amazon)" not in texto and "Rodar agora" not in texto
+    assert 'action="/amazon/retomar"' in texto and 'action="/amazon/pausar"' not in texto
+    assert 'action="/rodar-agora"' not in texto
 
 
 @pytest.mark.parametrize(

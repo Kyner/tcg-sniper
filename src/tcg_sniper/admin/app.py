@@ -233,20 +233,27 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.get("/servicos", response_class=HTMLResponse)
     def servicos(request: Request, msg: str = ""):
+        efetiva = request.state.config
         with sessoes() as s, s.begin():
+            cfg_amazon = repo_amz.obter_config(s)
             return templates.TemplateResponse(
                 request,
                 "servicos.html",
                 {
                     "estado": repo.obter_estado(s),
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
+                    "ultima_liga": consultas.ultima_coleta_sucesso(s, TIPOS_LIGA),
+                    "coleta_hora": efetiva.coleta_hora.strftime("%H:%M"),
+                    "coleta_jitter": efetiva.coleta_jitter_min,
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
+                    "janela": (f"{cfg_amazon.janela_inicio:%H:%M}", f"{cfg_amazon.janela_fim:%H:%M}"),
                     "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
-                    "ia_ligada": repo_ia.obter_config_ia(s).ligado,
+                    "cfg_ia": repo_ia.obter_config_ia(s),
                     "ia_chave": bool((config.openai_api_key or "").strip()),
-                    "host": request.state.config.host_publico,
+                    "host": efetiva.host_publico,
                     "mensagem": MENSAGENS_SERVICOS.get(msg),
+                    "estado_notificador": repo.obter_estado(s, coletor=COLETOR_NOTIFICADOR),
                     "notificador": consultas_mensagens.estado_notificador(s, repo.agora_utc()),
                 },
             )
