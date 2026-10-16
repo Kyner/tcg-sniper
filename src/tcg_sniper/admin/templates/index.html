@@ -1,76 +1,105 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import selo, cabecalho, aviso, paginacao %}
 {% block conteudo %}
-<h2>Dashboard</h2>
+{{ cabecalho("Dashboard", "Resumo dos serviços e das últimas execuções") }}
+
 {% if estado.estado.value != "ativo" %}
-<div class="pausado"><strong>LigaMagic pausada.</strong> {{ estado.motivo or "" }} <a href="/servicos">Ir para Serviços</a></div>
+  {% call aviso("error", "LigaMagic pausada. " ~ (estado.motivo or "")) %}<a class="link" href="/servicos">Ir para Serviços</a>{% endcall %}
 {% endif %}
 {% if estado_amazon.estado.value != "ativo" %}
-<div class="pausado"><strong>Amazon pausada{% if estado_amazon.estado.value == "pausado_desafio" %} (CAPTCHA pendente){% endif %}.</strong>
-  {{ estado_amazon.motivo or "" }} <a href="/servicos">Ir para Serviços</a></div>
+  {% call aviso("error", "Amazon pausada" ~ (" (CAPTCHA pendente)" if estado_amazon.estado.value == "pausado_desafio" else "") ~ ". " ~ (estado_amazon.motivo or "")) %}<a class="link" href="/servicos">Ir para Serviços</a>{% endcall %}
 {% endif %}
-
 {% if resumo_msgs.aviso %}
-<div class="pausado"><strong>{{ resumo_msgs.aviso }}</strong>{% if resumo_msgs.notificador_parado == "nunca" %} O notificador nunca rodou — veja Serviços.{% elif resumo_msgs.notificador_parado %} O notificador está parado desde {{ resumo_msgs.notificador_ultimo_ciclo|data }} — veja Serviços.{% endif %} <a href="{{ resumo_msgs.link_aviso }}">Ir para Mensagens</a></div>
+  {% set extra = " O notificador nunca rodou — veja Serviços." if resumo_msgs.notificador_parado == "nunca" else "" %}
+  {% call aviso("warning", resumo_msgs.aviso ~ extra) %}
+    {% if resumo_msgs.notificador_parado and resumo_msgs.notificador_parado != "nunca" %}O notificador está parado desde {{ resumo_msgs.notificador_ultimo_ciclo|data }} — veja Serviços.{% endif %}
+    <a class="link" href="{{ resumo_msgs.link_aviso }}">Ir para Mensagens</a>
+  {% endcall %}
 {% endif %}
 
-<div class="grid">
-  <article>
-    <header><strong>LigaMagic</strong></header>
-    <p>Estado: {% if estado.estado.value == "ativo" %}ativo{% else %}pausado por desafio{% endif %}{% if em_andamento %} · <strong>Coleta em andamento</strong>{% endif %}</p>
-    <p>Última coleta com sucesso: {% if ultima_liga %}{{ ultima_liga.iniciada_em|data }} ({{ ultima_liga.status.value }}){% else %}—{% endif %}</p>
-    <p>Coleta diária às {{ coleta_hora }} (± {{ coleta_jitter }} min)</p>
-  </article>
-  <article>
-    <header><strong>Amazon</strong></header>
-    <p>Estado:
-      {% if estado_amazon.estado.value == "pausado_desafio" %}pausado (CAPTCHA pendente)
-      {% elif estado_amazon.estado.value == "pausado" %}pausado
-      {% elif fora_da_janela %}Fora da janela ({{ janela }})
-      {% else %}ativo{% endif %}</p>
-    <p>{% if ciclo_amazon %}<strong>Ciclo em andamento</strong> desde {{ ciclo_amazon.iniciada_em|data }}{% else %}Nenhum ciclo em andamento{% endif %}</p>
-    <p>Último ciclo: {% if ultimo_ciclo %}{{ ultimo_ciclo.finalizada_em|data }} · {{ ultimo_ciclo.status.value }} ({{ ultimo_ciclo.produtos_ok }} ok, {{ ultimo_ciclo.produtos_falha }} falhas){% else %}—{% endif %}</p>
-  </article>
-  <article>
-    <header><strong>WhatsApp</strong></header>
-    <p>Pendentes: {{ resumo_msgs.pendentes }} · Falhas: {{ resumo_msgs.falhas }}</p>
-    <p>Último envio: {{ resumo_msgs.ultimo_envio|data if resumo_msgs.ultimo_envio else "—" }}</p>
-    <p><a href="/mensagens">Ver mensagens</a></p>
-  </article>
+{% set menu = request.state.menu %}
+<div class="stats stats-vertical w-full bg-base-100 shadow-sm md:stats-horizontal">
+  <div class="stat">
+    <div class="stat-title">LigaMagic</div>
+    <div class="stat-value text-lg">{{ selo("ativo") if estado.estado.value == "ativo" else selo("pausado_desafio", "pausado por desafio") }}{% if em_andamento %} {{ selo("rodando", "coleta em andamento") }}{% endif %}</div>
+    <div class="stat-desc">Última com sucesso: {% if ultima_liga %}{{ ultima_liga.iniciada_em|data }}{% else %}—{% endif %} · diária às {{ coleta_hora }} (± {{ coleta_jitter }} min)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-title">Amazon</div>
+    <div class="stat-value text-lg">
+      {% if estado_amazon.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "CAPTCHA pendente") }}
+      {% elif estado_amazon.estado.value == "pausado" %}{{ selo("pausado") }}
+      {% elif fora_da_janela %}{{ selo("inativo", "Fora da janela (" ~ janela ~ ")") }}
+      {% else %}{{ selo("ativo") }}{% endif %}
+      {% if ciclo_amazon %}{{ selo("rodando", "ciclo em andamento") }}{% endif %}
+    </div>
+    <div class="stat-desc">Último ciclo: {% if ultimo_ciclo %}{{ ultimo_ciclo.finalizada_em|data }} · {{ ultimo_ciclo.produtos_ok }} ok, {{ ultimo_ciclo.produtos_falha }} falhas{% else %}—{% endif %}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-title">WhatsApp</div>
+    <div class="stat-value text-lg tabular-nums">{{ resumo_msgs.pendentes }} <span class="text-sm font-normal">pendentes</span> · {{ resumo_msgs.falhas }} <span class="text-sm font-normal">falhas</span></div>
+    <div class="stat-desc">Último envio: {{ resumo_msgs.ultimo_envio|data if resumo_msgs.ultimo_envio else "—" }} · <a class="link" href="/mensagens">Ver mensagens</a></div>
+  </div>
+  <div class="stat">
+    <div class="stat-title">Oportunidades abertas</div>
+    <div class="stat-value tabular-nums"><a class="link link-hover" href="/ofertas?situacao=abertas">{{ menu.ofertas }}</a></div>
+  </div>
+  <div class="stat">
+    <div class="stat-title">Casamentos pendentes</div>
+    <div class="stat-value tabular-nums"><a class="link link-hover" href="/casamentos">{{ menu.casamentos }}</a></div>
+  </div>
 </div>
 
+{% macro url_liga(n) %}{{ link(liga_pagina=n) }}{% endmacro %}
+{% macro url_amazon(n) %}{{ link(amazon_pagina=n) }}{% endmacro %}
 {% macro historico(titulo, campo_status, campo_pagina, valor_status, linhas, pagina, paginas, vazio) %}
-<h3>{{ titulo }}</h3>
-<form method="get" action="/" class="filtros">
+<form method="get" action="/" class="flex flex-wrap items-center gap-2">
   {% for nome, valor in [("liga_status", liga_status), ("amazon_status", amazon_status)] if nome != campo_status %}
   <input type="hidden" name="{{ nome }}" value="{{ valor }}">
   {% endfor %}
-  <fieldset role="group">
-    <select name="{{ campo_status }}" aria-label="Status">
-      {% for s in status_historico %}<option value="{{ s }}" {% if s == valor_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
-    </select>
-    <button type="submit">Filtrar</button>
-  </fieldset>
+  <select name="{{ campo_status }}" class="select select-sm w-auto" aria-label="Status">
+    {% for s in status_historico %}<option value="{{ s }}" {% if s == valor_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
 </form>
-<table>
-  <thead><tr><th>#</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Status</th><th>OK</th><th>Falhas</th><th>Erro</th></tr></thead>
-  <tbody>
+<div class="card hidden bg-base-100 shadow-sm md:block"><div class="overflow-x-auto">
+  <table class="table table-zebra">
+    <thead><tr><th>#</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Status</th><th class="text-right">OK</th><th class="text-right">Falhas</th><th>Erro</th></tr></thead>
+    <tbody>
+    {% for c in linhas %}
+      <tr>
+        <td class="tabular-nums">{{ c.id }}</td><td>{{ c.tipo.value }}</td><td class="whitespace-nowrap">{{ c.iniciada_em|data }}</td><td class="whitespace-nowrap">{{ c.finalizada_em|data }}</td>
+        <td>{{ selo(c.status.value) }}</td><td class="text-right tabular-nums">{{ c.produtos_ok }}</td><td class="text-right tabular-nums">{{ c.produtos_falha }}</td><td>{{ c.erro or "" }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8">{{ vazio }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+<div class="space-y-2 md:hidden">
   {% for c in linhas %}
-    <tr>
-      <td>{{ c.id }}</td><td>{{ c.tipo.value }}</td><td>{{ c.iniciada_em|data }}</td><td>{{ c.finalizada_em|data }}</td>
-      <td>{{ c.status.value }}</td><td>{{ c.produtos_ok }}</td><td>{{ c.produtos_falha }}</td><td>{{ c.erro or "" }}</td>
-    </tr>
+  <div class="card bg-base-100 shadow-sm"><div class="card-body gap-1 p-4">
+    <div class="flex items-center justify-between gap-2"><span class="font-medium">#{{ c.id }} · {{ c.tipo.value }}</span>{{ selo(c.status.value) }}</div>
+    <div class="text-sm text-base-content/70">{{ c.iniciada_em|data }} → {{ c.finalizada_em|data }}</div>
+    <div class="text-sm tabular-nums">{{ c.produtos_ok }} ok · {{ c.produtos_falha }} falhas{% if c.erro %} · {{ c.erro }}{% endif %}</div>
+  </div></div>
   {% else %}
-    <tr><td colspan="8">{{ vazio }}</td></tr>
+  <p class="text-sm">{{ vazio }}</p>
   {% endfor %}
-  </tbody>
-</table>
-<p>
-  {% if pagina > 1 %}<a href="{{ link(**{campo_pagina: pagina - 1}) }}">← anterior</a>{% endif %}
-  Página {{ pagina }} de {{ paginas }}
-  {% if pagina < paginas %}<a href="{{ link(**{campo_pagina: pagina + 1}) }}">próxima →</a>{% endif %}
-</p>
+</div>
+{{ paginacao(pagina, paginas, url_liga if campo_pagina == "liga_pagina" else url_amazon) }}
 {% endmacro %}
 
-{{ historico("Coletas da LigaMagic", "liga_status", "liga_pagina", liga_status, coletas, pagina_liga, paginas_liga, "Nenhuma coleta ainda.") }}
-{{ historico("Ciclos da Amazon", "amazon_status", "amazon_pagina", amazon_status, ciclos, pagina_amazon, paginas_amazon, "Nenhum ciclo ainda.") }}
+{% set aba_amazon = amazon_status != "todos" or pagina_amazon > 1 %}
+<div class="tabs tabs-border">
+  <input type="radio" name="historico" class="tab" aria-label="Coletas da LigaMagic"{% if not aba_amazon %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    {{ historico("Coletas da LigaMagic", "liga_status", "liga_pagina", liga_status, coletas, pagina_liga, paginas_liga, "Nenhuma coleta ainda.") }}
+  </div>
+  <input type="radio" name="historico" class="tab" aria-label="Ciclos da Amazon"{% if aba_amazon %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    {{ historico("Ciclos da Amazon", "amazon_status", "amazon_pagina", amazon_status, ciclos, pagina_amazon, paginas_amazon, "Nenhum ciclo ainda.") }}
+  </div>
+</div>
 {% endblock %}

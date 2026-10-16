@@ -38,7 +38,7 @@ def test_index_mostra_a_amazon_ativa_com_ciclo(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
     texto = cliente.get("/").text
-    assert "Amazon" in texto and "Ciclo em andamento" in texto
+    assert "Amazon" in texto and "ciclo em andamento" in texto
     assert "Pausar (Amazon)" in cliente.get("/servicos").text
 
 
@@ -201,3 +201,8 @@ def test_ciclos_da_amazon_nao_empurram_as_coletas_da_liga(cliente, sessoes):
     assert "<td>produtos</td>" in parte_liga and "<td>amazon</td>" not in parte_liga
     assert parte_amazon.count("<td>amazon</td>") == 12
     assert "<td>produtos</td>" not in parte_amazon
+
+
+def test_servicos_tem_selo_de_estado(cliente):
+    texto = cliente.get("/servicos").text
+    assert 'badge-success">ativo</span>' in texto
