@@ -24,6 +24,7 @@ class ResumoMensagens:
     link_aviso: str = "/mensagens?situacao=falha"
     notificador_parado: str | None = None  # "nunca" ou "parado", só com pendentes presas
     notificador_ultimo_ciclo: datetime | None = None
+    paradas: int = 0  # pendentes há mais de 30 min
 
 
 def listar(s: Session, situacao: str, destino: str, pagina: int) -> tuple[list[MensagemSaida], int, int]:
@@ -82,7 +83,9 @@ def resumo(s: Session, agora: datetime) -> ResumoMensagens:
             situacao, ultimo_ciclo = estado_notificador(s, agora)
             if situacao != "rodando":
                 notificador_parado = situacao
-    return ResumoMensagens(pendentes, falhas, ultimo_envio, aviso, link_aviso, notificador_parado, ultimo_ciclo)
+    return ResumoMensagens(
+        pendentes, falhas, ultimo_envio, aviso, link_aviso, notificador_parado, ultimo_ciclo, paradas
+    )
 
 
 def estado_notificador(s: Session, agora: datetime) -> tuple[str, datetime | None]:

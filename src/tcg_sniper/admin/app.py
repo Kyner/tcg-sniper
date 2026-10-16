@@ -14,7 +14,14 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens, consultas_menu, estilo
+from tcg_sniper.admin import (
+    consultas,
+    consultas_amazon,
+    consultas_mensagens,
+    consultas_menu,
+    consultas_painel,
+    estilo,
+)
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
@@ -136,65 +143,20 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.filters["data"] = _data
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(
-        request: Request,
-        liga_status: str = "todos",
-        liga_pagina: str = "1",
-        amazon_status: str = "todos",
-        amazon_pagina: str = "1",
-    ):
-        for valor in (liga_status, amazon_status):
-            if valor not in consultas.STATUS_HISTORICO:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"status inválido: {valor}")
+    def dashboard(request: Request):
         efetiva = request.state.config
         agora = repo.agora_utc()
-        tipos_amazon = (TipoColeta.AMAZON,)
+        chave_ia = bool((config.openai_api_key or "").strip())
         with sessoes() as s, s.begin():
-            cfg = repo_amz.obter_config(s)
-            hora_local = agora.astimezone(efetiva.zona).time()
-            coletas, pagina_liga, paginas_liga = consultas.historico_coletas(
-                s, TIPOS_LIGA, liga_status, numero_pagina(liga_pagina)
-            )
-            ciclos, pagina_amazon, paginas_amazon = consultas.historico_coletas(
-                s, tipos_amazon, amazon_status, numero_pagina(amazon_pagina)
-            )
-            parametros = {
-                "liga_status": liga_status,
-                "liga_pagina": pagina_liga,
-                "amazon_status": amazon_status,
-                "amazon_pagina": pagina_amazon,
-            }
-
-            def link(**mudancas) -> str:
-                return "/?" + urlencode({**parametros, **mudancas})
-
             return templates.TemplateResponse(
                 request,
                 "index.html",
                 {
-                    "estado": repo.obter_estado(s),
-                    "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
-                    "ultima_liga": consultas.ultima_coleta_sucesso(s, TIPOS_LIGA),
-                    "coleta_hora": efetiva.coleta_hora.strftime("%H:%M"),
-                    "coleta_jitter": efetiva.coleta_jitter_min,
-                    "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
-                    "ciclo_amazon": consultas_amazon.ciclo_atual(s),
-                    "ultimo_ciclo": consultas.ultima_coleta_finalizada(s, tipos_amazon),
-                    "fora_da_janela": not (cfg.janela_inicio <= hora_local < cfg.janela_fim),
-                    "janela": f"{cfg.janela_inicio:%H:%M}–{cfg.janela_fim:%H:%M}",
-                    "coletas": coletas,
-                    "ciclos": ciclos,
-                    "pagina_liga": pagina_liga,
-                    "paginas_liga": paginas_liga,
-                    "pagina_amazon": pagina_amazon,
-                    "paginas_amazon": paginas_amazon,
-                    "liga_status": liga_status,
-                    "amazon_status": amazon_status,
-                    "status_historico": consultas.STATUS_HISTORICO,
-                    "link": link,
-                    "resumo_msgs": consultas_mensagens.resumo(s, agora),
-                    "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
-                    "gasto_ia": repo_ia.gasto(s, agora, efetiva.zona),
+                    "avisos": consultas_painel.avisos(s, agora, efetiva, chave_ia),
+                    "servicos": consultas_painel.saude_servicos(s, agora, efetiva, chave_ia),
+                    "n": consultas_painel.numeros(s, agora, efetiva),
+                    "atividade": consultas_painel.atividade_hoje(s, agora, efetiva),
+                    "atualizado": agora.astimezone(efetiva.zona).strftime("%H:%M"),
                 },
             )
 
