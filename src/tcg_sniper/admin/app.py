@@ -14,7 +14,14 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens, consultas_menu, estilo
+from tcg_sniper.admin import (
+    consultas,
+    consultas_amazon,
+    consultas_mensagens,
+    consultas_menu,
+    consultas_painel,
+    estilo,
+)
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
@@ -27,7 +34,16 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import COLETOR_AMAZON, COLETOR_CASADOR, AnuncioAmazon, ProdutoLiga, TipoColeta
+from tcg_sniper.db.models import (
+    COLETOR_AMAZON,
+    COLETOR_CASADOR,
+    COLETOR_LIGA,
+    COLETOR_NOTIFICADOR,
+    AnuncioAmazon,
+    EstadoColetorTipo,
+    ProdutoLiga,
+    TipoColeta,
+)
 from tcg_sniper.formatacao import formatar_brl
 
 SENHA_PADRAO = "trocar-esta-senha"
@@ -37,6 +53,13 @@ MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
 MENSAGENS_SERVICOS = {
     "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
     "retomar": "Coleta da LigaMagic retomada.",
+    "liga_pausar": "Coleta da LigaMagic desligada. Volta quando você ligar de novo.",
+    "liga_retomar": "Coleta da LigaMagic ligada; segue o horário diário.",
+    "notificador_pausar": (
+        "Envio do WhatsApp desligado. As mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram)."
+    ),
+    "desafio_pendente": "Há um desafio pendente: resolva pelo noVNC e clique em Retomar (nada foi desligado).",
+    "notificador_retomar": "Envio do WhatsApp ligado.",
     "amazon_pausar": "Busca na Amazon pausada.",
     "amazon_retomar": "Busca na Amazon retomada.",
     "casador_pausar": "Casador pausado.",
@@ -44,6 +67,8 @@ MENSAGENS_SERVICOS = {
     "casador_rodar": "Rodada do casador solicitada; começa em até 1 minuto.",
 }
 
+
+ABAS_LOGS = ("liga", "amazon", "ia")
 
 MENSAGENS_CASAMENTO = {"link_salvo": "Link salvo; o anúncio será lido em alguns minutos."}
 
@@ -63,6 +88,14 @@ def numero_pagina(texto: str) -> int:
 
 def formatar_data(dt: datetime | None, zona: ZoneInfo) -> str:
     return "" if dt is None else dt.astimezone(zona).strftime("%d/%m/%Y %H:%M")
+
+
+def duracao(inicio: datetime, fim: datetime | None) -> str:
+    """Duração de uma coleta em minutos ("18 min"); "—" enquanto não terminou."""
+    if fim is None:
+        return "—"
+    minutos = int((fim - inicio).total_seconds() // 60)
+    return f"{minutos} min" if minutos >= 1 else "< 1 min"
 
 
 async def ler_formulario(request: Request) -> dict[str, str]:
@@ -98,6 +131,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.globals["versao_css"] = (estilo.hash_gravado() or "0")[:12]
     templates.env.filters["brl"] = formatar_brl
     templates.env.filters["usd"] = lambda v: f"US$ {v:.2f}".replace(".", ",")
+    templates.env.filters["usd4"] = lambda v: f"US$ {v:.4f}".replace(".", ",")
+    templates.env.filters["duracao"] = duracao
+    templates.env.filters["milhar"] = lambda n: f"{n:,}".replace(",", ".")
     templates.env.filters["envio"] = lambda envio, vendedor=None: {
         "amazon": "vendido pela Amazon",
         "fba": f"vendido por {vendedor.nome if vendedor and vendedor.nome else 'lojista'}, enviado pela Amazon",
@@ -111,41 +147,105 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.filters["data"] = _data
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(
+    def dashboard(request: Request):
+        efetiva = request.state.config
+        agora = repo.agora_utc()
+        chave_ia = bool((config.openai_api_key or "").strip())
+        with sessoes() as s, s.begin():
+            pausado = repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado is not EstadoColetorTipo.ATIVO
+            resumo = consultas_mensagens.resumo(s, agora, notificador_pausado=pausado)
+            servicos_ = consultas_painel.saude_servicos(s, agora, efetiva, chave_ia, resumo)
+            return templates.TemplateResponse(
+                request,
+                "index.html",
+                {
+                    "avisos": consultas_painel.avisos(s, agora, efetiva, servicos_, resumo),
+                    "servicos": servicos_,
+                    "n": consultas_painel.numeros(s, agora, efetiva),
+                    "atividade": consultas_painel.atividade_hoje(s, agora, efetiva),
+                    "atualizado": agora.astimezone(efetiva.zona).strftime("%H:%M"),
+                },
+            )
+
+    @app.get("/logs", response_class=HTMLResponse)
+    def logs(
         request: Request,
+        aba: str = "liga",
         liga_status: str = "todos",
         liga_pagina: str = "1",
         amazon_status: str = "todos",
         amazon_pagina: str = "1",
+        situacao: str = "todas",
+        finalidade: str = "todas",
+        ia_pagina: str = "1",
     ):
+        if aba not in ABAS_LOGS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
         for valor in (liga_status, amazon_status):
             if valor not in consultas.STATUS_HISTORICO:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"status inválido: {valor}")
-        efetiva = request.state.config
-        agora = repo.agora_utc()
-        tipos_amazon = (TipoColeta.AMAZON,)
+        if situacao not in consultas.SITUACOES_IA:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
+        if finalidade not in consultas.FINALIDADES_IA:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"finalidade inválida: {finalidade}")
         with sessoes() as s, s.begin():
-            cfg = repo_amz.obter_config(s)
-            hora_local = agora.astimezone(efetiva.zona).time()
             coletas, pagina_liga, paginas_liga = consultas.historico_coletas(
                 s, TIPOS_LIGA, liga_status, numero_pagina(liga_pagina)
             )
             ciclos, pagina_amazon, paginas_amazon = consultas.historico_coletas(
-                s, tipos_amazon, amazon_status, numero_pagina(amazon_pagina)
+                s, (TipoColeta.AMAZON,), amazon_status, numero_pagina(amazon_pagina)
+            )
+            chamadas, pagina_ia, paginas_ia = consultas.historico_chamadas_ia(
+                s, situacao, finalidade, numero_pagina(ia_pagina)
             )
             parametros = {
+                "aba": aba,
                 "liga_status": liga_status,
                 "liga_pagina": pagina_liga,
                 "amazon_status": amazon_status,
                 "amazon_pagina": pagina_amazon,
+                "situacao": situacao,
+                "finalidade": finalidade,
+                "ia_pagina": pagina_ia,
             }
 
             def link(**mudancas) -> str:
-                return "/?" + urlencode({**parametros, **mudancas})
+                return "/logs?" + urlencode({**parametros, **mudancas})
 
             return templates.TemplateResponse(
                 request,
-                "index.html",
+                "logs.html",
+                {
+                    "aba": aba,
+                    "parametros": parametros,
+                    "link": link,
+                    "coletas": coletas,
+                    "ciclos": ciclos,
+                    "chamadas": chamadas,
+                    "pagina_liga": pagina_liga,
+                    "paginas_liga": paginas_liga,
+                    "pagina_amazon": pagina_amazon,
+                    "paginas_amazon": paginas_amazon,
+                    "pagina_ia": pagina_ia,
+                    "paginas_ia": paginas_ia,
+                    "liga_status": liga_status,
+                    "amazon_status": amazon_status,
+                    "situacao": situacao,
+                    "finalidade": finalidade,
+                    "status_historico": consultas.STATUS_HISTORICO,
+                    "situacoes_ia": consultas.SITUACOES_IA,
+                    "finalidades_ia": consultas.FINALIDADES_IA,
+                },
+            )
+
+    @app.get("/servicos", response_class=HTMLResponse)
+    def servicos(request: Request, msg: str = ""):
+        efetiva = request.state.config
+        with sessoes() as s, s.begin():
+            cfg_amazon = repo_amz.obter_config(s)
+            return templates.TemplateResponse(
+                request,
+                "servicos.html",
                 {
                     "estado": repo.obter_estado(s),
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
@@ -154,41 +254,13 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "coleta_jitter": efetiva.coleta_jitter_min,
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
-                    "ultimo_ciclo": consultas.ultima_coleta_finalizada(s, tipos_amazon),
-                    "fora_da_janela": not (cfg.janela_inicio <= hora_local < cfg.janela_fim),
-                    "janela": f"{cfg.janela_inicio:%H:%M}–{cfg.janela_fim:%H:%M}",
-                    "coletas": coletas,
-                    "ciclos": ciclos,
-                    "pagina_liga": pagina_liga,
-                    "paginas_liga": paginas_liga,
-                    "pagina_amazon": pagina_amazon,
-                    "paginas_amazon": paginas_amazon,
-                    "liga_status": liga_status,
-                    "amazon_status": amazon_status,
-                    "status_historico": consultas.STATUS_HISTORICO,
-                    "link": link,
-                    "resumo_msgs": consultas_mensagens.resumo(s, agora),
+                    "janela": (f"{cfg_amazon.janela_inicio:%H:%M}", f"{cfg_amazon.janela_fim:%H:%M}"),
                     "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
-                    "gasto_ia": repo_ia.gasto(s, agora, efetiva.zona),
-                },
-            )
-
-    @app.get("/servicos", response_class=HTMLResponse)
-    def servicos(request: Request, msg: str = ""):
-        with sessoes() as s, s.begin():
-            return templates.TemplateResponse(
-                request,
-                "servicos.html",
-                {
-                    "estado": repo.obter_estado(s),
-                    "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
-                    "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
-                    "ciclo_amazon": consultas_amazon.ciclo_atual(s),
-                    "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
-                    "ia_ligada": repo_ia.obter_config_ia(s).ligado,
+                    "cfg_ia": repo_ia.obter_config_ia(s),
                     "ia_chave": bool((config.openai_api_key or "").strip()),
-                    "host": request.state.config.host_publico,
+                    "host": efetiva.host_publico,
                     "mensagem": MENSAGENS_SERVICOS.get(msg),
+                    "estado_notificador": repo.obter_estado(s, coletor=COLETOR_NOTIFICADOR),
                     "notificador": consultas_mensagens.estado_notificador(s, repo.agora_utc()),
                 },
             )
@@ -204,6 +276,36 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         with sessoes() as s, s.begin():
             repo.solicitar_execucao(s, repo.agora_utc())
         return RedirectResponse("/servicos?msg=rodar", status_code=status.HTTP_303_SEE_OTHER)
+
+    def _desligar(coletor: str, msg: str) -> RedirectResponse:
+        """Pausa manual; um desafio pendente não é sobrescrito (só sai com Retomar, depois de resolvido)."""
+        agora = repo.agora_utc()
+        with sessoes() as s, s.begin():
+            if repo.obter_estado(s, agora, coletor).estado is EstadoColetorTipo.PAUSADO_DESAFIO:
+                msg = "desafio_pendente"
+            else:
+                repo.pausar(s, "pausado no admin", agora, coletor)
+        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/liga/pausar")
+    def pausar_liga():
+        return _desligar(COLETOR_LIGA, "liga_pausar")
+
+    @app.post("/liga/retomar")
+    def retomar_liga():
+        with sessoes() as s, s.begin():
+            repo.retomar(s, repo.agora_utc(), COLETOR_LIGA, solicitar=False)
+        return RedirectResponse("/servicos?msg=liga_retomar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/notificador/pausar")
+    def pausar_notificador():
+        return _desligar(COLETOR_NOTIFICADOR, "notificador_pausar")
+
+    @app.post("/notificador/retomar")
+    def retomar_notificador():
+        with sessoes() as s, s.begin():
+            repo.retomar(s, repo.agora_utc(), COLETOR_NOTIFICADOR, solicitar=False)
+        return RedirectResponse("/servicos?msg=notificador_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/pausar")
     def pausar_amazon():

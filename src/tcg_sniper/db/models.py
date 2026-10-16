@@ -73,6 +73,7 @@ class StatusMensagem(enum.StrEnum):
 COLETOR_LIGA = "liga"
 COLETOR_AMAZON = "amazon"
 COLETOR_CASADOR = "casador"
+COLETOR_NOTIFICADOR = "notificador"
 
 
 def _enum(cls: type[enum.Enum], nome: str) -> Enum:
@@ -163,11 +164,12 @@ class PrecoAtualLiga(Base):
 
 
 class EstadoColetor(Base):
-    """Uma linha por coletor: id 1 = Liga, id 2 = Amazon, id 3 = casador (ver `repositorio.ID_COLETOR`)."""
+    """Uma linha por serviço: id 1 = Liga, id 2 = Amazon, id 3 = casador, id 4 = notificador
+    (ver `repositorio.ID_COLETOR`)."""
 
     __tablename__ = "estado_coletor"
     __table_args__ = (
-        CheckConstraint("id IN (1, 2, 3)", name="ck_estado_coletor_linhas"),
+        CheckConstraint("id IN (1, 2, 3, 4)", name="ck_estado_coletor_linhas"),
         UniqueConstraint("coletor", name="uq_estado_coletor_coletor"),
     )
 

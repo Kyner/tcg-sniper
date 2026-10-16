@@ -106,7 +106,8 @@ def test_salvar_amazon_na_rota_nova(cliente, sessoes):
     assert cliente.post("/configuracoes", data=FORMULARIO_AMAZON).status_code in (404, 405)
 
 
-def test_dashboard_usa_o_horario_e_o_fuso_salvos(cliente, sessoes, config):
+def test_dashboard_usa_o_horario_e_o_fuso_salvos(cliente, sessoes, config, monkeypatch):
+    monkeypatch.setattr(repo, "agora_utc", lambda: datetime(2026, 10, 20, 12, 0, tzinfo=UTC))
     cliente.post("/configuracoes/liga", data=LIGA)
     cliente.post("/configuracoes/geral", data={**GERAL, "fuso": "Asia/Tokyo"})
     with sessoes() as s, s.begin():

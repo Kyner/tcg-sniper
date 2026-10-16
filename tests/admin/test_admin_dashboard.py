@@ -8,8 +8,9 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin import app as modulo_app
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas import POR_PAGINA_HISTORICO, paginar
+from tcg_sniper.admin.consultas import paginar
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import COLETOR_AMAZON, StatusColeta, TipoColeta
 
 SP = ZoneInfo("America/Sao_Paulo")
@@ -43,10 +44,13 @@ def test_dashboard_nao_tem_comandos(cliente, sessoes):
     assert 'href="/servicos"' in texto
 
 
+def card(texto, nome):
+    inicio = texto.index(f'data-servico="{nome}"')
+    return texto[inicio:texto.index("</div></div>", inicio)]
+
+
 def test_dashboard_sem_atalho_de_configuracoes_no_bloco_da_amazon(cliente):
-    texto = cliente.get("/").text
-    corpo = texto.split("<main", 1)[1].split("</main>", 1)[0]
-    assert "/configuracoes" not in corpo
+    assert "/configuracoes" not in card(cliente.get("/").text, "Amazon")
 
 
 def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes):
@@ -56,47 +60,66 @@ def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes):
         ciclo = repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
         repo.finalizar_coleta(s, ciclo.id, StatusColeta.PARCIAL, 9, 1, T0)
     texto = cliente.get("/").text
-    assert "Última com sucesso" in texto and "10:00" in texto
-    assert "Último ciclo" in texto
-    amazon = texto.split("Amazon</div>", 1)[1].split("WhatsApp</div>", 1)[0]
-    assert 'badge-warning">parcial' in amazon
+    liga = card(texto, "LigaMagic")
+    assert "Última coleta ok" in liga and "10:00" in liga and 'badge-success">funcionando' in liga
+    assert "Último ciclo" in card(texto, "Amazon") and "(parcial)" in card(texto, "Amazon")
 
 
 def test_dashboard_amazon_fora_da_janela(cliente, monkeypatch):
     monkeypatch.setattr(modulo_app.repo, "agora_utc", lambda: datetime(2026, 10, 15, 23, 30, tzinfo=SP))
-    assert "Fora da janela" in cliente.get("/").text
+    assert "fora do horário (08:00–22:00)" in card(cliente.get("/").text, "Amazon")
     monkeypatch.setattr(modulo_app.repo, "agora_utc", lambda: datetime(2026, 10, 15, 12, 0, tzinfo=SP))
-    assert "Fora da janela" not in cliente.get("/").text
+    assert "fora do horário" not in card(cliente.get("/").text, "Amazon")
 
 
-def test_historico_com_filtro_e_paginacao(cliente, sessoes):
+def test_dashboard_nao_tem_mais_o_historico(cliente, sessoes):
     with sessoes() as s, s.begin():
-        for i in range(25):
-            c = repo.iniciar_coleta(s, TipoColeta.AMAZON, T0 + timedelta(hours=i))
-            repo.finalizar_coleta(s, c.id, StatusColeta.FALHA if i % 5 == 0 else StatusColeta.OK, 1, 0, T0)
-    pagina1 = cliente.get("/").text.split("Ciclos da Amazon", 1)[1]
-    assert pagina1.count("<td>amazon</td>") == 20
-    assert "amazon_pagina=2" in pagina1 and "liga_status=todos" in pagina1
-    pagina2 = cliente.get("/?amazon_pagina=2").text.split("Ciclos da Amazon", 1)[1]
-    assert pagina2.count("<td>amazon</td>") == 5
-    alem = cliente.get("/?amazon_pagina=999").text.split("Ciclos da Amazon", 1)[1]
-    assert alem.count("<td>amazon</td>") == 5
-    falhas = cliente.get("/?amazon_status=falha").text.split("Ciclos da Amazon", 1)[1]
-    assert falhas.count("<td>amazon</td>") == 5
-    assert 'value="falha" selected' in falhas
-    assert cliente.get("/?amazon_status=xyz").status_code == 400
-    assert cliente.get("/?liga_pagina=abc").status_code == 200
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.finalizar_coleta(s, c.id, StatusColeta.OK, 1, 0, T0)
+    texto = cliente.get("/").text
+    assert "<table" not in texto and 'aria-label="Coletas da LigaMagic"' not in texto
+    assert 'href="/logs"' in texto.split("<main", 1)[1]
+
+
+def test_dashboard_tem_servicos_numeros_e_atividade(cliente):
+    texto = cliente.get("/").text
+    for nome in ("LigaMagic", "Amazon", "Casador (IA)", "WhatsApp"):
+        assert f'data-servico="{nome}"' in texto
+    for rotulo in ("Casamentos", "Confirmados", "Produtos ativos com par na Amazon", "Avaliados", "Esperando você",
+                   "Gasto do mês", "Oportunidades", "Alertas na semana", "Atividade de hoje", "Mensagens do WhatsApp"):
+        assert rotulo in texto
+    assert 'class="stats' in texto and 'class="progress' in texto and 'class="list"' in texto
+
+
+def test_sem_problemas_sem_aviso(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo_msg.registrar_ciclo(s, repo.agora_utc())
+    assert 'role="alert"' not in cliente.get("/").text
+
+
+def test_um_aviso_por_problema_com_link(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo_msg.registrar_ciclo(s, repo.agora_utc())
+        repo.pausar(s, "pausado no admin", T0, COLETOR_AMAZON)
+        c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
+        repo.finalizar_coleta(s, c.id, StatusColeta.FALHA, 0, 9, T0, erro="interrompida")
+    texto = cliente.get("/").text
+    assert texto.count('role="alert"') == 2
+    assert 'href="/servicos">Ir para Serviços' in texto and 'href="/logs?aba=liga">Ver nos logs' in texto
+    assert 'badge-warning">atenção' in card(texto, "LigaMagic")
 
 
 def test_servicos_mostra_os_botoes_por_estado(cliente, sessoes):
     texto = cliente.get("/servicos").text
-    assert "Rodar agora" in texto and "Pausar (Amazon)" in texto and "Retomar (Amazon)" not in texto
+    assert 'action="/rodar-agora"' in texto and 'action="/amazon/pausar"' in texto
+    assert 'action="/amazon/retomar"' not in texto
     with sessoes() as s, s.begin():
         repo.pausar_por_desafio(s, "desafio em /x", T0)
         repo.pausar_por_desafio(s, "desafio em /y", T0, COLETOR_AMAZON)
     texto = cliente.get("/servicos").text
     assert "host.test:6080" in texto and "host.test:6081" in texto
-    assert "Retomar (Amazon)" in texto and "Pausar (Amazon)" not in texto and "Rodar agora" not in texto
+    assert 'action="/amazon/retomar"' in texto and 'action="/amazon/pausar"' not in texto
+    assert 'action="/rodar-agora"' not in texto
 
 
 @pytest.mark.parametrize(
@@ -126,35 +149,12 @@ def test_menu(cliente):
     assert ">Status<" not in nav
 
 
-def test_dashboard_tem_indicadores_e_abas(cliente):
+def test_notificador_desligado_nao_avisa_pendentes_paradas(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo_msg.registrar_ciclo(s, repo.agora_utc())
+        repo_msg.enfileirar(s, "admin", "x", repo.agora_utc() - timedelta(hours=1))
+    assert "Mensagens do WhatsApp paradas" in cliente.get("/").text
+    cliente.post("/notificador/pausar")
     texto = cliente.get("/").text
-    assert 'class="stats' in texto
-    for rotulo in ("LigaMagic", "Amazon", "WhatsApp", "Oportunidades abertas", "Casamentos pendentes"):
-        assert rotulo in texto
-    assert 'aria-label="Coletas da LigaMagic"' in texto and 'aria-label="Ciclos da Amazon"' in texto
-
-
-def test_aba_da_amazon_abre_depois_de_paginar_ou_filtrar(cliente, sessoes):
-    def aba_marcada(texto, rotulo):
-        inicio = texto.index(f'aria-label="{rotulo}"')
-        return "checked" in texto[texto.rindex("<input", 0, inicio):inicio + 60]
-
-    with sessoes() as s, s.begin():
-        for i in range(POR_PAGINA_HISTORICO + 1):
-            for tipo in (TipoColeta.AMAZON, TipoColeta.LISTAGEM):
-                c = repo.iniciar_coleta(s, tipo, T0 + timedelta(minutes=i))
-                repo.finalizar_coleta(s, c.id, StatusColeta.OK, 1, 0, T0 + timedelta(minutes=i))
-
-    assert not aba_marcada(cliente.get("/").text, "Ciclos da Amazon")
-    assert aba_marcada(cliente.get("/", params={"amazon_status": "ok"}).text, "Ciclos da Amazon")
-    assert aba_marcada(cliente.get("/", params={"amazon_pagina": "2"}).text, "Ciclos da Amazon")
-    liga = cliente.get("/", params={"liga_pagina": "2", "amazon_pagina": "1"}).text
-    assert aba_marcada(liga, "Coletas da LigaMagic")
-    assert not aba_marcada(liga, "Ciclos da Amazon")
-
-
-def test_situacao_das_coletas_tem_selo(cliente, sessoes):
-    with sessoes() as s, s.begin():
-        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
-        repo.finalizar_coleta(s, c.id, StatusColeta.FALHA, 0, 1, T0)
-    assert 'badge-error">falha</span>' in cliente.get("/").text
+    assert "Mensagens do WhatsApp paradas" not in texto
+    assert "WhatsApp — Envio desligado" in texto and "ofertas vencidas expiram" in texto

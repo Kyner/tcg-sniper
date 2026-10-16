@@ -13,6 +13,7 @@ from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_CASADOR,
     COLETOR_LIGA,
+    COLETOR_NOTIFICADOR,
     Coleta,
     ConfigGeral,
     ConfigLiga,
@@ -174,7 +175,7 @@ def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], a
     return novos
 
 
-ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2, COLETOR_CASADOR: 3}
+ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2, COLETOR_CASADOR: 3, COLETOR_NOTIFICADOR: 4}
 
 
 def obter_estado(s: Session, agora: datetime | None = None, coletor: str = COLETOR_LIGA) -> EstadoColetor:
@@ -211,11 +212,13 @@ def _mudar_estado(s: Session, novo: EstadoColetorTipo, motivo: str, agora: datet
     s.flush()
 
 
-def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
+def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA, solicitar: bool = True) -> None:
+    """Volta a `ativo`. `solicitar` pede uma execução já (desafio resolvido, casador); sem ela, o
+    serviço segue o próprio horário (religar a LigaMagic ou o notificador na tela de Serviços)."""
     estado = obter_estado(s, agora, coletor)
     estado.estado = EstadoColetorTipo.ATIVO
     estado.motivo = None
-    estado.execucao_solicitada = True
+    estado.execucao_solicitada = solicitar
     estado.atualizado_em = agora
     s.flush()
 

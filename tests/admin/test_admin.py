@@ -53,10 +53,9 @@ def test_index_mostra_estado_e_coletas(cliente, sessoes):
     with sessoes() as s, s.begin():
         c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
         repo.finalizar_coleta(s, c.id, StatusColeta.OK, 1, 0, T0)
-    r = cliente.get("/")
-    assert r.status_code == 200
+    assert cliente.get("/").status_code == 200
     assert "Rodar agora" in cliente.get("/servicos").text
-    assert "<td>produtos</td>" in r.text
+    assert "<td>produtos</td>" in cliente.get("/logs").text
 
 
 def test_index_pausado_mostra_retomar(cliente, sessoes):
@@ -210,8 +209,8 @@ def test_index_com_coleta_rodando_mostra_andamento_e_esconde_rodar_agora(cliente
     with sessoes() as s, s.begin():
         repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
     r = cliente.get("/")
-    assert "coleta em andamento" in r.text
-    assert "Rodar agora" not in cliente.get("/servicos").text
+    assert "Coleta em andamento" in r.text
+    assert 'action="/rodar-agora"' not in cliente.get("/servicos").text
 
 
 def criar_muitos(sessoes, n):

@@ -101,12 +101,12 @@ def test_card_do_casador_ativo_com_chave(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo_ia.salvar_config_ia(s, {"ligado": True}, T0)
     card = _card_casador(cliente.get("/servicos").text)
-    assert "Ativo." in card and "sem chave" not in card
+    assert "Avalia 20 anúncios a cada 5 min" in card and "sem chave" not in card
 
 
 def test_dashboard_mostra_gasto_e_aviso_de_pausa(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo.pausar(s, "chave recusada pela OpenAI (401)", T0, COLETOR_CASADOR)
     html = cliente.get("/").text
-    assert "IA no mês" in html and "US$ 0,00" in html
-    assert "Casador (IA) pausado" in html and "chave recusada" in html
+    assert "Gasto do mês" in html and "US$ 0,00" in html
+    assert "Casador (IA) — Pausado: chave recusada" in html

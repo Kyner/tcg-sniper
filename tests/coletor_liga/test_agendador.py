@@ -14,7 +14,7 @@ from tcg_sniper.coletor_liga.agendador import (
 )
 from tcg_sniper.coletor_liga.execucao import ResultadoColeta
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db.models import Coleta, ProdutoLiga, StatusColeta, TipoColeta
+from tcg_sniper.db.models import COLETOR_LIGA, Coleta, ProdutoLiga, StatusColeta, TipoColeta
 from tcg_sniper.notificador.base import Destino
 
 SP = ZoneInfo("America/Sao_Paulo")
@@ -176,6 +176,40 @@ def test_pausado_nao_roda(engine, sessoes, config):
     chamadas = []
     a, _ = agendador(engine, sessoes, config, relogio, chamadas)
     a.inicializar()
+    assert a.tick() is None
+    assert chamadas == []
+
+
+def test_pausa_manual_nao_roda_agendado_nem_solicitado(engine, sessoes, config):
+    with sessoes() as s, s.begin():
+        repo.solicitar_execucao(s, local(TERCA, 8))
+        repo.pausar(s, "pausado no admin", local(TERCA, 8), COLETOR_LIGA)
+        repo.solicitar_execucao(s, local(TERCA, 8, 1))  # "rodar agora" com a coleta desligada
+    relogio = Relogio(local(TERCA, 15))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() is None
+    assert chamadas == []
+    with sessoes() as s, s.begin():
+        repo.retomar(s, local(TERCA, 15, 1), COLETOR_LIGA, solicitar=False)
+    relogio.agora = local(TERCA, 15, 2)
+    assert a.tick() == "agendado"  # a pausa cobriu o horário do dia: roda sozinho ao religar
+    assert chamadas == [True]
+
+
+def test_religar_num_dia_ja_coletado_nao_roda_de_novo(engine, sessoes, config):
+    job_ok(sessoes, TERCA, 10, 5)
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", local(TERCA, 12), COLETOR_LIGA)
+    relogio = Relogio(local(TERCA, 13))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() is None
+    with sessoes() as s, s.begin():
+        repo.retomar(s, local(TERCA, 13, 1), COLETOR_LIGA, solicitar=False)
+    relogio.agora = local(TERCA, 13, 2)
     assert a.tick() is None
     assert chamadas == []
 

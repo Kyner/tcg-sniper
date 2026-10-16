@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import MensagemSaida, StatusMensagem
+from tcg_sniper.db.models import COLETOR_NOTIFICADOR, EstadoColetorTipo, MensagemSaida, StatusMensagem
 from tcg_sniper.notificador import CHAVE_PADRAO
 from tcg_sniper.notificador.evolution import Resultado, enviar_uma_vez
 
@@ -63,9 +63,13 @@ class ServicoNotificador:
     def ciclo(self) -> int:
         """Um ciclo: registra que está vivo, limpa (1x/dia) e processa até `LOTE` mensagens, cada uma
         na sua transação (o que já saiu não volta a `pendente` se algo falhar depois).
+        Pausado no admin, só registra que está vivo: as mensagens ficam pendentes até retomar.
         Devolve quantas mensagens processou."""
         agora = inicio = self._relogio()
         with self._sessoes() as s, s.begin():
+            if repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado != EstadoColetorTipo.ATIVO:
+                repo_msg.registrar_ciclo(s, agora)
+                return 0
             geral = repo.obter_config_geral(s, self._config_env)
             cfg = _Destinos(
                 geral.evolution_instancia,

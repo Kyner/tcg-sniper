@@ -38,8 +38,8 @@ def test_index_mostra_a_amazon_ativa_com_ciclo(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
     texto = cliente.get("/").text
-    assert "Amazon" in texto and "ciclo em andamento" in texto
-    assert "Pausar (Amazon)" in cliente.get("/servicos").text
+    assert "Amazon" in texto and "Ciclo desde" in texto
+    assert 'action="/amazon/pausar"' in cliente.get("/servicos").text
 
 
 def test_pausar_e_retomar_a_amazon(cliente, sessoes):
@@ -47,7 +47,7 @@ def test_pausar_e_retomar_a_amazon(cliente, sessoes):
     with sessoes() as s:
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO
         assert repo.obter_estado(s).estado is EstadoColetorTipo.ATIVO  # a Liga não muda
-    assert "Retomar (Amazon)" in cliente.get("/servicos").text
+    assert 'action="/amazon/retomar"' in cliente.get("/servicos").text
     cliente.post("/amazon/retomar")
     with sessoes() as s:
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
@@ -57,7 +57,7 @@ def test_index_mostra_o_captcha_da_amazon_com_o_link_do_novnc(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo.pausar_por_desafio(s, "desafio em https://www.amazon.com.br/s?k=x", T0, COLETOR_AMAZON)
     texto = cliente.get("/servicos").text
-    assert ":6081/vnc.html" in texto and "Retomar (Amazon)" in texto
+    assert ":6081/vnc.html" in texto and 'action="/amazon/retomar"' in texto
 
 
 def test_configuracoes_mostra_os_valores_atuais(cliente):
@@ -195,14 +195,14 @@ def test_ciclos_da_amazon_nao_empurram_as_coletas_da_liga(cliente, sessoes):
         for i in range(12):
             ciclo = repo.iniciar_coleta(s, TipoColeta.AMAZON, T0 + timedelta(hours=i))
             repo.finalizar_coleta(s, ciclo.id, StatusColeta.OK, 3, 0, T0 + timedelta(hours=i))
-    texto = cliente.get("/").text
-    parte_liga, parte_amazon = texto.split("Ciclos da Amazon")
-    assert "Coletas da LigaMagic" in parte_liga
-    assert "<td>produtos</td>" in parte_liga and "<td>amazon</td>" not in parte_liga
-    assert parte_amazon.count("<td>amazon</td>") == 12
-    assert "<td>produtos</td>" not in parte_amazon
+    texto = cliente.get("/logs").text
+    parte_liga, parte_amazon = texto.split('aria-label="Amazon"')
+    assert 'aria-label="LigaMagic"' in parte_liga
+    assert 'data-tipo="produtos"' in parte_liga and 'data-tipo="amazon"' not in parte_liga
+    assert parte_amazon.count('data-tipo="amazon"') == 12
+    assert 'data-tipo="produtos"' not in parte_amazon
 
 
 def test_servicos_tem_selo_de_estado(cliente):
     texto = cliente.get("/servicos").text
-    assert 'badge-success">ativo</span>' in texto
+    assert 'badge-success">ligado</span>' in texto

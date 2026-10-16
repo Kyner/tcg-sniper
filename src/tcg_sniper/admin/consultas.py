@@ -5,6 +5,7 @@ from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import (
+    ChamadaIA,
     Coleta,
     PrecoAtualLiga,
     PrecoListagem,
@@ -46,6 +47,32 @@ def historico_coletas(
     pagina = min(max(pagina, 1), paginas)
     consulta = (
         select(Coleta).where(*condicoes).order_by(Coleta.id.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina)
+    )
+    return list(s.scalars(consulta)), pagina, paginas
+
+
+SITUACOES_IA = ("todas", "com_erro")
+FINALIDADES_IA = ("todas", "casamento", "avaliacao")
+
+
+def historico_chamadas_ia(
+    s: Session, situacao: str, finalidade: str, pagina: int, por_pagina: int = POR_PAGINA_HISTORICO
+) -> tuple[list[ChamadaIA], int, int]:
+    """Chamadas à OpenAI, das mais recentes, com os filtros da aba IA de Logs."""
+    condicoes = []
+    if situacao == "com_erro":
+        condicoes.append(ChamadaIA.ok.is_(False))
+    if finalidade != "todas":
+        condicoes.append(ChamadaIA.finalidade == finalidade)
+    total = s.scalar(select(func.count()).select_from(ChamadaIA).where(*condicoes)) or 0
+    paginas = max(1, -(-total // por_pagina))
+    pagina = min(max(pagina, 1), paginas)
+    consulta = (
+        select(ChamadaIA)
+        .where(*condicoes)
+        .order_by(ChamadaIA.em.desc(), ChamadaIA.id.desc())
+        .offset((pagina - 1) * por_pagina)
+        .limit(por_pagina)
     )
     return list(s.scalars(consulta)), pagina, paginas
 

@@ -1,117 +1,73 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import selo, cabecalho, aviso, paginacao %}
+{% from "_componentes.html" import selo, cabecalho, aviso %}
 {% block conteudo %}
-{{ cabecalho("Dashboard", "Resumo dos serviços e das últimas execuções") }}
+{% call cabecalho("Dashboard", "Visão geral: os serviços estão funcionando? e como estão os números.") %}
+  <span class="text-sm text-base-content/60">atualizado às {{ atualizado }}</span>
+{% endcall %}
 
-{% if estado.estado.value != "ativo" %}
-  {% call aviso("error", "LigaMagic pausada. " ~ (estado.motivo or "")) %}<a class="link" href="/servicos">Ir para Serviços</a>{% endcall %}
-{% endif %}
-{% if estado_amazon.estado.value != "ativo" %}
-  {% call aviso("error", "Amazon pausada" ~ (" (CAPTCHA pendente)" if estado_amazon.estado.value == "pausado_desafio" else "") ~ ". " ~ (estado_amazon.motivo or "")) %}<a class="link" href="/servicos">Ir para Serviços</a>{% endcall %}
-{% endif %}
-{% if estado_casador.estado.value == "pausado" %}
-  {% call aviso("error", "Casador (IA) pausado. " ~ (estado_casador.motivo or "")) %}<a class="link" href="/servicos">Ir para Serviços</a>{% endcall %}
-{% endif %}
-{% if resumo_msgs.aviso %}
-  {% set extra = " O notificador nunca rodou — veja Serviços." if resumo_msgs.notificador_parado == "nunca" else "" %}
-  {% call aviso("warning", resumo_msgs.aviso ~ extra) %}
-    {% if resumo_msgs.notificador_parado and resumo_msgs.notificador_parado != "nunca" %}O notificador está parado desde {{ resumo_msgs.notificador_ultimo_ciclo|data }} — veja Serviços.{% endif %}
-    <a class="link" href="{{ resumo_msgs.link_aviso }}">Ir para Mensagens</a>
-  {% endcall %}
-{% endif %}
+{% for a in avisos %}
+  {% call aviso(a.tipo, a.texto) %}<a class="link" href="{{ a.link }}">{{ a.rotulo_link }}</a>{% endcall %}
+{% endfor %}
 
-{% set menu = request.state.menu %}
-<div class="grid gap-4 xl:grid-cols-[3fr_2fr]">
-<div class="stats stats-vertical bg-base-100 shadow-sm lg:stats-horizontal">
-  <div class="stat">
-    <div class="stat-title">LigaMagic</div>
-    <div class="stat-value whitespace-normal text-lg">{{ selo("ativo") if estado.estado.value == "ativo" else selo("pausado_desafio", "pausado por desafio") }}{% if em_andamento %} {{ selo("rodando", "coleta em andamento") }}{% endif %}</div>
-    <div class="stat-desc whitespace-normal">Última com sucesso: {% if ultima_liga %}{{ ultima_liga.iniciada_em|data }} {{ selo(ultima_liga.status.value) }}{% else %}—{% endif %} · diária às {{ coleta_hora }} (± {{ coleta_jitter }} min)</div>
-  </div>
-  <div class="stat">
-    <div class="stat-title">Amazon</div>
-    <div class="stat-value whitespace-normal text-lg">
-      {% if estado_amazon.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "CAPTCHA pendente") }}
-      {% elif estado_amazon.estado.value == "pausado" %}{{ selo("pausado") }}
-      {% elif fora_da_janela %}{{ selo("inativo", "Fora da janela (" ~ janela ~ ")") }}
-      {% else %}{{ selo("ativo") }}{% endif %}
-      {% if ciclo_amazon %}{{ selo("rodando", "ciclo em andamento") }}{% endif %}
-    </div>
-    <div class="stat-desc whitespace-normal">Último ciclo: {% if ultimo_ciclo %}{{ ultimo_ciclo.finalizada_em|data }} {{ selo(ultimo_ciclo.status.value) }} · {{ ultimo_ciclo.produtos_ok }} ok, {{ ultimo_ciclo.produtos_falha }} falhas{% else %}—{% endif %}</div>
-  </div>
-  <div class="stat">
-    <div class="stat-title">WhatsApp</div>
-    <div class="stat-value whitespace-normal text-lg tabular-nums">{{ resumo_msgs.pendentes }} <span class="text-sm font-normal">pendentes</span> · {{ resumo_msgs.falhas }} <span class="text-sm font-normal">falhas</span></div>
-    <div class="stat-desc whitespace-normal">Último envio: {{ resumo_msgs.ultimo_envio|data if resumo_msgs.ultimo_envio else "—" }} · <a class="link" href="/mensagens">Ver mensagens</a></div>
-  </div>
-</div>
-<div class="stats stats-vertical bg-base-100 shadow-sm sm:stats-horizontal">
-  <div class="stat">
-    <div class="stat-title">Oportunidades abertas</div>
-    <div class="stat-value tabular-nums"><a class="link link-hover" href="/ofertas?situacao=abertas">{{ menu.ofertas }}</a></div>
-  </div>
-  <div class="stat">
-    <div class="stat-title">Casamentos pendentes</div>
-    <div class="stat-value tabular-nums"><a class="link link-hover" href="/casamentos">{{ menu.casamentos }}</a></div>
-  </div>
-  <div class="stat">
-    <div class="stat-title">IA no mês</div>
-    <div class="stat-value tabular-nums">{{ gasto_ia.mes_usd|usd }}</div>
-    <div class="stat-desc">hoje {{ gasto_ia.dia_usd|usd }}</div>
-  </div>
-</div>
-</div>
-
-{% macro url_liga(n) %}{{ link(liga_pagina=n) }}{% endmacro %}
-{% macro url_amazon(n) %}{{ link(amazon_pagina=n) }}{% endmacro %}
-{% macro historico(titulo, campo_status, campo_pagina, valor_status, linhas, pagina, paginas, vazio) %}
-<form method="get" action="/" class="flex flex-wrap items-center gap-2">
-  {% for nome, valor in [("liga_status", liga_status), ("amazon_status", amazon_status)] if nome != campo_status %}
-  <input type="hidden" name="{{ nome }}" value="{{ valor }}">
-  {% endfor %}
-  <select name="{{ campo_status }}" class="select select-sm w-auto" aria-label="Status">
-    {% for s in status_historico %}<option value="{{ s }}" {% if s == valor_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
-  </select>
-  <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
-</form>
-<div class="card hidden bg-base-100 shadow-sm md:block"><div class="overflow-x-auto">
-  <table class="table table-zebra">
-    <thead><tr><th>#</th><th>Tipo</th><th>Início</th><th>Fim</th><th>Status</th><th class="text-right">OK</th><th class="text-right">Falhas</th><th>Erro</th></tr></thead>
-    <tbody>
-    {% for c in linhas %}
-      <tr>
-        <td class="tabular-nums">{{ c.id }}</td><td>{{ c.tipo.value }}</td><td class="whitespace-nowrap">{{ c.iniciada_em|data }}</td><td class="whitespace-nowrap">{{ c.finalizada_em|data }}</td>
-        <td>{{ selo(c.status.value) }}</td><td class="text-right tabular-nums">{{ c.produtos_ok }}</td><td class="text-right tabular-nums">{{ c.produtos_falha }}</td><td>{{ c.erro or "" }}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="8">{{ vazio }}</td></tr>
+<div>
+  <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-base-content/60">Serviços</h2>
+  <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    {% for x in servicos %}
+    <div class="card bg-base-100 shadow-sm" data-servico="{{ x.nome }}"><div class="card-body gap-1 p-4">
+      <div class="flex items-center justify-between gap-2"><h3 class="font-semibold"><a class="link link-hover" href="{{ x.link }}">{{ x.nome }}</a></h3>{{ selo(x.situacao, x.rotulo) }}</div>
+      <p class="text-sm">{{ x.texto }}</p>
+      <p class="text-xs text-base-content/60">{{ x.detalhe }}</p>
+    </div></div>
     {% endfor %}
-    </tbody>
-  </table>
-</div></div>
-<div class="space-y-2 md:hidden">
-  {% for c in linhas %}
-  <div class="card bg-base-100 shadow-sm"><div class="card-body gap-1 p-4">
-    <div class="flex items-center justify-between gap-2"><span class="font-medium">#{{ c.id }} · {{ c.tipo.value }}</span>{{ selo(c.status.value) }}</div>
-    <div class="text-sm text-base-content/70">{{ c.iniciada_em|data }} → {{ c.finalizada_em|data }}</div>
-    <div class="text-sm tabular-nums">{{ c.produtos_ok }} ok · {{ c.produtos_falha }} falhas{% if c.erro %} · {{ c.erro }}{% endif %}</div>
-  </div></div>
-  {% else %}
-  <p class="text-sm">{{ vazio }}</p>
-  {% endfor %}
+  </div>
 </div>
-{{ paginacao(pagina, paginas, url_liga if campo_pagina == "liga_pagina" else url_amazon) }}
-{% endmacro %}
 
-{% set aba_amazon = amazon_status != "todos" or pagina_amazon > 1 %}
-<div class="tabs tabs-border">
-  <input type="radio" name="historico" class="tab" aria-label="Coletas da LigaMagic"{% if not aba_amazon %} checked{% endif %}>
-  <div class="tab-content space-y-3 pt-4">
-    {{ historico("Coletas da LigaMagic", "liga_status", "liga_pagina", liga_status, coletas, pagina_liga, paginas_liga, "Nenhuma coleta ainda.") }}
-  </div>
-  <input type="radio" name="historico" class="tab" aria-label="Ciclos da Amazon"{% if aba_amazon %} checked{% endif %}>
-  <div class="tab-content space-y-3 pt-4">
-    {{ historico("Ciclos da Amazon", "amazon_status", "amazon_pagina", amazon_status, ciclos, pagina_amazon, paginas_amazon, "Nenhum ciclo ainda.") }}
-  </div>
+{% set pontos = {"ok": "status-success", "rodando": "status-info", "parcial": "status-warning", "falha": "status-error", "nenhum": "status-neutral"} %}
+<div class="grid gap-3 lg:grid-cols-2">
+  <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+    <div class="flex items-center justify-between gap-2"><h2 class="card-title text-base">Casamentos</h2><a class="link text-sm" href="/casamentos">Abrir Casamentos</a></div>
+    <div class="stats stats-vertical sm:stats-horizontal">
+      <div class="stat px-3"><div class="stat-title">Confirmados</div><div class="stat-value text-2xl tabular-nums text-success">{{ n.confirmados|milhar }}</div></div>
+      <div class="stat px-3"><div class="stat-title">Pendentes</div><div class="stat-value text-2xl tabular-nums text-warning">{{ n.pendentes|milhar }}</div></div>
+      <div class="stat px-3"><div class="stat-title">Ignorados</div><div class="stat-value text-2xl tabular-nums">{{ n.ignorados|milhar }}</div></div>
+    </div>
+    <div class="space-y-1">
+      <div class="flex justify-between text-sm"><span>Produtos ativos com par na Amazon</span><span class="tabular-nums">{{ n.produtos_com_par|milhar }} de {{ n.produtos_ativos|milhar }}</span></div>
+      <progress class="progress progress-success w-full" value="{{ n.produtos_com_par }}" max="{{ n.produtos_ativos or 1 }}"></progress>
+      <p class="text-xs text-base-content/60">Catálogo: {{ n.produtos_ativos|milhar }} monitorados de {{ n.produtos_total|milhar }} produtos da LigaMagic</p>
+    </div>
+  </div></div>
+
+  <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+    <div class="flex items-center justify-between gap-2"><h2 class="card-title text-base">IA</h2><a class="link text-sm" href="/configuracoes">Configurações → IA</a></div>
+    <div class="stats stats-vertical sm:stats-horizontal">
+      <div class="stat px-3"><div class="stat-title">Avaliados</div><div class="stat-value text-2xl tabular-nums">{{ n.avaliados|milhar }}</div><div class="stat-desc whitespace-normal">de {{ n.pendentes|milhar }} pendentes</div></div>
+      <div class="stat px-3"><div class="stat-title">Pelo automático</div><div class="stat-value text-2xl tabular-nums">{{ n.pelo_automatico|milhar }}</div><div class="stat-desc whitespace-normal">confirmados ou ignorados</div></div>
+      <div class="stat px-3"><div class="stat-title">Esperando você</div><div class="stat-value text-2xl tabular-nums text-info">{{ n.esperando_voce|milhar }}</div><div class="stat-desc whitespace-normal">{% if n.automatico %}"mesmo produto" abaixo de {{ n.confianca_confirmar }}%{% else %}"mesmo produto", automático desligado{% endif %}</div></div>
+    </div>
+    <div class="space-y-1">
+      <div class="flex justify-between text-sm"><span>Gasto do mês</span><span class="tabular-nums">{{ n.gasto_mes|usd }} de {{ n.teto_mes|usd }}</span></div>
+      <progress class="progress progress-info w-full" value="{{ n.gasto_mes }}" max="{{ n.teto_mes or 1 }}"></progress>
+    </div>
+  </div></div>
+
+  <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+    <div class="flex items-center justify-between gap-2"><h2 class="card-title text-base">Oportunidades</h2><a class="link text-sm" href="/ofertas?situacao=abertas">Abrir Ofertas</a></div>
+    <div class="stats stats-vertical sm:stats-horizontal">
+      <div class="stat px-3"><div class="stat-title">Abertas agora</div><div class="stat-value text-2xl tabular-nums">{{ n.abertas|milhar }}</div></div>
+      <div class="stat px-3"><div class="stat-title">Alertas hoje</div><div class="stat-value text-2xl tabular-nums">{{ n.alertas_hoje|milhar }}</div></div>
+      <div class="stat px-3"><div class="stat-title">Alertas na semana</div><div class="stat-value text-2xl tabular-nums">{{ n.alertas_semana|milhar }}</div></div>
+    </div>
+    <p class="text-xs text-base-content/60">Maior desconto aberto: {% if n.maior_desconto is not none %}{{ "%.2f"|format(n.maior_desconto)|replace(".", ",") }}%{% else %}nenhum{% endif %}. Mínimo configurado: {{ n.desconto_min }}%.</p>
+  </div></div>
+
+  <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+    <div class="flex items-center justify-between gap-2"><h2 class="card-title text-base">Atividade de hoje</h2><a class="link text-sm" href="/logs">Abrir Logs</a></div>
+    <ul class="list">
+      {% for item in atividade %}
+      <li class="list-row px-0 py-2"><span class="status {{ pontos[item.situacao] }} mt-2" aria-hidden="true"></span><div>{{ item.rotulo }}</div><div class="text-sm tabular-nums text-base-content/70">{{ item.texto }}</div></li>
+      {% endfor %}
+    </ul>
+  </div></div>
 </div>
 {% endblock %}
