@@ -75,9 +75,12 @@ class ServicoCasador:
             pendentes = repo_ia.pares_pendentes(s)
             self._esquecer_falhas_fora_de({(p.anuncio.id, p.produto.id) for p in pendentes})
             candidatos = []
+            ja_avaliados = []  # avaliação em dia que o automático ainda não aplicou (ex.: ligado depois)
             for p in pendentes:
                 atual = assinatura(p.anuncio, p.produto)
                 if p.avaliacao is not None and p.avaliacao.assinatura == atual:
+                    if automatico and p.avaliacao.aplicada_em is None:
+                        ja_avaliados.append((p.anuncio.id, p.produto.id))
                     continue
                 if self._em_espera((p.anuncio.id, p.produto.id), atual, agora):
                     continue
@@ -86,6 +89,11 @@ class ServicoCasador:
             # vários anúncios podem sugerir o mesmo produto: cada objeto sai da sessão uma vez só
             for obj in {*(p.anuncio for p, _ in pares), *(p.produto for p, _ in pares)}:
                 s.expunge(obj)
+        for anuncio_id, produto_id in ja_avaliados:
+            with self._sessoes() as s, s.begin():
+                av = repo_ia.avaliacoes_dos_pares(s, [(anuncio_id, produto_id)]).get((anuncio_id, produto_id))
+                if av is not None and av.aplicada_em is None:
+                    self._aplicar(s, av, limites, self._relogio())
         avaliados = falhas = 0
         for par, atual in pares:
             if self._parar.is_set():
@@ -148,7 +156,6 @@ class ServicoCasador:
 
     def _gravar(self, par, veredito, resposta, sem_imagem, automatico, limites) -> None:
         agora = self._relogio()
-        confirmar, ignorar = limites
         with self._sessoes() as s, s.begin():
             anterior = repo_ia.avaliacoes_dos_pares(s, [(par.anuncio.id, par.produto.id)]).get((par.anuncio.id, par.produto.id))
             ja_aplicada = anterior is not None and anterior.aplicada_em is not None
@@ -158,18 +165,24 @@ class ServicoCasador:
                 assinatura=assinatura(par.anuncio, par.produto), sem_imagem=sem_imagem,
                 chamada_id=resposta.chamada_id, agora=agora,
             )
-            if not automatico or ja_aplicada:
-                return
-            anuncio = s.get(AnuncioAmazon, par.anuncio.id, with_for_update=True, populate_existing=True)
-            if anuncio.status_casamento is not StatusCasamento.PENDENTE or anuncio.produto_id != par.produto.id:
-                return  # o usuário decidiu enquanto a IA respondia
-            if veredito.mesmo_produto and veredito.confianca >= confirmar:
-                repo_amz.confirmar_casamento(s, anuncio.id, par.produto.id, agora)
-            elif not veredito.mesmo_produto and veredito.confianca >= ignorar:
-                repo_amz.ignorar_anuncio(s, anuncio.id, agora)
-            else:
-                return
-            av.aplicada_em = agora
+            if automatico and not ja_aplicada:
+                self._aplicar(s, av, limites, agora)
+
+    @staticmethod
+    def _aplicar(s: Session, av, limites: tuple[int, int], agora: datetime) -> None:
+        """Automático: confirma ou ignora o anúncio se a confiança passa do limite. Só age se o anúncio
+        ainda está pendente com o mesmo produto (decisão do usuário vale)."""
+        confirmar, ignorar = limites
+        anuncio = s.get(AnuncioAmazon, av.anuncio_id, with_for_update=True, populate_existing=True)
+        if anuncio.status_casamento is not StatusCasamento.PENDENTE or anuncio.produto_id != av.produto_id:
+            return  # o usuário decidiu enquanto a IA respondia
+        if av.mesmo_produto and av.confianca >= confirmar:
+            repo_amz.confirmar_casamento(s, anuncio.id, av.produto_id, agora)
+        elif not av.mesmo_produto and av.confianca >= ignorar:
+            repo_amz.ignorar_anuncio(s, anuncio.id, agora)
+        else:
+            return
+        av.aplicada_em = agora
 
     def _avisar_orcamento(self, motivo: str, zona) -> None:
         local = self._relogio().astimezone(zona)
