@@ -153,7 +153,8 @@ def test_id_fora_do_inteiro_do_postgres_da_404(cliente):
 
 def test_celula_do_texto_preserva_quebras(cliente, sessoes):
     criar(sessoes, texto="linha 1\nlinha 2")
-    assert 'style="white-space: pre-line"' in cliente.get("/mensagens").text
+    texto = cliente.get("/mensagens").text
+    assert 'class="whitespace-pre-line break-words"' in texto and "style=" not in texto.split("<main", 1)[1]
 
 
 def test_situacao_da_mensagem_tem_selo(cliente, sessoes):

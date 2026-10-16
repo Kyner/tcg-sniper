@@ -14,8 +14,8 @@
         {% for campo in secao.campos %}
         <fieldset class="fieldset{% if campo in ('categorias', 'url_listagem', 'url_busca') %} md:col-span-2{% endif %}">
           <legend class="fieldset-legend">{{ secao.rotulos[campo] }}</legend>
-          <input id="{{ secao.id }}-{{ campo }}" name="{{ campo }}" value="{{ secao.valores[campo] }}" class="input w-full{% if campo in secao.erros %} input-error{% endif %}"{% if campo in secao.erros %} aria-invalid="true"{% endif %}>
-          <p class="label whitespace-normal{% if campo in secao.erros %} text-error{% endif %}">{{ secao.erros[campo] if campo in secao.erros else secao.explicacoes[campo] }}</p>
+          <input id="{{ secao.id }}-{{ campo }}" name="{{ campo }}" value="{{ secao.valores[campo] }}" aria-label="{{ secao.rotulos[campo] }}" aria-describedby="{{ secao.id }}-{{ campo }}-ajuda" class="input w-full{% if campo in secao.erros %} input-error{% endif %}"{% if campo in secao.erros %} aria-invalid="true"{% endif %}>
+          <p id="{{ secao.id }}-{{ campo }}-ajuda" class="label whitespace-normal{% if campo in secao.erros %} text-error{% endif %}">{{ secao.erros[campo] if campo in secao.erros else secao.explicacoes[campo] }}</p>
           {% if secao.id == "liga" and campo == "categorias" %}
           <p class="label whitespace-normal">Padrão: {{ categorias_padrao }} · <a class="link" href="#" onclick="document.getElementById('liga-categorias').value='{{ categorias_padrao }}'; return false;">restaurar padrão</a> (depois clique em Salvar)</p>
           {% endif %}

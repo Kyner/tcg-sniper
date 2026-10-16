@@ -454,7 +454,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "atual": atual,
                     "historico_resumo": historico_resumo,
                     "historico_listagem": historico_listagem,
-                    "amazon": consultas_amazon.amazon_do_produto(s, produto_id),
+                    "amazon": consultas_amazon.amazon_do_produto(s, produto_id, repo_amz.obter_config(s)),
                     "historico_amazon": consultas_amazon.historico_amazon(s, produto_id),
                 },
             )
@@ -587,7 +587,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         link_digitado: str, codigo: int,
     ):
         cfg = repo_amz.obter_config(s)
-        detalhe = consultas_amazon.detalhe_casamento(s, produto_id, cfg.desconto_min_pct)
+        detalhe = consultas_amazon.detalhe_casamento(s, produto_id, cfg)
         if detalhe is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND)
         voltar = destino_seguro(voltar)

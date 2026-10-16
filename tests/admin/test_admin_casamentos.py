@@ -255,7 +255,7 @@ def test_opcao_da_variacao_aparece_nas_telas(cliente, sessoes, cenario):
 
 def test_lista_de_casamentos_tem_selos(cliente, cenario):
     texto = cliente.get("/casamentos", params={"situacao": "todos"}).text
-    assert 'badge-warning">oportunidade</span>' in texto
+    assert 'badge-success">oportunidade</span>' in texto
     assert ">sem par</span>" in texto
 
 

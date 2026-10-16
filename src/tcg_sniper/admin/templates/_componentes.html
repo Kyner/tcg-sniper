@@ -12,6 +12,13 @@
 <span class="badge badge-sm whitespace-nowrap {{ cores.get(situacao, 'badge-ghost') }}">{{ texto or situacao|replace("_", " ") }}</span>
 {%- endmacro %}
 
+{% macro selo_vendedor(verificado, confiavel, envio, vendedor) -%}
+{%- if not verificado -%}{{ selo("nao_verificado", "vendedor não verificado") }}<div class="text-xs text-base-content/60">preço lido só na busca</div>
+{%- elif confiavel -%}{{ selo("confirmado", envio|envio(vendedor)) }}
+{%- else -%}{{ selo("nao_verificado", envio|envio(vendedor)) }} <span class="text-xs text-base-content/60">(não elegível)</span>
+{%- endif -%}
+{%- endmacro %}
+
 {% macro selo_desconto(pct, minimo) -%}
 {%- if pct is none -%}<span class="text-base-content/60">—</span>
 {%- else -%}

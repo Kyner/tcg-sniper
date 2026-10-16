@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import selo, cabecalho %}
+{% from "_componentes.html" import selo_vendedor, cabecalho %}
 {% block titulo %}{{ p.nome }} · TCG Sniper{% endblock %}
 {% block conteudo %}
-{% call cabecalho(p.nome, (p.tipo or "") ~ " · " ~ ("Monitorado" if p.ativo else "Não monitorado")) %}
+{% call cabecalho(p.nome, [p.tipo, "Monitorado" if p.ativo else "Não monitorado"]|select|join(" · ")) %}
   <a class="btn btn-sm btn-outline" href="{{ p.url }}" target="_blank" rel="noopener">{{ icone("arrow-top-right-on-square", "size-4") }} Ver na LigaMagic</a>
 {% endcall %}
 <div class="grid gap-4 md:grid-cols-2">
@@ -22,11 +22,11 @@
   <div class="overflow-x-auto"><table class="table">
     <thead><tr><th>ASIN</th><th class="text-right">Preço</th><th>Vendedor</th><th>Lido em</th></tr></thead>
     <tbody>
-    {% for anuncio, atual_amz, vendedor in amazon %}
+    {% for l in amazon %}{% set anuncio = l.anuncio %}{% set atual_amz = l.atual %}
       <tr>
         <td><a class="link font-mono" href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<div class="text-xs text-base-content/70">{{ anuncio.variacao }}</div>{% endif %}</td>
         <td class="text-right tabular-nums whitespace-nowrap">{{ (atual_amz.preco if atual_amz else None)|brl }}</td>
-        <td>{{ atual_amz.envio|envio(vendedor) if atual_amz else "—" }}</td>
+        <td>{% if atual_amz %}{{ selo_vendedor(l.verificado, l.confiavel, atual_amz.envio, l.vendedor) }}{% else %}—{% endif %}</td>
         <td class="whitespace-nowrap">{{ (atual_amz.coletado_em if atual_amz else None)|data }}</td>
       </tr>
     {% else %}

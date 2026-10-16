@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import selo, cabecalho, aviso %}
+{% from "_componentes.html" import selo, selo_vendedor, cabecalho, aviso %}
 {% block titulo %}{{ d.produto.nome }} · Casamentos · TCG Sniper{% endblock %}
 {% block conteudo %}
 <a class="link text-sm" href="{{ voltar }}">← Voltar</a>
@@ -27,18 +27,18 @@
 {% endmacro %}
 
 {% macro titulo_anuncio(l) %}
-<a class="link link-hover font-medium" href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a>
-<div class="font-mono text-xs text-base-content/60">{{ l.anuncio.asin }}</div>
+<a class="link link-hover font-medium break-words" href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a>
+<div class="font-mono text-xs text-base-content/60 break-words">{{ l.anuncio.asin }}</div>
 {% endmacro %}
 
 {% set aba_confirmados = not d.pendentes and d.confirmados %}
-<div class="tabs tabs-border">
+<div class="tabs tabs-border tabs-sm sm:tabs-md">
   <input type="radio" name="anuncios" class="tab" aria-label="Pendentes ({{ d.pendentes|length }})"{% if not aba_confirmados %} checked{% endif %}>
   <div class="tab-content space-y-2 pt-4">
     {% for l in d.pendentes %}
     <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
       {{ titulo_anuncio(l) }}
-      <div class="flex flex-wrap items-center gap-2"><span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>{% if l.oportunidade %}{{ selo("pendente", "oportunidade") }}{% endif %}</div>
+      <div class="flex flex-wrap items-center gap-2"><span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}</div>
       <div class="card-actions">
         {{ botao(l.anuncio, "confirmar", "Confirmar", "btn-sm btn-success", produto_id=d.produto.id) }}
         {{ botao(l.anuncio, "ignorar", "Ignorar", "btn-sm btn-outline") }}
@@ -56,7 +56,7 @@
       {{ titulo_anuncio(l) }}
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>
-        {% if l.atual %}{{ selo("confirmado" if l.atual.envio.value in ("amazon", "fba") else "nao_verificado", l.atual.envio|envio(l.vendedor)) }}{% else %}{{ selo("nao_verificado", "sem leitura") }}{% endif %}
+        {% if l.atual %}{{ selo_vendedor(l.verificado, l.confiavel, l.atual.envio, l.vendedor) }}{% else %}{{ selo("nao_verificado", "sem leitura") }}{% endif %}
         <span class="text-base-content/60">{{ (l.atual.coletado_em if l.atual else None)|data }}</span>
       </div>
       <div class="card-actions">{{ botao(l.anuncio, "desfazer", "Desfazer", "btn-sm btn-outline") }}</div>

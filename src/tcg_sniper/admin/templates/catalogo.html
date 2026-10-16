@@ -3,7 +3,7 @@
 {% block titulo %}Catálogo · TCG Sniper{% endblock %}
 {% block conteudo %}
 {{ cabecalho("Catálogo", total ~ " produto(s) da LigaMagic") }}
-{% call caixa_filtros(busca or categoria or com_preco) %}
+{% call caixa_filtros(busca or filtro != "todos" or categoria or com_preco) %}
 <form method="get" action="/catalogo" class="grid gap-2 md:grid-cols-5">
   <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar por nome" class="input input-sm w-full md:col-span-2" aria-label="Buscar por nome">
   <select name="filtro" class="select select-sm w-full" aria-label="Situação">
@@ -35,9 +35,8 @@
   </div>
 </form>
 {% endif %}
-<p class="text-sm text-base-content/70">Página {{ pagina }} de {{ paginas }} · {{ total }} produto(s)</p>
 <div class="card bg-base-100 shadow-sm"><div class="overflow-x-auto">
-  <table class="table">
+  <table class="table table-sm md:table-md">
     <thead><tr><th>Nome</th><th class="hidden md:table-cell">Categoria</th><th class="text-right">À partir de</th><th class="hidden text-right md:table-cell">Mín</th><th class="hidden text-right md:table-cell">Lojas</th><th class="hidden md:table-cell">Visto desde</th><th>Monitorar</th></tr></thead>
     <tbody>
     {% for p, atual in linhas %}

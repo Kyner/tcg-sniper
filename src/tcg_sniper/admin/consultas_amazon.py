@@ -148,6 +148,9 @@ class LinhaAnuncio:
     atual: PrecoAtualAmazon | None
     vendedor: VendedorAmazon | None
     oportunidade: bool
+    # Mesmas regras da tela de Ofertas: confiavel = vendedor aceito pelos alertas; verificado = preço lido na página do produto.
+    confiavel: bool
+    verificado: bool
 
 
 @dataclass(frozen=True)
@@ -159,7 +162,16 @@ class DetalheCasamento:
     ignorados: list[LinhaAnuncio]
 
 
-def detalhe_casamento(s: Session, produto_id: int, desconto_min_pct: int) -> DetalheCasamento | None:
+def _selo_do_vendedor(atual: PrecoAtualAmazon | None, vendedor: VendedorAmazon | None, regras: Regras) -> tuple[bool, bool]:
+    """(confiavel, verificado) de uma leitura de preço: o mesmo critério dos alertas e da tela de Ofertas."""
+    if atual is None:
+        return False, False
+    info = Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes) if vendedor else None
+    confiavel = atual.envio is Envio.AMAZON or (atual.envio is Envio.FBA and vendedor_confiavel(info, regras))
+    return confiavel, atual.origem is OrigemPreco.PRODUTO
+
+
+def detalhe_casamento(s: Session, produto_id: int, config: ConfigAmazon) -> DetalheCasamento | None:
     produto = s.get(ProdutoLiga, produto_id)
     if produto is None or not produto.ativo:
         return None
@@ -172,10 +184,12 @@ def detalhe_casamento(s: Session, produto_id: int, desconto_min_pct: int) -> Det
         .where(AnuncioAmazon.produto_id == produto_id)
         .order_by(PrecoAtualAmazon.preco.nulls_last(), AnuncioAmazon.id)
     )
+    regras = Regras.de(config)
     grupos: dict[StatusCasamento, list[LinhaAnuncio]] = {situacao: [] for situacao in StatusCasamento}
     for anuncio, atual, vendedor in s.execute(consulta):
-        oportunidade = atinge_desconto(atual.preco if atual else None, preco_liga, desconto_min_pct)
-        grupos[anuncio.status_casamento].append(LinhaAnuncio(anuncio, atual, vendedor, oportunidade))
+        oportunidade = atinge_desconto(atual.preco if atual else None, preco_liga, config.desconto_min_pct)
+        confiavel, verificado = _selo_do_vendedor(atual, vendedor, regras)
+        grupos[anuncio.status_casamento].append(LinhaAnuncio(anuncio, atual, vendedor, oportunidade, confiavel, verificado))
     return DetalheCasamento(
         produto,
         preco_liga,
@@ -294,8 +308,7 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
     regras = Regras.de(config)
     melhores: dict[int, LinhaOferta] = {}
     for anuncio, produto, atual, vendedor, preco_liga in s.execute(consulta):
-        info = Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes) if vendedor else None
-        confiavel = atual.envio is Envio.AMAZON or (atual.envio is Envio.FBA and vendedor_confiavel(info, regras))
+        confiavel, verificado = _selo_do_vendedor(atual, vendedor, regras)
         if not _vendedor_aceito(filtro.vendedor, atual.envio, confiavel):
             continue
         atual_melhor = melhores.get(produto.id)
@@ -309,7 +322,7 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
             envio=atual.envio,
             vendedor=vendedor,
             confiavel=confiavel,
-            verificado=atual.origem is OrigemPreco.PRODUTO,
+            verificado=verificado,
             coletado_em=atual.coletado_em,
             desconto=desconto_pct(atual.preco, preco_liga) if preco_liga else None,
             diferenca=preco_liga - atual.preco if preco_liga is not None else None,
@@ -324,9 +337,7 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
     return linhas
 
 
-def amazon_do_produto(
-    s: Session, produto_id: int
-) -> list[tuple[AnuncioAmazon, PrecoAtualAmazon | None, VendedorAmazon | None]]:
+def amazon_do_produto(s: Session, produto_id: int, config: ConfigAmazon) -> list[LinhaAnuncio]:
     consulta = (
         select(AnuncioAmazon, PrecoAtualAmazon, VendedorAmazon)
         .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
@@ -334,7 +345,11 @@ def amazon_do_produto(
         .where(AnuncioAmazon.produto_id == produto_id, AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO)
         .order_by(PrecoAtualAmazon.preco.nulls_last(), AnuncioAmazon.id)
     )
-    return [(anuncio, atual, vendedor) for anuncio, atual, vendedor in s.execute(consulta)]
+    regras = Regras.de(config)
+    return [
+        LinhaAnuncio(anuncio, atual, vendedor, False, *_selo_do_vendedor(atual, vendedor, regras))
+        for anuncio, atual, vendedor in s.execute(consulta)
+    ]
 
 
 def historico_amazon(s: Session, produto_id: int, limite: int = 90) -> list[tuple[PrecoAmazon, str]]:

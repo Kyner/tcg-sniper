@@ -223,11 +223,11 @@ def criar_muitos(sessoes, n):
 def test_catalogo_pagina_100_linhas_com_total(cliente, sessoes):
     criar_muitos(sessoes, 250)
     r = cliente.get("/catalogo")
-    assert "Página 1 de 3 · 250 produto(s)" in r.text
+    assert "Página 1 de 3" in r.text and "250 produto(s)" in r.text
     assert "Produto 099" in r.text and "Produto 100" not in r.text
     assert "mostrando os primeiros" not in r.text
     r = cliente.get("/catalogo?pagina=3")
-    assert "Página 3 de 3 · 250 produto(s)" in r.text
+    assert "Página 3 de 3" in r.text and "250 produto(s)" in r.text
     assert "Produto 200" in r.text and "Produto 249" in r.text and "Produto 199" not in r.text
 
 
@@ -247,7 +247,7 @@ def test_catalogo_pagina_alem_do_fim_mostra_ultima(cliente, sessoes):
 def test_catalogo_links_anterior_proxima_mantem_parametros(cliente, sessoes):
     criar_muitos(sessoes, 250)
     r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos&com_preco=1")
-    assert "Página 1 de 1 · 0 produto(s)" in r.text  # com_preco=1 esconde tudo (sem preço)
+    assert "Página 1 de 1" in r.text and "0 produto(s)" in r.text  # com_preco=1 esconde tudo (sem preço)
     r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos")
     assert "Página 2 de 3" in r.text
     assert 'href="/catalogo?busca=Produto&amp;filtro=ativos&amp;pagina=1"' in r.text
@@ -258,7 +258,7 @@ def test_catalogo_links_anterior_proxima_mantem_parametros(cliente, sessoes):
 
 def test_catalogo_vazio_mostra_pagina_1_de_1(cliente):
     r = cliente.get("/catalogo")
-    assert "Página 1 de 1 · 0 produto(s)" in r.text
+    assert "Página 1 de 1" in r.text and "0 produto(s)" in r.text
     assert "Nenhum produto encontrado." in r.text
 
 
@@ -339,7 +339,7 @@ def test_catalogo_link_proxima_codifica_categoria_e_mantem_ordem(cliente, sessoe
         itens = [item_listagem(f"q{i:03d}", f"Promo {i:03d}", "10.00", tipo=tipo) for i in range(101)]
         repo.gravar_listagem(s, c.id, itens, T0)
     r = cliente.get("/catalogo", params={"categoria": tipo, "com_preco": "1"})
-    assert r.status_code == 200 and "Página 1 de 2 · 101 produto(s)" in r.text
+    assert r.status_code == 200 and "Página 1 de 2" in r.text and "101 produto(s)" in r.text
     assert (
         'href="/catalogo?categoria=Caixas+de+Boosters%2FPromo+%C3%A7%C3%A3o&amp;com_preco=1&amp;pagina=2"'
         in r.text
@@ -512,6 +512,8 @@ def test_catalogo_monitorar_e_um_toggle_htmx(cliente, sessoes):
     assert f'hx-post="/produto/{p.id}/ativo"' in texto and 'class="toggle' in texto
     parcial = cliente.post(f"/produto/{p.id}/ativo").text
     assert parcial.lstrip().startswith(f'<tr id="produto-{p.id}"') and 'class="toggle' in parcial
+    assert ">Inativo</span>" in parcial
+    assert ">Ativo</span>" in cliente.post(f"/produto/{p.id}/ativo").text
 
 
 def test_catalogo_tem_paginacao_numerada(cliente, sessoes):

@@ -18,28 +18,31 @@
 {% endif %}
 
 {% set menu = request.state.menu %}
-<div class="stats stats-vertical w-full bg-base-100 shadow-sm md:stats-horizontal">
+<div class="grid gap-4 xl:grid-cols-[3fr_2fr]">
+<div class="stats stats-vertical bg-base-100 shadow-sm lg:stats-horizontal">
   <div class="stat">
     <div class="stat-title">LigaMagic</div>
-    <div class="stat-value text-lg">{{ selo("ativo") if estado.estado.value == "ativo" else selo("pausado_desafio", "pausado por desafio") }}{% if em_andamento %} {{ selo("rodando", "coleta em andamento") }}{% endif %}</div>
-    <div class="stat-desc">Última com sucesso: {% if ultima_liga %}{{ ultima_liga.iniciada_em|data }}{% else %}—{% endif %} · diária às {{ coleta_hora }} (± {{ coleta_jitter }} min)</div>
+    <div class="stat-value whitespace-normal text-lg">{{ selo("ativo") if estado.estado.value == "ativo" else selo("pausado_desafio", "pausado por desafio") }}{% if em_andamento %} {{ selo("rodando", "coleta em andamento") }}{% endif %}</div>
+    <div class="stat-desc whitespace-normal">Última com sucesso: {% if ultima_liga %}{{ ultima_liga.iniciada_em|data }} {{ selo(ultima_liga.status.value) }}{% else %}—{% endif %} · diária às {{ coleta_hora }} (± {{ coleta_jitter }} min)</div>
   </div>
   <div class="stat">
     <div class="stat-title">Amazon</div>
-    <div class="stat-value text-lg">
+    <div class="stat-value whitespace-normal text-lg">
       {% if estado_amazon.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "CAPTCHA pendente") }}
       {% elif estado_amazon.estado.value == "pausado" %}{{ selo("pausado") }}
       {% elif fora_da_janela %}{{ selo("inativo", "Fora da janela (" ~ janela ~ ")") }}
       {% else %}{{ selo("ativo") }}{% endif %}
       {% if ciclo_amazon %}{{ selo("rodando", "ciclo em andamento") }}{% endif %}
     </div>
-    <div class="stat-desc">Último ciclo: {% if ultimo_ciclo %}{{ ultimo_ciclo.finalizada_em|data }} · {{ ultimo_ciclo.produtos_ok }} ok, {{ ultimo_ciclo.produtos_falha }} falhas{% else %}—{% endif %}</div>
+    <div class="stat-desc whitespace-normal">Último ciclo: {% if ultimo_ciclo %}{{ ultimo_ciclo.finalizada_em|data }} {{ selo(ultimo_ciclo.status.value) }} · {{ ultimo_ciclo.produtos_ok }} ok, {{ ultimo_ciclo.produtos_falha }} falhas{% else %}—{% endif %}</div>
   </div>
   <div class="stat">
     <div class="stat-title">WhatsApp</div>
-    <div class="stat-value text-lg tabular-nums">{{ resumo_msgs.pendentes }} <span class="text-sm font-normal">pendentes</span> · {{ resumo_msgs.falhas }} <span class="text-sm font-normal">falhas</span></div>
-    <div class="stat-desc">Último envio: {{ resumo_msgs.ultimo_envio|data if resumo_msgs.ultimo_envio else "—" }} · <a class="link" href="/mensagens">Ver mensagens</a></div>
+    <div class="stat-value whitespace-normal text-lg tabular-nums">{{ resumo_msgs.pendentes }} <span class="text-sm font-normal">pendentes</span> · {{ resumo_msgs.falhas }} <span class="text-sm font-normal">falhas</span></div>
+    <div class="stat-desc whitespace-normal">Último envio: {{ resumo_msgs.ultimo_envio|data if resumo_msgs.ultimo_envio else "—" }} · <a class="link" href="/mensagens">Ver mensagens</a></div>
   </div>
+</div>
+<div class="stats stats-vertical bg-base-100 shadow-sm sm:stats-horizontal">
   <div class="stat">
     <div class="stat-title">Oportunidades abertas</div>
     <div class="stat-value tabular-nums"><a class="link link-hover" href="/ofertas?situacao=abertas">{{ menu.ofertas }}</a></div>
@@ -48,6 +51,7 @@
     <div class="stat-title">Casamentos pendentes</div>
     <div class="stat-value tabular-nums"><a class="link link-hover" href="/casamentos">{{ menu.casamentos }}</a></div>
   </div>
+</div>
 </div>
 
 {% macro url_liga(n) %}{{ link(liga_pagina=n) }}{% endmacro %}

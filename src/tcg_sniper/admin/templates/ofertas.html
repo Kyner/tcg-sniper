@@ -1,19 +1,13 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import selo, selo_desconto, cabecalho, filtros, paginacao %}
+{% from "_componentes.html" import selo, selo_vendedor, selo_desconto, cabecalho, filtros, paginacao %}
 {% block titulo %}Ofertas · TCG Sniper{% endblock %}
 {% block conteudo %}
-{% macro vendedor(l) -%}
-{%- if not l.verificado -%}{{ selo("nao_verificado", "vendedor não verificado") }}<div class="text-xs text-base-content/60">preço lido só na busca</div>
-{%- elif l.confiavel -%}{{ selo("confirmado", l.envio|envio(l.vendedor)) }}
-{%- else -%}{{ selo("nao_verificado", l.envio|envio(l.vendedor)) }} <span class="text-xs text-base-content/60">(não elegível)</span>
-{%- endif -%}
-{%- endmacro %}
 {% call cabecalho("Ofertas", "Amazon × LigaMagic · " ~ total ~ " produto(s)") %}
   <a class="btn btn-sm btn-outline" href="/ofertas?desconto_min={{ desconto_min_pct }}">≥ desconto configurado ({{ desconto_min_pct }}%)</a>
 {% endcall %}
 {% call filtros(f.busca or f.categoria or desconto_texto or f.vendedor != "todos" or f.situacao != "todas" or f.ordem != "desconto") %}
-<form method="get" action="/ofertas" class="grid gap-2 md:grid-cols-4 lg:grid-cols-7">
-  <input type="search" name="busca" value="{{ f.busca }}" placeholder="Buscar produto" class="input input-sm w-full md:col-span-2" aria-label="Buscar produto">
+<form method="get" action="/ofertas" class="grid gap-2 md:grid-cols-3 xl:grid-cols-4">
+  <input type="search" name="busca" value="{{ f.busca }}" placeholder="Buscar produto" class="input input-sm w-full md:col-span-3 xl:col-span-2" aria-label="Buscar produto">
   <select name="categoria" class="select select-sm w-full" aria-label="Categoria">
     <option value="">todas as categorias</option>
     {% for c in categorias %}<option value="{{ c }}" {% if c == f.categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
@@ -29,7 +23,7 @@
   <select name="ordem" class="select select-sm w-full" aria-label="Ordem">
     {% for o in ordens %}<option value="{{ o }}" {% if o == f.ordem %}selected{% endif %}>{{ {"desconto": "maior desconto %", "diferenca": "maior diferença R$", "recentes": "leitura mais recente", "nome": "nome"}[o] }}</option>{% endfor %}
   </select>
-  <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
+  <button type="submit" class="btn btn-sm btn-primary xl:col-start-4">Filtrar</button>
 </form>
 {% endcall %}
 <div class="card hidden bg-base-100 shadow-sm md:block"><div class="overflow-x-auto">
@@ -44,7 +38,7 @@
         <td class="text-right tabular-nums whitespace-nowrap"><a class="link" href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.preco|brl }}</a></td>
         <td class="text-right">{{ selo_desconto(l.desconto, desconto_min_pct) }}</td>
         <td class="text-right tabular-nums whitespace-nowrap">{{ l.diferenca|brl }}</td>
-        <td>{{ vendedor(l) }}</td>
+        <td>{{ selo_vendedor(l.verificado, l.confiavel, l.envio, l.vendedor) }}</td>
         <td class="whitespace-nowrap text-base-content/70">{{ l.coletado_em|data }}</td>
       </tr>
     {% else %}
@@ -62,7 +56,7 @@
       <div><div class="text-xs text-base-content/60">Liga</div>{{ l.preco_liga|brl }}</div>
       <div class="text-right"><div class="text-xs text-base-content/60">Amazon</div><a class="link" href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.preco|brl }}</a></div>
     </div>
-    <div class="flex flex-wrap items-center gap-2">{{ selo_desconto(l.desconto, desconto_min_pct) }}{% if l.aberta %}{{ selo("ok", "oportunidade") }}{% endif %}{{ vendedor(l) }}
+    <div class="flex flex-wrap items-center gap-2">{{ selo_desconto(l.desconto, desconto_min_pct) }}{% if l.aberta %}{{ selo("ok", "oportunidade") }}{% endif %}{{ selo_vendedor(l.verificado, l.confiavel, l.envio, l.vendedor) }}
       <span class="ml-auto text-xs text-base-content/60">{{ l.coletado_em|data }}</span></div>
   </div></div>
   {% else %}

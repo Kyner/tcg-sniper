@@ -57,7 +57,9 @@ def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes):
         repo.finalizar_coleta(s, ciclo.id, StatusColeta.PARCIAL, 9, 1, T0)
     texto = cliente.get("/").text
     assert "Última com sucesso" in texto and "10:00" in texto
-    assert "Último ciclo" in texto and "parcial" in texto
+    assert "Último ciclo" in texto
+    amazon = texto.split("Amazon</div>", 1)[1].split("WhatsApp</div>", 1)[0]
+    assert 'badge-warning">parcial' in amazon
 
 
 def test_dashboard_amazon_fora_da_janela(cliente, monkeypatch):
