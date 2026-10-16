@@ -10,8 +10,8 @@ resultado mudar, não grava e sai com erro.
 
 - Listagem (tem `.categoria__card-container`): a grade de cartões, o carrossel `.best-sellers`
   (que o parser ignora) e o botão "Exibir mais".
-- Página de produto: o nome em inglês `.item-name-en`, `#marketplace-stores` sem as ofertas das lojas (só o aviso "Nenhum item
-  encontrado", quando houver), o aviso oculto `#marketplace-stores-noregisters`, o quadro
+- Página de produto: o nome em inglês `.item-name-en`, `#marketplace-stores` sem as ofertas das
+  lojas (só o aviso "Nenhum item encontrado", quando houver), o aviso oculto `#marketplace-stores-noregisters`, o quadro
   `.price-mkp` e o filtro "Vendedores".
 - Amazon: busca (só os cartões de resultado, dentro da grade), produto (título, preço, vendido/enviado por, link do vendedor, opção do seletor de variações), perfil do vendedor (nome e resumo) e CAPTCHA (o formulário e o texto da verificação).
 """

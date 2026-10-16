@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.coletor_amazon.busca import ContextoBusca, CotaHtmlFalha, DesafioAmazon, processar_produto
 from tcg_sniper.coletor_amazon.fila import Janela, TetoPorHora, intervalo_busca, janela_do_dia
+from tcg_sniper.coletor_amazon.termo import termo_busca
 from tcg_sniper.coletor_liga.agendador import lock_coleta
 from tcg_sniper.config import Config
 from tcg_sniper.config_banco import carregar_config
@@ -178,8 +179,14 @@ class VarreduraAmazon:
             produto = s.get(ProdutoLiga, item.produto_id) if item else None
             entrou_em = item.entrou_em if item else None
             # Português na primeira busca, depois alterna; sem nome em inglês é sempre português.
+            # O inglês só vale se o termo existir e for diferente do português.
             usar_en = bool(
-                item and produto and produto.nome_en and item.ultima_busca_em is not None and not item.ultimo_termo_en
+                item
+                and produto
+                and produto.nome_en
+                and termo_busca(produto.nome_en) not in ("", termo_busca(produto.nome))
+                and item.ultima_busca_em is not None
+                and not item.ultimo_termo_en
             )
             ultimo_candidato_em = item.ultimo_candidato_em if item else None
         self._pendentes &= na_fila  # produto desativado na Liga sai do ciclo

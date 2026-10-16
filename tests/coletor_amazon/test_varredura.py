@@ -439,3 +439,40 @@ def test_busca_sem_nome_en_sempre_em_portugues_e_flag_continua_falso(engine, ses
     assert navegador.visitadas == [url, url]
     with sessoes() as s:
         assert s.get(FilaAmazon, a.id).ultimo_termo_en is False
+
+
+@pytest.mark.parametrize("nome_en", ["Caixa de Booster: Alfa", "  -  "])
+def test_nome_en_igual_ao_portugues_ou_vazio_nao_vira_busca_em_ingles(engine, sessoes, config, nome_en):
+    (a,), urls = produtos(sessoes, "Caixa de Booster - Alfa")
+    with sessoes() as s, s.begin():
+        s.get(ProdutoLiga, a.id).nome_en = nome_en
+    url = urls[a.id]
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, _ = varredura(engine, sessoes, config, {url: vazia(url)}, relogio=relogio)
+    for _ in range(3):
+        assert v.passo() == 0
+        with sessoes() as s:
+            assert s.get(FilaAmazon, a.id).ultimo_termo_en is False
+        relogio.agora += timedelta(hours=3)
+    assert navegador.visitadas == [url, url, url]
+
+
+def test_flag_do_termo_tambem_alterna_quando_a_busca_falha_no_parser(engine, sessoes, config):
+    (a,), urls = produtos(sessoes, "Caixa de Booster - Alfa")
+    with sessoes() as s, s.begin():
+        s.get(ProdutoLiga, a.id).nome_en = "Booster Box - Alpha"
+        url_en = url_busca(repo_amz.obter_config(s), "Booster Box - Alpha")
+    url_pt = urls[a.id]
+    quebrada = lambda u: pagina_html("<html>novo</html>", url=u)
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, _ = varredura(
+        engine, sessoes, config, {url_pt: quebrada(url_pt), url_en: quebrada(url_en)}, relogio=relogio
+    )
+    flags = []
+    for _ in range(2):
+        v.passo()
+        with sessoes() as s:
+            flags.append(s.get(FilaAmazon, a.id).ultimo_termo_en)
+        relogio.agora += timedelta(hours=3)
+    assert navegador.visitadas == [url_pt, url_en]
+    assert flags == [False, True]
