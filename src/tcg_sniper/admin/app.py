@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens, consultas_menu, estilo
 from tcg_sniper.admin import formularios_config as form_cfg
+from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
@@ -26,7 +27,7 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import COLETOR_AMAZON, AnuncioAmazon, ProdutoLiga, TipoColeta
+from tcg_sniper.db.models import COLETOR_AMAZON, COLETOR_CASADOR, AnuncioAmazon, ProdutoLiga, TipoColeta
 from tcg_sniper.formatacao import formatar_brl
 
 SENHA_PADRAO = "trocar-esta-senha"
@@ -38,6 +39,9 @@ MENSAGENS_SERVICOS = {
     "retomar": "Coleta da LigaMagic retomada.",
     "amazon_pausar": "Busca na Amazon pausada.",
     "amazon_retomar": "Busca na Amazon retomada.",
+    "casador_pausar": "Casador pausado.",
+    "casador_retomar": "Casador retomado; roda em até 1 minuto.",
+    "casador_rodar": "Rodada do casador solicitada; começa em até 1 minuto.",
 }
 
 
@@ -93,6 +97,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.globals["icone"] = icone
     templates.env.globals["versao_css"] = (estilo.hash_gravado() or "0")[:12]
     templates.env.filters["brl"] = formatar_brl
+    templates.env.filters["usd"] = lambda v: f"US$ {v:.2f}".replace(".", ",")
     templates.env.filters["envio"] = lambda envio, vendedor=None: {
         "amazon": "vendido pela Amazon",
         "fba": f"vendido por {vendedor.nome if vendedor and vendedor.nome else 'lojista'}, enviado pela Amazon",
@@ -163,6 +168,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "status_historico": consultas.STATUS_HISTORICO,
                     "link": link,
                     "resumo_msgs": consultas_mensagens.resumo(s, agora),
+                    "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
+                    "gasto_ia": repo_ia.gasto(s, agora, efetiva.zona),
                 },
             )
 
@@ -177,6 +184,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
+                    "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
+                    "ia_ligada": repo_ia.obter_config_ia(s).ligado,
                     "host": request.state.config.host_publico,
                     "mensagem": MENSAGENS_SERVICOS.get(msg),
                     "notificador": consultas_mensagens.estado_notificador(s, repo.agora_utc()),
@@ -206,6 +215,24 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         with sessoes() as s, s.begin():
             repo.retomar(s, repo.agora_utc(), COLETOR_AMAZON)
         return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/casador/pausar")
+    def pausar_casador():
+        with sessoes() as s, s.begin():
+            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_CASADOR)
+        return RedirectResponse("/servicos?msg=casador_pausar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/casador/retomar")
+    def retomar_casador():
+        with sessoes() as s, s.begin():
+            repo.retomar(s, repo.agora_utc(), COLETOR_CASADOR)
+        return RedirectResponse("/servicos?msg=casador_retomar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/casador/rodar-agora")
+    def rodar_casador():
+        with sessoes() as s, s.begin():
+            repo.solicitar_execucao(s, repo.agora_utc(), COLETOR_CASADOR)
+        return RedirectResponse("/servicos?msg=casador_rodar", status_code=status.HTTP_303_SEE_OTHER)
 
     MENSAGEM_CONFIG = "Salvo; vale a partir da próxima coleta ou ciclo."
 
@@ -271,10 +298,24 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             geral = repo.obter_config_geral(s, config)
             liga = repo.obter_config_liga(s, config)
             amazon = repo_amz.obter_config(s)
+            ia = repo_ia.obter_config_ia(s)
             return {
                 "geral": {c: _texto(getattr(geral, c)) for c in form_cfg.CAMPOS_GERAL},
                 "liga": {c: _texto(getattr(liga, c)) for c in form_cfg.CAMPOS_LIGA},
                 "amazon": {c: _texto(getattr(amazon, c)) for c in CAMPOS},
+                "ia": {c: form_ia.texto_ia(ia, c) for c in form_ia.CAMPOS_IA},
+            }
+
+    def _resumo_ia(request: Request) -> dict:
+        with sessoes() as s, s.begin():
+            cfg = repo_ia.obter_config_ia(s)
+            g = repo_ia.gasto(s, repo.agora_utc(), request.state.config.zona)
+            return {
+                "gasto": g,
+                "teto_dia": cfg.teto_dia_usd,
+                "teto_mes": cfg.teto_mes_usd,
+                "max_chamadas": cfg.max_chamadas_dia,
+                "chave": bool((config.openai_api_key or "").strip()),
             }
 
     def _tela_configuracoes(
@@ -291,6 +332,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             ("geral", "Geral", form_cfg.CAMPOS_GERAL, form_cfg.ROTULOS_GERAL, form_cfg.EXPLICACOES_GERAL),
             ("liga", "LigaMagic", form_cfg.CAMPOS_LIGA, form_cfg.ROTULOS_LIGA, form_cfg.EXPLICACOES_LIGA),
             ("amazon", "Amazon", CAMPOS, ROTULOS, EXPLICACOES),
+            ("ia", "IA", form_ia.CAMPOS_IA, form_ia.ROTULOS_IA, form_ia.EXPLICACOES_IA),
         ]
         return templates.TemplateResponse(
             request,
@@ -305,12 +347,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                         "explicacoes": explicacoes,
                         "valores": valores[id_],
                         "erros": (erros or {}) if id_ == secao_com_erro else {},
+                        "opcoes": form_ia.OPCOES_IA if id_ == "ia" else {},
                     }
                     for id_, titulo, campos, rotulos, explicacoes in secoes
                 ],
-                "mensagem": MENSAGEM_CONFIG if msg in ("geral", "liga", "amazon") else None,
+                "mensagem": MENSAGEM_CONFIG if msg in ("geral", "liga", "amazon", "ia") else None,
+                "resumo_ia": _resumo_ia(request),
                 "categorias_padrao": ",".join(CATEGORIAS_SELADOS),
-                "secao_ativa": secao_com_erro or (msg if msg in ("geral", "liga", "amazon") else "geral"),
+                "secao_ativa": secao_com_erro or (msg if msg in ("geral", "liga", "amazon", "ia") else "geral"),
             },
             status_code=status.HTTP_400_BAD_REQUEST if secao_com_erro else status.HTTP_200_OK,
         )
@@ -351,6 +395,13 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             aplicar_config(s, valores, repo.agora_utc())
 
         return await _salvar_secao(request, "amazon", CAMPOS, validar_config, gravar)
+
+    @app.post("/configuracoes/ia", response_class=HTMLResponse)
+    async def salvar_ia(request: Request):
+        def gravar(s, valores):
+            repo_ia.salvar_config_ia(s, valores, repo.agora_utc())
+
+        return await _salvar_secao(request, "ia", form_ia.CAMPOS_IA, form_ia.validar_ia, gravar)
 
     @app.get("/catalogo", response_class=HTMLResponse)
     def catalogo(
