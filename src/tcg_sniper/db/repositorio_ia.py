@@ -148,13 +148,14 @@ class ParDecidido:
 
 
 def pares_decididos(s: Session, limite: int | None) -> list[ParDecidido]:
-    """Anúncios confirmados ou ignorados pelo usuário (não pelo automático), para a avaliação."""
+    """Anúncios confirmados ou ignorados pelo usuário (não pelo automático), para a avaliação. A decisão é
+    do automático só se ainda for a dele (`aplicada_em == revisado_em`): corrigida pelo usuário, conta."""
     aplicada = (
         select(AvaliacaoIA.id)
         .where(
             AvaliacaoIA.anuncio_id == AnuncioAmazon.id,
             AvaliacaoIA.produto_id == AnuncioAmazon.produto_id,
-            AvaliacaoIA.aplicada_em.is_not(None),
+            AvaliacaoIA.aplicada_em == AnuncioAmazon.revisado_em,
         )
         .exists()
     )

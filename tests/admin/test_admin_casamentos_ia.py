@@ -19,13 +19,14 @@ def cliente(sessoes, config):
     return TestClient(criar_app(sessoes, c), headers={"Authorization": basic("admin", "segredo")})
 
 
-def avaliar(s, anuncio, produto, mesmo, confianca, motivo, aplicada=False):
+def avaliar(s, anuncio, produto, mesmo, confianca, motivo, aplicada=False, revisado=T0):
     av = repo_ia.gravar_avaliacao(
         s, anuncio_id=anuncio.id, produto_id=produto.id, mesmo_produto=mesmo, confianca=confianca, motivo=motivo,
         modelo="gpt-5", assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
     )
     if aplicada:
         av.aplicada_em = T0
+        anuncio.revisado_em = revisado  # o automático grava os dois no mesmo instante
         s.flush()
     return av
 
@@ -64,3 +65,22 @@ def test_contagem_ia_sugere_na_lista(cliente, cenario):
     html = cliente.get("/casamentos").text
     assert "IA sugere" in html
     assert "2 pela IA" in html  # B3 (96%) e B2 (70%): pendentes com "sim"
+    assert "IA sugere: 2 pela IA" not in html and "IA sugere: 2<" in html  # cartão do celular
+
+
+def test_selo_pela_ia_some_quando_o_usuario_decidiu_depois(cliente, sessoes):
+    from datetime import timedelta
+
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1", nome="Caixa Alfa")
+        conf = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO)
+        ign = criar_anuncio(s, "B2", produto=p, status=StatusCasamento.IGNORADO)
+        pela_ia = criar_anuncio(s, "B3", produto=p, status=StatusCasamento.IGNORADO)
+        depois = T0 + timedelta(hours=1)
+        avaliar(s, conf, p, True, 99, "motivo velho um", aplicada=True, revisado=depois)
+        avaliar(s, ign, p, False, 99, "motivo velho dois", aplicada=True, revisado=depois)
+        avaliar(s, pela_ia, p, False, 99, "carta avulsa", aplicada=True)
+        produto_id = p.id
+    html = cliente.get(f"/casamentos/produto/{produto_id}").text
+    assert html.count(">pela IA<") == 1 and "carta avulsa" in html
+    assert "motivo velho um" not in html and "motivo velho dois" not in html

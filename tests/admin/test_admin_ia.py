@@ -83,6 +83,27 @@ def test_card_do_casador_e_acoes(cliente, sessoes):
         assert estado.estado is EstadoColetorTipo.ATIVO and estado.execucao_solicitada
 
 
+def _card_casador(html):
+    card = html[html.index("Casador (IA)"):]
+    return card[:card.index("</div></div>")]
+
+
+def test_card_do_casador_sem_chave(sessoes, config):
+    with sessoes() as s, s.begin():
+        repo_ia.salvar_config_ia(s, {"ligado": True}, T0)
+    c = TestClient(criar_app(sessoes, config.model_copy(update={"admin_senha": "s", "openai_api_key": ""})),
+                   headers={"Authorization": basic("admin", "s")})
+    card = _card_casador(c.get("/servicos").text)
+    assert "sem chave" in card and "OPENAI_API_KEY" in card and "Ativo." not in card and ">ativo<" not in card
+
+
+def test_card_do_casador_ativo_com_chave(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo_ia.salvar_config_ia(s, {"ligado": True}, T0)
+    card = _card_casador(cliente.get("/servicos").text)
+    assert "Ativo." in card and "sem chave" not in card
+
+
 def test_dashboard_mostra_gasto_e_aviso_de_pausa(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo.pausar(s, "chave recusada pela OpenAI (401)", T0, COLETOR_CASADOR)

@@ -42,12 +42,13 @@
     <h2 class="card-title">Casador (IA)
       {% if estado_casador.estado.value == "pausado" %}{{ selo("pausado") }}
       {% elif not ia_ligada %}{{ selo("inativo", "desligada") }}
+      {% elif not ia_chave %}{{ selo("pausado", "sem chave") }}
       {% else %}{{ selo("ativo") }}{% endif %}</h2>
     {% if estado_casador.estado.value == "pausado" %}
       <p>Pausado. {{ estado_casador.motivo or "" }}</p>
       <div class="card-actions"><form method="post" action="/casador/retomar"><button class="btn btn-primary">Retomar (casador)</button></form></div>
     {% else %}
-      <p>{% if ia_ligada %}Ativo.{% else %}IA desligada em <a class="link" href="/configuracoes">Configurações → IA</a>.{% endif %}{% if estado_casador.execucao_solicitada %} Rodada solicitada; começa em até 1 minuto.{% endif %}</p>
+      <p>{% if ia_ligada and not ia_chave %}IA ligada, mas sem chave: defina OPENAI_API_KEY no .env e reinicie o casador.{% elif ia_ligada %}Ativo.{% else %}IA desligada em <a class="link" href="/configuracoes">Configurações → IA</a>.{% endif %}{% if estado_casador.execucao_solicitada %} Rodada solicitada; começa em até 1 minuto.{% endif %}</p>
       <div class="card-actions">
         <form method="post" action="/casador/rodar-agora"><button class="btn btn-primary">Executar (casador)</button></form>
         <form method="post" action="/casador/pausar"><button class="btn btn-outline btn-error">Pausar (casador)</button></form>

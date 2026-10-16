@@ -186,6 +186,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
                     "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
                     "ia_ligada": repo_ia.obter_config_ia(s).ligado,
+                    "ia_chave": bool((config.openai_api_key or "").strip()),
                     "host": request.state.config.host_publico,
                     "mensagem": MENSAGENS_SERVICOS.get(msg),
                     "notificador": consultas_mensagens.estado_notificador(s, repo.agora_utc()),

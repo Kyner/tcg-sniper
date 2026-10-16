@@ -112,10 +112,24 @@ def test_pares_decididos_sem_os_aplicados_pela_ia(s):
         assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
     )
     av.aplicada_em = T0
+    pela_ia.revisado_em = T0  # o automático grava os dois no mesmo instante
     s.flush()
     decididos = repo_ia.pares_decididos(s, None)
     assert {(d.anuncio.id, d.confirmado) for d in decididos} == {(c.id, True), (i.id, False)}
     assert len(repo_ia.pares_decididos(s, 1)) == 1
+
+
+def test_correcao_do_usuario_depois_do_automatico_conta_na_avaliacao(s):
+    p = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.IGNORADO)
+    av = repo_ia.gravar_avaliacao(
+        s, anuncio_id=a.id, produto_id=p.id, mesmo_produto=True, confianca=99, motivo="m", modelo="gpt-5",
+        assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
+    )
+    av.aplicada_em = T0  # a IA confirmou; o usuário desfez e ignorou depois
+    a.revisado_em = T0 + timedelta(hours=1)
+    s.flush()
+    assert [(d.anuncio.id, d.confirmado) for d in repo_ia.pares_decididos(s, None)] == [(a.id, False)]
 
 
 def test_estado_do_casador_e_solicitacao(s):
