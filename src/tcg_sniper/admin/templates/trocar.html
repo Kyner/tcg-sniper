@@ -1,40 +1,38 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import cabecalho %}
 {% block titulo %}Trocar casamento · TCG Sniper{% endblock %}
 {% block conteudo %}
-<h2>Escolher o produto da Liga</h2>
-<p><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.titulo_exibicao }}</a> ({{ anuncio.asin }})</p>
+{{ cabecalho("Escolher o produto da Liga") }}
+<div class="card bg-base-100 shadow-sm"><div class="card-body gap-1 p-4">
+  <a class="link link-hover font-medium" href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.titulo_exibicao }}</a>
+  <span class="font-mono text-xs text-base-content/60">({{ anuncio.asin }})</span>
+</div></div>
 
 {% macro linha(p, preco) %}
-<tr>
-  <td><a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.nome }}</a></td>
-  <td>{{ preco|brl }}</td>
-  <td>
-    <form method="post" action="/casamentos/{{ anuncio.id }}">
-      <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ p.id }}">
-      <input type="hidden" name="voltar" value="/casamentos/produto/{{ p.id }}">
-      <button>Escolher</button>
-    </form>
-  </td>
-</tr>
+<li class="list-row items-center">
+  <div class="min-w-0"><a class="link link-hover font-medium" href="{{ p.url }}" target="_blank" rel="noopener">{{ p.nome }}</a>
+    <div class="text-sm tabular-nums text-base-content/70">{{ preco|brl }}</div></div>
+  <form method="post" action="/casamentos/{{ anuncio.id }}">
+    <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ p.id }}">
+    <input type="hidden" name="voltar" value="/casamentos/produto/{{ p.id }}">
+    <button class="btn btn-sm btn-primary">Escolher</button>
+  </form>
+</li>
 {% endmacro %}
 
 {% if sugestoes %}
-<h3>Parecidos</h3>
-<table><tbody>{% for p, preco in sugestoes %}{{ linha(p, preco) }}{% endfor %}</tbody></table>
+<h2 class="text-lg font-semibold">Parecidos</h2>
+<ul class="list rounded-box bg-base-100 shadow-sm">{% for p, preco in sugestoes %}{{ linha(p, preco) }}{% endfor %}</ul>
 {% endif %}
 
-<h3>Buscar no catálogo da Liga</h3>
-<form method="get" action="/casamentos/{{ anuncio.id }}/trocar">
-  <fieldset role="group">
-    <input type="search" name="busca" value="{{ busca }}" placeholder="Nome do produto na Liga">
-    <button type="submit">Buscar</button>
-  </fieldset>
+<h2 class="text-lg font-semibold">Buscar no catálogo da Liga</h2>
+<form method="get" action="/casamentos/{{ anuncio.id }}/trocar" class="join w-full">
+  <input type="search" name="busca" value="{{ busca }}" placeholder="Nome do produto na Liga" class="input join-item w-full" aria-label="Nome do produto na Liga">
+  <button type="submit" class="btn btn-primary join-item">Buscar</button>
 </form>
-<table>
-  <tbody>
-  {% for p, preco in produtos %}{{ linha(p, preco) }}{% else %}
-    {% if busca %}<tr><td colspan="3">Nenhum produto encontrado.</td></tr>{% endif %}
-  {% endfor %}
-  </tbody>
-</table>
+{% if produtos %}
+<ul class="list rounded-box bg-base-100 shadow-sm">{% for p, preco in produtos %}{{ linha(p, preco) }}{% endfor %}</ul>
+{% elif busca %}
+<p class="text-sm">Nenhum produto encontrado.</p>
+{% endif %}
 {% endblock %}
