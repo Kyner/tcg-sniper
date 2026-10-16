@@ -1,0 +1,7 @@
+/* Entrada do Tailwind CSS 4 + DaisyUI 5 (scripts/gerar_css.py). Só o framework: nada de CSS próprio. */
+@import "tailwindcss" source(none);
+@source "./templates";
+@source "./icones.py";
+@plugin "../../../.ferramentas/daisyui.mjs" {
+  themes: winter --default, night --prefersdark;
+}

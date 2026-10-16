@@ -1,0 +1,58 @@
+{# Peças comuns de todas as telas. Só classes do DaisyUI 5 / Tailwind. #}
+
+{% macro selo(situacao, texto=None) -%}
+{%- set cores = {
+  "ok": "badge-success", "ativo": "badge-success", "enviada": "badge-success", "confirmado": "badge-success",
+  "parcial": "badge-warning", "pendente": "badge-warning",
+  "falha": "badge-error", "pausado": "badge-error", "pausado_desafio": "badge-error", "pausada_desafio": "badge-error",
+  "rodando": "badge-info",
+  "expirada": "badge-ghost", "descartada": "badge-ghost", "ignorado": "badge-ghost", "inativo": "badge-ghost",
+  "nao_verificado": "badge-ghost",
+} -%}
+<span class="badge badge-sm whitespace-nowrap {{ cores.get(situacao, 'badge-ghost') }}">{{ texto or situacao|replace("_", " ") }}</span>
+{%- endmacro %}
+
+{% macro selo_desconto(pct, minimo) -%}
+{%- if pct is none -%}<span class="text-base-content/60">—</span>
+{%- else -%}
+<span class="badge badge-sm whitespace-nowrap tabular-nums {% if pct >= minimo %}badge-success{% elif pct > 0 %}badge-warning{% else %}badge-error badge-outline{% endif %}">{{ "%.2f"|format(pct)|replace(".", ",") }}%</span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro cabecalho(titulo, subtitulo=None) -%}
+<div class="flex flex-wrap items-end justify-between gap-3">
+  <div class="min-w-0">
+    <h1 class="text-2xl font-bold text-balance">{{ titulo }}</h1>
+    {% if subtitulo %}<p class="text-sm text-base-content/70">{{ subtitulo }}</p>{% endif %}
+  </div>
+  {% if caller %}<div class="flex flex-wrap items-center gap-2">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro aviso(tipo, texto) -%}
+<div role="alert" class="alert alert-{{ tipo }} alert-soft">{{ texto }}{% if caller %} {{ caller() }}{% endif %}</div>
+{%- endmacro %}
+
+{% macro filtros(ativo=False) -%}
+<div class="collapse collapse-arrow border border-base-300 bg-base-100 md:collapse-open">
+  <input type="checkbox" class="md:hidden" aria-label="Mostrar filtros"{% if ativo %} checked{% endif %}>
+  <div class="collapse-title font-medium md:hidden">Filtros</div>
+  <div class="collapse-content md:pt-4">{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+{% macro paginacao(pagina, paginas, url) -%}
+<div class="flex flex-wrap items-center justify-between gap-2">
+  <p class="text-sm text-base-content/70">Página {{ pagina }} de {{ paginas }}</p>
+  {% if paginas > 1 %}
+  <div class="join">
+    {%- set anterior = namespace(n=0) -%}
+    {%- for n in range(1, paginas + 1) if n == 1 or n == paginas or (n - pagina)|abs <= 1 -%}
+      {%- if anterior.n and n - anterior.n > 1 %}<span class="join-item btn btn-sm btn-disabled">…</span>{% endif -%}
+      <a class="join-item btn btn-sm{% if n == pagina %} btn-active{% endif %}" href="{{ url(n) }}"{% if n == pagina %} aria-current="page"{% endif %}>{{ n }}</a>
+      {%- set anterior.n = n -%}
+    {%- endfor %}
+  </div>
+  {% endif %}
+</div>
+{%- endmacro %}
