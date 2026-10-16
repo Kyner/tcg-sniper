@@ -1,26 +1,31 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import cabecalho, aviso %}
 {% block titulo %}Configurações · TCG Sniper{% endblock %}
 {% block conteudo %}
-<h2>Configurações</h2>
-<p>As mudanças valem a partir da próxima coleta ou ciclo, sem reiniciar nada.</p>
-{% if mensagem %}<p><mark>{{ mensagem }}</mark></p>{% endif %}
+{{ cabecalho("Configurações", "As mudanças valem a partir da próxima coleta ou ciclo, sem reiniciar nada.") }}
+{% if mensagem %}{{ aviso("success", mensagem) }}{% endif %}
+<div class="tabs tabs-border">
 {% for secao in secoes %}
-<article id="{{ secao.id }}">
-  <header><strong>{{ secao.titulo }}</strong></header>
-  {% if secao.erros %}<div class="pausado">Nada foi salvo. Corrija os campos marcados.</div>{% endif %}
-  <form method="post" action="/configuracoes/{{ secao.id }}">
-    {% for campo in secao.campos %}
-    <label>{{ secao.rotulos[campo] }}
-      <input id="{{ secao.id }}-{{ campo }}" name="{{ campo }}" value="{{ secao.valores[campo] }}"{% if campo in secao.erros %} aria-invalid="true"{% endif %}>
-      <small>{{ secao.erros[campo] if campo in secao.erros else secao.explicacoes[campo] }}</small>
-      {% if secao.id == "liga" and campo == "categorias" %}
-      <small>Padrão: {{ categorias_padrao }} · <a href="#" onclick="document.getElementById('liga-categorias').value='{{ categorias_padrao }}'; return false;">restaurar padrão</a> (depois clique em Salvar)</small>
-      {% endif %}
-    </label>
-    {% endfor %}
-    <button>Salvar {{ secao.titulo }}</button>
-  </form>
-</article>
+  <input type="radio" name="secao" class="tab" aria-label="{{ secao.titulo }}"{% if secao.id == secao_ativa %} checked{% endif %}>
+  <div class="tab-content pt-4" id="{{ secao.id }}">
+    <div class="card bg-base-100 shadow-sm"><div class="card-body">
+      {% if secao.erros %}{{ aviso("error", "Nada foi salvo. Corrija os campos marcados.") }}{% endif %}
+      <form method="post" action="/configuracoes/{{ secao.id }}" class="grid gap-x-6 gap-y-3 md:grid-cols-2">
+        {% for campo in secao.campos %}
+        <fieldset class="fieldset{% if campo in ('categorias', 'url_listagem', 'url_busca') %} md:col-span-2{% endif %}">
+          <legend class="fieldset-legend">{{ secao.rotulos[campo] }}</legend>
+          <input id="{{ secao.id }}-{{ campo }}" name="{{ campo }}" value="{{ secao.valores[campo] }}" class="input w-full{% if campo in secao.erros %} input-error{% endif %}"{% if campo in secao.erros %} aria-invalid="true"{% endif %}>
+          <p class="label whitespace-normal{% if campo in secao.erros %} text-error{% endif %}">{{ secao.erros[campo] if campo in secao.erros else secao.explicacoes[campo] }}</p>
+          {% if secao.id == "liga" and campo == "categorias" %}
+          <p class="label whitespace-normal">Padrão: {{ categorias_padrao }} · <a class="link" href="#" onclick="document.getElementById('liga-categorias').value='{{ categorias_padrao }}'; return false;">restaurar padrão</a> (depois clique em Salvar)</p>
+          {% endif %}
+        </fieldset>
+        {% endfor %}
+        <div class="md:col-span-2"><button class="btn btn-primary">Salvar {{ secao.titulo }}</button></div>
+      </form>
+    </div></div>
+  </div>
 {% endfor %}
-<footer><small>Senhas, banco e chave da Evolution ficam no .env: ADMIN_SENHA, VNC_SENHA, EVOLUTION_API_KEY, DATABASE_URL, DIR_DADOS, EVOLUTION_URL.</small></footer>
+</div>
+<p class="text-xs text-base-content/70">Senhas, banco e chave da Evolution ficam no .env: ADMIN_SENHA, VNC_SENHA, EVOLUTION_API_KEY, DATABASE_URL, DIR_DADOS, EVOLUTION_URL.</p>
 {% endblock %}

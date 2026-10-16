@@ -309,6 +309,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 ],
                 "mensagem": MENSAGEM_CONFIG if msg in ("geral", "liga", "amazon") else None,
                 "categorias_padrao": ",".join(CATEGORIAS_SELADOS),
+                "secao_ativa": secao_com_erro or (msg if msg in ("geral", "liga", "amazon") else "geral"),
             },
             status_code=status.HTTP_400_BAD_REQUEST if secao_com_erro else status.HTTP_200_OK,
         )
