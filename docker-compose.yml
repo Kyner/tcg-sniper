@@ -104,6 +104,14 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  casador:
+    <<: *app
+    command: tcg-sniper casador
+    stop_grace_period: 90s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   admin:
     <<: *app
     command: tcg-sniper admin
