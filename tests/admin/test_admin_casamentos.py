@@ -268,3 +268,37 @@ def test_pagina_do_produto_abre_na_aba_de_pendentes_ou_confirmados(cliente, cena
     assert aba_marcada(com_pendente, "Pendentes")
     so_confirmado = cliente.get(f"/casamentos/produto/{cenario['d'].id}").text
     assert aba_marcada(so_confirmado, "Confirmados") and not aba_marcada(so_confirmado, "Pendentes")
+
+
+@pytest.fixture
+def com_nome_en(sessoes, cenario):
+    with sessoes() as s, s.begin():
+        s.get(type(cenario["c"]), cenario["c"].id).nome_en = "Gamma Box English"
+    return cenario
+
+
+def test_nome_em_ingles_aparece_em_casamentos_cabecalho_e_trocar(cliente, sessoes, com_nome_en):
+    c = com_nome_en["c"]
+    marca = 'text-sm text-base-content/60">Gamma Box English'
+    assert marca in cliente.get("/casamentos", params={"situacao": "todos"}).text
+    assert marca in cliente.get(f"/casamentos/produto/{c.id}").text
+    with sessoes() as s:
+        alfa = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B0ALFA0001"))
+    assert marca in cliente.get(f"/casamentos/{alfa.id}/trocar", params={"busca": "Gamma"}).text
+
+
+def test_busca_de_casamentos_e_trocar_acha_pelo_nome_em_ingles(s, com_nome_en):
+    assert nomes(s, busca="gamma box", situacao="todos") == ["Caixa Gama"]
+    assert [p.nome for p, _ in consultas_amazon.buscar_produtos(s, "Gamma Box")] == ["Caixa Gama"]
+
+
+def test_sugestoes_acham_pelo_nome_em_ingles(s):
+    alvo = criar_produto(s, "alvo", nome="Caixa de Draft Quenya Colecionador")
+    alvo.nome_en = "Zorblax Wombat Collector Draft Box"
+    atual = criar_produto(s, "atual", nome="Outra Coisa Totalmente Diferente")
+    for i in range(50):
+        criar_produto(s, f"g{i}", nome=f"Caixa de Booster Magic Generico {i:03d}")
+    anuncio = criar_anuncio(s, "B0ZORB0001", produto=atual)
+    anuncio.titulo = "Zorblax Wombat Collector Draft Box"
+    s.flush()
+    assert consultas_amazon.sugestoes_para(s, anuncio)[0][0].id == alvo.id

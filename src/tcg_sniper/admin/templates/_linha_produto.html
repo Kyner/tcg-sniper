@@ -1,5 +1,5 @@
-<tr id="produto-{{ p.id }}">
-  <td class="min-w-0"><a class="link link-hover font-medium" href="/produto/{{ p.id }}">{{ p.nome }}</a><div class="text-xs text-base-content/60 md:hidden">{{ p.tipo or "" }}</div></td>
+{% from "_componentes.html" import nome_en %}<tr id="produto-{{ p.id }}">
+  <td class="min-w-0"><a class="link link-hover font-medium" href="/produto/{{ p.id }}">{{ p.nome }}</a>{{ nome_en(p) }}<div class="text-xs text-base-content/60 md:hidden">{{ p.tipo or "" }}</div></td>
   <td class="hidden md:table-cell">{{ p.tipo or "" }}</td>
   <td class="text-right tabular-nums whitespace-nowrap">{% if atual and atual.listagem_em %}{{ atual.preco_a_partir|brl if atual.preco_a_partir is not none else "Indisponível" }}{% else %}—{% endif %}</td>
   <td class="hidden text-right tabular-nums whitespace-nowrap md:table-cell">{{ (atual.preco_min if atual else None)|brl }}</td>

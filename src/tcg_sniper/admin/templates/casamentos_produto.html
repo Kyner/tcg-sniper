@@ -4,7 +4,7 @@
 {% block conteudo %}
 <a class="link text-sm" href="{{ voltar }}">← Voltar</a>
 <div class="card bg-base-100 shadow-sm"><div class="card-body gap-3">
-  {% call cabecalho(d.produto.nome, "À partir de " ~ (d.preco_liga|brl)) %}
+  {% call cabecalho(d.produto.nome, "À partir de " ~ (d.preco_liga|brl), d.produto.nome_en) %}
     <a class="btn btn-sm btn-outline" href="{{ d.produto.url }}" target="_blank" rel="noopener">{{ icone("arrow-top-right-on-square", "size-4") }} Ver na LigaMagic</a>
   {% endcall %}
   {% if mensagem %}{{ aviso("success", mensagem) }}{% endif %}

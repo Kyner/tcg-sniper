@@ -75,13 +75,17 @@ def gravar_precos_produto(
     resumo: Resumo,
     agora: datetime,
 ) -> None:
-    """Acrescenta o resumo ao histórico (append-only) e atualiza só o grupo "resumo" do preço atual."""
+    """Acrescenta o resumo ao histórico (append-only) e atualiza só o grupo "resumo" do preço atual.
+
+    Grava também o nome em inglês do produto quando a página o trouxe (nunca apaga um já guardado)."""
     precos = {
         "preco_min": resumo.preco_min,
         "preco_medio": resumo.preco_medio,
         "preco_max": resumo.preco_max,
         "num_lojas": resumo.num_lojas,
     }
+    if resumo.nome_en is not None:
+        s.execute(update(ProdutoLiga).where(ProdutoLiga.id == produto_id).values(nome_en=resumo.nome_en))
     s.add(ResumoPreco(produto_id=produto_id, coleta_id=coleta_id, coletado_em=agora, **precos))
     atual = {**precos, "resumo_coleta_id": coleta_id, "resumo_em": agora}
     s.execute(

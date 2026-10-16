@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import cabecalho %}
+{% from "_componentes.html" import cabecalho, nome_en %}
 {% block titulo %}Trocar casamento · TCG Sniper{% endblock %}
 {% block conteudo %}
 {{ cabecalho("Escolher o produto da Liga") }}
@@ -11,6 +11,7 @@
 {% macro linha(p, preco) %}
 <li class="list-row items-center">
   <div class="min-w-0"><a class="link link-hover font-medium" href="{{ p.url }}" target="_blank" rel="noopener">{{ p.nome }}</a>
+    {{ nome_en(p) }}
     <div class="text-sm tabular-nums text-base-content/70">{{ preco|brl }}</div></div>
   <form method="post" action="/casamentos/{{ anuncio.id }}">
     <input type="hidden" name="acao" value="confirmar"><input type="hidden" name="produto_id" value="{{ p.id }}">

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import selo, cabecalho, filtros, paginacao %}
+{% from "_componentes.html" import selo, cabecalho, filtros, paginacao, nome_en %}
 {% block titulo %}Casamentos · TCG Sniper{% endblock %}
 {% block conteudo %}
 {% set nomes = {"pendentes": "com pendentes", "oportunidade": "com oportunidade", "sem_par": "sem par", "casados": "casados", "todos": "todos"} %}
@@ -25,6 +25,7 @@
     {% for l in linhas %}
       <tr>
         <td><a class="link link-hover font-medium" href="{{ l.produto.url }}" target="_blank" rel="noopener">{{ l.produto.nome }}</a>
+          {{ nome_en(l.produto) }}
           <div class="mt-1 flex flex-wrap gap-1">{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}{% if l.sem_par %}{{ selo("ignorado", "sem par") }}{% endif %}</div></td>
         <td class="text-right tabular-nums whitespace-nowrap">{{ l.preco_liga|brl }}</td>
         <td class="text-right tabular-nums">{{ l.pendentes }}</td><td class="text-right tabular-nums">{{ l.confirmados }}</td><td class="text-right tabular-nums">{{ l.ignorados }}</td>
@@ -40,6 +41,7 @@
   {% for l in linhas %}
   <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
     <a class="link link-hover font-medium" href="{{ l.produto.url }}" target="_blank" rel="noopener">{{ l.produto.nome }}</a>
+    {{ nome_en(l.produto) }}
     <div class="flex flex-wrap gap-1">{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}{% if l.sem_par %}{{ selo("ignorado", "sem par") }}{% endif %}</div>
     <div class="text-sm tabular-nums">{{ l.preco_liga|brl }} · {{ l.pendentes }} pendentes · {{ l.confirmados }} confirmados · {{ l.ignorados }} ignorados</div>
     <div class="card-actions justify-end"><a class="btn btn-sm btn-primary" href="/casamentos/produto/{{ l.produto.id }}?voltar={{ voltar_atual|urlencode }}">Abrir</a></div>

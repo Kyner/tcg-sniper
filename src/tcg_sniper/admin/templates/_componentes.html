@@ -26,10 +26,15 @@
 {%- endif -%}
 {%- endmacro %}
 
-{% macro cabecalho(titulo, subtitulo=None) -%}
+{% macro nome_en(produto) -%}
+{% if produto.nome_en %}<div class="text-sm text-base-content/60">{{ produto.nome_en }}</div>{% endif %}
+{%- endmacro %}
+
+{% macro cabecalho(titulo, subtitulo=None, en=None) -%}
 <div class="flex flex-wrap items-end justify-between gap-3">
   <div class="min-w-0">
     <h1 class="text-2xl font-bold text-balance">{{ titulo }}</h1>
+    {% if en %}<p class="text-sm text-base-content/60">{{ en }}</p>{% endif %}
     {% if subtitulo %}<p class="text-sm text-base-content/70">{{ subtitulo }}</p>{% endif %}
   </div>
   {% if caller %}<div class="flex flex-wrap items-center gap-2">{{ caller() }}</div>{% endif %}

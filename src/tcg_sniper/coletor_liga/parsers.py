@@ -16,6 +16,8 @@ Página de produto (`?view=prod/view&pcode=N`), estrutura observada em 2026-10-1
   As três primeiras páginas reais o têm, inclusive a sem lojas. Sem lojas e sem venda
   registrada (pcode 1527, coleta de 2026-10-14) o quadro não aparece → preços `None`, 0 lojas.
   Ausente com lojas na página → `ErroParser`.
+- Nome em inglês: `.item-name-en` (logo abaixo de `.item-name`, dentro de `.container-title .name`);
+  ausente ou vazio → `None` (nunca `ErroParser`: páginas antigas não o têm).
 - Número de lojas: filtro "Vendedores" (`.group-filter` cujo `.filter-header .title` tem
   `data-label="Vendedores"`), opção `.filter-option` com `.filter-infos[title="Lojas"]`,
   contador em `.filter-counter` (ex.: 94 com só 16 linhas no HTML). Sem lojas, a página não
@@ -51,6 +53,7 @@ from tcg_sniper.parsing import parse_preco_brl as parse_preco_brl  # noqa: PLC04
 
 _RE_INTEIRO = re.compile(r"^\d+$")
 
+SELETOR_NOME_EN = ".item-name-en"
 SELETOR_ESTRUTURA_PRODUTO = "#marketplace-stores"
 SELETOR_SEM_LOJAS = "#marketplace-stores .alertaErro"
 SELETOR_QUADRO_PRECOS = ".price-mkp"
@@ -92,14 +95,20 @@ def _num_lojas(arvore: LexborHTMLParser) -> int:
     raise ErroParser("contador de lojas não encontrado")
 
 
+def _nome_en(arvore: LexborHTMLParser) -> str | None:
+    no = arvore.css_first(SELETOR_NOME_EN)
+    return (no.text(strip=True) or None) if no is not None else None
+
+
 def parse_produto(html: str) -> Resumo:
     arvore = LexborHTMLParser(html)
     if arvore.css_first(SELETOR_ESTRUTURA_PRODUTO) is None:
         raise ErroParser("estrutura da página de produto não encontrada")
+    nome_en = _nome_en(arvore)
     quadro = arvore.css_first(SELETOR_QUADRO_PRECOS)
     if quadro is None:
         if arvore.css_first(SELETOR_SEM_LOJAS) is not None:
-            return Resumo(preco_min=None, preco_medio=None, preco_max=None, num_lojas=0)
+            return Resumo(preco_min=None, preco_medio=None, preco_max=None, num_lojas=0, nome_en=nome_en)
         raise ErroParser("quadro de preços do marketplace não encontrado")
     preco_min, preco_medio, preco_max = (
         parse_preco_brl(_texto(quadro, seletor)) for seletor in SELETORES_PRECO
@@ -109,6 +118,7 @@ def parse_produto(html: str) -> Resumo:
         preco_medio=preco_medio,
         preco_max=preco_max,
         num_lojas=_num_lojas(arvore),
+        nome_en=nome_en,
     )
 
 

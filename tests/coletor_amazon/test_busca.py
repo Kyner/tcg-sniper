@@ -33,6 +33,7 @@ from tcg_sniper.db.models import (
     Envio,
     Oportunidade,
     OrigemPreco,
+    ProdutoLiga,
     StatusCasamento,
     VendedorAmazon,
 )
@@ -365,3 +366,26 @@ def test_leitura_grava_a_opcao_da_variacao(sessoes, config, produto):
         lido = s.get(AnuncioAmazon, manual.id)
     assert lido.variacao == "Collector Booster Box"
     assert lido.titulo_exibicao.endswith(" — Collector Booster Box")
+
+
+def test_usar_nome_en_busca_pelo_termo_em_ingles(sessoes, config, produto):
+    with sessoes() as s, s.begin():
+        s.get(ProdutoLiga, produto.id).nome_en = "Booster Box - Final Fantasy"
+        cfg = repo.obter_config(s)
+        url_pt, url_en = url_busca(cfg, NOME), url_busca(cfg, "Booster Box - Final Fantasy")
+    assert "Booster+Box+Final+Fantasy" in url_en
+    with sessoes() as s:
+        p = s.get(ProdutoLiga, produto.id)
+        ctx, navegador, _ = contexto(sessoes, config, {url_pt: busca(url_pt), url_en: busca(url_en)})
+        processar_produto(ctx, p)
+        processar_produto(ctx, p, usar_nome_en=True)
+        processar_produto(ctx, p, usar_nome_en=False)
+    assert navegador.visitadas == [url_pt, url_en, url_pt]
+
+
+def test_usar_nome_en_sem_nome_en_busca_em_portugues(sessoes, config, produto):
+    with sessoes() as s:
+        url_pt = url_busca(repo.obter_config(s), NOME)
+    ctx, navegador, _ = contexto(sessoes, config, {url_pt: busca(url_pt)})
+    processar_produto(ctx, produto, usar_nome_en=True)
+    assert navegador.visitadas == [url_pt]

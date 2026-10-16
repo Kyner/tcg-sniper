@@ -8,7 +8,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from tcg_sniper.admin.consultas import _escapar_like
+from tcg_sniper.admin.consultas import casa_nome
 from tcg_sniper.coletor_amazon.termo import termo_busca
 from tcg_sniper.db.models import (
     AnuncioAmazon,
@@ -94,7 +94,7 @@ def produtos_para_casar(
     com pendente que seria oportunidade, depois com pendentes, depois os demais; por nome."""
     condicoes = [ProdutoLiga.ativo.is_(True)]
     if busca.strip():
-        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
+        condicoes.append(casa_nome(busca))
     if categoria:
         condicoes.append(ProdutoLiga.tipo == categoria)
     if com_preco:
@@ -213,27 +213,36 @@ def _com_preco_liga(s: Session, ids: list[int]) -> list[tuple[ProdutoLiga, Decim
 
 def sugestoes_para(s: Session, anuncio: AnuncioAmazon, limite: int = 3) -> list[tuple[ProdutoLiga, Decimal | None]]:
     """Até `limite` produtos do catálogo com nome parecido com o título do anúncio (difflib),
-    sem o produto ao qual o anúncio já está ligado."""
+    sem o produto ao qual o anúncio já está ligado. Cada produto concorre com o nome em português
+    e com o nome em inglês (quando há); vale o que parecer mais com o título."""
     por_nome: dict[str, int] = {}
     indice: dict[str, set[str]] = {}
-    consulta_nomes = select(ProdutoLiga.id, ProdutoLiga.nome).where(ProdutoLiga.ativo.is_(True)).order_by(ProdutoLiga.id)
-    for produto_id, nome in s.execute(consulta_nomes):
-        normalizado = _normalizar(nome)
-        if por_nome.setdefault(normalizado, produto_id) != produto_id:
-            continue
-        for token in _tokens(normalizado):
-            indice.setdefault(token, set()).add(normalizado)
+    consulta_nomes = (
+        select(ProdutoLiga.id, ProdutoLiga.nome, ProdutoLiga.nome_en)
+        .where(ProdutoLiga.ativo.is_(True))
+        .order_by(ProdutoLiga.id)
+    )
+    for produto_id, nome, nome_en in s.execute(consulta_nomes):
+        for nome_do_produto in (nome, nome_en):
+            if not nome_do_produto:
+                continue
+            normalizado = _normalizar(nome_do_produto)
+            if por_nome.setdefault(normalizado, produto_id) != produto_id:
+                continue
+            for token in _tokens(normalizado):
+                indice.setdefault(token, set()).add(normalizado)
     titulo = _normalizar(anuncio.titulo_exibicao)
     candidatos = candidatos_para(titulo, list(por_nome), indice)
-    parecidos = difflib.get_close_matches(titulo, candidatos, n=limite + 1, cutoff=0.3)
-    ids = [por_nome[nome] for nome in parecidos if por_nome[nome] != anuncio.produto_id][:limite]
+    # Até 2 nomes por produto: pede o dobro e fica com a primeira (melhor) ocorrência de cada um.
+    parecidos = difflib.get_close_matches(titulo, candidatos, n=2 * limite + 2, cutoff=0.3)
+    ids = list(dict.fromkeys(por_nome[nome] for nome in parecidos if por_nome[nome] != anuncio.produto_id))[:limite]
     return _com_preco_liga(s, ids)
 
 
 def buscar_produtos(s: Session, busca: str, limite: int = 20) -> list[tuple[ProdutoLiga, Decimal | None]]:
     consulta = select(ProdutoLiga.id).where(ProdutoLiga.ativo.is_(True)).order_by(ProdutoLiga.nome).limit(limite)
     if busca.strip():
-        consulta = consulta.where(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
+        consulta = consulta.where(casa_nome(busca))
     return _com_preco_liga(s, list(s.scalars(consulta)))
 
 
@@ -293,7 +302,7 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
     as aceitas pelo filtro de vendedor, contra o "À partir de" da Liga."""
     condicoes = [AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, PrecoAtualAmazon.preco.is_not(None)]
     if filtro.busca.strip():
-        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(filtro.busca.strip())}%", escape="\\"))
+        condicoes.append(casa_nome(filtro.busca))
     if filtro.categoria:
         condicoes.append(ProdutoLiga.tipo == filtro.categoria)
     consulta = (
