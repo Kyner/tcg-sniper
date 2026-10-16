@@ -15,6 +15,7 @@ from tcg_sniper.db.models import (
     Coleta,
     EstadoColetorTipo,
     PrecoAtualLiga,
+    ProdutoLiga,
     ResumoPreco,
     StatusColeta,
     TipoColeta,
@@ -157,3 +158,17 @@ def test_sem_produtos_ativos(sessoes, config):
     resultado, _, _ = coletar(sessoes, config, {})
     assert resultado.status is StatusColeta.OK
     assert (resultado.produtos_ok, resultado.produtos_falha) == (0, 0)
+
+
+def test_coleta_guarda_o_nome_em_ingles_e_nao_apaga_com_pagina_sem_ele(sessoes, config):
+    urls = preparar(sessoes, "a")
+    [url] = urls.values()
+    com_en = pagina_html(fixture_liga("produto_nome_en"), url=url)
+    coletar(sessoes, config, {url: com_en})
+    with sessoes() as s:
+        assert s.scalar(select(ProdutoLiga.nome_en)) == (
+            "Booster Box - The Lord of the Rings: Tales of Middle-Earth - Draft Booster"
+        )
+    coletar(sessoes, config, {url: pagina_html(HTML_OK, url=url)})
+    with sessoes() as s:
+        assert s.scalar(select(ProdutoLiga.nome_en)).startswith("Booster Box")

@@ -18,6 +18,7 @@ class Resumo:
     preco_medio: Decimal | None
     preco_max: Decimal | None
     num_lojas: int
+    nome_en: str | None = None  # nome em inglês (`.item-name-en`); None quando a página não o mostra
 
 
 @dataclass(frozen=True)

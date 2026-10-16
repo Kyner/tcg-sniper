@@ -177,6 +177,10 @@ class VarreduraAmazon:
             item = repo_amz.proximo_da_fila(s, agora)
             produto = s.get(ProdutoLiga, item.produto_id) if item else None
             entrou_em = item.entrou_em if item else None
+            # Português na primeira busca, depois alterna; sem nome em inglês é sempre português.
+            usar_en = bool(
+                item and produto and produto.nome_en and item.ultima_busca_em is not None and not item.ultimo_termo_en
+            )
             ultimo_candidato_em = item.ultimo_candidato_em if item else None
         self._pendentes &= na_fila  # produto desativado na Liga sai do ciclo
         if self._ciclo is not None and not self._pendentes:
@@ -200,7 +204,7 @@ class VarreduraAmazon:
         )
         teve_candidato = False
         try:
-            teve_candidato = processar_produto(contexto, produto).candidatos > 0
+            teve_candidato = processar_produto(contexto, produto, usar_en).candidatos > 0
             self._ok += 1
             self._falhas_seguidas = 0
         except DesafioAmazon as desafio:
@@ -217,7 +221,7 @@ class VarreduraAmazon:
             try:
                 with self._sessoes() as s, s.begin():
                     repo_amz.reagendar(
-                        s, produto.id, depois, depois + timedelta(minutes=cfg.intervalo_busca_min), False
+                        s, produto.id, depois, depois + timedelta(minutes=cfg.intervalo_busca_min), False, usar_en
                     )
             except Exception:
                 log.exception("não foi possível reagendar o produto %s da Amazon", produto.id)
@@ -232,7 +236,7 @@ class VarreduraAmazon:
         candidato_em = depois if teve_candidato else ultimo_candidato_em
         proxima = depois + intervalo_busca(cfg.intervalo_busca_min, depois, candidato_em, entrou_em)
         with self._sessoes() as s, s.begin():
-            repo_amz.reagendar(s, produto.id, depois, proxima, teve_candidato)
+            repo_amz.reagendar(s, produto.id, depois, proxima, teve_candidato, usar_en)
             repo_amz.fechar_oportunidades_sem_leitura(s, depois)
         self._pendentes.discard(produto.id)
         if not self._pendentes:

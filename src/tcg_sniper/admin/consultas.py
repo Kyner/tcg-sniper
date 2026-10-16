@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 
-from sqlalchemy import ColumnElement, func, select, update
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import (
@@ -81,6 +81,12 @@ def listar_categorias(s: Session) -> list[str]:
     )
 
 
+def casa_nome(busca: str) -> ColumnElement[bool]:
+    """O texto aparece no nome do produto ou no nome em inglês (`%` e `_` valem como texto)."""
+    padrao = f"%{_escapar_like(busca.strip())}%"
+    return or_(ProdutoLiga.nome.ilike(padrao, escape="\\"), ProdutoLiga.nome_en.ilike(padrao, escape="\\"))
+
+
 def condicoes_catalogo(
     busca: str | None, filtro: str, categoria: str | None, com_preco: bool, agora: datetime
 ) -> list[ColumnElement[bool]]:
@@ -89,7 +95,7 @@ def condicoes_catalogo(
     `com_preco` referencia `PrecoAtualLiga`, então a consulta que as usar precisa do outer join."""
     condicoes: list[ColumnElement[bool]] = []
     if busca and busca.strip():
-        condicoes.append(ProdutoLiga.nome.ilike(f"%{_escapar_like(busca.strip())}%", escape="\\"))
+        condicoes.append(casa_nome(busca))
     if filtro == "ativos":
         condicoes.append(ProdutoLiga.ativo.is_(True))
     elif filtro == "inativos":

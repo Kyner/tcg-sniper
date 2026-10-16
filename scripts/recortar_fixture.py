@@ -10,7 +10,7 @@ resultado mudar, não grava e sai com erro.
 
 - Listagem (tem `.categoria__card-container`): a grade de cartões, o carrossel `.best-sellers`
   (que o parser ignora) e o botão "Exibir mais".
-- Página de produto: `#marketplace-stores` sem as ofertas das lojas (só o aviso "Nenhum item
+- Página de produto: o nome em inglês `.item-name-en`, `#marketplace-stores` sem as ofertas das lojas (só o aviso "Nenhum item
   encontrado", quando houver), o aviso oculto `#marketplace-stores-noregisters`, o quadro
   `.price-mkp` e o filtro "Vendedores".
 - Amazon: busca (só os cartões de resultado, dentro da grade), produto (título, preço, vendido/enviado por, link do vendedor, opção do seletor de variações), perfil do vendedor (nome e resumo) e CAPTCHA (o formulário e o texto da verificação).
@@ -31,6 +31,7 @@ from tcg_sniper.coletor_liga.parsers import (
     SELETOR_ESTRUTURA_PRODUTO,
     SELETOR_GRADE_LISTAGEM,
     SELETOR_GRUPO_FILTRO,
+    SELETOR_NOME_EN,
     SELETOR_QUADRO_PRECOS,
     SELETOR_SEM_LOJAS,
     SELETOR_TITULO_VENDEDORES,
@@ -66,6 +67,7 @@ def _blocos_produto(arvore: LexborHTMLParser) -> list[str]:
         atributos = "".join(f' {k}="{escape(v or "")}"' for k, v in lojas.attributes.items())
         interno = _limpo(aviso) if aviso is not None else ""
         blocos.append(f"<div{atributos}>{interno}</div>")
+    blocos += [_limpo(no) for no in arvore.css(SELETOR_NOME_EN)]
     blocos += [_limpo(no) for no in arvore.css("#marketplace-stores-noregisters")]
     blocos += [_limpo(no) for no in arvore.css(SELETOR_QUADRO_PRECOS)]
     for grupo in arvore.css(SELETOR_GRUPO_FILTRO):

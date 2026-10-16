@@ -33,6 +33,7 @@ from tcg_sniper.db.models import (
     Coleta,
     EstadoColetorTipo,
     FilaAmazon,
+    ProdutoLiga,
     StatusCasamento,
     StatusColeta,
     TipoColeta,
@@ -127,7 +128,7 @@ def test_passo_busca_reagenda_e_fecha_o_ciclo(engine, sessoes, config):
 def test_so_ausente_conferido_nao_conta_como_candidato(engine, sessoes, config):
     (a,), urls = produtos(sessoes, "a")
     with sessoes() as s, s.begin():
-        criar_anuncio(s, "B0AUSENTE1", produto=s.get(type(a), a.id), status=StatusCasamento.CONFIRMADO)
+        criar_anuncio(s, "B0AUSENTE1", produto=s.get(ProdutoLiga, a.id), status=StatusCasamento.CONFIRMADO)
     paginas = {
         urls[a.id]: vazia(urls[a.id]),
         url_produto("B0AUSENTE1"): pagina_html(html_produto_amazon("Item", "R$ 900,00", "Loja", "Loja")),
@@ -300,10 +301,10 @@ def test_produto_que_quebra_nao_trava_a_fila(engine, sessoes, config, monkeypatc
     (a, b), urls = produtos(sessoes, "a", "b")
     real = modulo.processar_produto
 
-    def quebra_so_a(contexto, produto):
+    def quebra_so_a(contexto, produto, usar_nome_en=False):
         if produto.id == a.id:
             raise RuntimeError("bug no parser")
-        return real(contexto, produto)
+        return real(contexto, produto, usar_nome_en)
 
     monkeypatch.setattr(modulo, "processar_produto", quebra_so_a)
     v, navegador, _, _ = varredura(engine, sessoes, config, {urls[b.id]: vazia(urls[b.id])})
@@ -405,3 +406,36 @@ def test_host_salvo_na_tela_vale_na_mensagem_do_captcha(engine, sessoes, config)
     v.passo()
     [(_, texto)] = notificador.mensagens
     assert "http://10.9.8.7:6081/vnc.html" in texto
+
+
+def test_busca_alterna_portugues_e_ingles_quando_ha_nome_en(engine, sessoes, config):
+    (a,), urls = produtos(sessoes, "Caixa de Booster - Alfa")
+    with sessoes() as s, s.begin():
+        s.get(ProdutoLiga, a.id).nome_en = "Booster Box - Alpha"
+        url_en = url_busca(repo_amz.obter_config(s), "Booster Box - Alpha")
+    url_pt = urls[a.id]
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, _ = varredura(
+        engine, sessoes, config, {url_pt: vazia(url_pt), url_en: vazia(url_en)}, relogio=relogio
+    )
+    flags = []
+    for _ in range(3):
+        assert v.passo() == 0
+        with sessoes() as s:
+            flags.append(s.get(FilaAmazon, a.id).ultimo_termo_en)
+        relogio.agora += timedelta(hours=3)
+    assert navegador.visitadas == [url_pt, url_en, url_pt]
+    assert flags == [False, True, False]
+
+
+def test_busca_sem_nome_en_sempre_em_portugues_e_flag_continua_falso(engine, sessoes, config):
+    (a,), urls = produtos(sessoes, "Caixa de Booster - Alfa")
+    url = urls[a.id]
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, _ = varredura(engine, sessoes, config, {url: vazia(url)}, relogio=relogio)
+    for _ in range(2):
+        assert v.passo() == 0
+        relogio.agora += timedelta(hours=3)
+    assert navegador.visitadas == [url, url]
+    with sessoes() as s:
+        assert s.get(FilaAmazon, a.id).ultimo_termo_en is False

@@ -79,8 +79,15 @@ def proximo_da_fila(s: Session, agora: datetime) -> FilaAmazon | None:
     return s.scalar(consulta)
 
 
-def reagendar(s: Session, produto_id: int, agora: datetime, proxima: datetime, teve_candidato: bool) -> None:
-    valores: dict[str, datetime] = {"ultima_busca_em": agora, "proxima_busca_em": proxima}
+def reagendar(
+    s: Session, produto_id: int, agora: datetime, proxima: datetime, teve_candidato: bool, termo_en: bool = False
+) -> None:
+    """`termo_en`: a busca que acabou usou o nome em inglês (a próxima usa o português, e vice-versa)."""
+    valores: dict[str, datetime | bool] = {
+        "ultima_busca_em": agora,
+        "proxima_busca_em": proxima,
+        "ultimo_termo_en": termo_en,
+    }
     if teve_candidato:
         valores["ultimo_candidato_em"] = agora
     s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(**valores))

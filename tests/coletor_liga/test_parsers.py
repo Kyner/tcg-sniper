@@ -127,3 +127,23 @@ def test_produto_sem_historico():
 def test_produto_html_sem_estrutura(html):
     with pytest.raises(ErroParser):
         parse_produto(html)
+
+
+def test_produto_le_o_nome_em_ingles():
+    resumo = parse_produto(fixture_liga("produto_nome_en"))
+    assert resumo.nome_en == "Booster Box - The Lord of the Rings: Tales of Middle-Earth - Draft Booster"
+
+
+@pytest.mark.parametrize(
+    "nome",
+    ["produto_varios_vendedores", "produto_um_vendedor", "produto_sem_estoque", "produto_sem_historico"],
+)
+def test_produto_sem_nome_em_ingles_devolve_none(nome):
+    assert parse_produto(fixture_liga(nome)).nome_en is None
+
+
+def test_nome_em_ingles_vazio_vira_none():
+    html = fixture_liga("produto_sem_historico").replace(
+        "<body>", '<body><div class="item-name-en">  </div>', 1
+    )
+    assert parse_produto(html).nome_en is None

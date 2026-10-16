@@ -527,3 +527,24 @@ def test_produto_tem_abas_de_historico(cliente, sessoes):
         p = criar_produto(s, "h1", nome="Caixa Histórico")
     texto = cliente.get(f"/produto/{p.id}").text
     assert 'aria-label="Preço à partir de"' in texto and 'aria-label="Histórico de venda"' in texto
+
+
+def test_catalogo_busca_e_mostra_o_nome_em_ingles(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        criar_produto(s, "a", nome="Caixa de Booster - Senhor dos Anéis").nome_en = "Booster Box - Lord of the Rings"
+        criar_produto(s, "b", nome="Outro Produto")
+        criar_produto(s, "c", nome="Bundle").nome_en = "Bundle_100%"
+    r = cliente.get("/catalogo", params={"busca": "Lord of the"})
+    assert "Caixa de Booster - Senhor dos Anéis" in r.text and "Outro Produto" not in r.text
+    assert 'text-sm text-base-content/60">Booster Box - Lord of the Rings' in r.text
+    r = cliente.get("/catalogo", params={"busca": "100%"})  # "%" literal também no nome em inglês
+    assert "Bundle" in r.text and "Caixa de Booster" not in r.text
+    with sessoes() as s:
+        a = s.scalar(select(ProdutoLiga).where(ProdutoLiga.liga_id == "a"))
+    assert 'text-sm text-base-content/60">Booster Box - Lord of the Rings' in cliente.get(f"/produto/{a.id}").text
+
+
+def test_produto_sem_nome_em_ingles_nao_mostra_linha_extra(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        criar_produto(s, "a", nome="Só Português")
+    assert 'text-sm text-base-content/60"' not in cliente.get("/catalogo").text

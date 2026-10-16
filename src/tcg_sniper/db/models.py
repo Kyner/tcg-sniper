@@ -95,6 +95,7 @@ class ProdutoLiga(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     liga_id: Mapped[str] = mapped_column(Text, unique=True)
     nome: Mapped[str] = mapped_column(Text)
+    nome_en: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)
     edicao: Mapped[str | None] = mapped_column(Text)
     tipo: Mapped[str | None] = mapped_column(Text)
@@ -255,6 +256,8 @@ class FilaAmazon(Base):
     proxima_busca_em: Mapped[datetime] = mapped_column(DATA)
     ultima_busca_em: Mapped[datetime | None] = mapped_column(DATA)
     ultimo_candidato_em: Mapped[datetime | None] = mapped_column(DATA)
+    # A última busca usou o nome em inglês; a próxima volta ao português (só alterna se o produto tem `nome_en`).
+    ultimo_termo_en: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class Oportunidade(Base):

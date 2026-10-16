@@ -2,7 +2,7 @@
 {% from "_componentes.html" import selo_vendedor, cabecalho %}
 {% block titulo %}{{ p.nome }} · TCG Sniper{% endblock %}
 {% block conteudo %}
-{% call cabecalho(p.nome, [p.tipo, "Monitorado" if p.ativo else "Não monitorado"]|select|join(" · ")) %}
+{% call cabecalho(p.nome, [p.tipo, "Monitorado" if p.ativo else "Não monitorado"]|select|join(" · "), p.nome_en) %}
   <a class="btn btn-sm btn-outline" href="{{ p.url }}" target="_blank" rel="noopener">{{ icone("arrow-top-right-on-square", "size-4") }} Ver na LigaMagic</a>
 {% endcall %}
 <div class="grid gap-4 md:grid-cols-2">

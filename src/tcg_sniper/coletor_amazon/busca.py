@@ -99,12 +99,13 @@ class Conferencia:
     candidatos: int  # só os candidatos da busca (os ausentes não contam para o ritmo da fila)
 
 
-def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga) -> Conferencia:
+def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga, usar_nome_en: bool = False) -> Conferencia:
     """Busca o produto e confirma os candidatos. Devolve quantos anúncios foram conferidos na página
     do produto e, desses, quantos eram candidatos da busca (não quantos foram confirmados).
     Lança DesafioAmazon (CAPTCHA), ErroParser (layout; só depois de ler todos os ausentes) ou ErroRede
-    (depois de uma nova tentativa)."""
-    pagina = _abrir(ctx, url_busca(ctx.cfg, produto.nome))
+    (depois de uma nova tentativa). `usar_nome_en` busca pelo nome em inglês (se o produto tiver um)."""
+    nome = produto.nome_en if usar_nome_en and produto.nome_en else produto.nome
+    pagina = _abrir(ctx, url_busca(ctx.cfg, nome))
     itens = _ler(ctx, pagina, "busca", lambda html: parse_busca(html, ctx.cfg.resultados_por_busca))
     with ctx.sessoes() as s, s.begin():
         anuncios = repo.gravar_busca(s, itens, produto.id, ctx.relogio(), ctx.config.zona)
