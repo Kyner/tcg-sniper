@@ -67,7 +67,10 @@ def main() -> None:
         subprocess.run([str(binario), "-i", str(estilo.ENTRADA), "-o", str(saida), "--minify"], check=True, cwd=RAIZ)
         css = saida.read_text(encoding="utf-8")
     estilo.SAIDA.parent.mkdir(parents=True, exist_ok=True)
-    estilo.SAIDA.write_text(f"{estilo.PREFIXO}{estilo.hash_fontes()} */\n/* daisyUI {DAISYUI} + Tailwind CSS {TAILWIND} */\n{css}", encoding="utf-8", newline="\n")
+    cabecalho = (
+        f"{estilo.PREFIXO}{estilo.hash_fontes()} */\n/* daisyUI {DAISYUI} + Tailwind CSS {TAILWIND} */\n"
+    )
+    estilo.SAIDA.write_text(cabecalho + css, encoding="utf-8", newline="\n")
     print(f"{estilo.SAIDA.relative_to(RAIZ)}: {estilo.SAIDA.stat().st_size:,} bytes")
 
 

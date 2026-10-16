@@ -30,7 +30,8 @@
 {%- endmacro %}
 
 {% macro aviso(tipo, texto) -%}
-<div role="alert" class="alert alert-{{ tipo }} alert-soft">{{ texto }}{% if caller %} {{ caller() }}{% endif %}</div>
+{%- set cores = {"warning": "alert-warning", "error": "alert-error", "success": "alert-success", "info": "alert-info"} -%}
+<div role="alert" class="alert {{ cores.get(tipo, 'alert-info') }} alert-soft">{{ texto }}{% if caller %} {{ caller() }}{% endif %}</div>
 {%- endmacro %}
 
 {% macro filtros(ativo=False) -%}

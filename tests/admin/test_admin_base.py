@@ -72,3 +72,13 @@ def test_tema_e_menu_usam_localstorage_protegido(cliente):
     # o drawer-toggle só é marcado no computador (no celular o menu não abre sozinho)
     assert 'matchMedia("(min-width: 1024px)")' in texto
     assert 'id="menu" type="checkbox" class="drawer-toggle">' in texto  # sem "checked" no HTML
+
+
+def test_classes_dinamicas_dos_componentes_existem_no_css():
+    # o Tailwind só gera classes escritas por extenso nos templates
+    css = estilo.SAIDA.read_text(encoding="utf-8")
+    for classe in (
+        "alert-warning", "alert-error", "alert-success", "alert-info",
+        "badge-success", "badge-warning", "badge-error", "badge-info", "badge-ghost",
+    ):
+        assert f".{classe}" in css, f"{classe} ausente do admin.css"
