@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "_componentes.html" import selo, cabecalho, paginacao %}
+{% block titulo %}Logs · TCG Sniper{% endblock %}
+{% block conteudo %}
+{{ cabecalho("Logs", "Histórico das coletas, dos ciclos e das chamadas da IA.") }}
+
+{# Campos ocultos de um filtro: os parâmetros das outras abas e a própria aba; a página do filtro volta para 1. #}
+{% macro ocultos(nome_aba, proprios) %}
+<input type="hidden" name="aba" value="{{ nome_aba }}">
+{% for nome, valor in parametros.items() if nome != "aba" and nome not in proprios %}
+<input type="hidden" name="{{ nome }}" value="{{ valor }}">
+{% endfor %}
+{% endmacro %}
+
+{% macro url_liga(n) %}{{ link(aba="liga", liga_pagina=n) }}{% endmacro %}
+{% macro url_amazon(n) %}{{ link(aba="amazon", amazon_pagina=n) }}{% endmacro %}
+{% macro url_ia(n) %}{{ link(aba="ia", ia_pagina=n) }}{% endmacro %}
+
+{% macro filtro_status(nome_aba, campo, valor) %}
+<form method="get" action="/logs" class="flex flex-wrap items-end gap-3">
+  {{ ocultos(nome_aba, (campo, nome_aba ~ "_pagina")) }}
+  <fieldset class="fieldset"><legend class="fieldset-legend">Situação</legend>
+    <select name="{{ campo }}" class="select select-sm w-auto" aria-label="Situação">
+      {% for s in status_historico %}<option value="{{ s }}" {% if s == valor %}selected{% endif %}>{{ s|replace("_", " ") }}</option>{% endfor %}
+    </select>
+  </fieldset>
+  <button type="submit" class="btn btn-sm btn-primary mb-1">Filtrar</button>
+</form>
+{% endmacro %}
+
+{% macro coletas_tabela(linhas, com_tipo, rotulo_itens, vazio) %}
+<div class="card hidden bg-base-100 shadow-sm md:block"><div class="card-body overflow-x-auto p-4">
+  <table class="table table-zebra">
+    <thead><tr><th>Início</th>{% if com_tipo %}<th>Tipo</th>{% endif %}<th>Situação</th><th class="text-right">{{ rotulo_itens }}</th><th class="text-right">Falhas</th><th>Duração</th><th>Observação</th></tr></thead>
+    <tbody>
+    {% for c in linhas %}
+      <tr data-tipo="{{ c.tipo.value }}">
+        <td class="whitespace-nowrap tabular-nums">{{ c.iniciada_em|data }}</td>
+        {% if com_tipo %}<td>{{ c.tipo.value }}</td>{% endif %}
+        <td>{{ selo(c.status.value) }}</td>
+        <td class="text-right tabular-nums">{{ c.produtos_ok|milhar }}</td>
+        <td class="text-right tabular-nums">{{ c.produtos_falha|milhar }}</td>
+        <td class="whitespace-nowrap tabular-nums">{{ c.iniciada_em|duracao(c.finalizada_em) }}</td>
+        <td class="text-sm">{{ c.erro or "" }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7">{{ vazio }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+<div class="space-y-2 md:hidden">
+  {% for c in linhas %}
+  <div class="card bg-base-100 shadow-sm"><div class="card-body gap-1 p-4">
+    <div class="flex items-center justify-between gap-2"><span class="font-medium">{{ c.iniciada_em|data }}{% if com_tipo %} · {{ c.tipo.value }}{% endif %}</span>{{ selo(c.status.value) }}</div>
+    <div class="text-sm tabular-nums">{{ c.produtos_ok|milhar }} {{ rotulo_itens|lower }} · {{ c.produtos_falha|milhar }} falhas · {{ c.iniciada_em|duracao(c.finalizada_em) }}</div>
+    {% if c.erro %}<div class="text-sm text-base-content/70">{{ c.erro }}</div>{% endif %}
+  </div></div>
+  {% else %}
+  <p class="text-sm">{{ vazio }}</p>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+<div class="tabs tabs-border">
+  <input type="radio" name="logs" class="tab" aria-label="LigaMagic"{% if aba == "liga" %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    {{ filtro_status("liga", "liga_status", liga_status) }}
+    {{ coletas_tabela(coletas, True, "Itens", "Nenhuma coleta ainda.") }}
+    {{ paginacao(pagina_liga, paginas_liga, url_liga) }}
+  </div>
+
+  <input type="radio" name="logs" class="tab" aria-label="Amazon"{% if aba == "amazon" %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    {{ filtro_status("amazon", "amazon_status", amazon_status) }}
+    {{ coletas_tabela(ciclos, False, "Buscas", "Nenhum ciclo ainda.") }}
+    {{ paginacao(pagina_amazon, paginas_amazon, url_amazon) }}
+  </div>
+
+  <input type="radio" name="logs" class="tab" aria-label="IA"{% if aba == "ia" %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    <form method="get" action="/logs" class="flex flex-wrap items-end gap-3">
+      {{ ocultos("ia", ("situacao", "finalidade", "ia_pagina")) }}
+      <fieldset class="fieldset"><legend class="fieldset-legend">Situação</legend>
+        <select name="situacao" class="select select-sm w-auto" aria-label="Situação">
+          {% for v in situacoes_ia %}<option value="{{ v }}" {% if v == situacao %}selected{% endif %}>{{ v|replace("_", " ") }}</option>{% endfor %}
+        </select>
+      </fieldset>
+      <fieldset class="fieldset"><legend class="fieldset-legend">Finalidade</legend>
+        <select name="finalidade" class="select select-sm w-auto" aria-label="Finalidade">
+          {% for v in finalidades_ia %}<option value="{{ v }}" {% if v == finalidade %}selected{% endif %}>{{ "avaliação" if v == "avaliacao" else v }}</option>{% endfor %}
+        </select>
+      </fieldset>
+      <button type="submit" class="btn btn-sm btn-primary mb-1">Filtrar</button>
+    </form>
+    <div class="card hidden bg-base-100 shadow-sm md:block"><div class="card-body overflow-x-auto p-4">
+      <table class="table table-zebra">
+        <thead><tr><th>Quando</th><th>Finalidade</th><th>Modelo</th><th class="text-right">Tokens</th><th class="text-right">Custo</th><th>Situação</th></tr></thead>
+        <tbody>
+        {% for c in chamadas %}
+          <tr>
+            <td class="whitespace-nowrap tabular-nums">{{ c.em|data }}</td>
+            <td>{{ "avaliação" if c.finalidade == "avaliacao" else c.finalidade }}</td>
+            <td>{{ c.modelo }}</td>
+            <td class="text-right tabular-nums">{{ c.tokens_entrada|milhar }} / {{ c.tokens_saida|milhar }}</td>
+            <td class="text-right whitespace-nowrap tabular-nums">{{ c.custo_usd|usd4 }}</td>
+            <td>{% if c.ok %}{{ selo("ok") }}{% else %}{{ selo("falha", "erro") }}{% if c.erro %} <span class="text-xs">{{ c.erro }}</span>{% endif %}{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6">Nenhuma chamada da IA ainda.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    <div class="space-y-2 md:hidden">
+      {% for c in chamadas %}
+      <div class="card bg-base-100 shadow-sm"><div class="card-body gap-1 p-4">
+        <div class="flex items-center justify-between gap-2"><span class="font-medium">{{ c.em|data }} · {{ "avaliação" if c.finalidade == "avaliacao" else c.finalidade }}</span>{% if c.ok %}{{ selo("ok") }}{% else %}{{ selo("falha", "erro") }}{% endif %}</div>
+        <div class="text-sm tabular-nums">{{ c.modelo }} · {{ c.tokens_entrada|milhar }} / {{ c.tokens_saida|milhar }} tokens · {{ c.custo_usd|usd4 }}</div>
+        {% if c.erro %}<div class="text-xs text-error">{{ c.erro }}</div>{% endif %}
+      </div></div>
+      {% else %}
+      <p class="text-sm">Nenhuma chamada da IA ainda.</p>
+      {% endfor %}
+    </div>
+    {{ paginacao(pagina_ia, paginas_ia, url_ia) }}
+  </div>
+</div>
+{% endblock %}

@@ -57,6 +57,8 @@ MENSAGENS_SERVICOS = {
 }
 
 
+ABAS_LOGS = ("liga", "amazon", "ia")
+
 MENSAGENS_CASAMENTO = {"link_salvo": "Link salvo; o anúncio será lido em alguns minutos."}
 
 
@@ -75,6 +77,14 @@ def numero_pagina(texto: str) -> int:
 
 def formatar_data(dt: datetime | None, zona: ZoneInfo) -> str:
     return "" if dt is None else dt.astimezone(zona).strftime("%d/%m/%Y %H:%M")
+
+
+def duracao(inicio: datetime, fim: datetime | None) -> str:
+    """Duração de uma coleta em minutos ("18 min"); "—" enquanto não terminou."""
+    if fim is None:
+        return "—"
+    minutos = int((fim - inicio).total_seconds() // 60)
+    return f"{minutos} min" if minutos >= 1 else "< 1 min"
 
 
 async def ler_formulario(request: Request) -> dict[str, str]:
@@ -110,6 +120,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.globals["versao_css"] = (estilo.hash_gravado() or "0")[:12]
     templates.env.filters["brl"] = formatar_brl
     templates.env.filters["usd"] = lambda v: f"US$ {v:.2f}".replace(".", ",")
+    templates.env.filters["usd4"] = lambda v: f"US$ {v:.4f}".replace(".", ",")
+    templates.env.filters["duracao"] = duracao
+    templates.env.filters["milhar"] = lambda n: f"{n:,}".replace(",", ".")
     templates.env.filters["envio"] = lambda envio, vendedor=None: {
         "amazon": "vendido pela Amazon",
         "fba": f"vendido por {vendedor.nome if vendedor and vendedor.nome else 'lojista'}, enviado pela Amazon",
@@ -182,6 +195,77 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "resumo_msgs": consultas_mensagens.resumo(s, agora),
                     "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
                     "gasto_ia": repo_ia.gasto(s, agora, efetiva.zona),
+                },
+            )
+
+    @app.get("/logs", response_class=HTMLResponse)
+    def logs(
+        request: Request,
+        aba: str = "liga",
+        liga_status: str = "todos",
+        liga_pagina: str = "1",
+        amazon_status: str = "todos",
+        amazon_pagina: str = "1",
+        situacao: str = "todas",
+        finalidade: str = "todas",
+        ia_pagina: str = "1",
+    ):
+        if aba not in ABAS_LOGS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
+        for valor in (liga_status, amazon_status):
+            if valor not in consultas.STATUS_HISTORICO:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"status inválido: {valor}")
+        if situacao not in consultas.SITUACOES_IA:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
+        if finalidade not in consultas.FINALIDADES_IA:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"finalidade inválida: {finalidade}")
+        with sessoes() as s, s.begin():
+            coletas, pagina_liga, paginas_liga = consultas.historico_coletas(
+                s, TIPOS_LIGA, liga_status, numero_pagina(liga_pagina)
+            )
+            ciclos, pagina_amazon, paginas_amazon = consultas.historico_coletas(
+                s, (TipoColeta.AMAZON,), amazon_status, numero_pagina(amazon_pagina)
+            )
+            chamadas, pagina_ia, paginas_ia = consultas.historico_chamadas_ia(
+                s, situacao, finalidade, numero_pagina(ia_pagina)
+            )
+            parametros = {
+                "aba": aba,
+                "liga_status": liga_status,
+                "liga_pagina": pagina_liga,
+                "amazon_status": amazon_status,
+                "amazon_pagina": pagina_amazon,
+                "situacao": situacao,
+                "finalidade": finalidade,
+                "ia_pagina": pagina_ia,
+            }
+
+            def link(**mudancas) -> str:
+                return "/logs?" + urlencode({**parametros, **mudancas})
+
+            return templates.TemplateResponse(
+                request,
+                "logs.html",
+                {
+                    "aba": aba,
+                    "parametros": parametros,
+                    "link": link,
+                    "coletas": coletas,
+                    "ciclos": ciclos,
+                    "chamadas": chamadas,
+                    "pagina_liga": pagina_liga,
+                    "paginas_liga": paginas_liga,
+                    "pagina_amazon": pagina_amazon,
+                    "paginas_amazon": paginas_amazon,
+                    "pagina_ia": pagina_ia,
+                    "paginas_ia": paginas_ia,
+                    "liga_status": liga_status,
+                    "amazon_status": amazon_status,
+                    "situacao": situacao,
+                    "finalidade": finalidade,
+                    "status_historico": consultas.STATUS_HISTORICO,
+                    "situacoes_ia": consultas.SITUACOES_IA,
+                    "finalidades_ia": consultas.FINALIDADES_IA,
                 },
             )
 
