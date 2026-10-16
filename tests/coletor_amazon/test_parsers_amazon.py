@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from fakes import fixture_amazon
+from fakes import cartao_busca, fixture_amazon, html_busca, html_produto_amazon
 
 from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, OfertaProduto
 from tcg_sniper.coletor_amazon.parsers import (
@@ -172,3 +172,17 @@ def test_variacao_com_duas_dimensoes():
         '<span id="inline-twister-expanded-dimension-text-size_name"> 12 unidades </span></body>',
     )
     assert parse_produto_amazon(html, "B0DTS76B5L").variacao == "Collector Booster Box · 12 unidades"
+
+
+def test_busca_le_imagem():
+    html = html_busca(cartao_busca("B0A", "Caixa", "R$ 10,00", imagem="https://m.media-amazon.com/images/I/a._AC_UL320_.jpg"),
+                      cartao_busca("B0B", "Outra", None))
+    a, b = parse_busca(html, 10)
+    assert a.imagem_url == "https://m.media-amazon.com/images/I/a._AC_UL320_.jpg" and b.imagem_url is None
+
+
+def test_produto_le_imagem_grande_e_ignora_data_uri():
+    html = html_produto_amazon("Caixa", "R$ 10,00", None, None, imagem="https://m.media-amazon.com/images/I/a._AC_SL1500_.jpg")
+    assert parse_produto_amazon(html, "B0A").imagem_url == "https://m.media-amazon.com/images/I/a._AC_SL1500_.jpg"
+    so_data = '<html><body><span id="productTitle">X</span><img id="landingImage" src="data:image/gif;base64,R0lGOD"></body></html>'
+    assert parse_produto_amazon(so_data, "B0A").imagem_url is None

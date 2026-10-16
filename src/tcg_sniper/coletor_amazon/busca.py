@@ -170,7 +170,7 @@ def _confirmar(ctx: ContextoBusca, anuncio_id: int, asin: str, url: str) -> None
         repo.registrar_preco(
             s, anuncio_id, oferta.preco, OrigemPreco.PRODUTO, vendedor_id, oferta.envio, agora, ctx.config.zona
         )
-        repo.atualizar_leitura(s, anuncio_id, oferta.titulo, oferta.variacao, agora)
+        repo.atualizar_leitura(s, anuncio_id, oferta.titulo, oferta.variacao, agora, oferta.imagem_url)
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
         if not linhas:  # o casamento foi desfeito no admin enquanto a página abria
             return

@@ -19,6 +19,7 @@ class Resumo:
     preco_max: Decimal | None
     num_lojas: int
     nome_en: str | None = None  # nome em inglês (`.item-name-en`); None quando a página não o mostra
+    imagem_url: str | None = None  # imagem principal (#featuredImage); None quando a página não a mostra
 
 
 @dataclass(frozen=True)
