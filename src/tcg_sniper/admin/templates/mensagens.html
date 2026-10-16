@@ -1,48 +1,64 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import selo, cabecalho, filtros, paginacao %}
 {% block titulo %}Mensagens · TCG Sniper{% endblock %}
 {% block conteudo %}
-<h2>Mensagens do WhatsApp</h2>
-<form method="get" action="/mensagens" class="filtros">
-  <div class="grid">
-    <label>Situação
-      <select name="situacao">{% for v in situacoes %}<option value="{{ v }}" {% if v == situacao %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
-    </label>
-    <label>Destino
-      <select name="destino">{% for v in destinos %}<option value="{{ v }}" {% if v == destino %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
-    </label>
-    <button>Filtrar</button>
-  </div>
+{{ cabecalho("Mensagens do WhatsApp", "Tabela de saída do notificador") }}
+{% macro url_pagina(n) %}{{ link(pagina=n) }}{% endmacro %}
+{% call filtros(situacao != "todas" or destino != "todos") %}
+<form method="get" action="/mensagens" class="grid gap-2 md:grid-cols-4">
+  <label class="form-control"><span class="label text-sm">Situação</span>
+    <select name="situacao" class="select select-sm w-full">{% for v in situacoes %}<option value="{{ v }}" {% if v == situacao %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+  <label class="form-control"><span class="label text-sm">Destino</span>
+    <select name="destino" class="select select-sm w-full">{% for v in destinos %}<option value="{{ v }}" {% if v == destino %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+  <button class="btn btn-sm btn-primary self-end">Filtrar</button>
 </form>
-<table>
-  <thead><tr><th>Criada em</th><th>Destino</th><th>Texto</th><th>Situação</th><th>Tentativas</th><th>Último erro</th><th>Enviada em</th><th></th></tr></thead>
-  <tbody>
+{% endcall %}
+{% macro acoes(m) %}
+{% if m.status.value in ("falha", "expirada", "pendente") %}
+<form method="post" action="/mensagens/{{ m.id }}" class="flex flex-wrap gap-1">
+  <input type="hidden" name="voltar" value="{{ aqui }}">
+  {% if m.status.value in ("falha", "expirada") %}<button name="acao" value="reenviar" class="btn btn-xs btn-primary">Reenviar</button>{% endif %}
+  <button name="acao" value="descartar" class="btn btn-xs btn-outline">Descartar</button>
+</form>
+{% endif %}
+{% endmacro %}
+{% macro texto(m) %}
+{% set partes = m.texto.split("\n") %}
+<div style="white-space: pre-line">{{ partes[:2]|join("\n") }}</div>
+{% if partes|length > 2 %}<details class="collapse collapse-arrow bg-base-200"><summary class="collapse-title min-h-0 py-1 text-xs">mais</summary><pre class="collapse-content text-xs whitespace-pre-wrap">{{ m.texto }}</pre></details>{% endif %}
+{% endmacro %}
+<div class="card hidden bg-base-100 shadow-sm md:block"><div class="overflow-x-auto">
+  <table class="table">
+    <thead><tr><th>Criada em</th><th>Destino</th><th>Texto</th><th>Situação</th><th class="text-right">Tentativas</th><th>Último erro</th><th>Enviada em</th><th></th></tr></thead>
+    <tbody>
+    {% for m in linhas %}
+      <tr>
+        <td class="whitespace-nowrap">{{ m.criada_em|data }}</td>
+        <td>{{ m.destino }}</td>
+        <td class="max-w-md">{{ texto(m) }}</td>
+        <td>{{ selo(m.status.value) }}</td>
+        <td class="text-right tabular-nums">{{ m.tentativas }}</td>
+        <td class="max-w-xs text-sm">{{ m.ultimo_erro or "—" }}</td>
+        <td class="whitespace-nowrap">{{ m.enviada_em|data if m.enviada_em else "—" }}</td>
+        <td>{{ acoes(m) }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8">Nenhuma mensagem.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+<div class="space-y-3 md:hidden">
   {% for m in linhas %}
-    {% set partes = m.texto.split("\n") %}
-    <tr>
-      <td>{{ m.criada_em|data }}</td>
-      <td>{{ m.destino }}</td>
-      <td style="white-space: pre-line">{{ partes[:2]|join("\n") }}{% if partes|length > 2 %}<details><summary>mais</summary><pre>{{ m.texto }}</pre></details>{% endif %}</td>
-      <td>{{ m.status.value }}</td>
-      <td>{{ m.tentativas }}</td>
-      <td>{{ m.ultimo_erro or "—" }}</td>
-      <td>{{ m.enviada_em|data if m.enviada_em else "—" }}</td>
-      <td>
-        {% if m.status.value in ("falha", "expirada", "pendente") %}
-        <form method="post" action="/mensagens/{{ m.id }}">
-          <input type="hidden" name="voltar" value="{{ aqui }}">
-          {% if m.status.value in ("falha", "expirada") %}<button name="acao" value="reenviar">Reenviar</button>{% endif %}
-          <button name="acao" value="descartar" class="secondary">Descartar</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
+  <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
+    <div class="flex items-center justify-between gap-2"><span class="text-sm">{{ m.criada_em|data }} · {{ m.destino }}</span>{{ selo(m.status.value) }}</div>
+    {{ texto(m) }}
+    {% if m.ultimo_erro %}<p class="text-xs text-error">{{ m.ultimo_erro }}</p>{% endif %}
+    <div class="flex items-center justify-between gap-2"><span class="text-xs text-base-content/60">{{ m.tentativas }} tentativa(s){% if m.enviada_em %} · enviada {{ m.enviada_em|data }}{% endif %}</span>{{ acoes(m) }}</div>
+  </div></div>
   {% else %}
-    <tr><td colspan="8">Nenhuma mensagem.</td></tr>
+  <p class="text-sm">Nenhuma mensagem.</p>
   {% endfor %}
-  </tbody>
-</table>
-<p>Página {{ pagina }} de {{ paginas }}
-  {% if pagina > 1 %} · <a href="{{ link(pagina=pagina - 1) }}">anterior</a>{% endif %}
-  {% if pagina < paginas %} · <a href="{{ link(pagina=pagina + 1) }}">próxima</a>{% endif %}
-</p>
+</div>
+{{ paginacao(pagina, paginas, url_pagina) }}
 {% endblock %}
