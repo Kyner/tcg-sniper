@@ -14,7 +14,7 @@ from tcg_sniper.coletor_liga.agendador import (
 )
 from tcg_sniper.coletor_liga.execucao import ResultadoColeta
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db.models import Coleta, ProdutoLiga, StatusColeta, TipoColeta
+from tcg_sniper.db.models import COLETOR_LIGA, Coleta, ProdutoLiga, StatusColeta, TipoColeta
 from tcg_sniper.notificador.base import Destino
 
 SP = ZoneInfo("America/Sao_Paulo")
@@ -178,6 +178,24 @@ def test_pausado_nao_roda(engine, sessoes, config):
     a.inicializar()
     assert a.tick() is None
     assert chamadas == []
+
+
+def test_pausa_manual_nao_roda_agendado_nem_solicitado(engine, sessoes, config):
+    with sessoes() as s, s.begin():
+        repo.solicitar_execucao(s, local(TERCA, 8))
+        repo.pausar(s, "pausado no admin", local(TERCA, 8), COLETOR_LIGA)
+        repo.solicitar_execucao(s, local(TERCA, 8, 1))  # "rodar agora" com a coleta desligada
+    relogio = Relogio(local(TERCA, 15))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() is None
+    assert chamadas == []
+    with sessoes() as s, s.begin():
+        repo.retomar(s, local(TERCA, 15, 1))
+    relogio.agora = local(TERCA, 15, 2)
+    assert a.tick() == "solicitado"
+    assert chamadas == [True]
 
 
 def test_solicitacao_com_listagem_ok_hoje_roda_so_produtos(engine, sessoes, config):

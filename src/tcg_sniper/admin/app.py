@@ -27,7 +27,15 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import COLETOR_AMAZON, COLETOR_CASADOR, AnuncioAmazon, ProdutoLiga, TipoColeta
+from tcg_sniper.db.models import (
+    COLETOR_AMAZON,
+    COLETOR_CASADOR,
+    COLETOR_LIGA,
+    COLETOR_NOTIFICADOR,
+    AnuncioAmazon,
+    ProdutoLiga,
+    TipoColeta,
+)
 from tcg_sniper.formatacao import formatar_brl
 
 SENHA_PADRAO = "trocar-esta-senha"
@@ -37,6 +45,10 @@ MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
 MENSAGENS_SERVICOS = {
     "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
     "retomar": "Coleta da LigaMagic retomada.",
+    "liga_pausar": "Coleta da LigaMagic desligada. Volta quando você ligar de novo.",
+    "liga_retomar": "Coleta da LigaMagic ligada.",
+    "notificador_pausar": "Envio do WhatsApp desligado. As mensagens ficam guardadas e saem quando ligar.",
+    "notificador_retomar": "Envio do WhatsApp ligado.",
     "amazon_pausar": "Busca na Amazon pausada.",
     "amazon_retomar": "Busca na Amazon retomada.",
     "casador_pausar": "Casador pausado.",
@@ -204,6 +216,30 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         with sessoes() as s, s.begin():
             repo.solicitar_execucao(s, repo.agora_utc())
         return RedirectResponse("/servicos?msg=rodar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/liga/pausar")
+    def pausar_liga():
+        with sessoes() as s, s.begin():
+            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_LIGA)
+        return RedirectResponse("/servicos?msg=liga_pausar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/liga/retomar")
+    def retomar_liga():
+        with sessoes() as s, s.begin():
+            repo.retomar(s, repo.agora_utc(), COLETOR_LIGA)
+        return RedirectResponse("/servicos?msg=liga_retomar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/notificador/pausar")
+    def pausar_notificador():
+        with sessoes() as s, s.begin():
+            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_NOTIFICADOR)
+        return RedirectResponse("/servicos?msg=notificador_pausar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/notificador/retomar")
+    def retomar_notificador():
+        with sessoes() as s, s.begin():
+            repo.retomar(s, repo.agora_utc(), COLETOR_NOTIFICADOR)
+        return RedirectResponse("/servicos?msg=notificador_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/pausar")
     def pausar_amazon():
