@@ -1,72 +1,73 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import selo, cabecalho %}
 {% block titulo %}{{ p.nome }} · TCG Sniper{% endblock %}
 {% block conteudo %}
-<h2>{{ p.nome }}</h2>
-<p><a href="{{ p.url }}" target="_blank" rel="noopener">Ver na LigaMagic</a> · {{ p.tipo or "" }} · {{ "Monitorado" if p.ativo else "Não monitorado" }}</p>
-<article>
-  <header><strong>Preço atual (listagem)</strong></header>
-  <strong>À partir de:</strong>
-  {% if atual and atual.listagem_em %}{{ atual.preco_a_partir|brl if atual.preco_a_partir is not none else "Indisponível" }}{% else %}—{% endif %}<br>
-  <strong>Lido em:</strong> {{ (atual.listagem_em if atual else None)|data }}
-</article>
-<article>
-  <header><strong>Histórico de venda</strong> (quadro "Preço Médio de Venda no Marketplace" da página do produto; não é o preço pedido agora)</header>
-  <strong>Mín:</strong> {{ (atual.preco_min if atual else None)|brl }} ·
-  <strong>Médio:</strong> {{ (atual.preco_medio if atual else None)|brl }} ·
-  <strong>Máx:</strong> {{ (atual.preco_max if atual else None)|brl }}<br>
-  <strong>Lojas:</strong> {{ atual.num_lojas if atual and atual.num_lojas is not none else "—" }}<br>
-  <strong>Atualizado em:</strong> {{ (atual.resumo_em if atual else None)|data }}
-</article>
-<article>
-  <header><strong>Amazon</strong> (anúncios confirmados em {% if p.ativo %}<a href="/casamentos/produto/{{ p.id }}">Casamentos</a>{% else %}Casamentos{% endif %})</header>
-  <table>
-    <thead><tr><th>ASIN</th><th>Preço</th><th>Vendedor</th><th>Lido em</th></tr></thead>
+{% call cabecalho(p.nome, (p.tipo or "") ~ " · " ~ ("Monitorado" if p.ativo else "Não monitorado")) %}
+  <a class="btn btn-sm btn-outline" href="{{ p.url }}" target="_blank" rel="noopener">{{ icone("arrow-top-right-on-square", "size-4") }} Ver na LigaMagic</a>
+{% endcall %}
+<div class="grid gap-4 md:grid-cols-2">
+  <div class="card bg-base-100 shadow-sm"><div class="card-body">
+    <h2 class="card-title text-base">Preço atual (listagem)</h2>
+    <p class="text-2xl font-bold tabular-nums">{% if atual and atual.listagem_em %}{{ atual.preco_a_partir|brl if atual.preco_a_partir is not none else "Indisponível" }}{% else %}—{% endif %}</p>
+    <p class="text-sm text-base-content/70">À partir de · lido em {{ (atual.listagem_em if atual else None)|data }}</p>
+  </div></div>
+  <div class="card bg-base-100 shadow-sm"><div class="card-body">
+    <h2 class="card-title text-base">Histórico de venda</h2>
+    <p class="tabular-nums">Mín {{ (atual.preco_min if atual else None)|brl }} · Médio {{ (atual.preco_medio if atual else None)|brl }} · Máx {{ (atual.preco_max if atual else None)|brl }}</p>
+    <p class="text-sm text-base-content/70">Lojas: {{ atual.num_lojas if atual and atual.num_lojas is not none else "—" }} · atualizado em {{ (atual.resumo_em if atual else None)|data }}. Quadro "Preço Médio de Venda no Marketplace"; não é o preço pedido agora.</p>
+  </div></div>
+</div>
+<div class="card bg-base-100 shadow-sm"><div class="card-body">
+  <h2 class="card-title text-base">Amazon <span class="text-sm font-normal">(anúncios confirmados em {% if p.ativo %}<a class="link" href="/casamentos/produto/{{ p.id }}">Casamentos</a>{% else %}Casamentos{% endif %})</span></h2>
+  <div class="overflow-x-auto"><table class="table">
+    <thead><tr><th>ASIN</th><th class="text-right">Preço</th><th>Vendedor</th><th>Lido em</th></tr></thead>
     <tbody>
-    {% for anuncio, atual, vendedor in amazon %}
+    {% for anuncio, atual_amz, vendedor in amazon %}
       <tr>
-        <td><a href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<br><small>{{ anuncio.variacao }}</small>{% endif %}</td>
-        <td>{{ (atual.preco if atual else None)|brl }}</td>
-        <td>{{ atual.envio|envio(vendedor) if atual else "—" }}</td>
-        <td>{{ (atual.coletado_em if atual else None)|data }}</td>
+        <td><a class="link font-mono" href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<div class="text-xs text-base-content/70">{{ anuncio.variacao }}</div>{% endif %}</td>
+        <td class="text-right tabular-nums whitespace-nowrap">{{ (atual_amz.preco if atual_amz else None)|brl }}</td>
+        <td>{{ atual_amz.envio|envio(vendedor) if atual_amz else "—" }}</td>
+        <td class="whitespace-nowrap">{{ (atual_amz.coletado_em if atual_amz else None)|data }}</td>
       </tr>
     {% else %}
       <tr><td colspan="4">Nenhum anúncio da Amazon confirmado.</td></tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
+</div></div>
+<div class="tabs tabs-border">
+  <input type="radio" name="historicos" class="tab" aria-label="Preço à partir de" checked>
+  <div class="tab-content pt-4"><div class="card bg-base-100 shadow-sm"><div class="overflow-x-auto"><table class="table">
+    <thead><tr><th>Data</th><th class="text-right">À partir de</th></tr></thead>
+    <tbody>
+    {% for r in historico_listagem %}
+      <tr><td>{{ r.coletado_em|data }}</td><td class="text-right tabular-nums">{{ r.preco_a_partir|brl if r.preco_a_partir is not none else "Indisponível" }}</td></tr>
+    {% else %}
+      <tr><td colspan="2">Sem coletas de listagem ainda.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div></div></div>
+  <input type="radio" name="historicos" class="tab" aria-label="Histórico de venda">
+  <div class="tab-content pt-4"><div class="card bg-base-100 shadow-sm"><div class="overflow-x-auto"><table class="table">
+    <thead><tr><th>Data</th><th class="text-right">Mín</th><th class="text-right">Médio</th><th class="text-right">Máx</th><th class="text-right">Lojas</th></tr></thead>
+    <tbody>
+    {% for r in historico_resumo %}
+      <tr><td>{{ r.coletado_em|data }}</td><td class="text-right tabular-nums">{{ r.preco_min|brl }}</td><td class="text-right tabular-nums">{{ r.preco_medio|brl }}</td><td class="text-right tabular-nums">{{ r.preco_max|brl }}</td><td class="text-right tabular-nums">{{ r.num_lojas if r.num_lojas is not none else "—" }}</td></tr>
+    {% else %}
+      <tr><td colspan="5">Sem coletas da página do produto ainda (só produtos monitorados).</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div></div></div>
   {% if historico_amazon %}
-  <details><summary>Histórico de preço na Amazon</summary>
-    <table>
-      <thead><tr><th>Data</th><th>ASIN</th><th>Preço</th><th>Origem</th></tr></thead>
-      <tbody>
-      {% for preco, asin in historico_amazon %}
-        <tr><td>{{ preco.coletado_em|data }}</td><td>{{ asin }}</td><td>{{ preco.preco|brl }}</td><td>{{ preco.origem.value }}</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </details>
+  <input type="radio" name="historicos" class="tab" aria-label="Preço na Amazon">
+  <div class="tab-content pt-4"><div class="card bg-base-100 shadow-sm"><div class="overflow-x-auto"><table class="table">
+    <thead><tr><th>Data</th><th>ASIN</th><th class="text-right">Preço</th><th>Origem</th></tr></thead>
+    <tbody>
+    {% for preco, asin in historico_amazon %}
+      <tr><td>{{ preco.coletado_em|data }}</td><td class="font-mono">{{ asin }}</td><td class="text-right tabular-nums">{{ preco.preco|brl }}</td><td>{{ preco.origem.value }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div></div></div>
   {% endif %}
-</article>
-<h3>Histórico do preço à partir de</h3>
-<table>
-  <thead><tr><th>Data</th><th>À partir de</th></tr></thead>
-  <tbody>
-  {% for r in historico_listagem %}
-    <tr><td>{{ r.coletado_em|data }}</td><td>{{ r.preco_a_partir|brl if r.preco_a_partir is not none else "Indisponível" }}</td></tr>
-  {% else %}
-    <tr><td colspan="2">Sem coletas de listagem ainda.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-<h3>Histórico de venda</h3>
-<table>
-  <thead><tr><th>Data</th><th>Mín</th><th>Médio</th><th>Máx</th><th>Lojas</th></tr></thead>
-  <tbody>
-  {% for r in historico_resumo %}
-    <tr><td>{{ r.coletado_em|data }}</td><td>{{ r.preco_min|brl }}</td><td>{{ r.preco_medio|brl }}</td><td>{{ r.preco_max|brl }}</td><td>{{ r.num_lojas if r.num_lojas is not none else "—" }}</td></tr>
-  {% else %}
-    <tr><td colspan="5">Sem coletas da página do produto ainda (só produtos monitorados).</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+</div>
 {% endblock %}
