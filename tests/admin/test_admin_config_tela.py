@@ -79,29 +79,31 @@ def test_erro_numa_secao_nao_grava_nem_mexe_nas_outras(cliente, sessoes, config)
     assert (liga.pausa_min_s, liga.categorias) == (8, "10,11,12")
 
 
+FORMULARIO_AMAZON = {
+    "url_busca": "https://www.amazon.com.br/s?k={termo}",
+    "janela_inicio": "08:00",
+    "janela_fim": "22:00",
+    "pausa_min_s": "8",
+    "pausa_max_s": "20",
+    "resultados_por_busca": "10",
+    "intervalo_busca_min": "60",
+    "max_buscas_hora": "200",
+    "limite_falha_pct": "50",
+    "desconto_min_pct": "30",
+    "realerta_queda_pct": "5",
+    "liga_preco_max_idade_h": "48",
+    "vendedor_min_positivas_pct": "90",
+    "vendedor_min_avaliacoes": "100",
+    "vendedor_reavaliar_dias": "7",
+}
+
+
 def test_salvar_amazon_na_rota_nova(cliente, sessoes):
-    formulario = {
-        "url_busca": "https://www.amazon.com.br/s?k={termo}",
-        "janela_inicio": "08:00",
-        "janela_fim": "22:00",
-        "pausa_min_s": "8",
-        "pausa_max_s": "20",
-        "resultados_por_busca": "10",
-        "intervalo_busca_min": "60",
-        "max_buscas_hora": "200",
-        "limite_falha_pct": "50",
-        "desconto_min_pct": "30",
-        "realerta_queda_pct": "5",
-        "liga_preco_max_idade_h": "48",
-        "vendedor_min_positivas_pct": "90",
-        "vendedor_min_avaliacoes": "100",
-        "vendedor_reavaliar_dias": "7",
-    }
-    r = cliente.post("/configuracoes/amazon", data=formulario, follow_redirects=False)
+    r = cliente.post("/configuracoes/amazon", data=FORMULARIO_AMAZON, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/configuracoes?msg=amazon"
     with sessoes() as s:
         assert repo_amz.obter_config(s).desconto_min_pct == 30
-    assert cliente.post("/configuracoes", data=formulario).status_code in (404, 405)
+    assert cliente.post("/configuracoes", data=FORMULARIO_AMAZON).status_code in (404, 405)
 
 
 def test_dashboard_usa_o_horario_e_o_fuso_salvos(cliente, sessoes, config):
@@ -112,3 +114,24 @@ def test_dashboard_usa_o_horario_e_o_fuso_salvos(cliente, sessoes, config):
     texto = cliente.get("/").text
     assert "07:30" in texto
     assert "15/10/2026 12:00" in texto  # 03:00 UTC em Tóquio
+
+
+def aba_marcada(texto, rotulo):
+    inicio = texto.index(f'aria-label="{rotulo}"')
+    return "checked" in texto[texto.rindex("<input", 0, inicio):inicio + 40]
+
+
+def test_configuracoes_em_abas_abrindo_em_geral(cliente):
+    texto = cliente.get("/configuracoes").text
+    assert aba_marcada(texto, "Geral") and not aba_marcada(texto, "LigaMagic")
+
+
+def test_aba_com_erro_abre_selecionada(cliente):
+    r = cliente.post("/configuracoes/liga", data={**LIGA, "categorias": "abc"})
+    assert r.status_code == 400 and aba_marcada(r.text, "LigaMagic") and not aba_marcada(r.text, "Geral")
+    assert "input-error" in r.text
+
+
+def test_aba_salva_abre_selecionada(cliente):
+    r = cliente.post("/configuracoes/amazon", data=FORMULARIO_AMAZON, follow_redirects=True)
+    assert aba_marcada(r.text, "Amazon")
