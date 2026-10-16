@@ -201,6 +201,8 @@ docker compose up -d --build
 
 ### Página de admin
 
+O menu fica na lateral (recolhe para ícones no computador; botão de menu no celular).
+
 | Tela | Para que serve |
 | --- | --- |
 | **Dashboard** (`/`) | Estado e histórico dos serviços (só leitura); avisa quando algum está pausado. |
@@ -288,6 +290,14 @@ uv run ruff check
 Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
 
 Para rodar um serviço fora do Docker: `uv run tcg-sniper migrate`, `uv run tcg-sniper admin`, `uv run tcg-sniper coletor-liga`, `uv run tcg-sniper coletor-amazon` ou `uv run tcg-sniper notificador`.
+
+### Visual do admin (DaisyUI)
+
+O admin usa DaisyUI 5 sobre Tailwind CSS 4, com os temas winter (claro) e night (escuro). O CSS é gerado e fica versionado em `src/tcg_sniper/admin/static/admin.css`:
+
+- Depois de mudar qualquer template do admin, rode `uv run python scripts/gerar_css.py` (baixa o Tailwind standalone e o DaisyUI em `.ferramentas/` na primeira vez). O teste `test_css_em_dia_com_os_templates` falha se você esquecer.
+- Antes de um deploy que mexe no visual, rode `docker compose exec -T admin python - < scripts/verificar_layout.py`: abre as telas em 390 e 1440 px nos dois temas e falha se algo estourar a largura.
+- Só use componentes e classes do DaisyUI/Tailwind; não escreva CSS próprio.
 
 ### Estrutura
 
