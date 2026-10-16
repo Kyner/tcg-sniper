@@ -141,3 +141,17 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave):
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
     finally:
         signal.signal(signal.SIGTERM, anterior)
+
+
+def test_ia_avaliar_sem_chave_aborta_sem_montar_o_transporte(monkeypatch):
+    from tcg_sniper.ia import transporte_openai
+
+    montados = []
+    monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda chave: montados.append(chave))
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    with pytest.raises(SystemExit) as erro:
+        cli.main(["ia", "avaliar", "--modelo", "gpt-5"])
+    assert "OPENAI_API_KEY ausente" in str(erro.value)
+    assert montados == []
