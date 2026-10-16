@@ -1,6 +1,7 @@
 import argparse
 import logging
 import signal
+from zoneinfo import ZoneInfo
 
 from tcg_sniper.config import Config
 from tcg_sniper.db.session import criar_engine, criar_sessoes, migrar
@@ -23,6 +24,11 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("coletor-amazon", help="inicia a fila contínua de buscas na Amazon")
     sub.add_parser("notificador", help="envia a tabela de saída do WhatsApp pela Evolution API")
     sub.add_parser("casador", help="avalia com a IA os anúncios pendentes da Amazon")
+    ia = sub.add_parser("ia", help="ferramentas da IA")
+    ia_sub = ia.add_subparsers(dest="acao_ia", required=True)
+    avaliar_p = ia_sub.add_parser("avaliar", help="mede a IA nos casamentos já decididos (não muda nada)")
+    avaliar_p.add_argument("--modelo", action="append", required=True, help="pode repetir para comparar modelos")
+    avaliar_p.add_argument("--limite", type=int, default=None, help="no máximo N anúncios")
     admin = sub.add_parser("admin", help="inicia a página de admin")
     admin.add_argument("--porta", type=int, default=8000)
     args = parser.parse_args(argv)
@@ -80,6 +86,24 @@ def main(argv: list[str] | None = None) -> None:
         casador = ServicoCasador(sessoes, TransporteOpenAI(chave) if chave else None, config, criar_notificador(config, sessoes))
         signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
         casador.rodar()
+    elif args.comando == "ia":
+        import httpx
+
+        from tcg_sniper.casador.avaliacao import avaliar, relatorio_markdown
+        from tcg_sniper.db import repositorio as repo
+        from tcg_sniper.ia.transporte_openai import TransporteOpenAI
+
+        chave = (config.openai_api_key or "").strip()
+        if not chave:
+            raise SystemExit("OPENAI_API_KEY ausente no .env")
+        with sessoes() as s:
+            zona = ZoneInfo(repo.obter_config_geral(s, config).fuso)
+        agora = repo.agora_utc()
+        with httpx.Client(timeout=15, headers={"User-Agent": "Mozilla/5.0"}) as http:
+            resultados = avaliar(sessoes, TransporteOpenAI(chave), http, args.modelo, args.limite, zona, repo.agora_utc)
+        destino = config.dir_dados / f"avaliacao-ia-{agora:%Y-%m-%d-%H%M}.md"
+        destino.write_text(relatorio_markdown(resultados, agora), encoding="utf-8")
+        print(f"relatório em {destino}")
     elif args.comando == "admin":
         import uvicorn
 
