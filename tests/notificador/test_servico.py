@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import EstadoNotificador, MensagemSaida, StatusMensagem
+from tcg_sniper.db.models import COLETOR_NOTIFICADOR, EstadoNotificador, MensagemSaida, StatusMensagem
 from tcg_sniper.notificador.servico import ServicoNotificador
 
 URL = "http://evo.test"
@@ -175,6 +175,23 @@ def test_ciclo_registra_que_esta_vivo(sessoes, env, configurado):
     servico(sessoes, env).ciclo()
     with sessoes() as s:
         assert s.get(EstadoNotificador, 1).ultimo_ciclo_em == AGORA
+
+
+@respx.mock
+def test_pausado_registra_que_esta_vivo_mas_nao_envia(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    mid = nova(sessoes)
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", AGORA, COLETOR_NOTIFICADOR)
+    assert servico(sessoes, env).ciclo() == 0
+    assert not rota.called
+    assert ler(sessoes, mid).status is StatusMensagem.PENDENTE
+    with sessoes() as s:
+        assert s.get(EstadoNotificador, 1).ultimo_ciclo_em == AGORA
+    with sessoes() as s, s.begin():
+        repo.retomar(s, AGORA, COLETOR_NOTIFICADOR)
+    assert servico(sessoes, env).ciclo() == 1
+    assert ler(sessoes, mid).status is StatusMensagem.ENVIADA
 
 
 @respx.mock

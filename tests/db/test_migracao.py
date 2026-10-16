@@ -29,9 +29,14 @@ def test_migracao_igual_aos_modelos(engine):
 
 def test_estado_coletor_aceita_so_as_linhas_dos_coletores(s):
     agora = datetime.now(UTC)
-    s.add(EstadoColetor(id=4, coletor="outro", estado=EstadoColetorTipo.ATIVO, atualizado_em=agora))
+    s.add(EstadoColetor(id=5, coletor="outro", estado=EstadoColetorTipo.ATIVO, atualizado_em=agora))
     with pytest.raises(IntegrityError):
         s.flush()
+
+
+def test_migracao_cria_estado_do_notificador_ativo(s):
+    estado = s.get(EstadoColetor, 4)
+    assert (estado.coletor, estado.estado) == ("notificador", EstadoColetorTipo.ATIVO)
 
 
 def test_insert_do_codigo_antigo_sem_coletor_nao_quebra(s):
@@ -120,6 +125,7 @@ def test_migracao_amazon_preserva_os_dados_da_liga(engine):
         assert [tuple(e) for e in estados] == [
             (1, "liga", "pausado_desafio", "desafio em x"),
             (2, "amazon", "ativo", None),
+            (4, "notificador", "ativo", None),
         ]
         assert tuple(coleta) == ("produtos", "ok", 7, 1)
         assert configs == 1
