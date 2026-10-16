@@ -1,10 +1,11 @@
 import json
 
 import httpx
+import openai
 import pytest
 import respx
 
-from tcg_sniper.ia.modelos import ChaveInvalida, ErroIA, Pedido
+from tcg_sniper.ia.modelos import ChaveInvalida, ConfiguracaoInvalida, ErroIA, Pedido
 from tcg_sniper.ia.transporte_openai import TransporteOpenAI
 
 URL = "https://api.openai.test/v1/responses"
@@ -62,3 +63,47 @@ def test_outros_erros(codigo):
     with pytest.raises(ErroIA) as erro:
         transporte().enviar(PEDIDO)
     assert not isinstance(erro.value, ChaveInvalida) and "sk-teste" not in str(erro.value)
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("codigo", "corpo"),
+    [
+        (404, {"error": {"message": "The model sk-teste-segredo does not exist", "code": "model_not_found", "param": "model"}}),
+        (400, {"error": {"message": "bad effort sk-teste-segredo", "code": "unsupported_value", "param": "reasoning.effort"}}),
+        (400, {"error": {"message": "bad schema sk-teste-segredo", "code": "invalid_json_schema", "param": "text.format.schema"}}),
+        (400, {"error": {"message": "bad model sk-teste-segredo", "code": "invalid_value", "param": "model"}}),
+    ],
+)
+def test_configuracao_invalida(codigo, corpo):
+    respx.post(URL).mock(return_value=httpx.Response(codigo, json=corpo))
+    with pytest.raises(ConfiguracaoInvalida) as erro:
+        transporte().enviar(PEDIDO)
+    texto = str(erro.value)
+    assert "Configurações → IA" in texto and corpo["error"]["code"] in texto and corpo["error"]["param"] in texto
+    assert "sk-teste" not in texto and "does not exist" not in texto
+
+
+@respx.mock
+def test_outro_400_traz_codigo_e_param_sem_a_mensagem():
+    corpo = {"error": {"message": "imagem ruim sk-teste-segredo", "code": "invalid_image", "param": "input"}}
+    respx.post(URL).mock(return_value=httpx.Response(400, json=corpo))
+    with pytest.raises(ErroIA) as erro:
+        transporte().enviar(PEDIDO)
+    texto = str(erro.value)
+    assert not isinstance(erro.value, (ChaveInvalida, ConfiguracaoInvalida))
+    assert "400" in texto and "invalid_image" in texto and "input" in texto
+    assert "sk-teste" not in texto and "imagem ruim" not in texto
+
+
+def test_outro_erro_do_sdk_vira_erro_ia_sem_a_mensagem():
+    t = transporte()
+    pedido_http = httpx.Request("POST", URL)
+
+    def falha(**_):
+        raise openai.APIError("corpo estranho sk-teste-segredo", pedido_http, body=None)
+
+    t._cliente.responses.create = falha
+    with pytest.raises(ErroIA) as erro:
+        t.enviar(PEDIDO)
+    assert "APIError" in str(erro.value) and "sk-teste" not in str(erro.value) and "estranho" not in str(erro.value)

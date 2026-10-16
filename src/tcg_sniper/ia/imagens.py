@@ -5,7 +5,7 @@ import io
 import logging
 
 import httpx
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def preparar(cliente: httpx.Client, url: str | None) -> str | None:
         imagem.thumbnail((LADO_MAX, LADO_MAX))
         saida = io.BytesIO()
         imagem.convert("RGB").save(saida, "JPEG", quality=QUALIDADE)
-    except (httpx.HTTPError, UnidentifiedImageError, OSError) as erro:
+    except Exception as erro:  # noqa: BLE001 - rede, imagem ruim, bomba de descompressão: segue só com texto
         log.warning("não consegui preparar a imagem %s: %s", url, type(erro).__name__)
         return None
     return base64.b64encode(saida.getvalue()).decode()

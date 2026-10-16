@@ -11,16 +11,24 @@ from sqlalchemy.orm import Session, sessionmaker
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import ConfigIA
 from tcg_sniper.db.repositorio import agora_utc
-from tcg_sniper.ia.modelos import Bruta, ErroIA, Pedido, RespostaIA, SemOrcamento, Transporte
+from tcg_sniper.ia.modelos import Bruta, ErroIA, Pedido, RespostaForaDoFormato, RespostaIA, SemOrcamento, Transporte
 from tcg_sniper.ia.orcamento import motivo_sem_orcamento
 
 MILHAO = Decimal(1_000_000)
 CASAS = Decimal("0.000001")
 
 
-def custo(tokens_entrada: int, tokens_saida: int, cfg: ConfigIA) -> Decimal:
-    total = tokens_entrada * cfg.preco_entrada_milhao_usd + tokens_saida * cfg.preco_saida_milhao_usd
-    return (total / MILHAO).quantize(CASAS)
+def custo(
+    tokens_entrada: int,
+    tokens_saida: int,
+    cfg: ConfigIA,
+    preco_entrada: Decimal | None = None,
+    preco_saida: Decimal | None = None,
+) -> Decimal:
+    """Custo em dólares. Os preços (por milhão de tokens) vêm de Configurações → IA, salvo os informados."""
+    entrada = cfg.preco_entrada_milhao_usd if preco_entrada is None else preco_entrada
+    saida = cfg.preco_saida_milhao_usd if preco_saida is None else preco_saida
+    return ((tokens_entrada * entrada + tokens_saida * saida) / MILHAO).quantize(CASAS)
 
 
 def perguntar(
@@ -35,10 +43,13 @@ def perguntar(
     formato: dict,
     zona: ZoneInfo,
     modelo: str | None = None,
+    preco_entrada: Decimal | None = None,
+    preco_saida: Decimal | None = None,
     relogio: Callable[[], datetime] = agora_utc,
 ) -> RespostaIA:
     """Uma chamada. Cada chamada (ok ou erro) é gravada na sua própria transação, para contar no
-    orçamento mesmo se quem chamou desfizer a dele. Lança SemOrcamento (sem chamar), ChaveInvalida ou ErroIA."""
+    orçamento mesmo se quem chamou desfizer a dele. Lança SemOrcamento (sem chamar), ChaveInvalida,
+    ConfiguracaoInvalida, RespostaForaDoFormato ou ErroIA (qualquer outra falha do transporte vira ErroIA)."""
     with sessoes() as s, s.begin():
         cfg = repo_ia.obter_config_ia(s)
         motivo = motivo_sem_orcamento(cfg, repo_ia.gasto(s, relogio(), zona))
@@ -51,14 +62,18 @@ def perguntar(
     except ErroIA as erro:
         _registrar(sessoes, relogio(), finalidade, pedido.modelo, Bruta("", 0, 0), Decimal(0), str(erro))
         raise
-    valor = custo(bruta.tokens_entrada, bruta.tokens_saida, cfg)
+    except Exception as erro:  # noqa: BLE001 - só o nome do tipo: a mensagem pode trazer a chave
+        nome = type(erro).__name__
+        _registrar(sessoes, relogio(), finalidade, pedido.modelo, Bruta("", 0, 0), Decimal(0), nome)
+        raise ErroIA(f"falha inesperada ao chamar a OpenAI: {nome}") from None
+    valor = custo(bruta.tokens_entrada, bruta.tokens_saida, cfg, preco_entrada, preco_saida)
     try:
         dados = json.loads(bruta.texto)
         if not isinstance(dados, dict):
             raise ValueError("não é objeto")  # noqa: TRY004
     except ValueError:
         _registrar(sessoes, relogio(), finalidade, pedido.modelo, bruta, valor, "resposta não é um JSON de objeto")
-        raise ErroIA("resposta da OpenAI não é um JSON de objeto") from None
+        raise RespostaForaDoFormato("resposta da OpenAI não é um JSON de objeto") from None
     chamada_id = _registrar(sessoes, relogio(), finalidade, pedido.modelo, bruta, valor, None)
     return RespostaIA(dados, pedido.modelo, bruta.tokens_entrada, bruta.tokens_saida, valor, chamada_id)
 

@@ -72,3 +72,27 @@ def test_sem_orcamento_nao_chama(sessoes):
     with pytest.raises(SemOrcamento):
         chamar(sessoes, t)
     assert t.pedidos == [] and chamadas(sessoes) == []
+
+
+def test_erro_inesperado_do_transporte_vira_erro_ia_registrado_sem_a_mensagem(sessoes):
+    t = TransporteFake([RuntimeError("falhou com sk-segredo no texto")])
+    with pytest.raises(ErroIA) as erro:
+        chamar(sessoes, t)
+    assert "RuntimeError" in str(erro.value) and "sk-segredo" not in str(erro.value)
+    assert erro.value.__cause__ is None and erro.value.__suppress_context__
+    [c] = chamadas(sessoes)
+    assert not c.ok and c.erro == "RuntimeError" and c.custo_usd == 0
+
+
+def test_precos_sobrescritos_valem_no_custo_e_no_registro(sessoes):
+    t = TransporteFake([Bruta('{"ok": true}', 1000, 100)])
+    r = chamar(sessoes, t, preco_entrada=Decimal("0.25"), preco_saida=Decimal(2))
+    assert r.custo_usd == Decimal("0.000450")
+    [c] = chamadas(sessoes)
+    assert c.custo_usd == Decimal("0.000450")
+
+
+def test_so_um_preco_sobrescrito(sessoes):
+    t = TransporteFake([Bruta('{"ok": true}', 1000, 100)])
+    # entrada 0,25 informada; saída 10,00 de Configurações
+    assert chamar(sessoes, t, preco_entrada=Decimal("0.25")).custo_usd == Decimal("0.001250")

@@ -42,3 +42,24 @@ def test_falhas_viram_none():
             assert preparar(c, url) is None
         assert preparar(c, None) is None
         assert preparar(c, "data:image/gif;base64,R0lGOD") is None
+
+
+@respx.mock
+def test_erro_que_nao_e_oserror_tambem_vira_none(monkeypatch):
+    from tcg_sniper.ia import imagens
+
+    def bomba(*_a, **_k):
+        raise Image.DecompressionBombError("grande demais")
+
+    monkeypatch.setattr(imagens.Image, "open", bomba)
+    respx.get("https://img.test/bomba.png").mock(return_value=httpx.Response(200, content=png(10, 10)))
+    with httpx.Client() as c:
+        assert preparar(c, "https://img.test/bomba.png") is None
+
+
+def test_valueerror_do_cliente_vira_none():
+    class Quebrado:
+        def get(self, *_a, **_k):
+            raise ValueError("url esquisita")
+
+    assert preparar(Quebrado(), "https://img.test/x.png") is None

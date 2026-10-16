@@ -16,7 +16,7 @@ from tcg_sniper.db.repositorio import agora_utc
 from tcg_sniper.formatacao import formatar_brl
 from tcg_sniper.ia.cliente import perguntar
 from tcg_sniper.ia.imagens import preparar
-from tcg_sniper.ia.modelos import ErroIA, RespostaIA, Transporte
+from tcg_sniper.ia.modelos import RespostaForaDoFormato, RespostaIA, Transporte
 
 NOME_FORMATO = "veredito_casamento"
 MOTIVO_MAX = 200
@@ -81,11 +81,11 @@ def assinatura(anuncio: AnuncioAmazon, produto: ProdutoLiga) -> str:
 def ler_veredito(dados: dict) -> Veredito:
     mesmo, confianca, motivo = dados.get("mesmo_produto"), dados.get("confianca"), dados.get("motivo")
     if not isinstance(mesmo, bool):
-        raise ErroIA("resposta sem mesmo_produto booleano")
+        raise RespostaForaDoFormato("resposta sem mesmo_produto booleano")
     if not isinstance(confianca, int) or isinstance(confianca, bool) or not 0 <= confianca <= 100:
-        raise ErroIA("confiança fora de 0 a 100")
+        raise RespostaForaDoFormato("confiança fora de 0 a 100")
     if not isinstance(motivo, str) or not motivo.strip():
-        raise ErroIA("resposta sem motivo")
+        raise RespostaForaDoFormato("resposta sem motivo")
     return Veredito(mesmo, confianca, motivo.strip()[:MOTIVO_MAX])
 
 
@@ -101,6 +101,8 @@ def avaliar_par(
     finalidade: str,
     zona: ZoneInfo,
     modelo: str | None = None,
+    preco_entrada: Decimal | None = None,
+    preco_saida: Decimal | None = None,
     relogio: Callable[[], datetime] = agora_utc,
 ) -> tuple[Veredito, RespostaIA, bool]:
     """Prepara as imagens, pergunta e lê o veredito. Devolve também se faltou alguma imagem."""
@@ -109,6 +111,7 @@ def avaliar_par(
     resposta = perguntar(
         sessoes, transporte, finalidade=finalidade, instrucoes=INSTRUCOES,
         texto=texto_pergunta(anuncio, produto, preco_liga, preco_amazon), imagens=prontas,
-        nome_formato=NOME_FORMATO, formato=FORMATO, zona=zona, modelo=modelo, relogio=relogio,
+        nome_formato=NOME_FORMATO, formato=FORMATO, zona=zona, modelo=modelo, preco_entrada=preco_entrada,
+        preco_saida=preco_saida, relogio=relogio,
     )
     return ler_veredito(resposta.dados), resposta, len(prontas) < 2
