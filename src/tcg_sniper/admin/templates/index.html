@@ -9,6 +9,9 @@
 {% if estado_amazon.estado.value != "ativo" %}
   {% call aviso("error", "Amazon pausada" ~ (" (CAPTCHA pendente)" if estado_amazon.estado.value == "pausado_desafio" else "") ~ ". " ~ (estado_amazon.motivo or "")) %}<a class="link" href="/servicos">Ir para Serviços</a>{% endcall %}
 {% endif %}
+{% if estado_casador.estado.value == "pausado" %}
+  {% call aviso("error", "Casador (IA) pausado. " ~ (estado_casador.motivo or "")) %}<a class="link" href="/servicos">Ir para Serviços</a>{% endcall %}
+{% endif %}
 {% if resumo_msgs.aviso %}
   {% set extra = " O notificador nunca rodou — veja Serviços." if resumo_msgs.notificador_parado == "nunca" else "" %}
   {% call aviso("warning", resumo_msgs.aviso ~ extra) %}
@@ -50,6 +53,11 @@
   <div class="stat">
     <div class="stat-title">Casamentos pendentes</div>
     <div class="stat-value tabular-nums"><a class="link link-hover" href="/casamentos">{{ menu.casamentos }}</a></div>
+  </div>
+  <div class="stat">
+    <div class="stat-title">IA no mês</div>
+    <div class="stat-value tabular-nums">{{ gasto_ia.mes_usd|usd }}</div>
+    <div class="stat-desc">hoje {{ gasto_ia.dia_usd|usd }}</div>
   </div>
 </div>
 </div>

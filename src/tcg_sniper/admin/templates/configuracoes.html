@@ -10,11 +10,25 @@
   <div class="tab-content pt-4" id="{{ secao.id }}">
     <div class="card bg-base-100 shadow-sm"><div class="card-body">
       {% if secao.erros %}{{ aviso("error", "Nada foi salvo. Corrija os campos marcados.") }}{% endif %}
+      {% if secao.id == "ia" %}
+      <div class="stats stats-vertical sm:stats-horizontal bg-base-200">
+        <div class="stat"><div class="stat-title">Hoje</div><div class="stat-value text-lg tabular-nums">{{ resumo_ia.gasto.dia_usd|usd }}</div><div class="stat-desc">de {{ resumo_ia.teto_dia|usd }}</div></div>
+        <div class="stat"><div class="stat-title">Mês</div><div class="stat-value text-lg tabular-nums">{{ resumo_ia.gasto.mes_usd|usd }}</div><div class="stat-desc">de {{ resumo_ia.teto_mes|usd }}</div></div>
+        <div class="stat"><div class="stat-title">Chamadas hoje</div><div class="stat-value text-lg tabular-nums">{{ resumo_ia.gasto.chamadas_dia }}</div><div class="stat-desc">{{ resumo_ia.gasto.chamadas_dia }} de {{ resumo_ia.max_chamadas }}</div></div>
+      </div>
+      <p class="text-sm">Chave configurada: {{ "sim" if resumo_ia.chave else "não" }} (OPENAI_API_KEY no .env)</p>
+      {% endif %}
       <form method="post" action="/configuracoes/{{ secao.id }}" class="grid gap-x-6 gap-y-3 md:grid-cols-2">
         {% for campo in secao.campos %}
         <fieldset class="fieldset{% if campo in ('categorias', 'url_listagem', 'url_busca') %} md:col-span-2{% endif %}">
           <legend class="fieldset-legend">{{ secao.rotulos[campo] }}</legend>
+          {% if campo in secao.opcoes %}
+          <select id="{{ secao.id }}-{{ campo }}" name="{{ campo }}" aria-label="{{ secao.rotulos[campo] }}" aria-describedby="{{ secao.id }}-{{ campo }}-ajuda" class="select w-full{% if campo in secao.erros %} select-error{% endif %}"{% if campo in secao.erros %} aria-invalid="true"{% endif %}>
+            {% for valor, rotulo in secao.opcoes[campo] %}<option value="{{ valor }}"{% if secao.valores[campo] == valor %} selected{% endif %}>{{ rotulo }}</option>{% endfor %}
+          </select>
+          {% else %}
           <input id="{{ secao.id }}-{{ campo }}" name="{{ campo }}" value="{{ secao.valores[campo] }}" aria-label="{{ secao.rotulos[campo] }}" aria-describedby="{{ secao.id }}-{{ campo }}-ajuda" class="input w-full{% if campo in secao.erros %} input-error{% endif %}"{% if campo in secao.erros %} aria-invalid="true"{% endif %}>
+          {% endif %}
           <p id="{{ secao.id }}-{{ campo }}-ajuda" class="label whitespace-normal{% if campo in secao.erros %} text-error{% endif %}">{{ secao.erros[campo] if campo in secao.erros else secao.explicacoes[campo] }}</p>
           {% if secao.id == "liga" and campo == "categorias" %}
           <p class="label whitespace-normal">Padrão: {{ categorias_padrao }} · <a class="link" href="#" onclick="document.getElementById('liga-categorias').value='{{ categorias_padrao }}'; return false;">restaurar padrão</a> (depois clique em Salvar)</p>
@@ -27,5 +41,5 @@
   </div>
 {% endfor %}
 </div>
-<p class="text-xs text-base-content/70">Senhas, banco e chave da Evolution ficam no .env: ADMIN_SENHA, VNC_SENHA, EVOLUTION_API_KEY, DATABASE_URL, DIR_DADOS, EVOLUTION_URL.</p>
+<p class="text-xs text-base-content/70">Senhas, banco e chave da Evolution ficam no .env: ADMIN_SENHA, VNC_SENHA, EVOLUTION_API_KEY, DATABASE_URL, DIR_DADOS, EVOLUTION_URL, OPENAI_API_KEY.</p>
 {% endblock %}

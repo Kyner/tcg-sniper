@@ -4,7 +4,7 @@
 {% block conteudo %}
 {{ cabecalho("Serviços", "Comandos dos coletores e estado do notificador") }}
 {% if mensagem %}{{ aviso("success", mensagem) }}{% endif %}
-<div class="grid gap-4 md:grid-cols-3">
+<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
   <div class="card bg-base-100 shadow-sm"><div class="card-body">
     <h2 class="card-title">LigaMagic
       {% if estado.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "desafio pendente") }}
@@ -36,6 +36,22 @@
     {% else %}
       <p>Ativa.{% if ciclo_amazon %} Ciclo em andamento desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
       <div class="card-actions"><form method="post" action="/amazon/pausar"><button class="btn btn-outline btn-error">Pausar (Amazon)</button></form></div>
+    {% endif %}
+  </div></div>
+  <div class="card bg-base-100 shadow-sm"><div class="card-body">
+    <h2 class="card-title">Casador (IA)
+      {% if estado_casador.estado.value == "pausado" %}{{ selo("pausado") }}
+      {% elif not ia_ligada %}{{ selo("inativo", "desligada") }}
+      {% else %}{{ selo("ativo") }}{% endif %}</h2>
+    {% if estado_casador.estado.value == "pausado" %}
+      <p>Pausado. {{ estado_casador.motivo or "" }}</p>
+      <div class="card-actions"><form method="post" action="/casador/retomar"><button class="btn btn-primary">Retomar (casador)</button></form></div>
+    {% else %}
+      <p>{% if ia_ligada %}Ativo.{% else %}IA desligada em <a class="link" href="/configuracoes">Configurações → IA</a>.{% endif %}{% if estado_casador.execucao_solicitada %} Rodada solicitada; começa em até 1 minuto.{% endif %}</p>
+      <div class="card-actions">
+        <form method="post" action="/casador/rodar-agora"><button class="btn btn-primary">Executar (casador)</button></form>
+        <form method="post" action="/casador/pausar"><button class="btn btn-outline btn-error">Pausar (casador)</button></form>
+      </div>
     {% endif %}
   </div></div>
   <div class="card bg-base-100 shadow-sm"><div class="card-body">
