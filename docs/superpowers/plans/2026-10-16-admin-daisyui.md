@@ -137,13 +137,16 @@ def test_contadores_aparecem_quando_maior_que_zero(cliente, sessoes):
 def test_tema_e_menu_usam_localstorage_protegido(cliente):
     texto = cliente.get("/").text
     assert 'id="trocar-tema"' in texto
-    assert texto.count("localStorage") == texto.count("try { ") + texto.count("try {\n") or "try" in texto
+    # todo acesso ao localStorage fica dentro de um try (aba anônima ou bloqueio não quebram a página)
+    pedacos = texto.split("localStorage")
+    for i in range(1, len(pedacos)):
+        assert "try {" in pedacos[i - 1][-60:], "localStorage fora de try"
     # o drawer-toggle só é marcado no computador (no celular o menu não abre sozinho)
     assert 'matchMedia("(min-width: 1024px)")' in texto
     assert 'id="menu" type="checkbox" class="drawer-toggle">' in texto  # sem "checked" no HTML
 ```
 
-Em `tests/admin/test_admin_dashboard.py`, `test_dashboard_sem_atalho_de_configuracoes_no_bloco_da_amazon`: trocar `texto.split("</nav>", 1)[1]` por `texto.split("</aside>", 1)[0].split("<main", 1)[1]` (o menu lateral, que tem `/configuracoes`, fica depois do `<main>` no HTML e o conteúdo da página fica dentro de `<main>`; ver o `base.html` abaixo). Se a estrutura final deixar `<main>` antes do `<aside>`, use o trecho entre `<main` e `</main>`: `corpo = texto.split("<main", 1)[1].split("</main>", 1)[0]`.
+Em `tests/admin/test_admin_dashboard.py`, `test_dashboard_sem_atalho_de_configuracoes_no_bloco_da_amazon`: trocar `corpo = texto.split("</nav>", 1)[1]` por `corpo = texto.split("<main", 1)[1].split("</main>", 1)[0]` (o menu lateral, que tem `/configuracoes`, fica fora do `<main>`; o conteúdo da página fica dentro dele).
 
 Em `tests/admin/test_admin_mensagens.py`, `test_menu_tem_mensagens`: trocar a asserção por `assert 'href="/mensagens"' in texto and ">Mensagens</span>" in texto` (com `texto = cliente.get("/").text`).
 
@@ -569,14 +572,6 @@ Substituir `src/tcg_sniper/admin/templates/base.html` por:
 Run: `uv run python scripts/gerar_css.py`
 Expected: baixa as ferramentas na primeira vez e imprime `src/tcg_sniper/admin/static/admin.css: … bytes`.
 
-Simplificar a asserção de `localStorage` em `test_tema_e_menu_usam_localstorage_protegido` para o que ela quer provar: `assert all("try {" in bloco for bloco in texto.split("localStorage")[1:] and [])` não é legível — troque a segunda linha do teste por:
-
-```python
-    for trecho in texto.split("localStorage")[1:]:
-        anterior = texto[: texto.index(trecho)][-120:]
-        assert "try {" in anterior, "localStorage fora de try"
-```
-
 Run: `uv run pytest -q tests/admin && uv run pytest -q && uv run ruff check .`
 Expected: PASS. Testes de telas que conferem marcação do Pico podem falhar por causa do novo `base.html` (ex.: algo que dependa de `</nav>`); ajuste só a forma de localizar o trecho, nunca o que o teste prova.
 
@@ -626,7 +621,9 @@ def test_aba_da_amazon_abre_depois_de_paginar_ou_filtrar(cliente):
 
 
 def test_situacao_das_coletas_tem_selo(cliente, sessoes):
-    coleta(sessoes, TipoColeta.LISTAGEM, T0, StatusColeta.FALHA)  # se o arquivo não tiver esse helper, crie a coleta com repo.iniciar_coleta/finalizar_coleta
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.finalizar_coleta(s, c.id, StatusColeta.FALHA, 0, 1, T0)
     assert 'badge-error">falha</span>' in cliente.get("/").text
 ```
 
@@ -700,6 +697,8 @@ Substituir por:
   </div>
 </div>
 
+{% macro url_liga(n) %}{{ link(liga_pagina=n) }}{% endmacro %}
+{% macro url_amazon(n) %}{{ link(amazon_pagina=n) }}{% endmacro %}
 {% macro historico(titulo, campo_status, campo_pagina, valor_status, linhas, pagina, paginas, vazio) %}
 <form method="get" action="/" class="flex flex-wrap items-center gap-2">
   {% for nome, valor in [("liga_status", liga_status), ("amazon_status", amazon_status)] if nome != campo_status %}
@@ -736,7 +735,7 @@ Substituir por:
   <p class="text-sm">{{ vazio }}</p>
   {% endfor %}
 </div>
-{{ paginacao(pagina, paginas, lambda_link(campo_pagina)) }}
+{{ paginacao(pagina, paginas, url_liga if campo_pagina == "liga_pagina" else url_amazon) }}
 {% endmacro %}
 
 {% set aba_amazon = amazon_status != "todos" or pagina_amazon > 1 %}
@@ -753,20 +752,7 @@ Substituir por:
 {% endblock %}
 ```
 
-`paginacao` recebe uma função `n -> url`. O `link` do Dashboard é `link(**mudancas)`; para passar uma função por campo, acrescentar no template, antes do `{% macro historico %}`:
-
-```jinja
-{% macro _url_pagina(campo, n) %}{{ link(**{campo: n}) }}{% endmacro %}
-```
-
-e trocar `lambda_link(campo_pagina)` por uma chamada que o Jinja aceite. Como o Jinja não tem lambda, adicione ao contexto do Dashboard em `app.py` (único ajuste de Python desta tarefa), dentro de `dashboard`, ao lado de `link`:
-
-```python
-            def link_pagina(campo: str):
-                return lambda n: link(**{campo: n})
-```
-
-e `"link_pagina": link_pagina,` no dicionário do `TemplateResponse`; no template use `{{ paginacao(pagina, paginas, link_pagina(campo_pagina)) }}` e apague a macro `_url_pagina`.
+(`url_liga` e `url_amazon` são macros que funcionam como a função `n -> url` que `paginacao` espera; esta tarefa não muda Python.)
 
 - [ ] **Step 4: `servicos.html`**
 
@@ -927,7 +913,7 @@ Substituir por:
 {% block titulo %}Catálogo · TCG Sniper{% endblock %}
 {% block conteudo %}
 {{ cabecalho("Catálogo", total ~ " produto(s) da LigaMagic") }}
-{% call filtros(busca or filtro != filtros[0] or categoria or com_preco) %}
+{% call filtros(busca or categoria or com_preco) %}
 <form method="get" action="/catalogo" class="grid gap-2 md:grid-cols-5">
   <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar por nome" class="input input-sm w-full md:col-span-2" aria-label="Buscar por nome">
   <select name="filtro" class="select select-sm w-full" aria-label="Situação">
