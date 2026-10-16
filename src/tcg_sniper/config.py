@@ -40,6 +40,7 @@ class Config(BaseSettings):
     evolution_instancia: str | None = None
     whatsapp_grupo_admin: str | None = None
     whatsapp_grupo_oportunidades: str | None = None
+    openai_api_key: str | None = None
 
     @field_validator("liga_categorias")
     @classmethod

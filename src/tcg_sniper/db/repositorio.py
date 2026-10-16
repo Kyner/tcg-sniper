@@ -11,6 +11,7 @@ from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.config import Config
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_CASADOR,
     COLETOR_LIGA,
     Coleta,
     ConfigGeral,
@@ -172,7 +173,7 @@ def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], a
     return novos
 
 
-ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2}
+ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2, COLETOR_CASADOR: 3}
 
 
 def obter_estado(s: Session, agora: datetime | None = None, coletor: str = COLETOR_LIGA) -> EstadoColetor:
@@ -218,15 +219,15 @@ def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
     s.flush()
 
 
-def solicitar_execucao(s: Session, agora: datetime) -> None:
-    estado = obter_estado(s, agora)
+def solicitar_execucao(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
+    estado = obter_estado(s, agora, coletor)
     estado.execucao_solicitada = True
     estado.atualizado_em = agora
     s.flush()
 
 
-def consumir_solicitacao(s: Session, agora: datetime) -> bool:
-    estado = obter_estado(s, agora)
+def consumir_solicitacao(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> bool:
+    estado = obter_estado(s, agora, coletor)
     if estado.estado != EstadoColetorTipo.ATIVO or not estado.execucao_solicitada:
         return False
     estado.execucao_solicitada = False
