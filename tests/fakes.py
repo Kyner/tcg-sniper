@@ -187,3 +187,18 @@ def html_vendedor(nome: str, pct: int, avaliacoes: str) -> str:
         f'<html><body><h1 id="seller-name">{nome}</h1><div id="seller-info-feedback-summary">'
         f"{pct}% positivas nos últimos 12 meses ({avaliacoes} avaliações)</div></body></html>"
     )
+
+
+class TransporteFake:
+    """Transporte da IA para testes: devolve (ou lança) as respostas na ordem e guarda os pedidos."""
+
+    def __init__(self, respostas):
+        self.respostas = list(respostas)
+        self.pedidos = []
+
+    def enviar(self, pedido):
+        self.pedidos.append(pedido)
+        resposta = self.respostas.pop(0)
+        if isinstance(resposta, Exception):
+            raise resposta
+        return resposta
