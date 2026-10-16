@@ -171,6 +171,33 @@ def test_desfeito_pelo_usuario_nao_e_reaplicado(sessoes, config):
     assert status_de(sessoes, a) is StatusCasamento.PENDENTE
 
 
+def test_ligar_o_automatico_aplica_avaliacoes_ja_feitas_sem_nova_chamada(sessoes, config):
+    configurar(sessoes)  # automático desligado
+    _, [a, b, c] = pares(sessoes, 3)
+    sv, t, _ = servico(sessoes, config, [veredito(True, 95), veredito(False, 92), veredito(True, 70)])
+    assert sv.ciclo() == 3
+    assert {status_de(sessoes, i) for i in (a, b, c)} == {StatusCasamento.PENDENTE}
+    configurar(sessoes, automatico=True)
+    assert sv.ciclo() == 0 and len(t.pedidos) == 3  # nada novo para perguntar
+    por_anuncio = {av.anuncio_id: av for av in avaliacoes(sessoes)}
+    assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO and por_anuncio[a].aplicada_em is not None
+    assert status_de(sessoes, b) is StatusCasamento.IGNORADO and por_anuncio[b].aplicada_em is not None
+    assert status_de(sessoes, c) is StatusCasamento.PENDENTE and por_anuncio[c].aplicada_em is None  # abaixo do limite
+
+
+def test_avaliacao_antiga_nao_e_aplicada_se_desfeita_ou_decidida_pelo_usuario(sessoes, config):
+    configurar(sessoes, automatico=True)
+    _, [a, b] = pares(sessoes, 2)
+    sv, _, _ = servico(sessoes, config, [veredito(True, 99), veredito(False, 99)])
+    sv.ciclo()
+    with sessoes() as s, s.begin():
+        repo_amz.desfazer_casamento(s, a, T0)  # o usuário desfez a decisão da IA
+        repo_amz.desfazer_casamento(s, b, T0)
+    sv.ciclo()
+    assert status_de(sessoes, a) is StatusCasamento.PENDENTE
+    assert status_de(sessoes, b) is StatusCasamento.PENDENTE
+
+
 def test_resposta_fora_do_formato_nao_grava_e_volta(sessoes, config):
     configurar(sessoes)
     pares(sessoes)
