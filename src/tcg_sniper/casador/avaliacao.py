@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.casador.pergunta import Veredito, avaliar_par
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.ia.modelos import ChaveInvalida, ErroIA, SemOrcamento, Transporte
+from tcg_sniper.ia.modelos import ChaveInvalida, ConfiguracaoInvalida, ErroIA, SemOrcamento, Transporte
 
 FAIXAS = (("90+", 90), ("75–89", 75), ("50–74", 50), ("<50", 0))
 
@@ -38,6 +38,8 @@ class ResultadoModelo:
     falsos_nao: int = 0
     falhas: int = 0
     custo_usd: Decimal = Decimal(0)
+    tokens_entrada: int = 0
+    tokens_saida: int = 0
     faixas: dict[str, tuple[int, int]] = field(default_factory=lambda: {rotulo: (0, 0) for rotulo, _ in FAIXAS})
     erros: list[Erro] = field(default_factory=list)
     interrompida: str | None = None
@@ -51,7 +53,10 @@ def avaliar(
     limite: int | None,
     zona: ZoneInfo,
     relogio: Callable[[], datetime],
+    preco_entrada: Decimal | None = None,
+    preco_saida: Decimal | None = None,
 ) -> list[ResultadoModelo]:
+    """Os preços informados (US$ por milhão de tokens) substituem os de Configurações → IA no custo."""
     with sessoes() as s:
         decididos = repo_ia.pares_decididos(s, limite)
         vistos: set[int] = set()
@@ -67,9 +72,10 @@ def avaliar(
             try:
                 veredito, resposta, _ = avaliar_par(
                     sessoes, transporte, cliente_http, d.anuncio, d.produto, d.preco_liga, d.preco_amazon,
-                    finalidade="avaliacao", zona=zona, modelo=modelo, relogio=relogio,
+                    finalidade="avaliacao", zona=zona, modelo=modelo, preco_entrada=preco_entrada,
+                    preco_saida=preco_saida, relogio=relogio,
                 )
-            except (SemOrcamento, ChaveInvalida) as erro:
+            except (SemOrcamento, ChaveInvalida, ConfiguracaoInvalida) as erro:
                 r.interrompida = str(erro)
                 break
             except ErroIA:
@@ -77,6 +83,8 @@ def avaliar(
                 continue
             r.total += 1
             r.custo_usd += resposta.custo_usd
+            r.tokens_entrada += resposta.tokens_entrada
+            r.tokens_saida += resposta.tokens_saida
             certo = veredito.mesmo_produto == d.confirmado
             acertos, total = r.faixas[faixa(veredito.confianca)]
             r.faixas[faixa(veredito.confianca)] = (acertos + certo, total + 1)
@@ -92,7 +100,25 @@ def avaliar(
     return resultados
 
 
-def relatorio_markdown(resultados: Sequence[ResultadoModelo], gerado_em: datetime) -> str:
+def _usd_milhao(valor: Decimal) -> str:
+    return f"US$ {valor:.2f}".replace(".", ",") + " por milhão"
+
+
+def rotulo_precos(preco_entrada: Decimal | None, preco_saida: Decimal | None) -> str:
+    if preco_entrada is None and preco_saida is None:
+        return "com os preços de Configurações → IA"
+    entrada = _usd_milhao(preco_entrada) if preco_entrada is not None else "de Configurações → IA"
+    saida = _usd_milhao(preco_saida) if preco_saida is not None else "de Configurações → IA"
+    return f"com os preços informados: entrada {entrada}, saída {saida}"
+
+
+def relatorio_markdown(
+    resultados: Sequence[ResultadoModelo],
+    gerado_em: datetime,
+    preco_entrada: Decimal | None = None,
+    preco_saida: Decimal | None = None,
+) -> str:
+    rotulo = rotulo_precos(preco_entrada, preco_saida)
     linhas = [f"# Avaliação da IA no casamento ({gerado_em:%Y-%m-%d %H:%M} UTC)", ""]
     for r in resultados:
         linhas += [
@@ -102,7 +128,8 @@ def relatorio_markdown(resultados: Sequence[ResultadoModelo], gerado_em: datetim
             f"- Falsos \"sim\": {r.falsos_sim} (a IA diria mesmo produto num anúncio que você ignorou: risco de oportunidade falsa)",
             f"- Falsos \"não\": {r.falsos_nao}",
             f"- Falhas de chamada: {r.falhas}",
-            f"- Custo: US$ {r.custo_usd:.4f}" + (f" (médio US$ {r.custo_usd / r.total:.4f})" if r.total else ""),
+            f"- Tokens: {r.tokens_entrada} de entrada, {r.tokens_saida} de saída",
+            f"- Custo: US$ {r.custo_usd:.4f}" + (f" (médio US$ {r.custo_usd / r.total:.4f})" if r.total else "") + f", {rotulo}",
         ]
         if r.interrompida:
             linhas.append(f"- Interrompida: {r.interrompida}")

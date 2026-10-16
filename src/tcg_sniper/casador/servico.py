@@ -15,13 +15,21 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import COLETOR_CASADOR, AnuncioAmazon, EstadoColetorTipo, StatusCasamento
-from tcg_sniper.ia.modelos import ChaveInvalida, ErroIA, SemOrcamento, Transporte
+from tcg_sniper.ia.modelos import (
+    ChaveInvalida,
+    ConfiguracaoInvalida,
+    ErroIA,
+    RespostaForaDoFormato,
+    SemOrcamento,
+    Transporte,
+)
 from tcg_sniper.notificador.base import Destino, Notificador
 
 log = logging.getLogger(__name__)
 
 PASSO_S = 30  # de quanto em quanto tempo olha se pediram "Rodar agora"
-FALHAS_SEGUIDAS_MAX = 3
+FALHAS_SEGUIDAS_MAX = 3  # falhas seguidas de chamada (rede, 5xx, 429) que encerram a rodada
+ESPERAS_FALHA = (timedelta(hours=1), timedelta(hours=6), timedelta(hours=24))  # par que falhou espera; teto 24 h
 TIMEOUT_IMAGEM_S = 15
 
 
@@ -45,6 +53,8 @@ class ServicoCasador:
         self._dormir = dormir
         self._parar = threading.Event()
         self._avisos_orcamento: set[str] = set()
+        # (anúncio, produto) -> (assinatura, falhas seguidas, espera até): o par que falhou não trava a fila
+        self._falhas: dict[tuple[int, int], tuple[str, int, datetime]] = {}
 
     def parar(self) -> None:
         self._parar.set()
@@ -62,41 +72,79 @@ class ServicoCasador:
             zona = ZoneInfo(repo.obter_config_geral(s, self._config_env).fuso)
             lote, automatico = cfg.lote, cfg.automatico
             limites = (cfg.confianca_confirmar, cfg.confianca_ignorar)
-            pares = [
-                p for p in repo_ia.pares_pendentes(s)
-                if p.avaliacao is None or p.avaliacao.assinatura != assinatura(p.anuncio, p.produto)
-            ][:lote]
+            pendentes = repo_ia.pares_pendentes(s)
+            self._esquecer_falhas_fora_de({(p.anuncio.id, p.produto.id) for p in pendentes})
+            candidatos = []
+            for p in pendentes:
+                atual = assinatura(p.anuncio, p.produto)
+                if p.avaliacao is not None and p.avaliacao.assinatura == atual:
+                    continue
+                if self._em_espera((p.anuncio.id, p.produto.id), atual, agora):
+                    continue
+                candidatos.append((p, atual))
+            pares = candidatos[:lote]
             # vários anúncios podem sugerir o mesmo produto: cada objeto sai da sessão uma vez só
-            for obj in {*(p.anuncio for p in pares), *(p.produto for p in pares)}:
+            for obj in {*(p.anuncio for p, _ in pares), *(p.produto for p, _ in pares)}:
                 s.expunge(obj)
         avaliados = falhas = 0
-        for par in pares:
+        for par, atual in pares:
             if self._parar.is_set():
                 break
+            chave = (par.anuncio.id, par.produto.id)
             try:
                 veredito, resposta, sem_imagem = avaliar_par(
                     self._sessoes, self._transporte, self._http, par.anuncio, par.produto, par.preco_liga,
                     par.preco_amazon, finalidade="casamento", zona=zona, relogio=self._relogio,
                 )
+                self._gravar(par, veredito, resposta, sem_imagem, automatico, limites)
             except SemOrcamento as erro:
                 self._avisar_orcamento(str(erro), zona)
                 break
-            except ChaveInvalida as erro:
+            except (ChaveInvalida, ConfiguracaoInvalida) as erro:
                 with self._sessoes() as s, s.begin():
                     repo.pausar(s, str(erro), self._relogio(), COLETOR_CASADOR)
                 self._notificador.enviar(Destino.ADMIN, f"⚠️ Casador (IA) pausado: {erro}. Corrija e clique em Retomar em Serviços.")
                 log.error("casador pausado: %s", erro)
                 break
-            except ErroIA as erro:
+            except RespostaForaDoFormato as erro:  # a chamada funcionou: só o par espera
+                falhas = 0
+                self._marcar_falha(chave, atual)
+                log.warning("resposta fora do formato no anúncio %s: %s", par.anuncio.asin, erro)
+                continue
+            except ErroIA as erro:  # falha da chamada: o par espera e, se repetir, a rodada acaba
                 falhas += 1
+                self._marcar_falha(chave, atual)
                 log.warning("IA falhou no anúncio %s: %s", par.anuncio.asin, erro)
                 if falhas >= FALHAS_SEGUIDAS_MAX:
                     break
                 continue
+            except Exception:
+                self._marcar_falha(chave, atual)
+                log.exception("erro inesperado no anúncio %s; segue para o próximo", par.anuncio.asin)
+                continue
             falhas = 0
-            self._gravar(par, veredito, resposta, sem_imagem, automatico, limites)
+            self._falhas.pop(chave, None)
             avaliados += 1
         return avaliados
+
+    def _em_espera(self, chave: tuple[int, int], atual: str, agora: datetime) -> bool:
+        falha = self._falhas.get(chave)
+        if falha is None:
+            return False
+        if falha[0] != atual:  # dados mudaram: tenta de novo já
+            del self._falhas[chave]
+            return False
+        return agora < falha[2]
+
+    def _marcar_falha(self, chave: tuple[int, int], atual: str) -> None:
+        anterior = self._falhas.get(chave)
+        n = anterior[1] + 1 if anterior is not None and anterior[0] == atual else 1
+        espera = ESPERAS_FALHA[min(n, len(ESPERAS_FALHA)) - 1]
+        self._falhas[chave] = (atual, n, self._relogio() + espera)
+
+    def _esquecer_falhas_fora_de(self, pendentes: set[tuple[int, int]]) -> None:
+        for chave in self._falhas.keys() - pendentes:
+            del self._falhas[chave]
 
     def _gravar(self, par, veredito, resposta, sem_imagem, automatico, limites) -> None:
         agora = self._relogio()
@@ -144,8 +192,10 @@ class ServicoCasador:
                     pedida = repo.consumir_solicitacao(s, agora, COLETOR_CASADOR)
                     intervalo = timedelta(minutes=repo_ia.obter_config_ia(s).intervalo_min)
                 if pedida or agora >= proxima:
-                    self.ciclo()
-                    proxima = self._relogio() + intervalo
+                    try:
+                        self.ciclo()
+                    finally:  # com erro também: não repete (nem paga) a cada passo
+                        proxima = self._relogio() + intervalo
             except Exception:
                 log.exception("erro no ciclo do casador; tenta de novo no próximo passo")
             if self._dormir is not None:

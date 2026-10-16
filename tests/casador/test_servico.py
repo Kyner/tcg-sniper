@@ -19,8 +19,19 @@ from tcg_sniper.db.models import (
     ProdutoLiga,
     StatusCasamento,
 )
-from tcg_sniper.ia.modelos import Bruta, ChaveInvalida, ErroIA
+from tcg_sniper.ia.modelos import Bruta, ChaveInvalida, ConfiguracaoInvalida, ErroIA
 from tcg_sniper.notificador.base import Destino
+
+
+class Relogio:
+    def __init__(self, inicio=T0):
+        self.agora = inicio
+
+    def __call__(self):
+        return self.agora
+
+    def avancar(self, **delta):
+        self.agora += timedelta(**delta)
 
 
 def veredito(mesmo=True, confianca=95, motivo="mesma caixa"):
@@ -36,7 +47,8 @@ def servico(sessoes, config, respostas, **kw):
     n = NotificadorFake()
     cfg = config.model_copy(update={"openai_api_key": "sk-teste"})
     agora = kw.pop("agora", T0)
-    sv = ServicoCasador(sessoes, t, cfg, n, cliente_http=kw.pop("cliente_http", sem_rede()), relogio=lambda: agora, **kw)
+    relogio = kw.pop("relogio", lambda: agora)
+    sv = ServicoCasador(sessoes, t, cfg, n, cliente_http=kw.pop("cliente_http", sem_rede()), relogio=relogio, **kw)
     return sv, t, n
 
 
@@ -118,6 +130,9 @@ def test_automatico_respeita_os_limites(sessoes, config):
     for anuncio_id, situacao in esperado.items():
         assert status_de(sessoes, anuncio_id) is situacao
         assert (por_anuncio[anuncio_id].aplicada_em is not None) == (situacao is not StatusCasamento.PENDENTE)
+        with sessoes() as s:
+            revisado = s.get(AnuncioAmazon, anuncio_id).revisado_em
+        assert por_anuncio[anuncio_id].aplicada_em == revisado  # mesmo instante: o selo "pela IA" depende disso
 
 
 def test_decisao_humana_durante_a_chamada_vence(sessoes, config):
@@ -160,11 +175,13 @@ def test_resposta_fora_do_formato_nao_grava_e_volta(sessoes, config):
     configurar(sessoes)
     pares(sessoes)
     ruim = Bruta(json.dumps({"mesmo_produto": True, "confianca": 150, "motivo": "x"}), 10, 1)
-    sv, _, _ = servico(sessoes, config, [ruim, veredito()])
+    relogio = Relogio()
+    sv, _, _ = servico(sessoes, config, [ruim, veredito()], relogio=relogio)
     sv.ciclo()
     assert avaliacoes(sessoes) == []
     with sessoes() as s:
         assert [c.ok for c in s.scalars(select(ChamadaIA))] == [True]  # a chamada saiu; o formato é do casador
+    relogio.avancar(hours=1)
     sv.ciclo()
     assert len(avaliacoes(sessoes)) == 1
 
@@ -235,3 +252,133 @@ def test_assinatura_gravada_e_a_do_par(sessoes, config):
     sv.ciclo()
     with sessoes() as s:
         assert avaliacoes(sessoes)[0].assinatura == assinatura(s.get(AnuncioAmazon, a), s.get(ProdutoLiga, p_id))
+
+
+def test_configuracao_invalida_pausa_e_avisa(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes, 2)
+    motivo = "modelo ou esforço inválido em Configurações → IA: model_not_found (model)"
+    sv, t, n = servico(sessoes, config, [ConfiguracaoInvalida(motivo)])
+    sv.ciclo()
+    with sessoes() as s:
+        estado = repo.obter_estado(s, coletor=COLETOR_CASADOR)
+    assert estado.estado is EstadoColetorTipo.PAUSADO and "model_not_found" in estado.motivo
+    assert len(t.pedidos) == 1 and n.mensagens[0][0] is Destino.ADMIN and "model_not_found" in n.mensagens[0][1]
+
+
+def test_pares_que_falham_nao_travam_a_fila(sessoes, config):
+    configurar(sessoes)
+    _, ids = pares(sessoes, 5)
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500")] * 3 + [veredito(), veredito()])
+    assert sv.ciclo() == 0 and len(t.pedidos) == 3
+    assert sv.ciclo() == 2  # os 3 que falharam esperam; os de trás andam
+    assert {av.anuncio_id for av in avaliacoes(sessoes)} == set(ids[3:])
+
+
+def test_espera_crescente_depois_de_falhar(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    relogio = Relogio()
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500")] * 4, relogio=relogio)
+    sv.ciclo()
+    relogio.avancar(minutes=59)
+    sv.ciclo()
+    assert len(t.pedidos) == 1
+    relogio.avancar(minutes=1)  # 1 h
+    sv.ciclo()
+    assert len(t.pedidos) == 2
+    relogio.avancar(hours=5, minutes=59)
+    sv.ciclo()
+    assert len(t.pedidos) == 2
+    relogio.avancar(minutes=1)  # 6 h
+    sv.ciclo()
+    assert len(t.pedidos) == 3
+    relogio.avancar(hours=24)  # 24 h
+    sv.ciclo()
+    assert len(t.pedidos) == 4
+    assert sv._falhas[next(iter(sv._falhas))][1] == 4  # limite de 24 h a partir daqui
+
+
+def test_espera_maxima_e_24_horas(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    relogio = Relogio()
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500")] * 6, relogio=relogio)
+    for horas in (0, 1, 6, 24, 24):
+        relogio.avancar(hours=horas)
+        sv.ciclo()
+    assert len(t.pedidos) == 5
+    relogio.avancar(hours=23, minutes=59)
+    sv.ciclo()
+    assert len(t.pedidos) == 5
+    relogio.avancar(minutes=1)
+    sv.ciclo()
+    assert len(t.pedidos) == 6
+
+
+def test_dados_mudados_tiram_o_par_da_espera(sessoes, config):
+    configurar(sessoes)
+    _, [a] = pares(sessoes)
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()])
+    sv.ciclo()
+    sv.ciclo()
+    assert len(t.pedidos) == 1
+    with sessoes() as s, s.begin():
+        s.get(AnuncioAmazon, a).titulo = "Título novo"
+    assert sv.ciclo() == 1 and sv._falhas == {}
+
+
+def test_sucesso_limpa_a_falha(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    relogio = Relogio()
+    sv, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()], relogio=relogio)
+    sv.ciclo()
+    assert len(sv._falhas) == 1
+    relogio.avancar(hours=1)
+    assert sv.ciclo() == 1 and sv._falhas == {}
+
+
+def test_erros_de_formato_nao_encerram_o_ciclo(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes, 4)
+    ruim = Bruta(json.dumps({"mesmo_produto": "sim", "confianca": 90, "motivo": "x"}), 10, 1)
+    sv, t, _ = servico(sessoes, config, [ruim, ruim, ruim, veredito()])
+    assert sv.ciclo() == 1 and len(t.pedidos) == 4
+    assert len(sv._falhas) == 3
+
+
+def test_excecao_inesperada_num_par_nao_derruba_o_lote(sessoes, config, monkeypatch, caplog):
+    from tcg_sniper.casador import servico as modulo
+
+    configurar(sessoes)
+    pares(sessoes, 2)
+    original = modulo.avaliar_par
+    chamadas = []
+
+    def avaliar_par(*args, **kw):
+        chamadas.append(1)
+        if len(chamadas) == 1:
+            raise RuntimeError("quebrou sk-teste")
+        return original(*args, **kw)
+
+    monkeypatch.setattr(modulo, "avaliar_par", avaliar_par)
+    sv, t, _ = servico(sessoes, config, [veredito()])
+    assert sv.ciclo() == 1 and len(sv._falhas) == 1 and len(t.pedidos) == 1
+    assert "RuntimeError" in caplog.text
+    assert sv.ciclo() == 0 and len(chamadas) == 2  # o par que quebrou espera
+
+
+def test_erro_no_ciclo_nao_repete_no_passo_seguinte(sessoes, config):
+    configurar(sessoes, intervalo_min=10)
+    passos = []
+    sv, _, _ = servico(sessoes, config, [], dormir=lambda _s: passos.append(1) or (len(passos) >= 3 and sv.parar()))
+    tentativas = []
+
+    def ciclo():
+        tentativas.append(1)
+        raise RuntimeError("falhou")
+
+    sv.ciclo = ciclo
+    sv.rodar()
+    assert len(passos) == 3 and len(tentativas) == 1  # o relógio não andou 10 min: não tenta de novo

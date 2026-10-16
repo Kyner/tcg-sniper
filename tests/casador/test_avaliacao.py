@@ -63,3 +63,45 @@ def test_para_sem_orcamento(sessoes):
     http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
     [r] = avaliar(sessoes, t, http, ["gpt-5"], None, SP, lambda: T0)
     assert r.total == 0 and r.interrompida is not None and "chamadas" in r.interrompida
+
+
+def test_configuracao_invalida_interrompe(sessoes):
+    from tcg_sniper.ia.modelos import ConfiguracaoInvalida
+
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1")
+        criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO)
+        criar_anuncio(s, "B2", produto=p, status=StatusCasamento.CONFIRMADO)
+    t = TransporteFake([ConfiguracaoInvalida("modelo ou esforço inválido em Configurações → IA: model_not_found (model)")])
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    [r] = avaliar(sessoes, t, http, ["gpt-9"], None, SP, lambda: T0)
+    assert r.total == 0 and r.falhas == 0 and "model_not_found" in r.interrompida and len(t.pedidos) == 1
+
+
+def test_precos_informados_tokens_e_rotulo(sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1")
+        criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO)
+        criar_anuncio(s, "B2", produto=p, status=StatusCasamento.CONFIRMADO)
+    t = TransporteFake([v(True, 99)] * 2)
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    [r] = avaliar(sessoes, t, http, ["gpt-5-mini"], None, SP, lambda: T0,
+                  preco_entrada=Decimal("0.25"), preco_saida=Decimal(2))
+    assert (r.tokens_entrada, r.tokens_saida) == (2000, 200)
+    assert r.custo_usd == Decimal("0.000900")  # 2 × (1000 × 0,25 + 100 × 2) / 1 milhão
+    with sessoes() as s:
+        assert sum(c.custo_usd for c in s.scalars(select(ChamadaIA))) == Decimal("0.000900")
+    md = relatorio_markdown([r], T0, preco_entrada=Decimal("0.25"), preco_saida=Decimal(2))
+    assert "Tokens: 2000 de entrada, 200 de saída" in md
+    assert "Configurações → IA" not in md and "US$ 0,25" in md and "US$ 2,00" in md
+
+
+def test_rotulo_dos_precos_de_configuracoes(sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1")
+        criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO)
+    t = TransporteFake([v(True, 99)])
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    [r] = avaliar(sessoes, t, http, ["gpt-5"], None, SP, lambda: T0)
+    md = relatorio_markdown([r], T0)
+    assert "com os preços de Configurações → IA" in md and "Tokens: 1000 de entrada, 100 de saída" in md

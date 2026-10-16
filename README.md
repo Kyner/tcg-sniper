@@ -197,7 +197,7 @@ O `casador` avalia com a IA (OpenAI) os anúncios da Amazon que ainda estão pen
    docker compose exec casador tcg-sniper ia avaliar --modelo gpt-5 --modelo gpt-5-mini
    ```
 
-   Repita `--modelo` para comparar modelos e use `--limite N` para testar com poucos anúncios. O relatório sai em `dados/avaliacao-ia-<data>.md`, com acertos, falsos "sim" (o erro que mais importa), custo e os casos errados. Estas chamadas contam nos tetos.
+   Repita `--modelo` para comparar modelos e use `--limite N` para testar com poucos anúncios. O custo usa os preços de Configurações → IA; para medir um modelo com outro preço, informe `--preco-entrada` e `--preco-saida` (US$ por milhão de tokens). O relatório sai em `dados/avaliacao-ia-<data>.md`, com acertos, falsos "sim" (o erro que mais importa), custo e os casos errados. Estas chamadas contam nos tetos.
 
 Se a OpenAI recusar a chave, o `casador` pausa e avisa no WhatsApp. Ao atingir o teto do dia (ou do mês), a IA para até o próximo dia (ou mês) e os anúncios seguem pendentes para você decidir.
 

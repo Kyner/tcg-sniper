@@ -1,6 +1,7 @@
 import argparse
 import logging
 import signal
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from tcg_sniper.config import Config
@@ -16,6 +17,17 @@ def instalar_sigterm() -> None:
     signal.signal(signal.SIGTERM, _encerrar)
 
 
+def _preco(texto: str) -> Decimal:
+    """Preço em US$ por milhão de tokens; aceita vírgula decimal."""
+    try:
+        valor = Decimal(texto.strip().replace(",", "."))
+    except InvalidOperation:
+        raise argparse.ArgumentTypeError(f"preço inválido: {texto}") from None
+    if not valor.is_finite() or valor < 0:
+        raise argparse.ArgumentTypeError(f"preço inválido: {texto}")
+    return valor
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tcg-sniper")
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -29,6 +41,8 @@ def main(argv: list[str] | None = None) -> None:
     avaliar_p = ia_sub.add_parser("avaliar", help="mede a IA nos casamentos já decididos (não muda nada)")
     avaliar_p.add_argument("--modelo", action="append", required=True, help="pode repetir para comparar modelos")
     avaliar_p.add_argument("--limite", type=int, default=None, help="no máximo N anúncios")
+    avaliar_p.add_argument("--preco-entrada", type=_preco, default=None, help="US$ por milhão de tokens de entrada (padrão: o de Configurações, aba IA)")
+    avaliar_p.add_argument("--preco-saida", type=_preco, default=None, help="US$ por milhão de tokens de saída (padrão: o de Configurações, aba IA)")
     admin = sub.add_parser("admin", help="inicia a página de admin")
     admin.add_argument("--porta", type=int, default=8000)
     args = parser.parse_args(argv)
@@ -83,7 +97,9 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.notificador import criar_notificador
 
         chave = (config.openai_api_key or "").strip()
-        casador = ServicoCasador(sessoes, TransporteOpenAI(chave) if chave else None, config, criar_notificador(config, sessoes))
+        # timeout e repetições menores que os do padrão: o desligamento (stop_grace_period) espera a chamada em curso
+        transporte = TransporteOpenAI(chave, timeout_s=30, max_retries=2) if chave else None
+        casador = ServicoCasador(sessoes, transporte, config, criar_notificador(config, sessoes))
         signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
         casador.rodar()
     elif args.comando == "ia":
@@ -100,9 +116,13 @@ def main(argv: list[str] | None = None) -> None:
             zona = ZoneInfo(repo.obter_config_geral(s, config).fuso)
         agora = repo.agora_utc()
         with httpx.Client(timeout=15, headers={"User-Agent": "Mozilla/5.0"}) as http:
-            resultados = avaliar(sessoes, TransporteOpenAI(chave), http, args.modelo, args.limite, zona, repo.agora_utc)
+            resultados = avaliar(
+                sessoes, TransporteOpenAI(chave), http, args.modelo, args.limite, zona, repo.agora_utc,
+                preco_entrada=args.preco_entrada, preco_saida=args.preco_saida,
+            )
         destino = config.dir_dados / f"avaliacao-ia-{agora:%Y-%m-%d-%H%M}.md"
-        destino.write_text(relatorio_markdown(resultados, agora), encoding="utf-8")
+        relatorio = relatorio_markdown(resultados, agora, preco_entrada=args.preco_entrada, preco_saida=args.preco_saida)
+        destino.write_text(relatorio, encoding="utf-8")
         print(f"relatório em {destino}")
     elif args.comando == "admin":
         import uvicorn
