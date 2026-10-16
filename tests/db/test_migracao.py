@@ -29,7 +29,7 @@ def test_migracao_igual_aos_modelos(engine):
 
 def test_estado_coletor_aceita_so_as_linhas_dos_coletores(s):
     agora = datetime.now(UTC)
-    s.add(EstadoColetor(id=3, coletor="outro", estado=EstadoColetorTipo.ATIVO, atualizado_em=agora))
+    s.add(EstadoColetor(id=4, coletor="outro", estado=EstadoColetorTipo.ATIVO, atualizado_em=agora))
     with pytest.raises(IntegrityError):
         s.flush()
 

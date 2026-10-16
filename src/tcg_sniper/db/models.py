@@ -72,6 +72,7 @@ class StatusMensagem(enum.StrEnum):
 
 COLETOR_LIGA = "liga"
 COLETOR_AMAZON = "amazon"
+COLETOR_CASADOR = "casador"
 
 
 def _enum(cls: type[enum.Enum], nome: str) -> Enum:
@@ -96,6 +97,7 @@ class ProdutoLiga(Base):
     liga_id: Mapped[str] = mapped_column(Text, unique=True)
     nome: Mapped[str] = mapped_column(Text)
     nome_en: Mapped[str | None] = mapped_column(Text)
+    imagem_url: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)
     edicao: Mapped[str | None] = mapped_column(Text)
     tipo: Mapped[str | None] = mapped_column(Text)
@@ -161,11 +163,11 @@ class PrecoAtualLiga(Base):
 
 
 class EstadoColetor(Base):
-    """Uma linha por coletor: id 1 = Liga, id 2 = Amazon (ver `repositorio.ID_COLETOR`)."""
+    """Uma linha por coletor: id 1 = Liga, id 2 = Amazon, id 3 = casador (ver `repositorio.ID_COLETOR`)."""
 
     __tablename__ = "estado_coletor"
     __table_args__ = (
-        CheckConstraint("id IN (1, 2)", name="ck_estado_coletor_linhas"),
+        CheckConstraint("id IN (1, 2, 3)", name="ck_estado_coletor_linhas"),
         UniqueConstraint("coletor", name="uq_estado_coletor_coletor"),
     )
 
@@ -191,6 +193,8 @@ class AnuncioAmazon(Base):
     titulo: Mapped[str] = mapped_column(Text)
     # Opção do seletor de variações lida na página do produto ("Collector Booster Box"); a busca não a mostra.
     variacao: Mapped[str | None] = mapped_column(Text)
+    # Imagem principal: a busca só preenche quando vazia; a página do produto pode trocar.
+    imagem_url: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)
     produto_id: Mapped[int | None] = mapped_column(ForeignKey("produto_liga.id"))
     status_casamento: Mapped[StatusCasamento] = mapped_column(_enum(StatusCasamento, "status_casamento"))
@@ -444,3 +448,107 @@ class EstadoNotificador(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
     ultimo_ciclo_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
+ESFORCOS_IA = ("minimal", "low", "medium", "high")
+
+LIMITES_CONFIG_IA: dict[str, tuple[int, int]] = {
+    "max_chamadas_dia": (0, 100000),
+    "intervalo_min": (1, 1440),
+    "lote": (1, 500),
+    "confianca_confirmar": (0, 100),
+    "confianca_ignorar": (0, 100),
+}
+
+PADROES_CONFIG_IA: dict[str, object] = {
+    "ligado": False,
+    "modelo": "gpt-5",
+    "esforco": "low",
+    "preco_entrada_milhao_usd": Decimal("1.25"),
+    "preco_saida_milhao_usd": Decimal("10.00"),
+    "teto_dia_usd": Decimal("2.00"),
+    "teto_mes_usd": Decimal("20.00"),
+    "max_chamadas_dia": 1000,
+    "intervalo_min": 5,
+    "lote": 20,
+    "automatico": False,
+    "confianca_confirmar": 90,
+    "confianca_ignorar": 90,
+}
+
+
+class ConfigIA(Base):
+    """Configuração da IA (casador): uma linha, editável no admin. A chave fica no .env (OPENAI_API_KEY)."""
+
+    __tablename__ = "config_ia"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_config_ia_linha_unica"),
+        CheckConstraint("modelo <> ''", name="ck_config_ia_modelo"),
+        CheckConstraint("esforco IN ('minimal', 'low', 'medium', 'high')", name="ck_config_ia_esforco"),
+        CheckConstraint(
+            "preco_entrada_milhao_usd >= 0 AND preco_saida_milhao_usd >= 0 AND teto_dia_usd >= 0 AND teto_mes_usd >= 0",
+            name="ck_config_ia_valores",
+        ),
+        *(
+            CheckConstraint(f"{campo} BETWEEN {minimo} AND {maximo}", name=f"ck_config_ia_{campo}")
+            for campo, (minimo, maximo) in LIMITES_CONFIG_IA.items()
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    ligado: Mapped[bool] = mapped_column(Boolean)
+    modelo: Mapped[str] = mapped_column(Text)
+    esforco: Mapped[str] = mapped_column(Text)
+    preco_entrada_milhao_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4))
+    preco_saida_milhao_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4))
+    teto_dia_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    teto_mes_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    max_chamadas_dia: Mapped[int] = mapped_column(Integer)
+    intervalo_min: Mapped[int] = mapped_column(Integer)
+    lote: Mapped[int] = mapped_column(Integer)
+    automatico: Mapped[bool] = mapped_column(Boolean)
+    confianca_confirmar: Mapped[int] = mapped_column(Integer)
+    confianca_ignorar: Mapped[int] = mapped_column(Integer)
+    atualizado_em: Mapped[datetime] = mapped_column(DATA)
+
+
+class ChamadaIA(Base):
+    """Cada chamada à OpenAI (ok ou erro), com tokens e custo: base do orçamento e do gasto no admin."""
+
+    __tablename__ = "chamada_ia"
+    __table_args__ = (Index("ix_chamada_ia_em", "em"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    em: Mapped[datetime] = mapped_column(DATA)
+    finalidade: Mapped[str] = mapped_column(Text)  # "casamento" | "avaliacao"
+    modelo: Mapped[str] = mapped_column(Text)
+    tokens_entrada: Mapped[int] = mapped_column(Integer)
+    tokens_saida: Mapped[int] = mapped_column(Integer)
+    custo_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    ok: Mapped[bool] = mapped_column(Boolean)
+    erro: Mapped[str | None] = mapped_column(Text)
+
+
+class AvaliacaoIA(Base):
+    """Veredito da IA para um par (anúncio, produto da Liga). `assinatura` = hash dos dados enviados:
+    mudou, reavalia. `aplicada_em` preenchida quando o automático confirmou ou ignorou o anúncio
+    (fica mesmo se o usuário desfizer, para o automático não reaplicar)."""
+
+    __tablename__ = "avaliacao_ia"
+    __table_args__ = (
+        UniqueConstraint("anuncio_id", "produto_id", name="uq_avaliacao_ia_par"),
+        CheckConstraint("confianca BETWEEN 0 AND 100", name="ck_avaliacao_ia_confianca"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anuncio_id: Mapped[int] = mapped_column(ForeignKey("anuncio_amazon.id"))
+    produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"))
+    mesmo_produto: Mapped[bool] = mapped_column(Boolean)
+    confianca: Mapped[int] = mapped_column(Integer)
+    motivo: Mapped[str] = mapped_column(Text)
+    modelo: Mapped[str] = mapped_column(Text)
+    assinatura: Mapped[str] = mapped_column(Text)
+    sem_imagem: Mapped[bool] = mapped_column(Boolean)
+    avaliado_em: Mapped[datetime] = mapped_column(DATA)
+    aplicada_em: Mapped[datetime | None] = mapped_column(DATA)
+    chamada_id: Mapped[int | None] = mapped_column(ForeignKey("chamada_ia.id"))

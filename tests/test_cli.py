@@ -104,3 +104,91 @@ def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
         assert paradas == [True]  # SIGTERM pede parada limpa, sem SystemExit
     finally:
         signal.signal(signal.SIGTERM, anterior)
+
+
+def test_casador_existe():
+    with pytest.raises(SystemExit) as saida:
+        cli.main(["casador", "--help"])
+    assert saida.value.code == 0
+
+
+@pytest.mark.parametrize("chave", ["", "sk-teste"])
+def test_casador_so_cria_transporte_com_chave(monkeypatch, chave):
+    from tcg_sniper.casador import servico
+    from tcg_sniper.ia import transporte_openai
+
+    anterior = signal.getsignal(signal.SIGTERM)
+    vistos = []
+
+    class ServicoFalso:
+        def __init__(self, sessoes, transporte, config, notificador):
+            vistos.append(transporte)
+
+        def parar(self):
+            pass
+
+        def rodar(self):
+            vistos.append(signal.getsignal(signal.SIGTERM))
+
+    monkeypatch.setattr(servico, "ServicoCasador", ServicoFalso)
+    monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda c, **kw: ("transporte", c, kw))
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("OPENAI_API_KEY", chave)
+    try:
+        cli.main(["casador"])
+        assert vistos[0] == (("transporte", chave, {"timeout_s": 30, "max_retries": 2}) if chave else None)
+        assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+    finally:
+        signal.signal(signal.SIGTERM, anterior)
+
+
+def test_ia_avaliar_sem_chave_aborta_sem_montar_o_transporte(monkeypatch):
+    from tcg_sniper.ia import transporte_openai
+
+    montados = []
+    monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda chave: montados.append(chave))
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    with pytest.raises(SystemExit) as erro:
+        cli.main(["ia", "avaliar", "--modelo", "gpt-5"])
+    assert "OPENAI_API_KEY ausente" in str(erro.value)
+    assert montados == []
+
+
+def test_ia_avaliar_repassa_os_precos(monkeypatch, tmp_path):
+    from decimal import Decimal
+
+    from tcg_sniper.casador import avaliacao
+    from tcg_sniper.db import repositorio
+    from tcg_sniper.ia import transporte_openai
+
+    vistos = {}
+
+    class Sessao:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def avaliar(sessoes, transporte, http, modelos, limite, zona, relogio, **kw):
+        vistos["avaliar"] = kw
+        return []
+
+    def relatorio(resultados, gerado_em, **kw):
+        vistos["relatorio"] = kw
+        return "relatório"
+
+    monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda c, **kw: object())
+    monkeypatch.setattr(avaliacao, "avaliar", avaliar)
+    monkeypatch.setattr(avaliacao, "relatorio_markdown", relatorio)
+    monkeypatch.setattr(repositorio, "obter_config_geral", lambda s, c: type("G", (), {"fuso": "America/Sao_Paulo"})())
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: Sessao)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-teste")
+    monkeypatch.setenv("DIR_DADOS", str(tmp_path))
+    cli.main(["ia", "avaliar", "--modelo", "gpt-5-mini", "--preco-entrada", "0.25", "--preco-saida", "2"])
+    esperado = {"preco_entrada": Decimal("0.25"), "preco_saida": Decimal(2)}
+    assert vistos["avaliar"] == esperado and vistos["relatorio"] == esperado

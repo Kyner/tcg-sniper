@@ -11,6 +11,7 @@ from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.config import Config
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_CASADOR,
     COLETOR_LIGA,
     Coleta,
     ConfigGeral,
@@ -77,15 +78,16 @@ def gravar_precos_produto(
 ) -> None:
     """Acrescenta o resumo ao histórico (append-only) e atualiza só o grupo "resumo" do preço atual.
 
-    Grava também o nome em inglês do produto quando a página o trouxe (nunca apaga um já guardado)."""
+    Grava também o nome em inglês e a imagem do produto quando a página os trouxe (nunca apaga um já guardado)."""
     precos = {
         "preco_min": resumo.preco_min,
         "preco_medio": resumo.preco_medio,
         "preco_max": resumo.preco_max,
         "num_lojas": resumo.num_lojas,
     }
-    if resumo.nome_en is not None:
-        s.execute(update(ProdutoLiga).where(ProdutoLiga.id == produto_id).values(nome_en=resumo.nome_en))
+    extras = {k: v for k, v in (("nome_en", resumo.nome_en), ("imagem_url", resumo.imagem_url)) if v is not None}
+    if extras:
+        s.execute(update(ProdutoLiga).where(ProdutoLiga.id == produto_id).values(**extras))
     s.add(ResumoPreco(produto_id=produto_id, coleta_id=coleta_id, coletado_em=agora, **precos))
     atual = {**precos, "resumo_coleta_id": coleta_id, "resumo_em": agora}
     s.execute(
@@ -172,7 +174,7 @@ def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], a
     return novos
 
 
-ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2}
+ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2, COLETOR_CASADOR: 3}
 
 
 def obter_estado(s: Session, agora: datetime | None = None, coletor: str = COLETOR_LIGA) -> EstadoColetor:
@@ -218,15 +220,15 @@ def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
     s.flush()
 
 
-def solicitar_execucao(s: Session, agora: datetime) -> None:
-    estado = obter_estado(s, agora)
+def solicitar_execucao(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
+    estado = obter_estado(s, agora, coletor)
     estado.execucao_solicitada = True
     estado.atualizado_em = agora
     s.flush()
 
 
-def consumir_solicitacao(s: Session, agora: datetime) -> bool:
-    estado = obter_estado(s, agora)
+def consumir_solicitacao(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> bool:
+    estado = obter_estado(s, agora, coletor)
     if estado.estado != EstadoColetorTipo.ATIVO or not estado.execucao_solicitada:
         return False
     estado.execucao_solicitada = False

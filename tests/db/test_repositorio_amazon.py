@@ -319,3 +319,18 @@ def test_atualizar_leitura(s):
 )
 def test_titulo_exibicao(titulo, variacao, esperado):
     assert AnuncioAmazon(titulo=titulo, variacao=variacao).titulo_exibicao == esperado
+
+
+def test_busca_so_preenche_imagem_vazia_e_produto_troca(s):
+    p = criar_produto(s, "p1")
+    item = lambda img: ResultadoBusca("B0A", "Caixa", "https://www.amazon.com.br/dp/B0A", None, False, img)
+    [a] = repo.gravar_busca(s, [item(None)], p.id, T0, SP)
+    assert a.imagem_url is None
+    [a] = repo.gravar_busca(s, [item("https://img/1.jpg")], p.id, T0, SP)
+    assert a.imagem_url == "https://img/1.jpg"
+    [a] = repo.gravar_busca(s, [item("https://img/2.jpg")], p.id, T0, SP)
+    assert a.imagem_url == "https://img/1.jpg"  # a busca não troca: evita reavaliar o anúncio a cada ciclo
+    repo.atualizar_leitura(s, a.id, "Caixa", None, T0, imagem_url="https://img/grande.jpg")
+    repo.atualizar_leitura(s, a.id, "Caixa", None, T0)  # sem imagem: mantém
+    s.refresh(a)
+    assert a.imagem_url == "https://img/grande.jpg"

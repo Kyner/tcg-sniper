@@ -185,6 +185,22 @@ A partir da próxima coleta, os produtos ativos ganham histórico de venda e nú
 
 Os anúncios achados só viram oportunidade depois de confirmados em **Casamentos** no admin. Uma mesma página da Amazon pode ter várias opções (envelope, caixa, deck...), cada uma com o seu ASIN; o título muitas vezes não diz qual é. Ao ler a página de um anúncio casado, o coletor guarda a opção selecionada, que aparece ao lado do título no admin (ex.: "Final Fantasy, multicolorido — Collector Booster Box") e na mensagem de oportunidade. Anúncios ainda pendentes só mostram o título da busca.
 
+### 9. Casamento com IA (opcional)
+
+O `casador` avalia com a IA (OpenAI) os anúncios da Amazon que ainda estão pendentes em **Casamentos**, olhando o texto e as imagens do anúncio e do produto da LigaMagic. Cada anúncio avaliado ganha um selo com a confiança e o motivo da IA; você continua decidindo, a menos que ligue o modo automático.
+
+1. Ponha a chave no `.env` (`OPENAI_API_KEY=...`) e recrie o serviço: `docker compose up -d casador`. Sempre que mudar a chave, recrie o `casador` de novo.
+2. Em **Configurações** → **IA**, ligue a IA e ajuste o modelo, os preços, os tetos por dia e por mês (em dólar), o máximo de chamadas por dia, o modo automático e as confianças mínimas.
+3. Antes de ligar o automático, meça a IA contra o que você já decidiu em **Casamentos**. O comando não muda nada nos casamentos, só consulta a IA e gera um relatório:
+
+   ```bash
+   docker compose exec casador tcg-sniper ia avaliar --modelo gpt-5 --modelo gpt-5-mini
+   ```
+
+   Repita `--modelo` para comparar modelos e use `--limite N` para testar com poucos anúncios. O custo usa os preços de Configurações → IA; para medir um modelo com outro preço, informe `--preco-entrada` e `--preco-saida` (US$ por milhão de tokens). O relatório sai em `dados/avaliacao-ia-<data>.md`, com acertos, falsos "sim" (o erro que mais importa), custo e os casos errados. Estas chamadas contam nos tetos.
+
+Se a OpenAI recusar a chave, o `casador` pausa e avisa no WhatsApp. Ao atingir o teto do dia (ou do mês), a IA para até o próximo dia (ou mês) e os anúncios seguem pendentes para você decidir.
+
 ## Atualizar uma instalação existente
 
 ```bash
@@ -243,11 +259,12 @@ O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as po
 
 ## Configuração
 
-Os ajustes de operação ficam na página **Configurações** do admin, em três seções que salvam separadamente e valem a partir da próxima coleta ou ciclo, sem reiniciar:
+Os ajustes de operação ficam na página **Configurações** do admin, em quatro seções que salvam separadamente e valem a partir da próxima coleta ou ciclo, sem reiniciar:
 
 - **Geral**: IP ou nome deste PC na rede, fuso horário, instância da Evolution e os grupos de WhatsApp (admin e oportunidades).
 - **LigaMagic**: horário da coleta diária e variação, pausas entre páginas, limite de falhas, categorias, URL da listagem e máximo de cliques. Tire de **Categorias** uma que falhe todo dia; pausas menores aumentam a chance de desafio do Cloudflare.
 - **Amazon**: desconto mínimo, teto de buscas por hora, horário e demais ajustes do motor de oportunidades.
+- **IA**: liga a IA do casamento, modelo, preços, tetos de gasto e de chamadas e o modo automático (ver [passo 9](#9-casamento-com-ia-opcional)).
 
 No `.env` ficam só as senhas e a infraestrutura: `ADMIN_SENHA`, `VNC_SENHA`, `EVOLUTION_API_KEY`, `DATABASE_URL`, `DIR_DADOS` e `EVOLUTION_URL`, explicadas no [`.env.example`](.env.example). Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
 
@@ -303,10 +320,12 @@ O admin usa DaisyUI 5 sobre Tailwind CSS 4, com os temas winter (claro) e night 
 
 ```
 src/tcg_sniper/
-  cli.py              comandos migrate, admin, coletor-liga, coletor-amazon e notificador
+  cli.py              comandos migrate, admin, coletor-liga, coletor-amazon, notificador, casador e ia
   config.py           leitura do .env
   coletor_liga/       agendador, navegador (Playwright), parsers e as duas etapas da coleta
   coletor_amazon/     fila de buscas, parsers da Amazon, casamento e motor de oportunidades
+  casador/            casamento com IA: pergunta, serviço e avaliação
+  ia/                 transporte OpenAI, modelos e custos
   admin/              página de admin (FastAPI + Jinja2 + HTMX)
   db/                 modelos, repositório e migrações (SQLAlchemy + Alembic)
   notificador/        tabela de saída do WhatsApp e o serviço que envia pela Evolution API
