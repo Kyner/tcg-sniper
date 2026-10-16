@@ -1,17 +1,19 @@
 """Consultas das telas da Amazon no admin."""
 
 import difflib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.admin.consultas import casa_nome
 from tcg_sniper.coletor_amazon.termo import termo_busca
+from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import (
     AnuncioAmazon,
+    AvaliacaoIA,
     Coleta,
     ConfigAmazon,
     Envio,
@@ -72,6 +74,7 @@ class LinhaProdutoCasamento:
     confirmados: int
     ignorados: int
     oportunidade: bool  # algum pendente já está a pelo menos o desconto mínimo abaixo da Liga
+    ia_sugere: int = 0  # pendentes que a IA avaliou como o mesmo produto
 
     @property
     def sem_par(self) -> bool:
@@ -107,6 +110,7 @@ def produtos_para_casar(
     precos_liga = {produto.id: preco for produto, preco in produtos}
     contagens: dict[tuple[int, StatusCasamento], int] = {}
     oportunidade: set[int] = set()
+    ia_sugere: dict[int, int] = {}
     if precos_liga:
         consulta_contagens = (
             select(AnuncioAmazon.produto_id, AnuncioAmazon.status_casamento, func.count())
@@ -126,6 +130,20 @@ def produtos_para_casar(
         for produto_id, preco in s.execute(consulta_precos):
             if atinge_desconto(preco, precos_liga[produto_id], desconto_min_pct):
                 oportunidade.add(produto_id)
+        consulta_ia = (
+            select(AnuncioAmazon.produto_id, func.count())
+            .join(
+                AvaliacaoIA,
+                and_(AvaliacaoIA.anuncio_id == AnuncioAmazon.id, AvaliacaoIA.produto_id == AnuncioAmazon.produto_id),
+            )
+            .where(
+                AnuncioAmazon.produto_id.in_(precos_liga),
+                AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE,
+                AvaliacaoIA.mesmo_produto.is_(True),
+            )
+            .group_by(AnuncioAmazon.produto_id)
+        )
+        ia_sugere = dict(s.execute(consulta_ia).all())
     linhas = [
         LinhaProdutoCasamento(
             produto=produto,
@@ -134,6 +152,7 @@ def produtos_para_casar(
             confirmados=contagens.get((produto.id, StatusCasamento.CONFIRMADO), 0),
             ignorados=contagens.get((produto.id, StatusCasamento.IGNORADO), 0),
             oportunidade=produto.id in oportunidade,
+            ia_sugere=ia_sugere.get(produto.id, 0),
         )
         for produto, preco in produtos
     ]
@@ -151,6 +170,7 @@ class LinhaAnuncio:
     # Mesmas regras da tela de Ofertas: confiavel = vendedor aceito pelos alertas; verificado = preço lido na página do produto.
     confiavel: bool
     verificado: bool
+    ia: AvaliacaoIA | None = None  # avaliação da IA para este anúncio contra este produto
 
 
 @dataclass(frozen=True)
@@ -190,13 +210,13 @@ def detalhe_casamento(s: Session, produto_id: int, config: ConfigAmazon) -> Deta
         oportunidade = atinge_desconto(atual.preco if atual else None, preco_liga, config.desconto_min_pct)
         confiavel, verificado = _selo_do_vendedor(atual, vendedor, regras)
         grupos[anuncio.status_casamento].append(LinhaAnuncio(anuncio, atual, vendedor, oportunidade, confiavel, verificado))
-    return DetalheCasamento(
-        produto,
-        preco_liga,
-        grupos[StatusCasamento.PENDENTE],
-        grupos[StatusCasamento.CONFIRMADO],
-        grupos[StatusCasamento.IGNORADO],
-    )
+    todas = [linha for linhas in grupos.values() for linha in linhas]
+    avaliacoes = repo_ia.avaliacoes_dos_pares(s, [(linha.anuncio.id, produto_id) for linha in todas])
+    for situacao, linhas in grupos.items():
+        grupos[situacao] = [replace(linha, ia=avaliacoes.get((linha.anuncio.id, produto_id))) for linha in linhas]
+    pendentes = grupos[StatusCasamento.PENDENTE]
+    pendentes.sort(key=lambda linha: -(linha.ia.confianca if linha.ia and linha.ia.mesmo_produto else -1))
+    return DetalheCasamento(produto, preco_liga, pendentes, grupos[StatusCasamento.CONFIRMADO], grupos[StatusCasamento.IGNORADO])
 
 
 def _com_preco_liga(s: Session, ids: list[int]) -> list[tuple[ProdutoLiga, Decimal | None]]:

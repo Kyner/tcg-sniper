@@ -69,3 +69,13 @@
   {% endif %}
 </div>
 {%- endmacro %}
+
+{% macro selo_ia(av, cfg_ia) -%}
+{%- if av.mesmo_produto and av.confianca >= cfg_ia.confianca_confirmar -%}
+<span class="badge badge-sm whitespace-nowrap badge-success">IA: mesmo produto {{ av.confianca }}%</span>
+{%- elif not av.mesmo_produto and av.confianca >= cfg_ia.confianca_ignorar -%}
+<span class="badge badge-sm whitespace-nowrap badge-error">IA: outro produto {{ av.confianca }}%</span>
+{%- else -%}
+<span class="badge badge-sm whitespace-nowrap badge-warning">IA: {{ "mesmo produto" if av.mesmo_produto else "outro produto" }} {{ av.confianca }}%</span>
+{%- endif -%}
+{%- endmacro %}

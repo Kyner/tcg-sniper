@@ -24,6 +24,7 @@ from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import COLETOR_AMAZON, AnuncioAmazon, ProdutoLiga, TipoColeta
 from tcg_sniper.formatacao import formatar_brl
@@ -596,6 +597,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             "casamentos_produto.html",
             {
                 "d": detalhe,
+                "cfg_ia": repo_ia.obter_config_ia(s),
                 "voltar": voltar,
                 "aqui": f"/casamentos/produto/{produto_id}?" + urlencode({"voltar": voltar}),
                 "mensagem": mensagem,
