@@ -147,3 +147,12 @@ def test_nome_em_ingles_vazio_vira_none():
         "<body>", '<body><div class="item-name-en">  </div>', 1
     )
     assert parse_produto(html).nome_en is None
+
+
+def test_parse_produto_le_imagem_principal():
+    resumo = parse_produto(fixture_liga("produto_nome_en"))
+    assert resumo.imagem_url == "https://repositorio.sbrauble.com/arquivos/up/prod/20230222/1677093808_3868.jpg"
+
+
+def test_parse_produto_sem_imagem_da_none():
+    assert parse_produto(fixture_liga("produto_um_vendedor")).imagem_url is None

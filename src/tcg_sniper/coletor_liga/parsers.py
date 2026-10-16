@@ -54,6 +54,7 @@ from tcg_sniper.parsing import parse_preco_brl as parse_preco_brl  # noqa: PLC04
 _RE_INTEIRO = re.compile(r"^\d+$")
 
 SELETOR_NOME_EN = ".item-name-en"
+SELETOR_IMAGEM = "#featuredImage"
 SELETOR_ESTRUTURA_PRODUTO = "#marketplace-stores"
 SELETOR_SEM_LOJAS = "#marketplace-stores .alertaErro"
 SELETOR_QUADRO_PRECOS = ".price-mkp"
@@ -100,6 +101,14 @@ def _nome_en(arvore: LexborHTMLParser) -> str | None:
     return (no.text(strip=True) or None) if no is not None else None
 
 
+def _imagem(arvore: LexborHTMLParser) -> str | None:
+    no = arvore.css_first(SELETOR_IMAGEM)
+    src = (no.attributes.get("src") or "").strip() if no is not None else ""
+    if src.startswith("//"):
+        src = "https:" + src
+    return src if src.startswith(("http://", "https://")) else None
+
+
 def parse_produto(html: str) -> Resumo:
     arvore = LexborHTMLParser(html)
     if arvore.css_first(SELETOR_ESTRUTURA_PRODUTO) is None:
@@ -108,7 +117,9 @@ def parse_produto(html: str) -> Resumo:
     quadro = arvore.css_first(SELETOR_QUADRO_PRECOS)
     if quadro is None:
         if arvore.css_first(SELETOR_SEM_LOJAS) is not None:
-            return Resumo(preco_min=None, preco_medio=None, preco_max=None, num_lojas=0, nome_en=nome_en)
+            return Resumo(preco_min=None, preco_medio=None, preco_max=None, num_lojas=0, nome_en=nome_en,
+                imagem_url=_imagem(arvore),
+            )
         raise ErroParser("quadro de preços do marketplace não encontrado")
     preco_min, preco_medio, preco_max = (
         parse_preco_brl(_texto(quadro, seletor)) for seletor in SELETORES_PRECO
@@ -119,6 +130,7 @@ def parse_produto(html: str) -> Resumo:
         preco_max=preco_max,
         num_lojas=_num_lojas(arvore),
         nome_en=nome_en,
+        imagem_url=_imagem(arvore),
     )
 
 

@@ -63,6 +63,9 @@ SELETOR_LINK_VENDEDOR = "#sellerProfileTriggerId"
 # página muitas vezes não diz qual opção é ("Final Fantasy, multicolorido" para a caixa de boosters).
 SELETOR_VARIACAO = '[id^="inline-twister-expanded-dimension-text-"]'
 
+SELETOR_IMAGEM_RESULTADO = "img.s-image"
+SELETOR_IMAGEM_PRODUTO = "#landingImage"
+
 SELETOR_NOME_VENDEDOR = "#seller-name"
 SELETOR_RESUMO_VENDEDOR = "#seller-info-feedback-summary"
 _RE_PCT_POSITIVAS = re.compile(r"(\d{1,3})\s*%\s*(?:de\s+)?(?:avaliações\s+)?positiv", re.IGNORECASE)
@@ -77,6 +80,7 @@ BLOCOS_PRODUTO = (
     '[offer-display-feature-name="desktop-fulfiller-info"]',
     SELETOR_LINK_VENDEDOR,
     SELETOR_VARIACAO,
+    SELETOR_IMAGEM_PRODUTO,
 )
 BLOCOS_VENDEDOR = (SELETOR_NOME_VENDEDOR, SELETOR_RESUMO_VENDEDOR)
 
@@ -114,6 +118,16 @@ def _texto(no: LexborNode | LexborHTMLParser, seletor: str) -> str | None:
     return alvo.text(separator=" ", strip=True) or None
 
 
+def _url_imagem(no: LexborNode | None, *atributos: str) -> str | None:
+    if no is None:
+        return None
+    for atributo in atributos:
+        valor = (no.attributes.get(atributo) or "").strip()
+        if valor.startswith(("http://", "https://")):
+            return valor
+    return None
+
+
 def parse_busca(html: str, limite: int) -> list[ResultadoBusca]:
     """Os primeiros `limite` resultados da busca, na ordem da página (pode repetir ASIN)."""
     arvore = LexborHTMLParser(html)
@@ -137,6 +151,7 @@ def parse_busca(html: str, limite: int) -> list[ResultadoBusca]:
                 url=url_produto(asin),
                 preco=parse_preco_brl(preco) if preco else None,
                 patrocinado=any(cartao.css_first(s) is not None for s in SELETORES_PATROCINADO),
+                imagem_url=_url_imagem(cartao.css_first(SELETOR_IMAGEM_RESULTADO), "src"),
             )
         )
     return itens
@@ -164,7 +179,16 @@ def parse_produto_amazon(html: str, asin: str) -> OfertaProduto:
     vendido_por = _texto(arvore, SELETOR_VENDIDO_POR)
     envio = classificar_envio(vendido_por, _texto(arvore, SELETOR_ENVIADO_POR))
     seller_id = SELLER_AMAZON if envio is Envio.AMAZON else _seller_id(arvore)
-    return OfertaProduto(asin, titulo, preco, vendido_por, seller_id, envio, _variacao(arvore))
+    return OfertaProduto(
+        asin,
+        titulo,
+        preco,
+        vendido_por,
+        seller_id,
+        envio,
+        _variacao(arvore),
+        imagem_url=_url_imagem(arvore.css_first(SELETOR_IMAGEM_PRODUTO), "data-old-hires", "src"),
+    )
 
 
 def _variacao(arvore: LexborHTMLParser) -> str | None:

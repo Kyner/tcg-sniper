@@ -31,6 +31,7 @@ from tcg_sniper.coletor_liga.parsers import (
     SELETOR_ESTRUTURA_PRODUTO,
     SELETOR_GRADE_LISTAGEM,
     SELETOR_GRUPO_FILTRO,
+    SELETOR_IMAGEM,
     SELETOR_NOME_EN,
     SELETOR_QUADRO_PRECOS,
     SELETOR_SEM_LOJAS,
@@ -68,6 +69,10 @@ def _blocos_produto(arvore: LexborHTMLParser) -> list[str]:
         interno = _limpo(aviso) if aviso is not None else ""
         blocos.append(f"<div{atributos}>{interno}</div>")
     blocos += [_limpo(no) for no in arvore.css(SELETOR_NOME_EN)]
+    # `_limpo` remove <img>; a imagem principal fica só com os atributos que o parser lê.
+    for no in arvore.css(SELETOR_IMAGEM):
+        atributos = "".join(f' {k}="{escape(v or "")}"' for k, v in no.attributes.items() if k in ("src", "id"))
+        blocos.append(f"<img{atributos}>")
     blocos += [_limpo(no) for no in arvore.css("#marketplace-stores-noregisters")]
     blocos += [_limpo(no) for no in arvore.css(SELETOR_QUADRO_PRECOS)]
     for grupo in arvore.css(SELETOR_GRUPO_FILTRO):

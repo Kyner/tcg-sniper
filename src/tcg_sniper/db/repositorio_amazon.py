@@ -115,10 +115,17 @@ def gravar_busca(
             status_casamento=StatusCasamento.PENDENTE,
             visto_primeiro_em=agora,
             visto_ultimo_em=agora,
+            imagem_url=item.imagem_url,
         )
         stmt = stmt.on_conflict_do_update(
             index_elements=[AnuncioAmazon.asin],
-            set_={"titulo": stmt.excluded.titulo, "url": stmt.excluded.url, "visto_ultimo_em": agora},
+            set_={
+                "titulo": stmt.excluded.titulo,
+                "url": stmt.excluded.url,
+                "visto_ultimo_em": agora,
+                # a busca só preenche a imagem vazia; a página do produto pode trocar
+                "imagem_url": func.coalesce(AnuncioAmazon.imagem_url, stmt.excluded.imagem_url),
+            },
         ).returning(AnuncioAmazon.id)
         anuncio_id = s.execute(stmt).scalar_one()
         registrar_preco(s, anuncio_id, item.preco, OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, agora, zona)
@@ -398,13 +405,17 @@ def confirmados_ausentes(
 
 
 def atualizar_leitura(
-    s: Session, anuncio_id: int, titulo: str, variacao: str | None, agora: datetime
+    s: Session,
+    anuncio_id: int,
+    titulo: str,
+    variacao: str | None,
+    agora: datetime,
+    imagem_url: str | None = None,
 ) -> None:
-    """Título e opção da variação lidos na página do produto, e "visto por último" (vale para
-    anúncios fora da busca)."""
-    s.execute(
-        update(AnuncioAmazon)
-        .where(AnuncioAmazon.id == anuncio_id)
-        .values(titulo=titulo, variacao=variacao, visto_ultimo_em=agora)
-    )
+    """Título, opção da variação e imagem lidos na página do produto (a imagem só quando veio), e
+    "visto por último" (vale para anúncios fora da busca)."""
+    valores: dict[str, object] = {"titulo": titulo, "variacao": variacao, "visto_ultimo_em": agora}
+    if imagem_url is not None:
+        valores["imagem_url"] = imagem_url
+    s.execute(update(AnuncioAmazon).where(AnuncioAmazon.id == anuncio_id).values(**valores))
     s.flush()

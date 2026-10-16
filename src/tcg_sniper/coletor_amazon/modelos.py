@@ -15,6 +15,7 @@ class ResultadoBusca:
     url: str
     preco: Decimal | None
     patrocinado: bool
+    imagem_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class OfertaProduto:
     envio: Envio
     # Opção escolhida no seletor de variações ("Collector Booster Box"); None sem seletor.
     variacao: str | None = None
+    imagem_url: str | None = None
 
 
 @dataclass(frozen=True)

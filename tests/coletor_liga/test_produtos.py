@@ -169,6 +169,10 @@ def test_coleta_guarda_o_nome_em_ingles_e_nao_apaga_com_pagina_sem_ele(sessoes, 
         assert s.scalar(select(ProdutoLiga.nome_en)) == (
             "Booster Box - The Lord of the Rings: Tales of Middle-Earth - Draft Booster"
         )
+        assert s.scalar(select(ProdutoLiga.imagem_url)) == (
+            "https://repositorio.sbrauble.com/arquivos/up/prod/20230222/1677093808_3868.jpg"
+        )
     coletar(sessoes, config, {url: pagina_html(HTML_OK, url=url)})
     with sessoes() as s:
         assert s.scalar(select(ProdutoLiga.nome_en)).startswith("Booster Box")
+        assert s.scalar(select(ProdutoLiga.imagem_url)).endswith("1677093808_3868.jpg")
