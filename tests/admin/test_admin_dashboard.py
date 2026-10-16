@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin import app as modulo_app
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas import paginar
+from tcg_sniper.admin.consultas import POR_PAGINA_HISTORICO, paginar
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import COLETOR_AMAZON, StatusColeta, TipoColeta
 
@@ -45,7 +45,7 @@ def test_dashboard_nao_tem_comandos(cliente, sessoes):
 
 def test_dashboard_sem_atalho_de_configuracoes_no_bloco_da_amazon(cliente):
     texto = cliente.get("/").text
-    corpo = texto.split("</nav>", 1)[1]
+    corpo = texto.split("<main", 1)[1].split("</main>", 1)[0]
     assert "/configuracoes" not in corpo
 
 
@@ -56,8 +56,10 @@ def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes):
         ciclo = repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
         repo.finalizar_coleta(s, ciclo.id, StatusColeta.PARCIAL, 9, 1, T0)
     texto = cliente.get("/").text
-    assert "Última coleta com sucesso" in texto and "10:00" in texto
-    assert "Último ciclo" in texto and "parcial" in texto
+    assert "Última com sucesso" in texto and "10:00" in texto
+    assert "Último ciclo" in texto
+    amazon = texto.split("Amazon</div>", 1)[1].split("WhatsApp</div>", 1)[0]
+    assert 'badge-warning">parcial' in amazon
 
 
 def test_dashboard_amazon_fora_da_janela(cliente, monkeypatch):
@@ -113,11 +115,46 @@ def test_acoes_voltam_para_servicos_com_mensagem(cliente, rota, codigo, mensagem
 
 
 def test_servicos_ignora_mensagem_desconhecida(cliente):
-    assert "<script>" not in cliente.get("/servicos?msg=<script>").text
+    assert "<script>" not in cliente.get("/servicos?msg=<script>").text.split("<main", 1)[1].split("</main>", 1)[0]
 
 
 def test_menu(cliente):
-    nav = cliente.get("/").text.split("</nav>", 1)[0]
+    texto = cliente.get("/").text
+    nav = texto[texto.index('<ul class="menu'):texto.index("</ul>", texto.index('<ul class="menu'))]
     for rotulo in ("Dashboard", "Serviços", "Catálogo", "Casamentos", "Ofertas", "Configurações"):
         assert rotulo in nav
     assert ">Status<" not in nav
+
+
+def test_dashboard_tem_indicadores_e_abas(cliente):
+    texto = cliente.get("/").text
+    assert 'class="stats' in texto
+    for rotulo in ("LigaMagic", "Amazon", "WhatsApp", "Oportunidades abertas", "Casamentos pendentes"):
+        assert rotulo in texto
+    assert 'aria-label="Coletas da LigaMagic"' in texto and 'aria-label="Ciclos da Amazon"' in texto
+
+
+def test_aba_da_amazon_abre_depois_de_paginar_ou_filtrar(cliente, sessoes):
+    def aba_marcada(texto, rotulo):
+        inicio = texto.index(f'aria-label="{rotulo}"')
+        return "checked" in texto[texto.rindex("<input", 0, inicio):inicio + 60]
+
+    with sessoes() as s, s.begin():
+        for i in range(POR_PAGINA_HISTORICO + 1):
+            for tipo in (TipoColeta.AMAZON, TipoColeta.LISTAGEM):
+                c = repo.iniciar_coleta(s, tipo, T0 + timedelta(minutes=i))
+                repo.finalizar_coleta(s, c.id, StatusColeta.OK, 1, 0, T0 + timedelta(minutes=i))
+
+    assert not aba_marcada(cliente.get("/").text, "Ciclos da Amazon")
+    assert aba_marcada(cliente.get("/", params={"amazon_status": "ok"}).text, "Ciclos da Amazon")
+    assert aba_marcada(cliente.get("/", params={"amazon_pagina": "2"}).text, "Ciclos da Amazon")
+    liga = cliente.get("/", params={"liga_pagina": "2", "amazon_pagina": "1"}).text
+    assert aba_marcada(liga, "Coletas da LigaMagic")
+    assert not aba_marcada(liga, "Ciclos da Amazon")
+
+
+def test_situacao_das_coletas_tem_selo(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.finalizar_coleta(s, c.id, StatusColeta.FALHA, 0, 1, T0)
+    assert 'badge-error">falha</span>' in cliente.get("/").text

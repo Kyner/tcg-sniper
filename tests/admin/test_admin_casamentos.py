@@ -95,7 +95,7 @@ def test_tela_lista_com_filtros_paginacao_e_link_da_liga(cliente, sessoes, cenar
         for i in range(25):
             criar_produto(s, f"x{i}", nome=f"Extra {i:02d}")
     pagina2 = cliente.get("/casamentos?situacao=sem_par&pagina=2").text
-    assert pagina2.count('href="/casamentos/produto/') == 6  # 26 sem par (Gama + 25) → 20 + 6
+    assert pagina2.count('href="/casamentos/produto/') == 12  # 26 sem par (Gama + 25) → 20 + 6, cada um na tabela e no cartão
     assert "situacao=sem_par" in pagina2
     assert cliente.get("/casamentos?situacao=sem_par&pagina=999").status_code == 200
 
@@ -251,3 +251,20 @@ def test_opcao_da_variacao_aparece_nas_telas(cliente, sessoes, cenario):
     assert "— Collector Booster Box" in cliente.get(f"/casamentos/{anuncio_id}/trocar").text
     assert "Collector Booster Box" in cliente.get(f"/produto/{d.id}").text
     assert "B0DELTA001 · Collector Booster Box" in cliente.get("/ofertas").text
+
+
+def test_lista_de_casamentos_tem_selos(cliente, cenario):
+    texto = cliente.get("/casamentos", params={"situacao": "todos"}).text
+    assert 'badge-success">oportunidade</span>' in texto
+    assert ">sem par</span>" in texto
+
+
+def test_pagina_do_produto_abre_na_aba_de_pendentes_ou_confirmados(cliente, cenario):
+    def aba_marcada(texto, rotulo):
+        inicio = texto.index(f'aria-label="{rotulo}')
+        return "checked" in texto[texto.rindex("<input", 0, inicio):inicio + 80]
+
+    com_pendente = cliente.get(f"/casamentos/produto/{cenario['a'].id}").text
+    assert aba_marcada(com_pendente, "Pendentes")
+    so_confirmado = cliente.get(f"/casamentos/produto/{cenario['d'].id}").text
+    assert aba_marcada(so_confirmado, "Confirmados") and not aba_marcada(so_confirmado, "Pendentes")

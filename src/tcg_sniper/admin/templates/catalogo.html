@@ -1,54 +1,53 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import cabecalho, aviso, filtros as caixa_filtros, paginacao %}
 {% block titulo %}Catálogo · TCG Sniper{% endblock %}
 {% block conteudo %}
-<h2>Catálogo</h2>
-<form method="get" action="/catalogo" class="filtros">
-  <fieldset role="group">
-    <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar por nome">
-    <button type="submit">Filtrar</button>
-  </fieldset>
-  <div class="grid">
-    <select name="filtro" aria-label="Situação">
-      {% for f in filtros %}<option value="{{ f }}" {% if f == filtro %}selected{% endif %}>{{ f }}</option>{% endfor %}
-    </select>
-    <select name="categoria" aria-label="Categoria">
-      <option value="">todas as categorias</option>
-      {% for c in categorias %}<option value="{{ c }}" {% if c == categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
-    </select>
-    <label><input type="checkbox" name="com_preco" value="1" {% if com_preco %}checked{% endif %}> Só com preço</label>
-  </div>
+{{ cabecalho("Catálogo", total ~ " produto(s) da LigaMagic") }}
+{% call caixa_filtros(busca or filtro != "todos" or categoria or com_preco) %}
+<form method="get" action="/catalogo" class="grid gap-2 md:grid-cols-5">
+  <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar por nome" class="input input-sm w-full md:col-span-2" aria-label="Buscar por nome">
+  <select name="filtro" class="select select-sm w-full" aria-label="Situação">
+    {% for f in filtros %}<option value="{{ f }}" {% if f == filtro %}selected{% endif %}>{{ f }}</option>{% endfor %}
+  </select>
+  <select name="categoria" class="select select-sm w-full" aria-label="Categoria">
+    <option value="">todas as categorias</option>
+    {% for c in categorias %}<option value="{{ c }}" {% if c == categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <label class="label gap-2 text-sm"><input type="checkbox" name="com_preco" value="1" class="checkbox checkbox-sm" {% if com_preco %}checked{% endif %}> Só com preço</label>
+  <button type="submit" class="btn btn-sm btn-primary md:col-start-5">Filtrar</button>
 </form>
-{% if mensagem %}<article><p>{{ mensagem }}</p></article>{% endif %}
+{% endcall %}
+{% if mensagem %}{{ aviso("success", mensagem) }}{% endif %}
 {% if total > 0 %}
-<form method="post" action="/catalogo/lote" class="lote">
-  <input type="hidden" name="busca" value="{{ busca }}">
-  <input type="hidden" name="filtro" value="{{ filtro }}">
-  <input type="hidden" name="categoria" value="{{ categoria }}">
-  {% if com_preco %}<input type="hidden" name="com_preco" value="1">{% endif %}
-  <div class="grid">
-    <button type="submit" name="acao" value="ativar"
-            onclick="return confirm('Ativar {{ total }} produto(s) deste filtro?')">Ativar todos os {{ total }} deste filtro</button>
-    <button type="submit" name="acao" value="desativar" class="secondary outline"
-            onclick="return confirm('Desativar {{ total }} produto(s) deste filtro?')">Desativar todos os {{ total }} deste filtro</button>
+<form method="post" action="/catalogo/lote" class="card bg-base-100 shadow-sm">
+  <div class="card-body gap-2 p-4">
+    <input type="hidden" name="busca" value="{{ busca }}">
+    <input type="hidden" name="filtro" value="{{ filtro }}">
+    <input type="hidden" name="categoria" value="{{ categoria }}">
+    {% if com_preco %}<input type="hidden" name="com_preco" value="1">{% endif %}
+    <div class="flex flex-wrap gap-2">
+      <button type="submit" name="acao" value="ativar" class="btn btn-sm btn-success"
+              onclick="return confirm('Ativar {{ total }} produto(s) deste filtro?')">Ativar todos os {{ total }} deste filtro</button>
+      <button type="submit" name="acao" value="desativar" class="btn btn-sm btn-outline"
+              onclick="return confirm('Desativar {{ total }} produto(s) deste filtro?')">Desativar todos os {{ total }} deste filtro</button>
+    </div>
+    <p class="text-xs text-base-content/70">Cada produto ativo = 1 visita/dia à LigaMagic (~17 s cada).</p>
   </div>
-  <small>Cada produto ativo = 1 visita/dia à LigaMagic (~17 s cada).</small>
 </form>
 {% endif %}
-<p>Página {{ pagina }} de {{ paginas }} · {{ total }} produto(s)</p>
-<table>
-  <thead><tr><th>Nome</th><th>Categoria</th><th>À partir de</th><th>Mín</th><th>Lojas</th><th>Visto desde</th><th>Monitorar</th></tr></thead>
-  <tbody>
-  {% for p, atual in linhas %}
-    {% include "_linha_produto.html" %}
-  {% else %}
-    <tr><td colspan="7">Nenhum produto encontrado.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-<nav aria-label="Paginação">
-  <ul><li>{% if link_anterior %}<a href="{{ link_anterior }}">Anterior</a>{% endif %}</li></ul>
-  <ul><li>{% if link_proxima %}<a href="{{ link_proxima }}">Próxima</a>{% endif %}</li></ul>
-</nav>
-<p><small>À partir de: menor preço pedido agora (listagem diária). Mín e Lojas: histórico de venda e
-nº de lojas da página do produto (só produtos monitorados).</small></p>
+<div class="card bg-base-100 shadow-sm"><div class="overflow-x-auto">
+  <table class="table table-sm md:table-md">
+    <thead><tr><th>Nome</th><th class="hidden md:table-cell">Categoria</th><th class="text-right">À partir de</th><th class="hidden text-right md:table-cell">Mín</th><th class="hidden text-right md:table-cell">Lojas</th><th class="hidden md:table-cell">Visto desde</th><th>Monitorar</th></tr></thead>
+    <tbody>
+    {% for p, atual in linhas %}
+      {% include "_linha_produto.html" %}
+    {% else %}
+      <tr><td colspan="7">Nenhum produto encontrado.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+{{ paginacao(pagina, paginas, link) }}
+<p class="text-xs text-base-content/70">À partir de: menor preço pedido agora (listagem diária). Mín e Lojas: histórico de venda e
+nº de lojas da página do produto (só produtos monitorados).</p>
 {% endblock %}

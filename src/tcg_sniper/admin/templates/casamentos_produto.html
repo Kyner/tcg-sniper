@@ -1,74 +1,80 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import selo, selo_vendedor, cabecalho, aviso %}
 {% block titulo %}{{ d.produto.nome }} · Casamentos · TCG Sniper{% endblock %}
 {% block conteudo %}
-<p><a href="{{ voltar }}">← Voltar</a></p>
-<h2>{{ d.produto.nome }}</h2>
-<p><a href="{{ d.produto.url }}" target="_blank" rel="noopener">Ver na LigaMagic</a> · À partir de {{ d.preco_liga|brl }}</p>
-{% if mensagem %}<p><mark>{{ mensagem }}</mark></p>{% endif %}
-<form method="post" action="/casamentos/produto/{{ d.produto.id }}/link">
-  <input type="hidden" name="voltar" value="{{ voltar }}">
-  <fieldset role="group">
-    <input name="link" value="{{ link_digitado }}" placeholder="Colar link da Amazon (ou o ASIN)"{% if erro %} aria-invalid="true"{% endif %}>
-    <button type="submit">Casar</button>
-  </fieldset>
-  {% if erro %}<small>{{ erro }}</small>{% endif %}
-</form>
+<a class="link text-sm" href="{{ voltar }}">← Voltar</a>
+<div class="card bg-base-100 shadow-sm"><div class="card-body gap-3">
+  {% call cabecalho(d.produto.nome, "À partir de " ~ (d.preco_liga|brl)) %}
+    <a class="btn btn-sm btn-outline" href="{{ d.produto.url }}" target="_blank" rel="noopener">{{ icone("arrow-top-right-on-square", "size-4") }} Ver na LigaMagic</a>
+  {% endcall %}
+  {% if mensagem %}{{ aviso("success", mensagem) }}{% endif %}
+  <form method="post" action="/casamentos/produto/{{ d.produto.id }}/link" class="space-y-1">
+    <input type="hidden" name="voltar" value="{{ voltar }}">
+    <div class="join w-full">
+      <input name="link" value="{{ link_digitado }}" placeholder="Colar link da Amazon (ou o ASIN)" class="input join-item w-full{% if erro %} input-error{% endif %}" aria-label="Link da Amazon"{% if erro %} aria-invalid="true"{% endif %}>
+      <button type="submit" class="btn btn-primary join-item">Casar</button>
+    </div>
+    {% if erro %}<p class="text-sm text-error">{{ erro }}</p>{% endif %}
+  </form>
+</div></div>
 
-{% macro botao(anuncio, acao, rotulo, classe="", produto_id=None) %}
+{% macro botao(anuncio, acao, rotulo, classe="btn-sm", produto_id=None) %}
 <form method="post" action="/casamentos/{{ anuncio.id }}">
   <input type="hidden" name="acao" value="{{ acao }}"><input type="hidden" name="voltar" value="{{ aqui }}">
   {% if produto_id %}<input type="hidden" name="produto_id" value="{{ produto_id }}">{% endif %}
-  <button class="{{ classe }}">{{ rotulo }}</button>
+  <button class="btn {{ classe }}">{{ rotulo }}</button>
 </form>
 {% endmacro %}
 
-<h3>Pendentes</h3>
-<table>
-  <tbody>
-  {% for l in d.pendentes %}
-    <tr>
-      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a><br><small>{{ l.anuncio.asin }}</small></td>
-      <td>{{ (l.atual.preco if l.atual else None)|brl }}{% if l.oportunidade %}<br><mark>oportunidade</mark>{% endif %}</td>
-      <td>
-        {{ botao(l.anuncio, "confirmar", "Confirmar", produto_id=d.produto.id) }}
-        {{ botao(l.anuncio, "ignorar", "Ignorar", "secondary outline") }}
-        <a href="/casamentos/{{ l.anuncio.id }}/trocar" role="button" class="secondary">É de outro produto</a>
-      </td>
-    </tr>
-  {% else %}
-    <tr><td>Nenhum anúncio pendente.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+{% macro titulo_anuncio(l) %}
+<a class="link link-hover font-medium break-words" href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a>
+<div class="font-mono text-xs text-base-content/60 break-words">{{ l.anuncio.asin }}</div>
+{% endmacro %}
 
-<h3>Confirmados</h3>
-<table>
-  <tbody>
-  {% for l in d.confirmados %}
-    <tr>
-      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a><br><small>{{ l.anuncio.asin }}</small></td>
-      <td>{{ (l.atual.preco if l.atual else None)|brl }}</td>
-      <td>{{ l.atual.envio|envio(l.vendedor) if l.atual else "—" }}</td>
-      <td>{{ (l.atual.coletado_em if l.atual else None)|data }}</td>
-      <td>{{ botao(l.anuncio, "desfazer", "Desfazer", "secondary outline") }}</td>
-    </tr>
-  {% else %}
-    <tr><td>Nenhum anúncio confirmado.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-
-<h3>Ignorados</h3>
-<table>
-  <tbody>
-  {% for l in d.ignorados %}
-    <tr>
-      <td><a href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a><br><small>{{ l.anuncio.asin }}</small></td>
-      <td>{{ botao(l.anuncio, "desfazer", "Desfazer", "secondary outline") }}</td>
-    </tr>
-  {% else %}
-    <tr><td>Nenhum anúncio ignorado.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+{% set aba_confirmados = not d.pendentes and d.confirmados %}
+<div class="tabs tabs-border tabs-sm sm:tabs-md">
+  <input type="radio" name="anuncios" class="tab" aria-label="Pendentes ({{ d.pendentes|length }})"{% if not aba_confirmados %} checked{% endif %}>
+  <div class="tab-content space-y-2 pt-4">
+    {% for l in d.pendentes %}
+    <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
+      {{ titulo_anuncio(l) }}
+      <div class="flex flex-wrap items-center gap-2"><span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}</div>
+      <div class="card-actions">
+        {{ botao(l.anuncio, "confirmar", "Confirmar", "btn-sm btn-success", produto_id=d.produto.id) }}
+        {{ botao(l.anuncio, "ignorar", "Ignorar", "btn-sm btn-outline") }}
+        <a href="/casamentos/{{ l.anuncio.id }}/trocar" class="btn btn-sm btn-ghost">É de outro produto</a>
+      </div>
+    </div></div>
+    {% else %}
+    <p class="text-sm">Nenhum anúncio pendente.</p>
+    {% endfor %}
+  </div>
+  <input type="radio" name="anuncios" class="tab" aria-label="Confirmados ({{ d.confirmados|length }})"{% if aba_confirmados %} checked{% endif %}>
+  <div class="tab-content space-y-2 pt-4">
+    {% for l in d.confirmados %}
+    <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
+      {{ titulo_anuncio(l) }}
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>
+        {% if l.atual %}{{ selo_vendedor(l.verificado, l.confiavel, l.atual.envio, l.vendedor) }}{% else %}{{ selo("nao_verificado", "sem leitura") }}{% endif %}
+        <span class="text-base-content/60">{{ (l.atual.coletado_em if l.atual else None)|data }}</span>
+      </div>
+      <div class="card-actions">{{ botao(l.anuncio, "desfazer", "Desfazer", "btn-sm btn-outline") }}</div>
+    </div></div>
+    {% else %}
+    <p class="text-sm">Nenhum anúncio confirmado.</p>
+    {% endfor %}
+  </div>
+  <input type="radio" name="anuncios" class="tab" aria-label="Ignorados ({{ d.ignorados|length }})">
+  <div class="tab-content space-y-2 pt-4">
+    {% for l in d.ignorados %}
+    <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
+      {{ titulo_anuncio(l) }}
+      <div class="card-actions">{{ botao(l.anuncio, "desfazer", "Desfazer", "btn-sm btn-outline") }}</div>
+    </div></div>
+    {% else %}
+    <p class="text-sm">Nenhum anúncio ignorado.</p>
+    {% endfor %}
+  </div>
+</div>
 {% endblock %}

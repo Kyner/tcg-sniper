@@ -28,7 +28,8 @@ def criar(sessoes, destino="admin", texto="x", status=StatusMensagem.PENDENTE, i
 
 
 def test_menu_tem_mensagens(cliente):
-    assert '<a href="/mensagens">Mensagens</a>' in cliente.get("/").text
+    texto = cliente.get("/").text
+    assert 'href="/mensagens"' in texto and ">Mensagens</span>" in texto
 
 
 def test_lista_com_filtros_e_paginacao(cliente, sessoes):
@@ -152,4 +153,10 @@ def test_id_fora_do_inteiro_do_postgres_da_404(cliente):
 
 def test_celula_do_texto_preserva_quebras(cliente, sessoes):
     criar(sessoes, texto="linha 1\nlinha 2")
-    assert 'style="white-space: pre-line"' in cliente.get("/mensagens").text
+    texto = cliente.get("/mensagens").text
+    assert 'class="whitespace-pre-line break-words"' in texto and "style=" not in texto.split("<main", 1)[1]
+
+
+def test_situacao_da_mensagem_tem_selo(cliente, sessoes):
+    criar(sessoes, status=StatusMensagem.FALHA, erro="HTTP 400: x")
+    assert 'badge-error">falha</span>' in cliente.get("/mensagens").text

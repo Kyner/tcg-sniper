@@ -104,7 +104,7 @@ def test_tela_com_filtros_paginacao_e_validacao(cliente, sessoes, cenario):
             criar_preco_liga(s, produto, "100.00")
             oferta(s, f"B0EXTRA{i:03d}", produto, "90.00", Envio.AMAZON, amazon.id)
     pagina2 = cliente.get("/ofertas?vendedor=amazon&pagina=2").text
-    assert pagina2.count("<small>B0") == 7  # 57 ofertas da Amazon → 50 + 7
+    assert pagina2.split("</table>")[0].count('text-base-content/60">B0') == 7  # 57 ofertas da Amazon → 50 + 7
     assert "vendedor=amazon" in pagina2
     assert cliente.get("/ofertas?pagina=999").status_code == 200
 
@@ -125,3 +125,44 @@ def test_vendedor_lido_so_na_busca_aparece_como_nao_verificado(cliente, sessoes)
     linha_pagina = texto[texto.index("Caixa Lida"):].split("</tr>")[0]
     assert "vendedor não verificado" in linha_busca and "não elegível" not in linha_busca
     assert "não elegível" in linha_pagina and "não verificado" not in linha_pagina
+
+
+def test_desconto_e_vendedor_com_selo(cliente, cenario):
+    texto = cliente.get("/ofertas?vendedor=amazon").text  # no filtro padrão a melhor oferta da caixa é a do lojista FBA (35%)
+    assert 'badge-success' in texto and ">30,00%</span>" in texto  # caixa Amazon 30% ≥ 25%
+    assert ">vendido pela Amazon</span>" in texto
+
+
+def _produto_id(sessoes, nome):
+    from sqlalchemy import select
+
+    from tcg_sniper.db.models import ProdutoLiga
+
+    with sessoes() as s:
+        return s.scalar(select(ProdutoLiga.id).where(ProdutoLiga.nome == nome))
+
+
+def _bloco_do_anuncio(texto, asin):
+    return texto[texto.index(asin):].split("card-actions")[0]
+
+
+def test_selo_do_vendedor_nos_casamentos_confirmados(cliente, sessoes, cenario):
+    with sessoes() as s, s.begin():
+        produto = criar_produto(s, "busca", nome="Caixa So Busca")
+        criar_preco_liga(s, produto, "1000.00")
+        anuncio = criar_anuncio(s, "B0SOBUSCA1", produto=produto, status=StatusCasamento.CONFIRMADO)
+        repo_amz.registrar_preco(s, anuncio.id, Decimal("960.00"), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, T0, SP)
+    caixa = cliente.get(f"/casamentos/produto/{_produto_id(sessoes, 'Caixa 100% Colecionador')}").text
+    fba_ruim = _bloco_do_anuncio(caixa, "B0CAIXAFBA")
+    assert "badge-success" not in fba_ruim and "não elegível" in fba_ruim
+    assert "badge-success" in _bloco_do_anuncio(caixa, "B0CAIXAAMZ")
+    bundle = cliente.get(f"/casamentos/produto/{_produto_id(sessoes, 'Bundle Final')}").text
+    assert "badge-success" in _bloco_do_anuncio(bundle, "B0BUNDLE01")  # FBA de lojista confiável
+    busca = _bloco_do_anuncio(cliente.get(f"/casamentos/produto/{_produto_id(sessoes, 'Caixa So Busca')}").text, "B0SOBUSCA1")
+    assert "vendedor não verificado" in busca and "badge-success" not in busca
+
+
+def test_selo_do_vendedor_na_pagina_do_produto(cliente, sessoes, cenario):
+    caixa = cliente.get(f"/produto/{_produto_id(sessoes, 'Caixa 100% Colecionador')}").text
+    assert "badge-success" in caixa[caixa.index("B0CAIXAAMZ"):].split("</tr>")[0]
+    assert "badge-success" not in caixa[caixa.index("B0CAIXAFBA"):].split("</tr>")[0]

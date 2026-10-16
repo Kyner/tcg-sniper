@@ -1,12 +1,16 @@
 <tr id="produto-{{ p.id }}">
-  <td><a href="/produto/{{ p.id }}">{{ p.nome }}</a></td>
-  <td>{{ p.tipo or "" }}</td>
-  <td>{% if atual and atual.listagem_em %}{{ atual.preco_a_partir|brl if atual.preco_a_partir is not none else "Indisponível" }}{% else %}—{% endif %}</td>
-  <td>{{ (atual.preco_min if atual else None)|brl }}</td>
-  <td>{{ atual.num_lojas if atual and atual.num_lojas is not none else "—" }}</td>
-  <td>{{ p.visto_primeiro_em|data }}</td>
+  <td class="min-w-0"><a class="link link-hover font-medium" href="/produto/{{ p.id }}">{{ p.nome }}</a><div class="text-xs text-base-content/60 md:hidden">{{ p.tipo or "" }}</div></td>
+  <td class="hidden md:table-cell">{{ p.tipo or "" }}</td>
+  <td class="text-right tabular-nums whitespace-nowrap">{% if atual and atual.listagem_em %}{{ atual.preco_a_partir|brl if atual.preco_a_partir is not none else "Indisponível" }}{% else %}—{% endif %}</td>
+  <td class="hidden text-right tabular-nums whitespace-nowrap md:table-cell">{{ (atual.preco_min if atual else None)|brl }}</td>
+  <td class="hidden text-right tabular-nums md:table-cell">{{ atual.num_lojas if atual and atual.num_lojas is not none else "—" }}</td>
+  <td class="hidden whitespace-nowrap md:table-cell">{{ p.visto_primeiro_em|data }}</td>
   <td>
-    <button hx-post="/produto/{{ p.id }}/ativo" hx-target="#produto-{{ p.id }}" hx-swap="outerHTML"
-            class="{{ '' if p.ativo else 'secondary outline' }}">{{ "Ativo" if p.ativo else "Inativo" }}</button>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" class="toggle toggle-success toggle-sm" {% if p.ativo %}checked{% endif %}
+             hx-post="/produto/{{ p.id }}/ativo" hx-target="#produto-{{ p.id }}" hx-swap="outerHTML"
+             aria-label="{{ 'Desativar' if p.ativo else 'Ativar' }} {{ p.nome }}">
+      <span class="hidden text-sm md:inline">{{ "Ativo" if p.ativo else "Inativo" }}</span>
+    </label>
   </td>
 </tr>

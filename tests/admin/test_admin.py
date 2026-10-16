@@ -119,7 +119,7 @@ def test_toggle_ativo(cliente, sessoes):
         produto_id = criar_produto(s, "a", ativo=False).id
     r = cliente.post(f"/produto/{produto_id}/ativo")
     assert r.status_code == 200
-    assert f'id="produto-{produto_id}"' in r.text and ">Ativo</button>" in r.text
+    assert f'id="produto-{produto_id}"' in r.text and "checked" in r.text and "toggle" in r.text
     with sessoes() as s:
         assert s.get(ProdutoLiga, produto_id).ativo is True
 
@@ -137,7 +137,7 @@ def test_detalhe_produto_mostra_preco_e_historico(cliente, sessoes):
     r = cliente.get(f"/produto/{produto.id}")
     assert r.status_code == 200
     assert "Caixa Duskmourn" in r.text
-    for texto in ("Mín", "Médio", "Máx", "Lojas", "R$ 1.234,56", "R$ 1.500,00", "R$ 1.999,90", "<td>7</td>"):
+    for texto in ("Mín", "Médio", "Máx", "Lojas", "R$ 1.234,56", "R$ 1.500,00", "R$ 1.999,90", ">7</td>"):
         assert texto in r.text
 
 
@@ -151,8 +151,8 @@ def test_catalogo_mostra_preco_min_e_lojas(cliente, sessoes):
         c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
         repo.gravar_precos_produto(s, c.id, produto.id, Resumo(Decimal("899.90"), None, None, 12), T0)
     r = cliente.get("/catalogo")
-    assert "<th>Mín</th>" in r.text and "<th>Lojas</th>" in r.text
-    assert "R$ 899,90" in r.text and "<td>12</td>" in r.text
+    assert "Mín</th>" in r.text and "Lojas</th>" in r.text
+    assert "R$ 899,90" in r.text and ">12</td>" in r.text
 
 
 def item_listagem(liga_id, nome, preco, tipo="Caixas de Boosters"):
@@ -171,7 +171,7 @@ def test_catalogo_mostra_preco_a_partir_e_indisponivel(cliente, sessoes):
         itens = [item_listagem("1", "Caixa Aetherdrift", "525.43"), item_listagem("2", "Caixa Magic 2010", None)]
         repo.gravar_listagem(s, c.id, itens, T0)
     r = cliente.get("/catalogo")
-    assert "<th>À partir de</th>" in r.text and "<th>Categoria</th>" in r.text
+    assert "À partir de</th>" in r.text and "Categoria</th>" in r.text
     assert "R$ 525,43" in r.text and "Indisponível" in r.text and "Caixas de Boosters" in r.text
     assert "None" not in r.text  # sem resumo da página do produto, "Lojas" aparece como "—"
 
@@ -185,7 +185,7 @@ def test_detalhe_mostra_historico_da_listagem_e_rotulo_de_venda(cliente, sessoes
         produto_id = s.scalar(select(ProdutoLiga.id).where(ProdutoLiga.liga_id == "1"))
     r = cliente.get(f"/produto/{produto_id}")
     assert r.status_code == 200
-    assert "Histórico do preço à partir de" in r.text and "Histórico de venda" in r.text
+    assert "Preço à partir de" in r.text and "Histórico de venda" in r.text
     assert "R$ 525,43" in r.text and "Indisponível" in r.text
     assert "13/10/2026 10:00" in r.text and "14/10/2026 10:00" in r.text  # T0 = 13:00 UTC = 10:00 em SP
     assert "None" not in r.text
@@ -201,8 +201,8 @@ def test_produto_so_com_listagem_mostra_traco_e_nunca_none(cliente, sessoes):
         assert r.status_code == 200
         assert "None" not in r.text
         assert "R$ 525,43" in r.text
-    assert "<td>—</td>" in cliente.get("/catalogo").text
-    assert "<strong>Lojas:</strong> —" in cliente.get(f"/produto/{produto_id}").text
+    assert ">—</td>" in cliente.get("/catalogo").text
+    assert "Lojas: —" in cliente.get(f"/produto/{produto_id}").text
     assert cliente.post(f"/produto/{produto_id}/ativo").status_code == 200
 
 
@@ -210,7 +210,7 @@ def test_index_com_coleta_rodando_mostra_andamento_e_esconde_rodar_agora(cliente
     with sessoes() as s, s.begin():
         repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
     r = cliente.get("/")
-    assert "Coleta em andamento" in r.text
+    assert "coleta em andamento" in r.text
     assert "Rodar agora" not in cliente.get("/servicos").text
 
 
@@ -223,11 +223,11 @@ def criar_muitos(sessoes, n):
 def test_catalogo_pagina_100_linhas_com_total(cliente, sessoes):
     criar_muitos(sessoes, 250)
     r = cliente.get("/catalogo")
-    assert "Página 1 de 3 · 250 produto(s)" in r.text
+    assert "Página 1 de 3" in r.text and "250 produto(s)" in r.text
     assert "Produto 099" in r.text and "Produto 100" not in r.text
     assert "mostrando os primeiros" not in r.text
     r = cliente.get("/catalogo?pagina=3")
-    assert "Página 3 de 3 · 250 produto(s)" in r.text
+    assert "Página 3 de 3" in r.text and "250 produto(s)" in r.text
     assert "Produto 200" in r.text and "Produto 249" in r.text and "Produto 199" not in r.text
 
 
@@ -247,18 +247,18 @@ def test_catalogo_pagina_alem_do_fim_mostra_ultima(cliente, sessoes):
 def test_catalogo_links_anterior_proxima_mantem_parametros(cliente, sessoes):
     criar_muitos(sessoes, 250)
     r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos&com_preco=1")
-    assert "Página 1 de 1 · 0 produto(s)" in r.text  # com_preco=1 esconde tudo (sem preço)
+    assert "Página 1 de 1" in r.text and "0 produto(s)" in r.text  # com_preco=1 esconde tudo (sem preço)
     r = cliente.get("/catalogo?pagina=2&busca=Produto&filtro=ativos")
     assert "Página 2 de 3" in r.text
     assert 'href="/catalogo?busca=Produto&amp;filtro=ativos&amp;pagina=1"' in r.text
     assert 'href="/catalogo?busca=Produto&amp;filtro=ativos&amp;pagina=3"' in r.text
     primeira = cliente.get("/catalogo").text
-    assert "Anterior</a>" not in primeira and "Próxima</a>" in primeira
+    assert "pagina=0" not in primeira and 'href="/catalogo?pagina=2"' in primeira
 
 
 def test_catalogo_vazio_mostra_pagina_1_de_1(cliente):
     r = cliente.get("/catalogo")
-    assert "Página 1 de 1 · 0 produto(s)" in r.text
+    assert "Página 1 de 1" in r.text and "0 produto(s)" in r.text
     assert "Nenhum produto encontrado." in r.text
 
 
@@ -309,7 +309,7 @@ def test_catalogo_so_com_preco(cliente, sessoes):
     assert "Caixa Alfa" in r.text and "Bundle Gama" in r.text
     assert "Caixa Beta" not in r.text and "Sem Linha" not in r.text
     assert "2 produto(s)" in r.text
-    assert 'name="com_preco" value="1" checked' in r.text
+    assert 'name="com_preco" value="1" class="checkbox checkbox-sm" checked' in r.text
     assert "Sem Linha" in cliente.get("/catalogo").text
 
 
@@ -339,7 +339,7 @@ def test_catalogo_link_proxima_codifica_categoria_e_mantem_ordem(cliente, sessoe
         itens = [item_listagem(f"q{i:03d}", f"Promo {i:03d}", "10.00", tipo=tipo) for i in range(101)]
         repo.gravar_listagem(s, c.id, itens, T0)
     r = cliente.get("/catalogo", params={"categoria": tipo, "com_preco": "1"})
-    assert r.status_code == 200 and "Página 1 de 2 · 101 produto(s)" in r.text
+    assert r.status_code == 200 and "Página 1 de 2" in r.text and "101 produto(s)" in r.text
     assert (
         'href="/catalogo?categoria=Caixas+de+Boosters%2FPromo+%C3%A7%C3%A3o&amp;com_preco=1&amp;pagina=2"'
         in r.text
@@ -503,3 +503,27 @@ def test_produto_ativo_liga_para_os_casamentos_do_produto_e_inativo_nao(cliente,
     cliente.post(f"/produto/{produto_id}/ativo")
     texto = cliente.get(f"/produto/{produto_id}").text
     assert f"/casamentos/produto/{produto_id}" not in texto and "aba=revisados" not in texto
+
+
+def test_catalogo_monitorar_e_um_toggle_htmx(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "t1", nome="Caixa Toggle")
+    texto = cliente.get("/catalogo").text
+    assert f'hx-post="/produto/{p.id}/ativo"' in texto and 'class="toggle' in texto
+    parcial = cliente.post(f"/produto/{p.id}/ativo").text
+    assert parcial.lstrip().startswith(f'<tr id="produto-{p.id}"') and 'class="toggle' in parcial
+    assert ">Inativo</span>" in parcial
+    assert ">Ativo</span>" in cliente.post(f"/produto/{p.id}/ativo").text
+
+
+def test_catalogo_tem_paginacao_numerada(cliente, sessoes):
+    criar_muitos(sessoes, 250)
+    texto = cliente.get("/catalogo").text
+    assert 'class="join"' in texto and ">2</a>" in texto
+
+
+def test_produto_tem_abas_de_historico(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "h1", nome="Caixa Histórico")
+    texto = cliente.get(f"/produto/{p.id}").text
+    assert 'aria-label="Preço à partir de"' in texto and 'aria-label="Histórico de venda"' in texto

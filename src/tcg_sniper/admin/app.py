@@ -9,12 +9,14 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens
+from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens, consultas_menu, estilo
 from tcg_sniper.admin import formularios_config as form_cfg
+from tcg_sniper.admin.icones import icone
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
@@ -80,9 +82,15 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     def config_da_requisicao(request: Request) -> None:
         """Configuração efetiva (.env + tela) desta requisição, em `request.state.config`."""
         request.state.config = carregar_config(sessoes, config)
+        with sessoes() as s, s.begin():
+            request.state.menu = consultas_menu.contadores_menu(s, repo.agora_utc())
 
     app = FastAPI(title="TCG Sniper", dependencies=[Depends(autenticar), Depends(config_da_requisicao)])
+    # os arquivos estáticos não passam pela senha do admin; são só CSS e ícones
+    app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
     templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+    templates.env.globals["icone"] = icone
+    templates.env.globals["versao_css"] = (estilo.hash_gravado() or "0")[:12]
     templates.env.filters["brl"] = formatar_brl
     templates.env.filters["envio"] = lambda envio, vendedor=None: {
         "amazon": "vendido pela Amazon",
@@ -301,6 +309,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 ],
                 "mensagem": MENSAGEM_CONFIG if msg in ("geral", "liga", "amazon") else None,
                 "categorias_padrao": ",".join(CATEGORIAS_SELADOS),
+                "secao_ativa": secao_com_erro or (msg if msg in ("geral", "liga", "amazon") else "geral"),
             },
             status_code=status.HTTP_400_BAD_REQUEST if secao_com_erro else status.HTTP_200_OK,
         )
@@ -382,6 +391,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "total": total,
                     "pagina": numero,
                     "paginas": paginas,
+                    "link": link,
                     "link_anterior": link(numero - 1) if numero > 1 else None,
                     "link_proxima": link(numero + 1) if numero < paginas else None,
                     "busca": busca,
@@ -444,7 +454,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "atual": atual,
                     "historico_resumo": historico_resumo,
                     "historico_listagem": historico_listagem,
-                    "amazon": consultas_amazon.amazon_do_produto(s, produto_id),
+                    "amazon": consultas_amazon.amazon_do_produto(s, produto_id, repo_amz.obter_config(s)),
                     "historico_amazon": consultas_amazon.historico_amazon(s, produto_id),
                 },
             )
@@ -577,7 +587,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         link_digitado: str, codigo: int,
     ):
         cfg = repo_amz.obter_config(s)
-        detalhe = consultas_amazon.detalhe_casamento(s, produto_id, cfg.desconto_min_pct)
+        detalhe = consultas_amazon.detalhe_casamento(s, produto_id, cfg)
         if detalhe is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND)
         voltar = destino_seguro(voltar)

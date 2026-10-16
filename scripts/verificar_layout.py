@@ -1,0 +1,99 @@
+"""Confere o layout das telas do admin em 390 e 1440 px, nos temas winter e night.
+
+Roda dentro do container do admin (precisa do Chromium do Playwright e da senha do admin):
+  docker compose exec -T admin python - < scripts/verificar_layout.py
+
+Para apontar para outro admin, defina ADMIN_BASE (padrão http://127.0.0.1:8000), por exemplo:
+  docker compose exec -T -e ADMIN_BASE=http://host.docker.internal:8010 admin python - < scripts/verificar_layout.py
+
+No computador, cada tela roda também com o menu recolhido (localStorage "menu" = "recolhido").
+Falha (código 1) se alguma tela estourar a largura da janela ou tiver erro de script.
+Elementos com rolagem horizontal própria (fora das tabelas em .overflow-x-auto) saem como avisos, sem falhar.
+Salva os prints em /tmp/verificar_layout/ (docker cp para ver).
+"""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+BASE = os.environ.get("ADMIN_BASE", "http://127.0.0.1:8000")
+FIXAS = ["/", "/servicos", "/catalogo", "/casamentos?situacao=todos", "/ofertas", "/mensagens", "/configuracoes"]
+TAMANHOS = {"celular": (390, 844), "computador": (1440, 900)}
+SAIDA = Path("/tmp/verificar_layout")
+MENUS = {"expandido": None, "recolhido": "recolhido"}  # o menu recolhido só existe no computador
+
+ROLAGEM_INTERNA = r"""() => [...document.querySelectorAll('body *')]
+  .filter(e => e.scrollWidth > e.clientWidth + 1 && ['auto', 'scroll'].includes(getComputedStyle(e).overflowX)
+    && !e.classList.contains('overflow-x-auto'))
+  .map(e => e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/ +/).join('.') : ''))
+"""
+
+
+def descobrir(pagina) -> list[str]:
+    """Telas que dependem de um id: o primeiro produto de Casamentos e o primeiro anúncio pendente."""
+    extras = []
+    pagina.goto(BASE + "/casamentos?situacao=todos")
+    abrir = pagina.locator('a:has-text("Abrir")').first
+    if abrir.count():
+        href = abrir.get_attribute("href")
+        extras.append(href)
+        pagina.goto(BASE + href)
+        trocar = pagina.locator('a[href$="/trocar"]').first
+        if trocar.count():
+            extras.append(trocar.get_attribute("href"))
+    pagina.goto(BASE + "/ofertas")
+    produto = pagina.locator('a[href^="/produto/"]').first
+    if produto.count():
+        extras.append(produto.get_attribute("href"))
+    return extras
+
+
+def main() -> None:
+    SAIDA.mkdir(exist_ok=True)
+    problemas = []
+    avisos = []
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        credenciais = {"username": "admin", "password": os.environ["ADMIN_SENHA"]}
+        for nome_tam, (largura, altura) in TAMANHOS.items():
+            for menu, valor_menu in MENUS.items():
+                if valor_menu and nome_tam != "computador":
+                    continue
+                for tema in ("winter", "night"):
+                    contexto = navegador.new_context(viewport={"width": largura, "height": altura}, http_credentials=credenciais)
+                    contexto.add_init_script(f"try {{ localStorage.setItem('tema', '{tema}'); }} catch (e) {{}}")
+                    if valor_menu:
+                        contexto.add_init_script(f"try {{ localStorage.setItem('menu', '{valor_menu}'); }} catch (e) {{}}")
+                    pagina = contexto.new_page()
+                    erros = []
+                    pagina.on("pageerror", lambda e, acumulado=erros: acumulado.append(str(e)))
+                    rotulo = f"{nome_tam} {tema}" + (f" menu {menu}" if valor_menu else "")
+                    sufixo = f"{nome_tam}-{tema}" + (f"-{menu}" if valor_menu else "")
+                    for caminho in FIXAS + descobrir(pagina):
+                        erros.clear()
+                        resposta = pagina.goto(BASE + caminho, wait_until="networkidle")
+                        largura_doc = pagina.evaluate("document.documentElement.scrollWidth")
+                        arquivo = re.sub(r"[^a-z0-9]+", "-", caminho.lower()).strip("-") or "dashboard"
+                        pagina.screenshot(path=str(SAIDA / f"{arquivo}-{sufixo}.png"), full_page=True)
+                        if resposta.status != 200:
+                            problemas.append(f"{caminho} {rotulo}: HTTP {resposta.status}")
+                        if largura_doc > largura:
+                            problemas.append(f"{caminho} {rotulo}: largura {largura_doc} > {largura}")
+                        if erros:
+                            problemas.append(f"{caminho} {rotulo}: erro de script {erros}")
+                        if valor_menu:
+                            for elemento in pagina.evaluate(ROLAGEM_INTERNA):
+                                avisos.append(f"{caminho} {rotulo}: rolagem horizontal interna em {elemento}")
+                    contexto.close()
+        navegador.close()
+    if avisos:
+        print("avisos:\n" + "\n".join(sorted(set(avisos))))
+    print("\n".join(problemas) or "layout ok")
+    sys.exit(1 if problemas else 0)
+
+
+if __name__ == "__main__":
+    main()
