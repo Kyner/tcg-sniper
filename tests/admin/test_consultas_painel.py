@@ -30,6 +30,11 @@ def saude(s, config, agora=AGORA, chave_ia=True):
     return {x.nome: x for x in painel.saude_servicos(s, agora, config, chave_ia)}
 
 
+def avisos_de(s, config, agora=AGORA):
+    resumo = painel.consultas_mensagens.resumo(s, agora)
+    return painel.avisos(s, agora, config, painel.saude_servicos(s, agora, config, True, resumo), resumo)
+
+
 def coleta(s, tipo, quando, status=StatusColeta.OK, ok=1, falha=0, erro=None):
     c = repo.iniciar_coleta(s, tipo, quando)
     if status is not StatusColeta.RODANDO:
@@ -148,13 +153,13 @@ def test_whatsapp(s, config):
 
 def test_avisos(s, config):
     repo_msg.registrar_ciclo(s, AGORA)
-    assert painel.avisos(s, AGORA, config, True) == []
+    assert avisos_de(s, config) == []
     repo.pausar(s, "pausado no admin", AGORA, COLETOR_LIGA)
     coleta(s, TipoColeta.AMAZON, AGORA - timedelta(hours=2), StatusColeta.FALHA, erro="interrompida")
     m = repo_msg.enfileirar(s, "admin", "x", AGORA)
     m.status = StatusMensagem.FALHA
     s.flush()
-    avisos = painel.avisos(s, AGORA, config, True)
+    avisos = avisos_de(s, config)
     links = [a.link for a in avisos]
     assert links == ["/servicos", "/mensagens?situacao=falha", "/logs?aba=amazon"]
     assert "LigaMagic" in avisos[0].texto and "pausado no admin" in avisos[0].texto
@@ -162,7 +167,7 @@ def test_avisos(s, config):
 
 
 def test_aviso_do_notificador_parado(s, config):
-    avisos = painel.avisos(s, AGORA, config, True)
+    avisos = avisos_de(s, config)
     assert [a.texto for a in avisos] == ["O notificador nunca rodou — veja Serviços."]
 
 
@@ -218,8 +223,56 @@ def test_atividade_de_hoje(s, config):
     assert list(itens) == ["Coleta da LigaMagic", "Buscas na Amazon", "Chamadas da IA", "Mensagens do WhatsApp"]
     assert itens["Coleta da LigaMagic"].texto == "listagem 10:14 · produtos 10:32"
     assert itens["Coleta da LigaMagic"].situacao == "ok"
-    assert itens["Buscas na Amazon"].texto == "1 ciclos · 0 preços"
+    assert itens["Buscas na Amazon"].texto == "1 ciclo · 0 preços"
     assert (itens["Chamadas da IA"].texto, itens["Chamadas da IA"].situacao) == ("1 · 1 com erro", "falha")
     assert (itens["Mensagens do WhatsApp"].texto, itens["Mensagens do WhatsApp"].situacao) == (
         "0 enviadas · 0 falhas", "nenhum",
     )
+
+
+NOITE = datetime(2026, 10, 17, 1, 30, tzinfo=UTC)  # 22:30 em São Paulo, ainda dia 16
+
+
+def test_alertas_de_hoje_usam_o_dia_do_fuso(s, config):
+    produto = criar_produto(s, "p1")
+    for i, alertada in enumerate((
+        datetime(2026, 10, 16, 13, 0, tzinfo=UTC),  # 10:00 do dia 16 em SP: hoje
+        datetime(2026, 10, 16, 2, 0, tzinfo=UTC),  # 23:00 do dia 15 em SP: ontem (dia 16 em UTC)
+    )):
+        anuncio = criar_anuncio(s, f"B00000000{i}", produto, StatusCasamento.CONFIRMADO)
+        repo_amz.abrir_oportunidade(
+            s, anuncio_id=anuncio.id, produto_id=produto.id, preco_amazon=Decimal(70), preco_liga=Decimal(100),
+            desconto_pct=Decimal(30), vendedor_id=None, envio=Envio.AMAZON, agora=alertada,
+        )
+    n = painel.numeros(s, NOITE, config)
+    assert (n.alertas_hoje, n.alertas_semana) == (1, 2)
+
+
+def test_atividade_de_hoje_usa_o_dia_do_fuso(s, config):
+    coleta(s, TipoColeta.LISTAGEM, datetime(2026, 10, 16, 2, 0, tzinfo=UTC))  # 23:00 do dia 15 em SP
+    coleta(s, TipoColeta.PRODUTOS, datetime(2026, 10, 16, 13, 32, tzinfo=UTC))  # 10:32 do dia 16
+    coleta(s, TipoColeta.AMAZON, datetime(2026, 10, 17, 0, 0, tzinfo=UTC))  # 21:00 do dia 16
+    coleta(s, TipoColeta.AMAZON, datetime(2026, 10, 16, 2, 30, tzinfo=UTC))  # dia 15 em SP
+    itens = {i.rotulo: i for i in painel.atividade_hoje(s, NOITE, config)}
+    assert itens["Coleta da LigaMagic"].texto == "produtos 10:32"
+    assert itens["Buscas na Amazon"].texto == "1 ciclo · 0 preços"
+
+
+def test_liga_depois_do_horario_sem_coleta_comeca_em_instantes(s, config):
+    liga = saude(s, config, agora=datetime(2026, 10, 16, 14, 0, tzinfo=UTC))["LigaMagic"]  # 11:00 em SP
+    assert "Próxima começa em instantes" in liga.detalhe and "amanhã" not in liga.detalhe
+
+
+def test_notificador_desligado_nao_avisa_mensagens_paradas(s, config):
+    repo_msg.registrar_ciclo(s, AGORA)
+    repo_msg.enfileirar(s, "admin", "x", AGORA - timedelta(hours=1))
+    resumo = painel.consultas_mensagens.resumo(s, AGORA)
+    assert [a.link for a in painel.avisos(s, AGORA, config, painel.saude_servicos(s, AGORA, config, True), resumo)] == [
+        "/mensagens?situacao=pendente"
+    ]
+    repo.pausar(s, "pausado no admin", AGORA, COLETOR_NOTIFICADOR)
+    resumo = painel.consultas_mensagens.resumo(s, AGORA, notificador_pausado=True)
+    servicos = painel.saude_servicos(s, AGORA, config, True, resumo)
+    whatsapp = servicos[3]
+    assert whatsapp.texto == "Envio desligado; as mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram)"
+    assert [a.link for a in painel.avisos(s, AGORA, config, servicos, resumo)] == ["/servicos"]

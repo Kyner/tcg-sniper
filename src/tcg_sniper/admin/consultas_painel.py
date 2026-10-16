@@ -46,6 +46,9 @@ ROTULOS = {
     "falha": "parado",
 }
 PROBLEMAS = ("pausado", "pausado_desafio", "falha")
+TEXTO_NOTIFICADOR_DESLIGADO = (
+    "Envio desligado; as mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram)"
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,7 @@ class SaudeServico:
     detalhe: str
     link: str
     selo: str | None = None  # texto do selo quando não é o padrão da situação
+    aviso: str | None = None  # texto do aviso do Dashboard quando não é "<nome> — <texto>."
 
     @property
     def rotulo(self) -> str:
@@ -119,7 +123,10 @@ def _contar(s: Session, modelo, *condicoes) -> int:
 
 def _coleta_rodando(s: Session, tipos: Sequence[TipoColeta]) -> Coleta | None:
     return s.scalar(
-        select(Coleta).where(Coleta.tipo.in_(tipos), Coleta.status == StatusColeta.RODANDO).order_by(Coleta.id.desc())
+        select(Coleta)
+        .where(Coleta.tipo.in_(tipos), Coleta.status == StatusColeta.RODANDO)
+        .order_by(Coleta.id.desc())
+        .limit(1)
     )
 
 
@@ -140,7 +147,6 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
     inicio_dia = _inicio_do_dia(agora, zona)
     alvo = inicio_dia.replace(hour=cfg.coleta_hora.hour, minute=cfg.coleta_hora.minute)
     ja_rodou = repo.coleta_iniciada_desde(s, TipoColeta.LISTAGEM, inicio_dia)
-    dia = "amanhã" if ja_rodou or agora > alvo + timedelta(minutes=cfg.coleta_jitter_min) else "hoje"
     ativos = _contar(s, ProdutoLiga, ProdutoLiga.ativo.is_(True))
     com_preco = s.scalar(
         select(func.count())
@@ -148,10 +154,14 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
         .join(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .where(ProdutoLiga.ativo.is_(True), PrecoAtualLiga.preco_a_partir.is_not(None))
     ) or 0
-    detalhe = (
-        f"Próxima {dia} por volta das {cfg.coleta_hora:%H:%M} (± {cfg.coleta_jitter_min} min)"
-        f" · {com_preco} de {ativos} com preço"
-    )
+    horario = f"por volta das {cfg.coleta_hora:%H:%M} (± {cfg.coleta_jitter_min} min)"
+    if ja_rodou:
+        proxima = f"Próxima amanhã {horario}"
+    elif agora >= alvo:
+        proxima = f"Próxima começa em instantes (hoje às {cfg.coleta_hora:%H:%M} ± {cfg.coleta_jitter_min} min)"
+    else:
+        proxima = f"Próxima hoje {horario}"
+    detalhe = f"{proxima} · {com_preco} de {ativos} com preço"
     rodando = _coleta_rodando(s, TIPOS_LIGA)
     if rodando is not None:
         texto = f"Coleta em andamento desde {_quando(rodando.iniciada_em, agora, zona)}"
@@ -231,52 +241,62 @@ def _mensagens_hoje(s: Session, agora: datetime, zona: ZoneInfo) -> tuple[int, i
     return enviadas, falhas
 
 
-def _saude_whatsapp(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
+def _saude_whatsapp(
+    s: Session, agora: datetime, cfg: Config, resumo: consultas_mensagens.ResumoMensagens
+) -> SaudeServico:
     situacao, ultimo = consultas_mensagens.estado_notificador(s, agora)
-    resumo = consultas_mensagens.resumo(s, agora)
     enviadas, _ = _mensagens_hoje(s, agora, cfg.zona)
     detalhe = f"{enviadas} enviadas hoje · {resumo.falhas} com falha · {resumo.paradas} paradas"
     if situacao == "nunca":
-        return SaudeServico("WhatsApp", "falha", "Notificador nunca rodou", detalhe, "/servicos")
+        aviso = "O notificador nunca rodou — veja Serviços."
+        return SaudeServico("WhatsApp", "falha", "Notificador nunca rodou", detalhe, "/servicos", aviso=aviso)
     if situacao == "parado":
-        texto = f"Notificador parado desde {_quando(ultimo, agora, cfg.zona)}"
-        return SaudeServico("WhatsApp", "falha", texto, detalhe, "/servicos")
+        quando = _quando(ultimo, agora, cfg.zona)
+        aviso = f"O notificador está parado desde {quando} — veja Serviços."
+        texto = f"Notificador parado desde {quando}"
+        return SaudeServico("WhatsApp", "falha", texto, detalhe, "/servicos", aviso=aviso)
     if repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado is not EstadoColetorTipo.ATIVO:
         return SaudeServico(
-            "WhatsApp", "pausado", "Envio desligado; as mensagens ficam guardadas", detalhe, "/servicos"
+            "WhatsApp", "pausado", TEXTO_NOTIFICADOR_DESLIGADO, detalhe, "/servicos"
         )
     segundos = max(0, int((agora - ultimo).total_seconds()))
     return SaudeServico("WhatsApp", "ok", f"Notificador vivo · último ciclo há {segundos} s", detalhe, "/mensagens")
 
 
-def saude_servicos(s: Session, agora: datetime, config_efetiva: Config, chave_ia: bool) -> list[SaudeServico]:
-    """Um item por serviço, na ordem LigaMagic, Amazon, Casador (IA), WhatsApp."""
+def saude_servicos(
+    s: Session,
+    agora: datetime,
+    config_efetiva: Config,
+    chave_ia: bool,
+    resumo: consultas_mensagens.ResumoMensagens | None = None,
+) -> list[SaudeServico]:
+    """Um item por serviço, na ordem LigaMagic, Amazon, Casador (IA), WhatsApp. `resumo` (das
+    mensagens) é reaproveitado quando já foi lido."""
+    if resumo is None:
+        resumo = consultas_mensagens.resumo(s, agora)
     return [
         _saude_liga(s, agora, config_efetiva),
         _saude_amazon(s, agora, config_efetiva),
         _saude_casador(s, agora, config_efetiva, chave_ia),
-        _saude_whatsapp(s, agora, config_efetiva),
+        _saude_whatsapp(s, agora, config_efetiva, resumo),
     ]
 
 
-def avisos(s: Session, agora: datetime, config_efetiva: Config, chave_ia: bool) -> list[Aviso]:
+def avisos(
+    s: Session,
+    agora: datetime,
+    config_efetiva: Config,
+    servicos: Sequence[SaudeServico],
+    resumo: consultas_mensagens.ResumoMensagens,
+) -> list[Aviso]:
     """Um aviso por problema: serviço pausado ou parado, mensagens presas ou com falha, e a última
-    coleta da LigaMagic ou o último ciclo da Amazon que terminou com falha."""
-    lista = []
-    for servico in saude_servicos(s, agora, config_efetiva, chave_ia):
-        if servico.situacao not in PROBLEMAS:
-            continue
-        if servico.nome == "WhatsApp" and servico.situacao == "falha":
-            situacao, ultimo = consultas_mensagens.estado_notificador(s, agora)
-            texto = (
-                "O notificador nunca rodou — veja Serviços."
-                if situacao == "nunca"
-                else f"O notificador está parado desde {_quando(ultimo, agora, config_efetiva.zona)} — veja Serviços."
-            )
-        else:
-            texto = f"{servico.nome} — {servico.texto}."
-        lista.append(Aviso("error", texto, "/servicos", "Ir para Serviços"))
-    resumo = consultas_mensagens.resumo(s, agora)
+    coleta da LigaMagic ou o último ciclo da Amazon que terminou com falha. Reaproveita a saúde dos
+    serviços e o resumo das mensagens já lidos."""
+    lista = [
+        Aviso("error", servico.aviso or f"{servico.nome} — {servico.texto}.", "/servicos", "Ir para Serviços")
+        for servico in servicos
+        if servico.situacao in PROBLEMAS
+    ]
     if resumo.aviso:
         lista.append(Aviso("warning", resumo.aviso, resumo.link_aviso, "Ir para Mensagens"))
     for tipos, aba in ((TIPOS_LIGA, "liga"), ((TipoColeta.AMAZON,), "amazon")):
@@ -377,7 +397,11 @@ def atividade_hoje(s: Session, agora: datetime, config_efetiva: Config) -> list[
     situacao_msgs = "falha" if falhas else ("ok" if enviadas else "nenhum")
     return [
         Atividade("Coleta da LigaMagic", liga, _pior([c.status for c in ultimas])),
-        Atividade("Buscas na Amazon", f"{len(ciclos)} ciclos · {lidos} preços", situacao_amazon),
+        Atividade(
+            "Buscas na Amazon",
+            f"{len(ciclos)} {'ciclo' if len(ciclos) == 1 else 'ciclos'} · {lidos} preços",
+            situacao_amazon,
+        ),
         Atividade("Chamadas da IA", f"{chamadas} · {erros} com erro", situacao_ia),
         Atividade("Mensagens do WhatsApp", f"{enviadas} enviadas · {falhas} falhas", situacao_msgs),
     ]

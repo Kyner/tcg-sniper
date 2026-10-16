@@ -1,5 +1,5 @@
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -61,7 +61,7 @@ def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes):
         repo.finalizar_coleta(s, ciclo.id, StatusColeta.PARCIAL, 9, 1, T0)
     texto = cliente.get("/").text
     liga = card(texto, "LigaMagic")
-    assert "Última coleta ok" in liga and "por volta das 10:00" in liga and 'badge-success">funcionando' in liga
+    assert "Última coleta ok" in liga and "10:00" in liga and 'badge-success">funcionando' in liga
     assert "Último ciclo" in card(texto, "Amazon") and "(parcial)" in card(texto, "Amazon")
 
 
@@ -147,3 +147,14 @@ def test_menu(cliente):
     for rotulo in ("Dashboard", "Serviços", "Catálogo", "Casamentos", "Ofertas", "Configurações"):
         assert rotulo in nav
     assert ">Status<" not in nav
+
+
+def test_notificador_desligado_nao_avisa_pendentes_paradas(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo_msg.registrar_ciclo(s, repo.agora_utc())
+        repo_msg.enfileirar(s, "admin", "x", repo.agora_utc() - timedelta(hours=1))
+    assert "Mensagens do WhatsApp paradas" in cliente.get("/").text
+    cliente.post("/notificador/pausar")
+    texto = cliente.get("/").text
+    assert "Mensagens do WhatsApp paradas" not in texto
+    assert "WhatsApp — Envio desligado" in texto and "ofertas vencidas expiram" in texto

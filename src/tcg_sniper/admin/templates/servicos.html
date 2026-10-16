@@ -8,7 +8,7 @@
 {# Chave liga/desliga: o formulário vai para `acao` ao mudar; sem JavaScript, o botão do <noscript> envia. #}
 {% macro chave(acao, ligado, nome) %}
 <form method="post" action="{{ acao }}" class="flex items-center gap-2">
-  <label class="label gap-2 text-sm"><input type="checkbox" class="toggle toggle-success"{% if ligado %} checked{% endif %} aria-label="Ligar {{ nome }}" onchange="this.form.submit()"> {{ "Ligado" if ligado else "Desligado" }}</label>
+  <label class="label gap-2 text-sm"><input type="checkbox" class="toggle toggle-success"{% if ligado %} checked{% endif %} aria-label="{{ "Desligar" if ligado else "Ligar" }} {{ nome }}" onchange="this.form.submit()"> {{ "Ligado" if ligado else "Desligado" }}</label>
   <noscript><button class="btn btn-xs">{{ "Desligar" if ligado else "Ligar" }}</button></noscript>
 </form>
 {% endmacro %}
@@ -100,7 +100,7 @@
       <h2 class="card-title text-base">WhatsApp (notificador) {{ selo_ligado(notificador_ativo) }}</h2>
       {{ chave("/notificador/pausar" if notificador_ativo else "/notificador/retomar", notificador_ativo, "notificador") }}
     </div>
-    <p class="text-sm">{% if notificador_ativo %}Envia a fila de mensagens. Desligado, as mensagens ficam guardadas e saem quando ligar.{% else %}Desligado: as mensagens ficam guardadas e saem quando ligar.{% endif %}</p>
+    <p class="text-sm">{% if notificador_ativo %}Envia a fila de mensagens. Desligado, as mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram).{% else %}Desligado: as mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram).{% endif %}</p>
     <p class="text-sm">{% if processo == "rodando" %}{{ selo("ok", "rodando") }} Notificador rodando.{% elif processo == "parado" %}{{ selo("falha", "parado") }} Notificador parado desde {{ ultimo_ciclo|data }}.{% else %}{{ selo("falha", "parado") }} Notificador nunca rodou.{% endif %}</p>
     <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/mensagens">Abrir Mensagens</a></div>
   </div></div>

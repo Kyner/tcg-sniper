@@ -71,6 +71,7 @@ def test_quatro_cards_ligados_com_chave_e_historico(cliente):
         c = card(texto, servico)
         assert f'action="{acao}"' in c and 'class="toggle toggle-success" checked' in c, servico
         assert 'onchange="this.form.submit()"' in c and "<noscript>" in c and ">Desligar</button>" in c
+        assert 'aria-label="Desligar ' in c and 'aria-label="Ligar ' not in c
         assert f'href="{historico}"' in c
         assert 'badge-success">ligado</span>' in c or servico == "casador"
     assert 'action="/rodar-agora"' in card(texto, "liga") and 'action="/casador/rodar-agora"' in card(texto, "casador")
@@ -85,7 +86,7 @@ def test_card_desligado(cliente, sessoes, coletor, servico, acao):
         repo.pausar(s, "pausado no admin", T0, coletor)
     c = card(cliente.get("/servicos").text, servico)
     assert f'action="{acao}"' in c and 'class="toggle toggle-success" aria-label' in c and ">Ligar</button>" in c
-    assert 'badge-error">desligado</span>' in c
+    assert 'badge-error">desligado</span>' in c and 'aria-label="Ligar ' in c
     assert "Rodar agora" not in c
 
 
@@ -98,3 +99,21 @@ def test_desafio_mantem_o_card_vermelho_com_novnc_e_retomar(cliente, sessoes):
         c = card(texto, servico)
         assert "border-error" in c and f"host.test:{porta}/vnc.html" in c and f'action="{acao}"' in c
         assert "desafio pendente" in c and "toggle" not in c and "Rodar agora" not in c
+
+
+@pytest.mark.parametrize(("rota", "coletor"), [("/liga/pausar", COLETOR_LIGA), ("/notificador/pausar", COLETOR_NOTIFICADOR)])
+def test_desligar_nao_apaga_um_desafio_pendente(cliente, sessoes, rota, coletor):
+    with sessoes() as s, s.begin():
+        repo.pausar_por_desafio(s, "desafio em /x", T0, coletor)
+    r = cliente.post(rota, follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=desafio_pendente"
+    assert "desafio pendente" in cliente.get(r.headers["location"]).text.lower()
+    with sessoes() as s:
+        estado = repo.obter_estado(s, coletor=coletor)
+        assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO_DESAFIO, "desafio em /x")
+
+
+def test_texto_do_notificador_desligado(cliente):
+    cliente.post("/notificador/pausar")
+    c = card(cliente.get("/servicos").text, "notificador")
+    assert "saem quando ligar (ofertas vencidas expiram)" in c

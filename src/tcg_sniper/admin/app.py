@@ -40,6 +40,7 @@ from tcg_sniper.db.models import (
     COLETOR_LIGA,
     COLETOR_NOTIFICADOR,
     AnuncioAmazon,
+    EstadoColetorTipo,
     ProdutoLiga,
     TipoColeta,
 )
@@ -54,7 +55,10 @@ MENSAGENS_SERVICOS = {
     "retomar": "Coleta da LigaMagic retomada.",
     "liga_pausar": "Coleta da LigaMagic desligada. Volta quando você ligar de novo.",
     "liga_retomar": "Coleta da LigaMagic ligada; segue o horário diário.",
-    "notificador_pausar": "Envio do WhatsApp desligado. As mensagens ficam guardadas e saem quando ligar.",
+    "notificador_pausar": (
+        "Envio do WhatsApp desligado. As mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram)."
+    ),
+    "desafio_pendente": "Há um desafio pendente: resolva pelo noVNC e clique em Retomar (nada foi desligado).",
     "notificador_retomar": "Envio do WhatsApp ligado.",
     "amazon_pausar": "Busca na Amazon pausada.",
     "amazon_retomar": "Busca na Amazon retomada.",
@@ -148,12 +152,15 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         agora = repo.agora_utc()
         chave_ia = bool((config.openai_api_key or "").strip())
         with sessoes() as s, s.begin():
+            pausado = repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado is not EstadoColetorTipo.ATIVO
+            resumo = consultas_mensagens.resumo(s, agora, notificador_pausado=pausado)
+            servicos_ = consultas_painel.saude_servicos(s, agora, efetiva, chave_ia, resumo)
             return templates.TemplateResponse(
                 request,
                 "index.html",
                 {
-                    "avisos": consultas_painel.avisos(s, agora, efetiva, chave_ia),
-                    "servicos": consultas_painel.saude_servicos(s, agora, efetiva, chave_ia),
+                    "avisos": consultas_painel.avisos(s, agora, efetiva, servicos_, resumo),
+                    "servicos": servicos_,
                     "n": consultas_painel.numeros(s, agora, efetiva),
                     "atividade": consultas_painel.atividade_hoje(s, agora, efetiva),
                     "atualizado": agora.astimezone(efetiva.zona).strftime("%H:%M"),
@@ -270,11 +277,19 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             repo.solicitar_execucao(s, repo.agora_utc())
         return RedirectResponse("/servicos?msg=rodar", status_code=status.HTTP_303_SEE_OTHER)
 
+    def _desligar(coletor: str, msg: str) -> RedirectResponse:
+        """Pausa manual; um desafio pendente não é sobrescrito (só sai com Retomar, depois de resolvido)."""
+        agora = repo.agora_utc()
+        with sessoes() as s, s.begin():
+            if repo.obter_estado(s, agora, coletor).estado is EstadoColetorTipo.PAUSADO_DESAFIO:
+                msg = "desafio_pendente"
+            else:
+                repo.pausar(s, "pausado no admin", agora, coletor)
+        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
+
     @app.post("/liga/pausar")
     def pausar_liga():
-        with sessoes() as s, s.begin():
-            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_LIGA)
-        return RedirectResponse("/servicos?msg=liga_pausar", status_code=status.HTTP_303_SEE_OTHER)
+        return _desligar(COLETOR_LIGA, "liga_pausar")
 
     @app.post("/liga/retomar")
     def retomar_liga():
@@ -284,9 +299,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/notificador/pausar")
     def pausar_notificador():
-        with sessoes() as s, s.begin():
-            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_NOTIFICADOR)
-        return RedirectResponse("/servicos?msg=notificador_pausar", status_code=status.HTTP_303_SEE_OTHER)
+        return _desligar(COLETOR_NOTIFICADOR, "notificador_pausar")
 
     @app.post("/notificador/retomar")
     def retomar_notificador():
