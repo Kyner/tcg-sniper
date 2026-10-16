@@ -154,3 +154,8 @@ def test_id_fora_do_inteiro_do_postgres_da_404(cliente):
 def test_celula_do_texto_preserva_quebras(cliente, sessoes):
     criar(sessoes, texto="linha 1\nlinha 2")
     assert 'style="white-space: pre-line"' in cliente.get("/mensagens").text
+
+
+def test_situacao_da_mensagem_tem_selo(cliente, sessoes):
+    criar(sessoes, status=StatusMensagem.FALHA, erro="HTTP 400: x")
+    assert 'badge-error">falha</span>' in cliente.get("/mensagens").text

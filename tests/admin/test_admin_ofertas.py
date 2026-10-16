@@ -104,7 +104,7 @@ def test_tela_com_filtros_paginacao_e_validacao(cliente, sessoes, cenario):
             criar_preco_liga(s, produto, "100.00")
             oferta(s, f"B0EXTRA{i:03d}", produto, "90.00", Envio.AMAZON, amazon.id)
     pagina2 = cliente.get("/ofertas?vendedor=amazon&pagina=2").text
-    assert pagina2.count("<small>B0") == 7  # 57 ofertas da Amazon → 50 + 7
+    assert pagina2.split("</table>")[0].count('text-base-content/60">B0') == 7  # 57 ofertas da Amazon → 50 + 7
     assert "vendedor=amazon" in pagina2
     assert cliente.get("/ofertas?pagina=999").status_code == 200
 
@@ -125,3 +125,9 @@ def test_vendedor_lido_so_na_busca_aparece_como_nao_verificado(cliente, sessoes)
     linha_pagina = texto[texto.index("Caixa Lida"):].split("</tr>")[0]
     assert "vendedor não verificado" in linha_busca and "não elegível" not in linha_busca
     assert "não elegível" in linha_pagina and "não verificado" not in linha_pagina
+
+
+def test_desconto_e_vendedor_com_selo(cliente, cenario):
+    texto = cliente.get("/ofertas?vendedor=amazon").text  # no filtro padrão a melhor oferta da caixa é a do lojista FBA (35%)
+    assert 'badge-success' in texto and ">30,00%</span>" in texto  # caixa Amazon 30% ≥ 25%
+    assert ">vendido pela Amazon</span>" in texto
