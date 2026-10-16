@@ -30,7 +30,9 @@ def test_pausar_e_retomar(cliente, sessoes, coletor):
     r = cliente.post(f"{prefixo}/retomar", follow_redirects=False)
     assert (r.status_code, r.headers["location"]) == (303, f"/servicos?msg={coletor}_retomar")
     with sessoes() as s:
-        assert repo.obter_estado(s, coletor=coletor).estado is EstadoColetorTipo.ATIVO
+        estado = repo.obter_estado(s, coletor=coletor)
+        # religar não pede uma execução imediata: o agendador segue o horário do dia
+        assert (estado.estado, estado.execucao_solicitada) == (EstadoColetorTipo.ATIVO, False)
 
 
 @pytest.mark.parametrize(

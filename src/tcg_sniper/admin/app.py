@@ -53,7 +53,7 @@ MENSAGENS_SERVICOS = {
     "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
     "retomar": "Coleta da LigaMagic retomada.",
     "liga_pausar": "Coleta da LigaMagic desligada. Volta quando você ligar de novo.",
-    "liga_retomar": "Coleta da LigaMagic ligada.",
+    "liga_retomar": "Coleta da LigaMagic ligada; segue o horário diário.",
     "notificador_pausar": "Envio do WhatsApp desligado. As mensagens ficam guardadas e saem quando ligar.",
     "notificador_retomar": "Envio do WhatsApp ligado.",
     "amazon_pausar": "Busca na Amazon pausada.",
@@ -279,7 +279,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     @app.post("/liga/retomar")
     def retomar_liga():
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc(), COLETOR_LIGA)
+            repo.retomar(s, repo.agora_utc(), COLETOR_LIGA, solicitar=False)
         return RedirectResponse("/servicos?msg=liga_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/notificador/pausar")
@@ -291,7 +291,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     @app.post("/notificador/retomar")
     def retomar_notificador():
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc(), COLETOR_NOTIFICADOR)
+            repo.retomar(s, repo.agora_utc(), COLETOR_NOTIFICADOR, solicitar=False)
         return RedirectResponse("/servicos?msg=notificador_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/pausar")

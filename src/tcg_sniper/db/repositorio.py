@@ -212,11 +212,13 @@ def _mudar_estado(s: Session, novo: EstadoColetorTipo, motivo: str, agora: datet
     s.flush()
 
 
-def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
+def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA, solicitar: bool = True) -> None:
+    """Volta a `ativo`. `solicitar` pede uma execução já (desafio resolvido, casador); sem ela, o
+    serviço segue o próprio horário (religar a LigaMagic ou o notificador na tela de Serviços)."""
     estado = obter_estado(s, agora, coletor)
     estado.estado = EstadoColetorTipo.ATIVO
     estado.motivo = None
-    estado.execucao_solicitada = True
+    estado.execucao_solicitada = solicitar
     estado.atualizado_em = agora
     s.flush()
 

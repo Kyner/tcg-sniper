@@ -192,10 +192,26 @@ def test_pausa_manual_nao_roda_agendado_nem_solicitado(engine, sessoes, config):
     assert a.tick() is None
     assert chamadas == []
     with sessoes() as s, s.begin():
-        repo.retomar(s, local(TERCA, 15, 1))
+        repo.retomar(s, local(TERCA, 15, 1), COLETOR_LIGA, solicitar=False)
     relogio.agora = local(TERCA, 15, 2)
-    assert a.tick() == "solicitado"
+    assert a.tick() == "agendado"  # a pausa cobriu o horário do dia: roda sozinho ao religar
     assert chamadas == [True]
+
+
+def test_religar_num_dia_ja_coletado_nao_roda_de_novo(engine, sessoes, config):
+    job_ok(sessoes, TERCA, 10, 5)
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", local(TERCA, 12), COLETOR_LIGA)
+    relogio = Relogio(local(TERCA, 13))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() is None
+    with sessoes() as s, s.begin():
+        repo.retomar(s, local(TERCA, 13, 1), COLETOR_LIGA, solicitar=False)
+    relogio.agora = local(TERCA, 13, 2)
+    assert a.tick() is None
+    assert chamadas == []
 
 
 def test_solicitacao_com_listagem_ok_hoje_roda_so_produtos(engine, sessoes, config):
