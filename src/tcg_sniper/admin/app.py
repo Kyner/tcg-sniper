@@ -390,6 +390,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "total": total,
                     "pagina": numero,
                     "paginas": paginas,
+                    "link": link,
                     "link_anterior": link(numero - 1) if numero > 1 else None,
                     "link_proxima": link(numero + 1) if numero < paginas else None,
                     "busca": busca,
