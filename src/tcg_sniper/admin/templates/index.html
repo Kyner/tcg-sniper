@@ -91,7 +91,7 @@
 {{ paginacao(pagina, paginas, url_liga if campo_pagina == "liga_pagina" else url_amazon) }}
 {% endmacro %}
 
-{% set aba_amazon = amazon_status != "todos" or pagina_amazon > 1 or "amazon_pagina" in request.query_params %}
+{% set aba_amazon = amazon_status != "todos" or pagina_amazon > 1 %}
 <div class="tabs tabs-border">
   <input type="radio" name="historico" class="tab" aria-label="Coletas da LigaMagic"{% if not aba_amazon %} checked{% endif %}>
   <div class="tab-content space-y-3 pt-4">
