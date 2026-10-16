@@ -56,7 +56,7 @@ def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes):
         ciclo = repo.iniciar_coleta(s, TipoColeta.AMAZON, T0)
         repo.finalizar_coleta(s, ciclo.id, StatusColeta.PARCIAL, 9, 1, T0)
     texto = cliente.get("/").text
-    assert "Última coleta com sucesso" in texto and "10:00" in texto
+    assert "Última com sucesso" in texto and "10:00" in texto
     assert "Último ciclo" in texto and "parcial" in texto
 
 
@@ -122,3 +122,28 @@ def test_menu(cliente):
     for rotulo in ("Dashboard", "Serviços", "Catálogo", "Casamentos", "Ofertas", "Configurações"):
         assert rotulo in nav
     assert ">Status<" not in nav
+
+
+def test_dashboard_tem_indicadores_e_abas(cliente):
+    texto = cliente.get("/").text
+    assert 'class="stats' in texto
+    for rotulo in ("LigaMagic", "Amazon", "WhatsApp", "Oportunidades abertas", "Casamentos pendentes"):
+        assert rotulo in texto
+    assert 'aria-label="Coletas da LigaMagic"' in texto and 'aria-label="Ciclos da Amazon"' in texto
+
+
+def test_aba_da_amazon_abre_depois_de_paginar_ou_filtrar(cliente):
+    def aba_amazon_marcada(texto):
+        inicio = texto.index('aria-label="Ciclos da Amazon"')
+        return "checked" in texto[texto.rindex("<input", 0, inicio):inicio + 60]
+
+    assert not aba_amazon_marcada(cliente.get("/").text)
+    assert aba_amazon_marcada(cliente.get("/", params={"amazon_status": "ok"}).text)
+    assert aba_amazon_marcada(cliente.get("/", params={"amazon_pagina": "2"}).text)
+
+
+def test_situacao_das_coletas_tem_selo(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+        repo.finalizar_coleta(s, c.id, StatusColeta.FALHA, 0, 1, T0)
+    assert 'badge-error">falha</span>' in cliente.get("/").text

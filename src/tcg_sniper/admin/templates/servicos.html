@@ -1,42 +1,50 @@
 {% extends "base.html" %}
+{% from "_componentes.html" import selo, cabecalho, aviso %}
 {% block titulo %}Serviços · TCG Sniper{% endblock %}
 {% block conteudo %}
-<h2>Serviços</h2>
-{% if mensagem %}<p><mark>{{ mensagem }}</mark></p>{% endif %}
-<div class="grid">
-  <article>
-    <header><strong>LigaMagic</strong></header>
+{{ cabecalho("Serviços", "Comandos dos coletores e estado do notificador") }}
+{% if mensagem %}{{ aviso("success", mensagem) }}{% endif %}
+<div class="grid gap-4 md:grid-cols-3">
+  <div class="card bg-base-100 shadow-sm"><div class="card-body">
+    <h2 class="card-title">LigaMagic
+      {% if estado.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "desafio pendente") }}
+      {% elif em_andamento %}{{ selo("rodando", "coleta em andamento") }}
+      {% else %}{{ selo("ativo") }}{% endif %}</h2>
     {% if estado.estado.value == "pausado_desafio" %}
-      <p class="pausado">Pausada: desafio pendente. {{ estado.motivo or "" }}<br>
-      Resolva em <a href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em Retomar.</p>
-      <form method="post" action="/retomar"><button>Retomar</button></form>
+      <p>Pausada: desafio pendente. {{ estado.motivo or "" }}</p>
+      <p>Resolva em <a class="link" href="http://{{ host }}:6080/vnc.html">http://{{ host }}:6080/vnc.html</a> e clique em Retomar.</p>
+      <div class="card-actions"><form method="post" action="/retomar"><button class="btn btn-primary">Retomar</button></form></div>
     {% elif em_andamento %}
       <p>Ativa. <strong>Coleta em andamento.</strong></p>
     {% else %}
       <p>Ativa.{% if estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
-      <form method="post" action="/rodar-agora"><button>Rodar agora</button></form>
+      <div class="card-actions"><form method="post" action="/rodar-agora"><button class="btn btn-primary">Rodar agora</button></form></div>
     {% endif %}
-  </article>
-  <article>
-    <header><strong>Amazon</strong></header>
+  </div></div>
+  <div class="card bg-base-100 shadow-sm"><div class="card-body">
+    <h2 class="card-title">Amazon
+      {% if estado_amazon.estado.value == "pausado_desafio" %}{{ selo("pausado_desafio", "CAPTCHA pendente") }}
+      {% elif estado_amazon.estado.value == "pausado" %}{{ selo("pausado") }}
+      {% else %}{{ selo("ativo") }}{% endif %}</h2>
     {% if estado_amazon.estado.value == "pausado_desafio" %}
-      <p class="pausado">Pausada: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}<br>
-      Resolva em <a href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar.</p>
-      <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
+      <p>Pausada: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}</p>
+      <p>Resolva em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar.</p>
+      <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-primary">Retomar (Amazon)</button></form></div>
     {% elif estado_amazon.estado.value == "pausado" %}
-      <p class="pausado">Pausada. {{ estado_amazon.motivo or "" }}</p>
-      <form method="post" action="/amazon/retomar"><button>Retomar (Amazon)</button></form>
+      <p>Pausada. {{ estado_amazon.motivo or "" }}</p>
+      <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-primary">Retomar (Amazon)</button></form></div>
     {% else %}
       <p>Ativa.{% if ciclo_amazon %} Ciclo em andamento desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
-      <form method="post" action="/amazon/pausar"><button class="secondary">Pausar (Amazon)</button></form>
+      <div class="card-actions"><form method="post" action="/amazon/pausar"><button class="btn btn-outline btn-error">Pausar (Amazon)</button></form></div>
     {% endif %}
-  </article>
-  <article>
-    <header><strong>Notificador</strong></header>
+  </div></div>
+  <div class="card bg-base-100 shadow-sm"><div class="card-body">
     {% set estado_notif, ultimo_ciclo = notificador %}
+    <h2 class="card-title">Notificador
+      {% if estado_notif == "rodando" %}{{ selo("ativo", "rodando") }}{% else %}{{ selo("falha", "parado") }}{% endif %}</h2>
     {% if estado_notif == "rodando" %}<p>rodando</p>
-    {% elif estado_notif == "parado" %}<p class="pausado">parado desde {{ ultimo_ciclo|data }}</p>
-    {% else %}<p class="pausado">nunca rodou</p>{% endif %}
-  </article>
+    {% elif estado_notif == "parado" %}<p>parado desde {{ ultimo_ciclo|data }}</p>
+    {% else %}<p>nunca rodou</p>{% endif %}
+  </div></div>
 </div>
 {% endblock %}
