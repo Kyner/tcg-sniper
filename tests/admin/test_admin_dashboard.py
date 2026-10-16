@@ -45,7 +45,7 @@ def test_dashboard_nao_tem_comandos(cliente, sessoes):
 
 def test_dashboard_sem_atalho_de_configuracoes_no_bloco_da_amazon(cliente):
     texto = cliente.get("/").text
-    corpo = texto.split("</nav>", 1)[1]
+    corpo = texto.split("<main", 1)[1].split("</main>", 1)[0]
     assert "/configuracoes" not in corpo
 
 
@@ -113,11 +113,12 @@ def test_acoes_voltam_para_servicos_com_mensagem(cliente, rota, codigo, mensagem
 
 
 def test_servicos_ignora_mensagem_desconhecida(cliente):
-    assert "<script>" not in cliente.get("/servicos?msg=<script>").text
+    assert "<script>" not in cliente.get("/servicos?msg=<script>").text.split("<main", 1)[1].split("</main>", 1)[0]
 
 
 def test_menu(cliente):
-    nav = cliente.get("/").text.split("</nav>", 1)[0]
+    texto = cliente.get("/").text
+    nav = texto[texto.index('<ul class="menu'):texto.index("</ul>", texto.index('<ul class="menu'))]
     for rotulo in ("Dashboard", "Serviços", "Catálogo", "Casamentos", "Ofertas", "Configurações"):
         assert rotulo in nav
     assert ">Status<" not in nav

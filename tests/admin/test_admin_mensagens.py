@@ -28,7 +28,8 @@ def criar(sessoes, destino="admin", texto="x", status=StatusMensagem.PENDENTE, i
 
 
 def test_menu_tem_mensagens(cliente):
-    assert '<a href="/mensagens">Mensagens</a>' in cliente.get("/").text
+    texto = cliente.get("/").text
+    assert 'href="/mensagens"' in texto and ">Mensagens</span>" in texto
 
 
 def test_lista_com_filtros_e_paginacao(cliente, sessoes):

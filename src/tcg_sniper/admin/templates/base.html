@@ -4,26 +4,98 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block titulo %}TCG Sniper{% endblock %}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.0.6/css/pico.min.css">
+  <script>
+    try { var t = localStorage.getItem("tema"); if (t === "winter" || t === "night") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/admin.css?v={{ versao_css }}">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <style>
-    .pausado { background: #fde2e1; color: #7a1c14; padding: 1rem; border-radius: .5rem; margin-bottom: 1rem; }
-    td button { margin: 0; padding: .25rem .75rem; }
-    .filtros .grid { align-items: center; }
-    .filtros .grid label { margin-bottom: var(--pico-spacing); white-space: nowrap; }
-  </style>
 </head>
-<body>
-<main class="container">
-  <nav>
-    <ul><li><strong>TCG Sniper</strong></li></ul>
-    <ul>
-      <li><a href="/">Dashboard</a></li><li><a href="/servicos">Serviços</a></li>
-      <li><a href="/catalogo">Catálogo</a></li><li><a href="/casamentos">Casamentos</a></li>
-      <li><a href="/ofertas">Ofertas</a></li><li><a href="/mensagens">Mensagens</a></li><li><a href="/configuracoes">Configurações</a></li>
-    </ul>
-  </nav>
-  {% block conteudo %}{% endblock %}
-</main>
+<body class="min-h-screen bg-base-200">
+{%- set menu = request.state.menu %}
+{%- set itens = [
+  ("Dashboard", "/", "home", 0, ""),
+  ("Serviços", "/servicos", "server-stack", 0, ""),
+  ("Catálogo", "/catalogo", "book-open", 0, ""),
+  ("Casamentos", "/casamentos", "link", menu.casamentos, "badge-warning"),
+  ("Ofertas", "/ofertas", "tag", menu.ofertas, "badge-success"),
+  ("Mensagens", "/mensagens", "chat-bubble-left-right", menu.mensagens, "badge-error"),
+  ("Configurações", "/configuracoes", "cog-6-tooth", 0, ""),
+] %}
+{%- set caminho = request.url.path %}
+<div class="drawer lg:drawer-open">
+  <input id="menu" type="checkbox" class="drawer-toggle">
+  <script>
+    (function () {
+      var menu = document.getElementById("menu");
+      if (!window.matchMedia("(min-width: 1024px)").matches) return;
+      var salvo = null;
+      try { salvo = localStorage.getItem("menu"); } catch (e) {}
+      menu.checked = salvo !== "recolhido";
+    })();
+  </script>
+  <div class="drawer-content flex min-w-0 flex-col">
+    <div class="navbar bg-base-100 shadow-sm lg:hidden">
+      <label for="menu" class="btn btn-square btn-ghost" aria-label="Abrir menu">{{ icone("bars-3") }}</label>
+      <span class="px-2 text-lg font-bold">TCG Sniper</span>
+    </div>
+    <main class="mx-auto w-full max-w-7xl space-y-4 p-4 lg:p-6">
+      {% block conteudo %}{% endblock %}
+    </main>
+  </div>
+  <div class="drawer-side z-20 is-drawer-close:overflow-visible">
+    <label for="menu" aria-label="Fechar menu" class="drawer-overlay"></label>
+    <aside class="flex min-h-full w-64 flex-col border-r border-base-300 bg-base-100 is-drawer-close:w-16">
+      <div class="px-4 py-4 text-lg font-bold is-drawer-close:px-0 is-drawer-close:text-center">
+        <span class="is-drawer-close:hidden">TCG Sniper</span><span class="hidden is-drawer-close:inline">TS</span>
+      </div>
+      <ul class="menu w-full grow gap-1">
+        {%- for rotulo, href, nome_icone, contador, cor in itens %}
+        {%- set ativo = caminho == "/" if href == "/" else caminho.startswith(href) %}
+        <li>
+          <a href="{{ href }}" data-tip="{{ rotulo }}" class="is-drawer-close:tooltip is-drawer-close:tooltip-right{% if ativo %} menu-active{% endif %}"{% if ativo %} aria-current="page"{% endif %}>
+            <span class="indicator">
+              {%- if contador %}<span class="indicator-item badge badge-xs {{ cor }} hidden is-drawer-close:inline-flex"></span>{% endif -%}
+              {{ icone(nome_icone) }}
+            </span>
+            <span class="grow is-drawer-close:hidden">{{ rotulo }}</span>
+            {%- if contador %}<span class="badge badge-sm {{ cor }} is-drawer-close:hidden" data-contador="{{ href[1:] }}">{{ contador }}</span>{% endif %}
+          </a>
+        </li>
+        {%- endfor %}
+      </ul>
+      <div class="flex flex-col gap-1 p-2">
+        <button id="trocar-tema" type="button" aria-pressed="false" data-tip="Trocar tema"
+                class="btn btn-ghost btn-sm justify-start gap-2 is-drawer-close:justify-center is-drawer-close:tooltip is-drawer-close:tooltip-right">
+          {{ icone("moon", "size-4") }}<span class="is-drawer-close:hidden">Trocar tema</span>
+        </button>
+        <label for="menu" data-tip="Recolher ou expandir o menu"
+               class="btn btn-ghost btn-sm hidden justify-start gap-2 lg:flex is-drawer-close:justify-center is-drawer-close:tooltip is-drawer-close:tooltip-right">
+          {{ icone("chevron-double-left", "size-4 is-drawer-close:rotate-180") }}<span class="is-drawer-close:hidden">Recolher</span>
+        </label>
+      </div>
+    </aside>
+  </div>
+</div>
+<script>
+  (function () {
+    function gravar(chave, valor) { try { localStorage.setItem(chave, valor); } catch (e) {} }
+    var menu = document.getElementById("menu");
+    var grande = window.matchMedia("(min-width: 1024px)");
+    menu.addEventListener("change", function () { if (grande.matches) gravar("menu", menu.checked ? "aberto" : "recolhido"); });
+    var botao = document.getElementById("trocar-tema");
+    function escuro() {
+      var t = document.documentElement.dataset.theme;
+      return t ? t === "night" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    function marcar() { botao.setAttribute("aria-pressed", String(escuro())); }
+    botao.addEventListener("click", function () {
+      var novo = escuro() ? "winter" : "night";
+      document.documentElement.dataset.theme = novo;
+      gravar("tema", novo);
+      marcar();
+    });
+    marcar();
+  })();
+</script>
 </body>
 </html>
