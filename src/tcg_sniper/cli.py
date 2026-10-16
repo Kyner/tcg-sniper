@@ -22,6 +22,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("coletor-liga", help="inicia o agendador de coletas da LigaMagic")
     sub.add_parser("coletor-amazon", help="inicia a fila contínua de buscas na Amazon")
     sub.add_parser("notificador", help="envia a tabela de saída do WhatsApp pela Evolution API")
+    sub.add_parser("casador", help="avalia com a IA os anúncios pendentes da Amazon")
     admin = sub.add_parser("admin", help="inicia a página de admin")
     admin.add_argument("--porta", type=int, default=8000)
     args = parser.parse_args(argv)
@@ -70,6 +71,15 @@ def main(argv: list[str] | None = None) -> None:
         # SIGTERM pede parada limpa: não corta o envio HTTP no meio (SystemExit).
         signal.signal(signal.SIGTERM, lambda _signum, _frame: notificador.parar())
         notificador.rodar()
+    elif args.comando == "casador":
+        from tcg_sniper.casador.servico import ServicoCasador
+        from tcg_sniper.ia.transporte_openai import TransporteOpenAI
+        from tcg_sniper.notificador import criar_notificador
+
+        chave = (config.openai_api_key or "").strip()
+        casador = ServicoCasador(sessoes, TransporteOpenAI(chave) if chave else None, config, criar_notificador(config, sessoes))
+        signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
+        casador.rodar()
     elif args.comando == "admin":
         import uvicorn
 

@@ -104,3 +104,40 @@ def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
         assert paradas == [True]  # SIGTERM pede parada limpa, sem SystemExit
     finally:
         signal.signal(signal.SIGTERM, anterior)
+
+
+def test_casador_existe():
+    with pytest.raises(SystemExit) as saida:
+        cli.main(["casador", "--help"])
+    assert saida.value.code == 0
+
+
+@pytest.mark.parametrize("chave", ["", "sk-teste"])
+def test_casador_so_cria_transporte_com_chave(monkeypatch, chave):
+    from tcg_sniper.casador import servico
+    from tcg_sniper.ia import transporte_openai
+
+    anterior = signal.getsignal(signal.SIGTERM)
+    vistos = []
+
+    class ServicoFalso:
+        def __init__(self, sessoes, transporte, config, notificador):
+            vistos.append(transporte)
+
+        def parar(self):
+            pass
+
+        def rodar(self):
+            vistos.append(signal.getsignal(signal.SIGTERM))
+
+    monkeypatch.setattr(servico, "ServicoCasador", ServicoFalso)
+    monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda c: ("transporte", c))
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("OPENAI_API_KEY", chave)
+    try:
+        cli.main(["casador"])
+        assert vistos[0] == (("transporte", chave) if chave else None)
+        assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+    finally:
+        signal.signal(signal.SIGTERM, anterior)
