@@ -16,7 +16,7 @@ URL_TESTE = os.environ.get(
 def _checar_banco_de_teste(url: str) -> None:
     """Recusa rodar contra o Postgres de produção: a fixture apaga o schema inteiro."""
     alvo = make_url(url)
-    if not (alvo.database or "").startswith("tcg_test") or alvo.port == 5432:
+    if not (alvo.database or "").startswith("tcg_test") or (alvo.port or 5432) == 5432:
         pytest.exit(
             f"Recusado: os testes apagam o schema public e só podem rodar num banco "
             f"'tcg_test*' fora da porta 5432 (Postgres de produção). URL recebida: "
