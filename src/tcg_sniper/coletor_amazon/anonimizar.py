@@ -3,7 +3,8 @@
 `limpar` tira scripts, estilos, imagens, comentários e todo atributo fora de uma lista curta (sem
 `data-*` com JSON, sem valor de campo oculto, links reduzidos a /dp/<ASIN> ou seller=<ID>);
 `anonimizar` troca CPF, CNPJ, CEP, final de cartão, e-mail, telefone (celular e fixo), número de pedido e os textos de
-`proibidos` por valores fictícios (número proibido leva junto os dígitos vizinhos), troca a bandeira do
+`proibidos` por valores fictícios (número proibido longo leva junto os dígitos vizinhos; o curto, até 6
+dígitos, só troca solto), troca a bandeira do
 cartão e ids de pedido/item/sessão nos atributos por fictícios estáveis; no carrinho, os itens do "Salvo
 para depois" viram "Produto salvo N" / B0SALVO00N; `achados` lista o que ainda parece dado pessoal (o script e o
 teste de privacidade usam). Em `proibidos` liste também o primeiro nome e o sobrenome em linhas
