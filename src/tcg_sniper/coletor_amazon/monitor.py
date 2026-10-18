@@ -189,19 +189,19 @@ def _motivo_nao_conferido(s: Session, cfg: ConfigAmazon, anuncio_id: int, agora:
     return "aguardando conferência"
 
 
-def _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora) -> None:
-    """Grava a decisão do motor."""
+def _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora, conferido: bool) -> None:
+    """Grava a decisão do motor. `conferido`: o preço da leitura é o conferido no checkout."""
     if acao is motor.Acao.ABRIR:
         repo.abrir_oportunidade(
             s, anuncio_id=linha.anuncio.id, produto_id=linha.produto.id, preco_amazon=leitura.preco,
             preco_liga=ref.preco_a_partir, desconto_pct=motor.desconto_pct(leitura.preco, ref.preco_a_partir),
-            vendedor_id=vendedor_id, envio=leitura.envio, agora=agora,
+            vendedor_id=vendedor_id, envio=leitura.envio, agora=agora, conferido=conferido,
         )
     elif acao in (motor.Acao.REALERTAR, motor.Acao.ATUALIZAR):
         repo.atualizar_oportunidade(
             s, aberta, preco_amazon=leitura.preco, preco_liga=ref.preco_a_partir,
             desconto_pct=motor.desconto_pct(leitura.preco, ref.preco_a_partir), vendedor_id=vendedor_id,
-            envio=leitura.envio, alertou=acao is motor.Acao.REALERTAR, agora=agora,
+            envio=leitura.envio, alertou=acao is motor.Acao.REALERTAR, agora=agora, conferido=conferido,
         )
     elif acao is motor.Acao.FECHAR:
         repo.fechar_oportunidade(s, aberta, agora)
@@ -241,8 +241,12 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
         leitura = motor.Leitura(preco, oferta.envio if oferta else Envio.DESCONHECIDO, _info(melhor.vendedor) if melhor else None)
         aberta = repo.oportunidade_aberta(s, anuncio_id)
         acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta.preco_alertado if aberta else None)
+        if acao is motor.Acao.REALERTAR and conferido is None and aberta.alerta_conferido:
+            # O último aviso foi com o conferido; o anunciado não tem os impostos e parece mais barato:
+            # só atualiza, sem aviso, até haver um novo preço conferido.
+            acao = motor.Acao.ATUALIZAR
         vendedor_id = melhor.vendedor.id if melhor and melhor.vendedor else None
-        _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora)
+        _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora, conferido is not None)
         if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
             selos = Detalhes(
                 importada=oferta.importada, origem_envio=oferta.origem_envio, prime=oferta.prime,
@@ -352,7 +356,7 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
         leitura = motor.Leitura(conferido, linha.atual.envio, _info(vendedor))
         aberta = repo.oportunidade_aberta(s, anuncio_id)
         acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta.preco_alertado if aberta else None)
-        _aplicar(s, acao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora)
+        _aplicar(s, acao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora, True)
         if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
             detalhes = Detalhes(
                 preco_conferido=conferido, impostos=conferencia.impostos, frete=conferencia.frete,
