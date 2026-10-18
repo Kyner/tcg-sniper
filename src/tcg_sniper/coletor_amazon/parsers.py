@@ -333,6 +333,11 @@ def parse_ofertas(html: str) -> list[OfertaLista]:
     ofertas: list[OfertaLista] = []
     vistas: set[tuple[str | None, Decimal, str]] = set()
     for posicao, bloco in blocos:
+        if posicao == 0 and bloco.css_first(SELETOR_VENDIDO_POR_OFERTA) is None:
+            # Anúncio sem oferta em destaque: o bloco fixo só tem foto, título e avaliações
+            # ("Nenhuma opção de compra em destaque"); as ofertas estão só na lista.
+            log.debug("painel sem oferta em destaque")
+            continue
         preco = _preco_da_oferta(bloco)
         if preco is None:
             log.warning("oferta %d do painel sem preço legível; descartada", posicao)
