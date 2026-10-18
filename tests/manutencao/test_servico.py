@@ -3,9 +3,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from fakes import NotificadorFake
+from fakes import AvisadorFake
 from sqlalchemy import select
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_manutencao as repo_man
@@ -60,9 +61,9 @@ def pasta(config):
     return config.pasta_backups
 
 
-def servico(sessoes, config, agora, enviador=None, executar=None, notificador=None):
+def servico(sessoes, config, agora, enviador=None, executar=None, avisador=None):
     return ServicoManutencao(
-        sessoes, config, notificador or NotificadorFake(), enviador, executar or ExecutorFake(),
+        sessoes, config, avisador or AvisadorFake(), enviador, executar or ExecutorFake(),
         relogio=Relogio(agora), dormir=lambda _: None,
     )
 
@@ -178,8 +179,8 @@ def test_usa_o_fuso_de_configuracoes(sessoes, config):
 
 
 def test_ok_com_r2_num_dia_de_semana(sessoes, config, pasta):
-    enviador, notificador = EnviadorFake(), NotificadorFake()
-    srv = servico(sessoes, config, QUARTA_4H, enviador=enviador, notificador=notificador)
+    enviador, avisador = EnviadorFake(), AvisadorFake()
+    srv = servico(sessoes, config, QUARTA_4H, enviador=enviador, avisador=avisador)
     srv.executar(QUARTA_4H)
     (e,) = execucoes(sessoes)
     assert (e.status, e.arquivo, e.tamanho_bytes, e.enviado_r2, e.erro) == (
@@ -188,7 +189,11 @@ def test_ok_com_r2_num_dia_de_semana(sessoes, config, pasta):
     assert e.fim == QUARTA_4H and e.apagados == {"chamada_ia": 0, "conferencia_checkout": 0, "coleta": 0}
     assert enviador.enviados == ["diario/tcg-2026-10-14.dump"]
     assert sorted(p.name for p in pasta.iterdir()) == ["tcg-diario-2026-10-14.dump"]
-    assert notificador.mensagens == []
+    [dados] = avisador.dados(TipoAviso.BACKUP_CONCLUIDO)
+    assert dados.titulo_extra == "14/10" and dados.linhas[1] == "Cópia no R2: sim"
+    assert dados.linhas[2].startswith("Linhas antigas apagadas: ")
+    assert avisador.tipos() == [TipoAviso.BACKUP_CONCLUIDO]
+    assert (TipoAviso.BACKUP_ERRO, CHAVE_GERAL) in avisador.resolvidos
 
 
 def test_domingo_grava_e_envia_tambem_o_semanal(sessoes, config, pasta):
@@ -199,11 +204,12 @@ def test_domingo_grava_e_envia_tambem_o_semanal(sessoes, config, pasta):
 
 
 def test_sem_r2_fica_so_local_sem_alerta(sessoes, config, pasta):
-    notificador = NotificadorFake()
-    servico(sessoes, config, QUARTA_4H, notificador=notificador).executar(QUARTA_4H)
+    avisador = AvisadorFake()
+    servico(sessoes, config, QUARTA_4H, avisador=avisador).executar(QUARTA_4H)
     (e,) = execucoes(sessoes)
     assert (e.status, e.enviado_r2, e.erro) == (StatusManutencao.SO_LOCAL, False, None)
-    assert notificador.mensagens == []
+    assert avisador.tipos() == [TipoAviso.BACKUP_CONCLUIDO]
+    assert avisador.dados(TipoAviso.BACKUP_CONCLUIDO)[0].linhas[1] == "Cópia no R2: não (só local)"
 
 
 def test_falha_do_pg_dump_grava_erro_avisa_uma_vez_e_nao_limpa(sessoes, config, pasta):
@@ -212,41 +218,42 @@ def test_falha_do_pg_dump_grava_erro_avisa_uma_vez_e_nao_limpa(sessoes, config, 
             s, em=QUARTA_4H - timedelta(days=100), finalidade="casamento", modelo="m", tokens_entrada=1,
             tokens_saida=1, custo_usd=Decimal(0), ok=True, erro=None,
         )
-    enviador, notificador = EnviadorFake(), NotificadorFake()
-    srv = servico(sessoes, config, QUARTA_4H, enviador, ExecutorFake(dump_codigo=1), notificador)
+    enviador, avisador = EnviadorFake(), AvisadorFake()
+    srv = servico(sessoes, config, QUARTA_4H, enviador, ExecutorFake(dump_codigo=1), avisador)
     srv.executar(QUARTA_4H)
     (e,) = execucoes(sessoes)
     assert e.status is StatusManutencao.ERRO and "pg_dump falhou" in e.erro
     assert (e.arquivo, e.enviado_r2, e.apagados) == (None, False, None)
     assert enviador.enviados == [] and list(pasta.iterdir()) == []
-    assert len(notificador.mensagens) == 1
-    destino, texto = notificador.mensagens[0]
-    assert destino is Destino.ADMIN and "Backup" in texto and "pg_dump falhou" in texto
-    assert "Traceback" not in texto
+    [(tipo, chave, dados)] = avisador.avisos
+    assert (tipo, chave) == (TipoAviso.BACKUP_ERRO, CHAVE_GERAL) and dados.titulo_extra == "14/10"
+    assert "pg_dump falhou" in dados.linhas[0] and dados.linhas[1] == "Nenhum backup novo foi gravado"
+    assert avisador.mensagens[0][0] is Destino.ADMIN and "Traceback" not in avisador.mensagens[0][1]
     with sessoes() as s:  # sem backup novo, nada é apagado
         assert s.scalar(select(ChamadaIA.id)) is not None
 
 
 def test_falha_na_validacao(sessoes, config, pasta):
-    notificador = NotificadorFake()
-    servico(sessoes, config, QUARTA_4H, None, ExecutorFake(lista=""), notificador).executar(QUARTA_4H)
+    avisador = AvisadorFake()
+    servico(sessoes, config, QUARTA_4H, None, ExecutorFake(lista=""), avisador).executar(QUARTA_4H)
     (e,) = execucoes(sessoes)
     assert e.status is StatusManutencao.ERRO and "validação" in e.erro
-    assert list(pasta.iterdir()) == [] and len(notificador.mensagens) == 1
+    assert list(pasta.iterdir()) == [] and avisador.tipos() == [TipoAviso.BACKUP_ERRO]
 
 
 def test_falha_no_r2_mantem_o_local_avisa_e_nao_vaza_segredo(sessoes, config, pasta, caplog):
     caplog.set_level(logging.DEBUG)
     erro = RuntimeError(f"An error occurred (SignatureDoesNotMatch) for key ID-FALSO-R2 secret {SEGREDO}")
-    enviador, notificador = EnviadorFake(erro), NotificadorFake()
-    servico(sessoes, config, QUARTA_4H, enviador=enviador, notificador=notificador).executar(QUARTA_4H)
+    enviador, avisador = EnviadorFake(erro), AvisadorFake()
+    servico(sessoes, config, QUARTA_4H, enviador=enviador, avisador=avisador).executar(QUARTA_4H)
     (e,) = execucoes(sessoes)
     assert e.status is StatusManutencao.ERRO and not e.enviado_r2
     assert e.arquivo == "tcg-diario-2026-10-14.dump" and (pasta / e.arquivo).exists()
     assert "R2" in e.erro and "SignatureDoesNotMatch" in e.erro
     assert e.apagados is not None  # o backup local existe: a limpeza roda
-    assert len(notificador.mensagens) == 1
-    for texto in (e.erro, notificador.mensagens[0][1], caplog.text):
+    assert avisador.tipos() == [TipoAviso.BACKUP_ERRO]
+    assert avisador.dados(TipoAviso.BACKUP_ERRO)[0].linhas[1] == "O backup local ficou salvo"
+    for texto in (e.erro, avisador.mensagens[0][1], caplog.text):
         assert SEGREDO not in texto and "ID-FALSO-R2" not in texto
 
 
@@ -281,15 +288,15 @@ def test_falha_na_copia_semanal_mantem_o_diario_envia_e_limpa(sessoes, config, p
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(backup, "_copiar_atomico", disco_cheio)
-    enviador, notificador = EnviadorFake(), NotificadorFake()
-    servico(sessoes, config, DOMINGO_4H, enviador=enviador, notificador=notificador).executar(DOMINGO_4H)
+    enviador, avisador = EnviadorFake(), AvisadorFake()
+    servico(sessoes, config, DOMINGO_4H, enviador=enviador, avisador=avisador).executar(DOMINGO_4H)
     (e,) = execucoes(sessoes)
     assert e.status is StatusManutencao.ERRO and "cópia semanal" in e.erro
     assert e.arquivo == "tcg-diario-2026-10-18.dump" and (pasta / e.arquivo).exists()
     assert enviador.enviados == ["diario/tcg-2026-10-18.dump"] and e.enviado_r2
     assert e.apagados is not None
-    (_, texto), = notificador.mensagens
-    assert "O backup local ficou salvo" in texto and "nenhum backup novo" not in texto.lower()
+    [dados] = avisador.dados(TipoAviso.BACKUP_ERRO)
+    assert dados.linhas[1] == "O backup local ficou salvo" and "cópia semanal" in dados.linhas[0]
 
 
 def test_erro_na_recuperacao_da_madrugada_ganha_mais_uma_tentativa_as_4h(sessoes, config):
@@ -318,10 +325,27 @@ def test_recuperacao_ok_na_madrugada_nao_repete_as_4h(sessoes, config):
 
 def test_interrompida_ao_subir_avisa_o_admin_uma_vez(sessoes, config):
     gravar_execucao(sessoes, QUARTA_4H, StatusManutencao.RODANDO)
-    notificador = NotificadorFake()
-    servico(sessoes, config, QUARTA_4H + timedelta(minutes=10), notificador=notificador).inicializar()
-    (destino, texto), = notificador.mensagens
-    assert destino is Destino.ADMIN and "interrompid" in texto and "Traceback" not in texto
-    outro = NotificadorFake()
-    servico(sessoes, config, QUARTA_4H + timedelta(minutes=20), notificador=outro).inicializar()
-    assert outro.mensagens == []
+    avisador = AvisadorFake()
+    servico(sessoes, config, QUARTA_4H + timedelta(minutes=10), avisador=avisador).inicializar()
+    [(tipo, _, dados)] = avisador.avisos
+    assert tipo is TipoAviso.BACKUP_INTERROMPIDO
+    assert dados.linhas == ("1 execução(ões) interrompida(s) no meio: o serviço de manutenção reiniciou",)
+    outro = AvisadorFake()
+    servico(sessoes, config, QUARTA_4H + timedelta(minutes=20), avisador=outro).inicializar()
+    assert outro.avisos == []
+
+
+def test_tick_roda_a_vigia_mesmo_com_o_backup_desligado(sessoes, config):
+    from tcg_sniper.avisos import servico as avisos
+    from tcg_sniper.avisos.catalogo import TipoAviso
+
+    relogio = Relogio(QUARTA_4H - timedelta(hours=3))
+    srv = ServicoManutencao(
+        sessoes, config, AvisadorFake(), None, ExecutorFake(), relogio=relogio, dormir=lambda _: None
+    )
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", relogio.agora, COLETOR_MANUTENCAO)
+    relogio.agora += timedelta(minutes=11)
+    srv.tick()
+    with sessoes() as s:
+        assert "casador" in avisos.abertos(s, TipoAviso.SERVICO_SEM_SINAL)

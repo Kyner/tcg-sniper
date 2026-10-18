@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
+from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.casador.pergunta import assinatura, avaliar_par
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
@@ -23,7 +25,6 @@ from tcg_sniper.ia.modelos import (
     SemOrcamento,
     Transporte,
 )
-from tcg_sniper.notificador.base import Destino, Notificador
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class ServicoCasador:
         sessoes: sessionmaker[Session],
         transporte: Transporte | None,
         config_env: Config,
-        notificador: Notificador,
+        avisador: Avisador,
         cliente_http: httpx.Client | None = None,
         relogio: Callable[[], datetime] | None = None,
         dormir: Callable[[float], None] | None = None,
@@ -47,12 +48,11 @@ class ServicoCasador:
         self._sessoes = sessoes
         self._transporte = transporte
         self._config_env = config_env
-        self._notificador = notificador
+        self._avisador = avisador
         self._http = cliente_http or httpx.Client(timeout=TIMEOUT_IMAGEM_S, headers={"User-Agent": "Mozilla/5.0"})
         self._relogio = relogio or repo.agora_utc
         self._dormir = dormir
         self._parar = threading.Event()
-        self._avisos_orcamento: set[str] = set()
         # (anúncio, produto) -> (assinatura, falhas seguidas, espera até): o par que falhou não trava a fila
         self._falhas: dict[tuple[int, int], tuple[str, int, datetime]] = {}
 
@@ -89,12 +89,14 @@ class ServicoCasador:
             # vários anúncios podem sugerir o mesmo produto: cada objeto sai da sessão uma vez só
             for obj in {*(p.anuncio for p, _ in pares), *(p.produto for p, _ in pares)}:
                 s.expunge(obj)
+        self._avisador.resolver(TipoAviso.IA_PAUSADA, CHAVE_GERAL)  # ativo e ligado: uma pausa aberta acabou
         for anuncio_id, produto_id in ja_avaliados:
             with self._sessoes() as s, s.begin():
                 av = repo_ia.avaliacoes_dos_pares(s, [(anuncio_id, produto_id)]).get((anuncio_id, produto_id))
                 if av is not None and av.aplicada_em is None:
                     self._aplicar(s, av, limites, self._relogio())
-        avaliados = falhas = 0
+        avaliados = falhas = confirmados = ignorados = 0
+        chamada_ok = False
         for par, atual in pares:
             if self._parar.is_set():
                 break
@@ -104,14 +106,14 @@ class ServicoCasador:
                     self._sessoes, self._transporte, self._http, par.anuncio, par.produto, par.preco_liga,
                     par.preco_amazon, finalidade="casamento", zona=zona, relogio=self._relogio,
                 )
-                self._gravar(par, veredito, resposta, sem_imagem, automatico, limites)
+                decisao = self._gravar(par, veredito, resposta, sem_imagem, automatico, limites)
             except SemOrcamento as erro:
                 self._avisar_orcamento(str(erro), zona)
                 break
             except (ChaveInvalida, ConfiguracaoInvalida) as erro:
                 with self._sessoes() as s, s.begin():
                     repo.pausar(s, str(erro), self._relogio(), COLETOR_CASADOR)
-                self._notificador.enviar(Destino.ADMIN, f"⚠️ Casador (IA) pausado: {erro}. Corrija e clique em Retomar em Serviços.")
+                self._avisador.avisar(TipoAviso.IA_PAUSADA, CHAVE_GERAL, Dados(linhas=(f"Motivo: {erro}",)))
                 log.error("casador pausado: %s", erro)
                 break
             except RespostaForaDoFormato as erro:  # a chamada funcionou: só o par espera
@@ -124,15 +126,37 @@ class ServicoCasador:
                 self._marcar_falha(chave, atual)
                 log.warning("IA falhou no anúncio %s: %s", par.anuncio.asin, erro)
                 if falhas >= FALHAS_SEGUIDAS_MAX:
+                    dados = Dados(
+                        linhas=(f"{FALHAS_SEGUIDAS_MAX} chamadas seguidas falharam; a rodada parou", f"Última: {erro}")
+                    )
+                    self._avisador.avisar(TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL, dados)
                     break
                 continue
             except Exception:
                 self._marcar_falha(chave, atual)
                 log.exception("erro inesperado no anúncio %s; segue para o próximo", par.anuncio.asin)
                 continue
+            if not chamada_ok:  # a primeira chamada ok da rodada fecha falhas seguidas e falta de orçamento
+                chamada_ok = True
+                self._avisador.resolver(TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL)
+                self._avisador.resolver_todos(TipoAviso.IA_SEM_ORCAMENTO)
             falhas = 0
             self._falhas.pop(chave, None)
             avaliados += 1
+            confirmados += decisao is StatusCasamento.CONFIRMADO
+            ignorados += decisao is StatusCasamento.IGNORADO
+        if avaliados:
+            esperando = avaliados - confirmados - ignorados
+            dados = Dados(
+                linhas=(
+                    f"Avaliados: {avaliados}",
+                    f"Confirmados pelo automático: {confirmados}",
+                    f"Ignorados pelo automático: {ignorados}",
+                    f"Esperando você: {esperando}",
+                ),
+                acao="Revise os pendentes em Admin → Casamentos." if esperando else None,
+            )
+            self._avisador.avisar(TipoAviso.IA_RODADA_CONCLUIDA, CHAVE_GERAL, dados)
         return avaliados
 
     def _em_espera(self, chave: tuple[int, int], atual: str, agora: datetime) -> bool:
@@ -154,7 +178,7 @@ class ServicoCasador:
         for chave in self._falhas.keys() - pendentes:
             del self._falhas[chave]
 
-    def _gravar(self, par, veredito, resposta, sem_imagem, automatico, limites) -> None:
+    def _gravar(self, par, veredito, resposta, sem_imagem, automatico, limites) -> StatusCasamento | None:
         agora = self._relogio()
         with self._sessoes() as s, s.begin():
             anterior = repo_ia.avaliacoes_dos_pares(s, [(par.anuncio.id, par.produto.id)]).get((par.anuncio.id, par.produto.id))
@@ -166,32 +190,34 @@ class ServicoCasador:
                 chamada_id=resposta.chamada_id, agora=agora,
             )
             if automatico and not ja_aplicada:
-                self._aplicar(s, av, limites, agora)
+                return self._aplicar(s, av, limites, agora)
+        return None
 
     @staticmethod
-    def _aplicar(s: Session, av, limites: tuple[int, int], agora: datetime) -> None:
+    def _aplicar(s: Session, av, limites: tuple[int, int], agora: datetime) -> StatusCasamento | None:
         """Automático: confirma ou ignora o anúncio se a confiança passa do limite. Só age se o anúncio
         ainda está pendente com o mesmo produto (decisão do usuário vale)."""
         confirmar, ignorar = limites
         anuncio = s.get(AnuncioAmazon, av.anuncio_id, with_for_update=True, populate_existing=True)
         if anuncio.status_casamento is not StatusCasamento.PENDENTE or anuncio.produto_id != av.produto_id:
-            return  # o usuário decidiu enquanto a IA respondia
+            return None  # o usuário decidiu enquanto a IA respondia
         if av.mesmo_produto and av.confianca >= confirmar:
             repo_amz.confirmar_casamento(s, anuncio.id, av.produto_id, agora, OrigemCasamento.AUTOMATICO_IA)
+            decisao = StatusCasamento.CONFIRMADO
         elif not av.mesmo_produto and av.confianca >= ignorar:
             repo_amz.ignorar_anuncio(s, anuncio.id, agora, OrigemCasamento.AUTOMATICO_IA)
+            decisao = StatusCasamento.IGNORADO
         else:
-            return
+            return None
         av.aplicada_em = agora
+        return decisao
 
     def _avisar_orcamento(self, motivo: str, zona) -> None:
         local = self._relogio().astimezone(zona)
-        chave = f"mes:{local:%Y-%m}" if "mensal" in motivo else f"dia:{local:%Y-%m-%d}"
+        periodo = f"mês {local:%m/%Y}" if "mensal" in motivo else f"dia {local:%d/%m}"
         log.warning("casador sem orçamento: %s", motivo)
-        if chave in self._avisos_orcamento:
-            return
-        self._avisos_orcamento.add(chave)
-        self._notificador.enviar(Destino.ADMIN, f"⚠️ Casador (IA) parado: {motivo}. Volta sozinho no próximo período ou ao subir o teto em Configurações → IA.")
+        dados = Dados(titulo_extra=periodo, linhas=(f"Motivo: {motivo}",))
+        self._avisador.avisar(TipoAviso.IA_SEM_ORCAMENTO, periodo, dados)
 
     def rodar(self) -> None:
         log.info("casador iniciado")

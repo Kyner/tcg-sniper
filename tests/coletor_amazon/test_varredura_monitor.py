@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fakes import (
+    AvisadorFake,
     NavegadorInterativoFake,
-    NotificadorFake,
     criar_anuncio,
     criar_preco_liga,
     criar_produto,
@@ -19,6 +19,7 @@ from fakes_checkout import carrinho, checkout_resumo, login
 from fakes_ofertas import bloco_oferta, html_ofertas
 from sqlalchemy import select
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.coletor_amazon.busca import url_busca
 from tcg_sniper.coletor_amazon.config import aplicar_config
 from tcg_sniper.coletor_amazon.parsers import URL_CARRINHO, url_ofertas, url_painel_ofertas, url_vendedor
@@ -76,13 +77,13 @@ class FabricaFake:
 
 def varredura(engine, sessoes, config, paginas, apos_clique=None, relogio=None):
     navegador = NavegadorInterativoFake(paginas, apos_clique or [])
-    notificador = NotificadorFake()
+    avisador = AvisadorFake()
     relogio = relogio or Relogio(MEIO_DIA)
     v = VarreduraAmazon(
-        engine, sessoes, FabricaFake(navegador), notificador, config,
+        engine, sessoes, FabricaFake(navegador), avisador, config,
         relogio=relogio, rng=random.Random(1), dormir=lambda _: None,
     )
-    return v, navegador, notificador, relogio
+    return v, navegador, avisador, relogio
 
 
 def confirmado(sessoes, nome, asin, preco=None, lido_em=MEIO_DIA):
@@ -139,7 +140,7 @@ def test_conferencia_antes_do_monitor_antes_da_descoberta(engine, sessoes, confi
         url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00"),
         url_livre: pagina_html(html_busca(), url=url_livre),
     }
-    v, navegador, notificador, _ = varredura(
+    v, navegador, avisador, _ = varredura(
         engine, sessoes, config, paginas, [um_item, checkout_resumo("R$ 700,00", "R$ 0,00", None, "R$ 700,00"), carrinho()]
     )
     assert v.passo() == 0  # conferência
@@ -152,8 +153,8 @@ def test_conferencia_antes_do_monitor_antes_da_descoberta(engine, sessoes, confi
     assert (conf.anuncio_id, conf.situacao, conf.total, conf.item_removido) == (candidata, SituacaoCheckout.OK, Decimal("700.00"), True)
     with sessoes() as s:
         assert s.scalar(select(Oportunidade)).preco_amazon == Decimal("700.00")
-    [(destino, texto)] = notificador.mensagens
-    assert destino is Destino.OPORTUNIDADES and "preço conferido (sem frete)" in texto
+    [(_, texto)] = [m for m in avisador.mensagens if m[0] is Destino.OPORTUNIDADES]
+    assert "(conferido; frete" in texto
 
 
 def test_janela_propria_do_monitor(engine, sessoes, config):
@@ -243,7 +244,7 @@ def test_sem_login_desliga_a_conferencia_avisa_uma_vez_e_o_monitor_continua(engi
         url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 700,00"),
         url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00"),
     }
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, paginas, [um_item, login(), carrinho()])
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, paginas, [um_item, login(), carrinho()])
     v.passo()
     [conf] = conferencias(sessoes)
     assert (conf.situacao, conf.item_removido) == (SituacaoCheckout.SEM_LOGIN, True)
@@ -252,8 +253,10 @@ def test_sem_login_desliga_a_conferencia_avisa_uma_vez_e_o_monitor_continua(engi
     v.passo()
     assert navegador.visitadas[-1] == url_ofertas("B0VENC0001")  # o monitor segue
     v.passo()
-    avisos = [t for d, t in notificador.mensagens if d is Destino.ADMIN]
-    assert len(avisos) == 1 and "6081" in avisos[0] and "Retomar conferência" in avisos[0]
+    [sem_login] = avisador.dados(TipoAviso.AMAZON_SEM_LOGIN)
+    assert sem_login.linhas == ("A conferência de checkout parou; o monitor de preço continua",)
+    [texto] = [t for d, t in avisador.mensagens if "conta sem login" in t]
+    assert "porta 6081" in texto and "Retomar conferência" in texto
     assert len(conferencias(sessoes)) == 1
 
 
@@ -312,11 +315,11 @@ def test_monitor_que_falha_nao_trava_no_mesmo_anuncio(engine, sessoes, config):
 
 def test_captcha_no_monitor_pausa_a_amazon(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
-    v, _, notificador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): pagina_html(CAPTCHA, url=url_ofertas("B0AAAA0001"))})
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): pagina_html(CAPTCHA, url=url_ofertas("B0AAAA0001"))})
     assert v.passo() == ESPERA_OCIOSA_S
     with sessoes() as s:
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO_DESAFIO
-    assert any(d is Destino.ADMIN and "CAPTCHA" in t for d, t in notificador.mensagens)
+    assert TipoAviso.AMAZON_CAPTCHA in avisador.tipos()
 
 
 def test_leituras_com_mais_de_30_dias_sao_apagadas(engine, sessoes, config):
@@ -346,7 +349,7 @@ def test_marca_de_conferencia_em_andamento_garante_a_retirada_depois_de_um_reini
     assert (marca.situacao, marca.item_removido) == (SituacaoCheckout.FALHA, False) and "andamento" in marca.motivo
     del navegador.clicar  # o coletor reinicia (mesmas páginas): a primeira volta tira o item
     v2 = VarreduraAmazon(
-        engine, sessoes, FabricaFake(navegador), NotificadorFake(), config,
+        engine, sessoes, FabricaFake(navegador), AvisadorFake(), config,
         relogio=Relogio(MEIO_DIA), rng=random.Random(1), dormir=lambda _: None,
     )
     v2.inicializar()
@@ -397,7 +400,7 @@ def test_item_que_nao_sai_espera_15_minutos_e_conta_a_tentativa(engine, sessoes,
             situacao=SituacaoCheckout.FALHA, motivo="x", item_removido=False,
         ).id
     um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
-    v, navegador, notificador, relogio = varredura(
+    v, navegador, avisador, relogio = varredura(
         engine, sessoes, config, {URL_CARRINHO: [um_item, um_item, um_item, um_item]}, [um_item, um_item]
     )
     v.passo()
@@ -410,7 +413,7 @@ def test_item_que_nao_sai_espera_15_minutos_e_conta_a_tentativa(engine, sessoes,
         repo_amz.registrar_preco(s, anuncio_id, Decimal("990.00"), OrigemPreco.OFERTAS, None, Envio.AMAZON, relogio.agora, SP)
     v.passo()
     assert len(navegador.cliques) == 2
-    assert not [t for d, t in notificador.mensagens if d is Destino.ADMIN]  # aviso só ao passar para "à mão"
+    assert TipoAviso.AMAZON_CARRINHO not in avisador.tipos()  # aviso só ao passar para "à mão"
 
 
 # --- retirada automática só com o carrinho exatamente como a conferência deixou ---------------------
@@ -427,23 +430,22 @@ def preso(sessoes, asin="B0CAND0001", em=MEIO_DIA - timedelta(minutes=5), nome="
         ).id
 
 
-def avisos_a_mao(notificador, asin="B0CAND0001"):
-    return [
-        t for d, t in notificador.mensagens
-        if d is Destino.ADMIN and f"Confira o carrinho da Amazon: pode haver 1× {asin} de uma conferência automática" in t
-    ]
+def avisos_a_mao(avisador, asin="B0CAND0001"):
+    return [d for tipo, chave, d in avisador.avisos if tipo is TipoAviso.AMAZON_CARRINHO and chave == asin]
 
 
-def assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, notificador, v):
+def assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, avisador, v):
     assert navegador.cliques == []
     with sessoes() as s:
         conf = s.get(ConferenciaCheckout, conferencia_id)
         assert conf.item_removido is False and conf.conferir_a_mao_em == MEIO_DIA and "conferir à mão" in conf.motivo
-    [aviso] = avisos_a_mao(notificador)
-    assert "http://" in aviso and ":6081/vnc.html se não for seu." in aviso
+    [aviso] = avisos_a_mao(avisador)
+    assert aviso.titulo_extra == "B0CAND0001"
+    assert aviso.linhas[0] == "Pode haver 1× B0CAND0001 de uma conferência automática no carrinho"
+    assert "noVNC da Amazon (porta 6081)" in avisador.mensagens[-1][1]
     visitadas = len(navegador.visitadas)
     assert v.passo() == ESPERA_OCIOSA_S  # estado persistente: não volta ao carrinho, não avisa de novo
-    assert len(navegador.visitadas) == visitadas and len(avisos_a_mao(notificador)) == 1
+    assert len(navegador.visitadas) == visitadas and len(avisos_a_mao(avisador)) == 1
 
 
 @pytest.mark.parametrize(
@@ -457,32 +459,32 @@ def assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, notificador, v):
 )
 def test_carrinho_diferente_do_que_a_conferencia_deixou_nao_e_clicado(engine, sessoes, config, pagina):
     conferencia_id = preso(sessoes)
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [pagina]})
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [pagina]})
     assert v.passo() == 0
-    assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, notificador, v)
+    assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, avisador, v)
 
 
 def test_marca_com_mais_de_30_min_nao_e_clicada(engine, sessoes, config):
     conferencia_id = preso(sessoes, em=MEIO_DIA - RETIRADA_AUTOMATICA_MAX - timedelta(minutes=1))
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [carrinho("B0CAND0001", subtotal="R$ 700,00")]})
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [carrinho("B0CAND0001", subtotal="R$ 700,00")]})
     assert v.passo() == 0
-    assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, notificador, v)
+    assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, avisador, v)
 
 
 def test_marca_velha_com_o_item_ja_fora_resolve_sem_clicar(engine, sessoes, config):
     conferencia_id = preso(sessoes, em=MEIO_DIA - timedelta(hours=2))
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [carrinho("B0DOUSUARIO")]})
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [carrinho("B0DOUSUARIO")]})
     v.passo()
     with sessoes() as s:
         conf = s.get(ConferenciaCheckout, conferencia_id)
         assert conf.item_removido is True and conf.conferir_a_mao_em is None
-    assert navegador.cliques == [] and notificador.mensagens == []
+    assert navegador.cliques == [] and TipoAviso.AMAZON_CARRINHO not in avisador.tipos()
 
 
 def test_tres_falhas_passam_para_conferir_a_mao_e_o_aviso_nao_se_repete_depois_de_reiniciar(engine, sessoes, config):
     conferencia_id = preso(sessoes, em=MEIO_DIA - timedelta(minutes=1))
     relogio = Relogio(MEIO_DIA)
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [login(), login(), login()]}, relogio=relogio)
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [login(), login(), login()]}, relogio=relogio)
     for tentativa in range(1, 4):
         v.passo()
         with sessoes() as s:
@@ -493,10 +495,10 @@ def test_tres_falhas_passam_para_conferir_a_mao_e_o_aviso_nao_se_repete_depois_d
             o = oferta_lista("990.00", vendedor="Amazon.com.br", seller_id="amazon", envio=Envio.AMAZON, posicao=0)
             repo_amz.gravar_ofertas(s, atual, relogio.agora, [repo_amz.OfertaAvaliada(o, None, True, True)])
             repo_amz.registrar_preco(s, atual, o.preco, OrigemPreco.OFERTAS, None, Envio.AMAZON, relogio.agora, SP)
-    assert navegador.cliques == [] and len(avisos_a_mao(notificador)) == 1
+    assert navegador.cliques == [] and len(avisos_a_mao(avisador)) == 1
     with sessoes() as s:
         assert s.get(ConferenciaCheckout, conferencia_id).conferir_a_mao_em is not None
-    novo = NotificadorFake()  # o coletor reinicia: o aviso está gravado no estado, não se repete
+    novo = AvisadorFake()  # o coletor reinicia: o aviso está gravado no estado, não se repete
     v2 = VarreduraAmazon(
         engine, sessoes, FabricaFake(navegador), novo, config, relogio=relogio, rng=random.Random(1), dormir=lambda _: None,
     )
@@ -528,12 +530,13 @@ def test_captcha_depois_de_adicionar_avisa_que_o_item_ficou_no_carrinho(engine, 
         url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 700,00"),
     }
     um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
-    v, _, notificador, _ = varredura(engine, sessoes, config, paginas, [um_item])
+    v, _, avisador, _ = varredura(engine, sessoes, config, paginas, [um_item])
     assert v.passo() == ESPERA_OCIOSA_S
-    [aviso] = [t for d, t in notificador.mensagens if d is Destino.ADMIN and "CAPTCHA" in t]
-    assert (
-        "Uma conferência deixou 1× B0CAND0001 no carrinho; ele sai se você retomar em até 30 min; senão confira à mão"
-    ) in aviso
+    [captcha] = avisador.dados(TipoAviso.AMAZON_CAPTCHA)
+    assert any("1× B0CAND0001 no carrinho" in linha for linha in captcha.linhas)
+    assert captcha.linhas[2] == (
+        "Uma conferência deixou 1× B0CAND0001 no carrinho: sai sozinho se você retomar em até 30 min; senão confira à mão"
+    )
     [conf] = conferencias(sessoes)
     assert conf.item_removido is False
 
@@ -630,11 +633,12 @@ def test_conferencia_que_falha_avisa_na_hora_com_o_preco_anunciado(engine, sesso
         url=url_painel_ofertas("B0CAND0001"),
     )
     paginas = {URL_CARRINHO: [carrinho()], url_painel_ofertas("B0CAND0001"): sem_contador}
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, paginas)
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, paginas)
     v.passo()  # contador do carrinho ilegível no painel: falha sem clicar
     assert conferencias(sessoes)[0].situacao is SituacaoCheckout.FALHA and navegador.cliques == []
-    [texto] = [t for d, t in notificador.mensagens if d is Destino.OPORTUNIDADES]
-    assert "Amazon: R$ 700,00, preço anunciado, não conferido (a conferência falhou: contador do carrinho ilegível" in texto
+    [texto] = [t for d, t in avisador.mensagens if d is Destino.OPORTUNIDADES]
+    assert "não conferido: a conferência falhou: contador do carrinho ilegível" in texto
+    assert "Amazon: *R$ 700,00* (anunciado, sem impostos" in texto
     with sessoes() as s:
         assert s.scalar(select(Oportunidade)).preco_alertado == Decimal("700.00")
 
@@ -642,22 +646,22 @@ def test_conferencia_que_falha_avisa_na_hora_com_o_preco_anunciado(engine, sesso
 def test_oferta_que_sumiu_do_painel_nao_avisa_com_o_anunciado(engine, sessoes, config):
     confirmado(sessoes, "cand", "B0CAND0001", "700.00")  # lida agora: 30% abaixo, à espera da conferência
     paginas = {URL_CARRINHO: [carrinho()], url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 720,00")}
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, paginas)
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, paginas)
     v.passo()  # a oferta mudou no painel: falha sem clicar; a próxima leitura decide
     [conf] = conferencias(sessoes)
     assert conf.situacao is SituacaoCheckout.FALHA and conf.motivo.startswith("a oferta não está mais no painel")
     assert navegador.cliques == []
-    assert [t for d, t in notificador.mensagens if d is Destino.OPORTUNIDADES] == []
+    assert [t for d, t in avisador.mensagens if d is Destino.OPORTUNIDADES] == []
     with sessoes() as s:
         assert s.scalar(select(Oportunidade)) is None
 
 
 def test_captcha_na_retirada_avisa_qual_item_pode_ter_ficado(engine, sessoes, config):
     preso(sessoes)
-    v, navegador, notificador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [pagina_html(CAPTCHA, url=URL_CARRINHO)]})
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [pagina_html(CAPTCHA, url=URL_CARRINHO)]})
     assert v.passo() == ESPERA_OCIOSA_S and navegador.cliques == []
-    [aviso] = [t for d, t in notificador.mensagens if d is Destino.ADMIN and "CAPTCHA" in t]
-    assert "Uma conferência deixou 1× B0CAND0001 no carrinho" in aviso
+    [captcha] = avisador.dados(TipoAviso.AMAZON_CAPTCHA)
+    assert any("1× B0CAND0001 no carrinho" in linha for linha in captcha.linhas)
     with sessoes() as s:
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO_DESAFIO
 
@@ -679,3 +683,87 @@ def test_leitura_que_falha_conta_no_teto_todas_as_paginas_abertas(engine, sessoe
     v.passo()
     assert len(navegador.visitadas) == 4  # ofertas, perfil X, perfil Y duas vezes
     assert v._teto_monitor.liberado_em(MEIO_DIA, 4) is not None  # as 4 contaram (antes: só 1)
+
+
+def test_rodada_do_monitor_avisa_quando_fica_em_dia(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=20))
+    confirmado(sessoes, "b", "B0BBBB0001")
+    paginas = {
+        url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 950,00"),
+        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 990,00"),
+    }
+    v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and v.passo() == 0
+    assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
+    assert v.passo() == ESPERA_OCIOSA_S
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas == (
+        "Anúncios lidos: 2", "Preços em queda: 1", "Conferências de checkout: 0", "Duração: menos de 1 min",
+    )
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert len(avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)) == 1
+
+
+def test_monitor_ocioso_nao_avisa_rodada(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001", "990.00")  # lido agora: em dia
+    v, _, avisador, _ = varredura(engine, sessoes, config, {})
+    for _ in range(3):
+        assert v.passo() == ESPERA_OCIOSA_S
+    assert avisador.avisos == []
+
+
+def test_retirada_que_ve_o_carrinho_sem_o_item_resolve_o_aviso_do_carrinho(engine, sessoes, config):
+    _, anuncio_id = confirmado(sessoes, "cand", "B0CAND0001")
+    with sessoes() as s, s.begin():
+        repo_amz.registrar_conferencia(
+            s, em=MEIO_DIA - timedelta(minutes=5), anuncio_id=anuncio_id, vendedor_nome="Amazon.com.br",
+            preco_anunciado=Decimal("700.00"), itens=None, frete=None, impostos=None, total=None,
+            situacao=SituacaoCheckout.FALHA, motivo="em andamento", item_removido=False,
+        )
+    v, _, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: carrinho()})
+    v.passo()
+    assert (TipoAviso.AMAZON_CARRINHO, "B0CAND0001") in avisador.resolvidos
+
+
+def test_conferencia_ok_resolve_o_aviso_de_sem_login_e_o_de_captcha(engine, sessoes, config):
+    confirmado(sessoes, "cand", "B0CAND0001", "700.00")
+    um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
+    paginas = {
+        URL_CARRINHO: [carrinho(), um_item, um_item, carrinho()],
+        url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 700,00"),
+    }
+    v, _, avisador, _ = varredura(
+        engine, sessoes, config, paginas, [um_item, checkout_resumo("R$ 700,00", "R$ 0,00", None, "R$ 700,00"), carrinho()]
+    )
+    v.passo()
+    assert [c.situacao for c in conferencias(sessoes)] == [SituacaoCheckout.OK]
+    assert (TipoAviso.AMAZON_SEM_LOGIN, CHAVE_GERAL) in avisador.resolvidos
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos  # a página do checkout abriu limpa
+
+
+def test_leitura_do_monitor_sem_captcha_resolve_o_aviso_de_captcha(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 990,00")})
+    assert v.passo() == 0
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_captcha_do_monitor_resolve_na_primeira_leitura_limpa_depois_de_retomar(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    url = url_ofertas("B0AAAA0001")
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url: [pagina_html(CAPTCHA, url=url), ofertas("B0AAAA0001", "R$ 990,00")]})
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) not in avisador.resolvidos
+    with sessoes() as s, s.begin():
+        repo.retomar(s, MEIO_DIA, COLETOR_AMAZON)
+    assert v.passo() == 0
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_retirada_por_clique_resolve_o_aviso_do_carrinho(engine, sessoes, config):
+    preso(sessoes)
+    um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [um_item, carrinho()]}, [carrinho()])
+    v.passo()
+    assert len(navegador.cliques) == 1
+    assert (TipoAviso.AMAZON_CARRINHO, "B0CAND0001") in avisador.resolvidos

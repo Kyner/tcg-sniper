@@ -9,23 +9,24 @@ Para apontar para outro admin, defina ADMIN_BASE (padrão http://127.0.0.1:8000)
 No computador, cada tela roda também com o menu recolhido (localStorage "menu" = "recolhido").
 Falha (código 1) se alguma tela estourar a largura da janela ou tiver erro de script.
 Elementos com rolagem horizontal própria (fora das tabelas em .overflow-x-auto) saem como avisos, sem falhar.
-Salva os prints em /tmp/verificar_layout/ (docker cp para ver).
+Salva os prints em <pasta temporária>/verificar_layout/ (no container: /tmp/verificar_layout; docker cp para ver).
 """
 
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("ADMIN_BASE", "http://127.0.0.1:8000")
 FIXAS = [
-    "/", "/servicos", "/catalogo", "/casamentos?situacao=todos", "/ofertas", "/mensagens", "/configuracoes",
+    "/", "/servicos", "/catalogo", "/casamentos?situacao=todos", "/ofertas", "/mensagens", "/configuracoes", "/configuracoes?msg=avisos",
     "/logs", "/logs?aba=amazon", "/logs?aba=ia", "/logs?aba=checkout", "/logs?aba=monitor", "/logs?aba=manutencao",
 ]
 TAMANHOS = {"celular": (390, 844), "computador": (1440, 900)}
-SAIDA = Path("/tmp/verificar_layout")
+SAIDA = Path(tempfile.gettempdir()) / "verificar_layout"
 MENUS = {"expandido": None, "recolhido": "recolhido"}  # o menu recolhido só existe no computador
 
 ROLAGEM_INTERNA = r"""() => [...document.querySelectorAll('body *')]

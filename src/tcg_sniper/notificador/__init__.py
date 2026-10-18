@@ -1,14 +1,4 @@
-from sqlalchemy.orm import Session, sessionmaker
-
-from tcg_sniper.config import Config
-from tcg_sniper.notificador.base import Notificador
-from tcg_sniper.notificador.fila import NotificadorFila
+"""Serviço `notificador` (servico.py): envia a tabela de saída pela Evolution. Quem grava as mensagens é
+`tcg_sniper.avisos` (catálogo, formato e repetição)."""
 
 CHAVE_PADRAO = "trocar-esta-chave"
-
-
-def criar_notificador(config: Config, sessoes: sessionmaker[Session]) -> Notificador:
-    """Os serviços só gravam na tabela de saída; o serviço `notificador` envia (`servico.py`).
-    `config` fica na assinatura para os chamadores não mudarem."""
-    del config
-    return NotificadorFila(sessoes)

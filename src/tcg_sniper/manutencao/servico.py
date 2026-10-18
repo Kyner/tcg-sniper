@@ -3,8 +3,10 @@ banco, copia para o R2 (se configurado) e, com o backup local feito, limpa o his
 
 - Uma execução por dia local: reiniciar não repete (a execução que caiu no meio não conta).
 - Ao subir, se o último backup ok tem mais de 24 h, roda já (PC desligado às 04:00).
-- Falha (dump, validação, R2 ou limpeza): grava o erro e manda UMA mensagem ao grupo admin; tenta de
-  novo no dia seguinte. Sem as variáveis R2_*, o backup fica só no PC ("só local"), sem alerta.
+- A cada passo, o vigia confere o sinal de vida dos outros serviços (`avisos/vigia.py`).
+- Falha (dump, validação, R2 ou limpeza): grava o erro e avisa o grupo admin (`BACKUP_ERRO`, com lembrete
+  enquanto continuar); ok avisa `BACKUP_CONCLUIDO`. Tenta de novo no dia seguinte. Sem as variáveis R2_*,
+  o backup fica só no PC ("só local").
 """
 
 import logging
@@ -15,14 +17,17 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos import vigia
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
+from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db import retencao
 from tcg_sniper.db.models import COLETOR_MANUTENCAO, EstadoColetorTipo, StatusManutencao
+from tcg_sniper.formatacao import formatar_bytes
 from tcg_sniper.manutencao import backup
 from tcg_sniper.manutencao.r2 import Enviador
-from tcg_sniper.notificador.base import Destino, Notificador
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +51,7 @@ class ServicoManutencao:
         self,
         sessoes: sessionmaker[Session],
         config_env: Config,
-        notificador: Notificador,
+        avisador: Avisador,
         enviador: Enviador | None,
         executar: backup.Executar = backup.executar_comando,
         relogio: Callable[[], datetime] | None = None,
@@ -54,7 +59,7 @@ class ServicoManutencao:
     ):
         self._sessoes = sessoes
         self._config_env = config_env
-        self._notificador = notificador
+        self._avisador = avisador
         self._enviador = enviador
         self._executar = executar
         self._relogio = relogio or repo.agora_utc
@@ -63,6 +68,7 @@ class ServicoManutencao:
         self._recuperar = True  # a primeira passada (serviço ativo) confere se o backup está atrasado
         self._conexao = backup.conexao_do_banco(config_env.database_url)
         self._segredos = (*getattr(enviador, "segredos", ()), self._conexao.senha or "")
+        self._vigia_desde = self._relogio()
 
     def parar(self) -> None:
         """Pede o encerramento: a execução em andamento termina e `rodar` volta."""
@@ -73,17 +79,17 @@ class ServicoManutencao:
             interrompidas = repo_man.marcar_interrompidas(s, self._relogio())
         if interrompidas:
             log.warning("%d execução(ões) da manutenção interrompida(s) no meio; o dia roda de novo", interrompidas)
-            self._notificador.enviar(
-                Destino.ADMIN,
-                f"⚠️ Backup do banco: {interrompidas} execução(ões) interrompida(s) no meio (o serviço de manutenção "
-                "reiniciou). O backup do dia roda de novo; veja Logs → Manutenção no admin.",
+            dados = Dados(
+                linhas=(f"{interrompidas} execução(ões) interrompida(s) no meio: o serviço de manutenção reiniciou",)
             )
+            self._avisador.avisar(TipoAviso.BACKUP_INTERROMPIDO, CHAVE_GERAL, dados)
 
     def tick(self) -> bool:
         """Registra que está vivo e roda a execução do dia se for a hora. Devolve se rodou."""
         agora = self._relogio()
         with self._sessoes() as s, s.begin():
             repo_man.registrar_ciclo(s, agora)
+            vigia.verificar(s, agora, self._vigia_desde)  # roda também com o backup desligado
             if repo.obter_estado(s, agora, COLETOR_MANUTENCAO).estado is not EstadoColetorTipo.ATIVO:
                 return False
             zona = ZoneInfo(repo.obter_config_geral(s, self._config_env).fuso)
@@ -165,14 +171,22 @@ class ServicoManutencao:
             )
         if erro_texto is None:
             log.info("manutenção de %s concluída: %s", f"{dia:%d/%m}", status.value)
+            apagadas = sum((apagados or {}).values())
+            dados = Dados(
+                titulo_extra=f"{dia:%d/%m}",
+                linhas=(
+                    f"Tamanho: {formatar_bytes(arquivos.tamanho)}",
+                    f"Cópia no R2: {'sim' if enviado else 'não (só local)'}",
+                    f"Linhas antigas apagadas: {apagadas:,}".replace(",", "."),
+                ),
+            )
+            self._avisador.avisar(TipoAviso.BACKUP_CONCLUIDO, CHAVE_GERAL, dados)
+            self._avisador.resolver(TipoAviso.BACKUP_ERRO, CHAVE_GERAL)
             return
         log.error("manutenção de %s com erro: %s", f"{dia:%d/%m}", erro_texto)
-        local = "o backup local ficou salvo" if arquivos else "nenhum backup novo foi gravado"
-        self._notificador.enviar(
-            Destino.ADMIN,
-            f"⚠️ Backup do banco de {dia:%d/%m} com erro: {erro_texto}. {local[0].upper()}{local[1:]}. "
-            f"Tenta de novo amanhã às {HORA_BACKUP:%H:%M}; veja Logs → Manutenção no admin.",
-        )
+        local = "O backup local ficou salvo" if arquivos else "Nenhum backup novo foi gravado"
+        dados = Dados(titulo_extra=f"{dia:%d/%m}", linhas=(f"Erro: {erro_texto}", local))
+        self._avisador.avisar(TipoAviso.BACKUP_ERRO, CHAVE_GERAL, dados)
 
     def rodar(self) -> None:
         log.info("manutenção iniciada (backup diário às %s)", f"{HORA_BACKUP:%H:%M}")

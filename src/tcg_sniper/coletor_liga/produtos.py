@@ -11,6 +11,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.coletor_liga.execucao import (
     DesafioDetectado,
     Dormir,
@@ -29,7 +30,6 @@ from tcg_sniper.coletor_liga.parsers import parse_produto
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import StatusColeta, TipoColeta
-from tcg_sniper.notificador.base import Notificador
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ DESCRICAO = "Coleta dos produtos ativos"
 def coletar_produtos(
     sessoes: sessionmaker[Session],
     navegador: Navegador,
-    notificador: Notificador,
+    avisador: Avisador,
     config: Config,
     dormir: Dormir = time.sleep,
     embaralhar: Callable[[list], None] = random.shuffle,
@@ -60,7 +60,7 @@ def coletar_produtos(
             try:
                 pagina = abrir_pagina(navegador, url, dormir)
             except DesafioDetectado:
-                registrar_desafio(sessoes, notificador, config, coleta_id, url, ok, falha)
+                registrar_desafio(sessoes, avisador, coleta_id, url, ok, falha)
                 return ResultadoColeta(coleta_id, StatusColeta.PAUSADA_DESAFIO, ok, falha)
             except ErroRede as erro:
                 log.warning("produto %s falhou por rede: %s", produto_id, erro)
@@ -77,5 +77,5 @@ def coletar_produtos(
                 repo.gravar_precos_produto(s, coleta_id, produto_id, resumo, repo.agora_utc())
             ok += 1
     except Exception as erro:  # noqa: BLE001 - erro inesperado fecha a coleta como falha
-        return encerrar_por_erro(sessoes, notificador, coleta_id, DESCRICAO, erro, ok, falha)
-    return concluir_coleta(sessoes, notificador, config, coleta_id, DESCRICAO, "produtos", ok, falha)
+        return encerrar_por_erro(sessoes, avisador, coleta_id, DESCRICAO, erro, ok, falha)
+    return concluir_coleta(sessoes, avisador, config, coleta_id, DESCRICAO, "produtos", ok, falha)

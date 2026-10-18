@@ -12,9 +12,14 @@ no meio, a primeira volta depois do reinício acha a marca; senão o resultado �
 A retirada automática só clica em Excluir com o carrinho exatamente como a conferência o deixou: só o
 ASIN no carrinho ativo, contador 1, subtotal igual ao preço anunciado e marca de até
 `RETIRADA_AUTOMATICA_MAX`. Em qualquer outro caso (ou depois de `MAX_TENTATIVAS_RETIRADA` falhas) não
-clica: a conferência fica "conferir à mão", o grupo admin recebe um aviso (uma vez por conferência,
-gravado no banco) e o admin mostra o alerta com "Já conferi". Com a Amazon pausada, a retirada também
-para."""
+clica: a conferência fica "conferir à mão", o grupo admin recebe um aviso (`AMAZON_CARRINHO`, um por
+ASIN, com lembrete enquanto não resolve; a marca "à mão" fica no banco) e o admin mostra o alerta com
+"Já conferi", que fecha o aviso. Com a Amazon pausada, a retirada também para.
+
+Avisos de fim: `AMAZON_BUSCA_CONCLUIDA`/`PARCIAL`/`FALHOU` só quando o ciclo da descoberta termina de
+verdade (sem busca pendente; uma pausa no meio só avisa a pausa, e a janela que fecha no meio não avisa);
+`AMAZON_MONITOR_CONCLUIDO` quando uma rodada do monitor (do primeiro anúncio lido até não haver nada
+vencido) termina."""
 
 import dataclasses
 import logging
@@ -22,11 +27,16 @@ import random
 import time as relogio_sistema
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from urllib.parse import urlsplit
 
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
+from tcg_sniper.avisos.formato import formatar_duracao
+from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.coletor_amazon import checkout, monitor
 from tcg_sniper.coletor_amazon.busca import (
     ContextoBusca,
@@ -58,7 +68,6 @@ from tcg_sniper.db.models import (
 from tcg_sniper.navegador.base import NavegadorInterativo
 from tcg_sniper.navegador.modelos import ErroRede
 from tcg_sniper.navegador.ritmo import pausa_aleatoria
-from tcg_sniper.notificador.base import Destino, Notificador
 from tcg_sniper.parsing import ErroParser
 
 log = logging.getLogger(__name__)
@@ -76,32 +85,52 @@ ERROS_DE_PAGINA = (ErroParser, ErroRede, CliqueProibido, SeletorAusente)
 MOTIVO_EM_ANDAMENTO = "conferência em andamento (interrompida?): o item pode ter ficado no carrinho"
 
 
-def mensagem_captcha(config: Config, url: str, asin_no_carrinho: str | None = None) -> str:
-    texto = (
-        f"CAPTCHA na Amazon ({url}). Resolver em http://{config.host_publico}:6081/vnc.html "
-        f"e depois clicar em Retomar (Amazon) em http://{config.host_publico}:8000"
-    )
+def _pagina(url: str) -> str:
+    partes = urlsplit(url)
+    return (partes.path or "/") + (f"?{partes.query}" if partes.query else "")
+
+
+def _plural(n: int, singular: str, plural: str) -> str:
+    return f"{n} {singular if n == 1 else plural}"
+
+
+def dados_captcha(url: str, asin_no_carrinho: str | None = None) -> Dados:
+    linhas = [f"Página: {_pagina(url)}", "Busca, monitor e conferência pausados até você retomar"]
     if asin_no_carrinho is not None:
-        texto += (
-            f". Uma conferência deixou 1× {asin_no_carrinho} no carrinho; ele sai se você retomar em até "
-            f"{int(RETIRADA_AUTOMATICA_MAX.total_seconds() // 60)} min; senão confira à mão"
+        minutos = int(RETIRADA_AUTOMATICA_MAX.total_seconds() // 60)
+        linhas.append(
+            f"Uma conferência deixou 1× {asin_no_carrinho} no carrinho: sai sozinho se você retomar em até "
+            f"{minutos} min; senão confira à mão"
         )
-    return texto
+    return Dados(linhas=tuple(linhas))
 
 
-def mensagem_conferir_a_mao(config: Config, asin: str) -> str:
-    return (
-        f"Confira o carrinho da Amazon: pode haver 1× {asin} de uma conferência automática; tire à mão pelo "
-        f"noVNC em http://{config.host_publico}:6081/vnc.html se não for seu."
+def dados_conferir_a_mao(asin: str, razao: str) -> Dados:
+    return Dados(
+        titulo_extra=asin,
+        linhas=(f"Pode haver 1× {asin} de uma conferência automática no carrinho", f"Motivo: {razao}"),
     )
 
 
-def mensagem_sem_login(config: Config) -> str:
-    return (
-        "A conta Amazon do coletor está sem login: a conferência de checkout parou (o monitor de preço continua). "
-        f"Logue a conta Amazon no noVNC, porta 6081: http://{config.host_publico}:6081/vnc.html, e depois clique em "
-        f"Retomar conferência em http://{config.host_publico}:8000/servicos"
+def dados_pausa(motivo: str, sem_registro: bool = False) -> Dados:
+    if sem_registro:  # o banco recusou a pausa: a Amazon segue e tenta de novo
+        return Dados(linhas=(f"Motivo: {motivo}", "Não consegui registrar a pausa no banco: nova tentativa em 15 min"))
+    return Dados(
+        linhas=(f"Motivo: {motivo}", "Com a Amazon pausada, a retirada automática de item do carrinho também para")
     )
+
+
+DADOS_SEM_LOGIN = Dados(linhas=("A conferência de checkout parou; o monitor de preço continua",))
+
+
+@dataclass
+class _Rodada:
+    """Uma rodada do monitor: do primeiro anúncio lido até o monitor ficar sem nada vencido."""
+
+    inicio: datetime
+    lidos: int = 0
+    quedas: int = 0
+    conferencias: int = 0
 
 
 class _NavegadorContado:
@@ -130,7 +159,7 @@ class VarreduraAmazon:
         engine: Engine,
         sessoes: sessionmaker[Session],
         fabrica_navegador: Callable[[], AbstractContextManager[NavegadorInterativo]],
-        notificador: Notificador,
+        avisador: Avisador,
         config: Config,
         relogio: Callable[[], datetime] | None = None,
         rng: random.Random | None = None,
@@ -139,7 +168,7 @@ class VarreduraAmazon:
         self._engine = engine
         self._sessoes = sessoes
         self._fabrica_navegador = fabrica_navegador
-        self._notificador = notificador
+        self._avisador = avisador
         self._config_env = config
         self._config = config
         self._relogio = relogio or (lambda: datetime.now(UTC))
@@ -160,6 +189,8 @@ class VarreduraAmazon:
         self._limpeza_em: date | None = None
         self._contexto_navegador: AbstractContextManager[NavegadorInterativo] | None = None
         self._navegador: NavegadorInterativo | None = None
+        self._ciclo_inicio: datetime | None = None
+        self._rodada: _Rodada | None = None
 
     # --- navegador ---------------------------------------------------------------------------
 
@@ -188,7 +219,7 @@ class VarreduraAmazon:
         return ContextoBusca(
             sessoes=self._sessoes,
             navegador=self._obter_navegador(),
-            notificador=self._notificador,
+            avisador=self._avisador,
             config=self._config,
             cfg=cfg,
             relogio=self._relogio,
@@ -206,6 +237,31 @@ class VarreduraAmazon:
         for _ in range(quantidade):
             self._teto_monitor.registrar(agora)
 
+    # --- avisos --------------------------------------------------------------------------------
+
+    def _rodada_atual(self) -> _Rodada:
+        if self._rodada is None:
+            self._rodada = _Rodada(self._relogio())
+        return self._rodada
+
+    def _fechar_rodada(self) -> None:
+        rodada, self._rodada = self._rodada, None
+        if rodada is None or rodada.lidos == 0:
+            return
+        dados = Dados(
+            linhas=(
+                f"Anúncios lidos: {rodada.lidos}",
+                f"Preços em queda: {rodada.quedas}",
+                f"Conferências de checkout: {rodada.conferencias}",
+                f"Duração: {formatar_duracao(self._relogio() - rodada.inicio)}",
+            )
+        )
+        self._avisador.avisar(TipoAviso.AMAZON_MONITOR_CONCLUIDO, CHAVE_GERAL, dados)
+
+    def _pagina_ok(self) -> None:
+        """Uma página abriu sem CAPTCHA: um CAPTCHA aberto está resolvido."""
+        self._avisador.resolver(TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL)
+
     # --- ciclo da descoberta -------------------------------------------------------------------
 
     def _iniciar_ciclo(self, agora: datetime, na_fila: set[int]) -> None:
@@ -213,22 +269,36 @@ class VarreduraAmazon:
             self._ciclo = repo.iniciar_coleta(s, TipoColeta.AMAZON, agora).id
         self._pendentes = set(na_fila)
         self._ok = self._falha = 0
+        self._ciclo_inicio = agora
         self._cota_falhas = CotaHtmlFalha()
 
-    def _encerrar_ciclo(self, cfg: ConfigAmazon) -> None:
+    def _encerrar_ciclo(self, cfg: ConfigAmazon, por_pausa: bool = False) -> None:
+        """Fecha o ciclo da descoberta. Só avisa o fim (concluída, parcial ou falhou) quando o ciclo
+        terminou de verdade: sem busca pendente e sem ser por uma pausa (que já tem o próprio aviso). A
+        janela que fecha no meio do ciclo fecha a coleta sem aviso."""
         if self._ciclo is None:
             return
         status = repo.status_final(self._ok, self._falha, cfg.limite_falha_pct)
         with self._sessoes() as s, s.begin():
             repo.finalizar_coleta(s, self._ciclo, status, self._ok, self._falha, self._relogio())
         log.info("ciclo %s da Amazon terminou: %s (%d ok, %d falhas)", self._ciclo, status.value, self._ok, self._falha)
-        if status is StatusColeta.FALHA:
-            self._notificador.enviar(
-                Destino.ADMIN,
-                f"Ciclo {self._ciclo} da Amazon falhou em {self._falha} de {self._ok + self._falha} buscas. "
-                f"O layout da Amazon pode ter mudado. HTMLs em {self._config.dir_dados / 'falhas'}.",
+        if not por_pausa and not self._pendentes and self._ok + self._falha:
+            inicio = self._ciclo_inicio or self._relogio()
+            dados = Dados(
+                titulo_extra=f"ciclo {self._ciclo}",
+                linhas=(
+                    f"Buscas: {self._ok} ok · {_plural(self._falha, 'falha', 'falhas')}",
+                    f"Duração: {formatar_duracao(self._relogio() - inicio)}",
+                ),
             )
+            if status is StatusColeta.FALHA:
+                self._avisador.avisar(TipoAviso.AMAZON_BUSCA_FALHOU, CHAVE_GERAL, dados)
+            else:
+                tipo = TipoAviso.AMAZON_BUSCA_CONCLUIDA if status is StatusColeta.OK else TipoAviso.AMAZON_BUSCA_PARCIAL
+                self._avisador.avisar(tipo, CHAVE_GERAL, dados)
+                self._avisador.resolver(TipoAviso.AMAZON_BUSCA_FALHOU, CHAVE_GERAL)
         self._ciclo = None
+        self._ciclo_inicio = None
         self._pendentes = set()
 
     def _registrar_desafio(self, url: str, asin_no_carrinho: str | None = None) -> None:
@@ -242,7 +312,7 @@ class VarreduraAmazon:
         log.warning("CAPTCHA na Amazon em %s; varredura pausada", url)
         self._ciclo = None
         self._pendentes = set()
-        self._notificador.enviar(Destino.ADMIN, mensagem_captcha(self._config, url, asin_no_carrinho))
+        self._avisador.avisar(TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL, dados_captcha(url, asin_no_carrinho))
 
     # --- laço --------------------------------------------------------------------------------
 
@@ -255,11 +325,8 @@ class VarreduraAmazon:
             log.warning("%d conferência(s) com item possivelmente no carrinho; tirando no primeiro passo", len(presos))
         if interrompidos:
             log.warning("%d ciclo(s) da Amazon interrompido(s) marcados como falha", interrompidos)
-            self._notificador.enviar(
-                Destino.ADMIN,
-                f"{interrompidos} ciclo(s) da Amazon interrompido(s) (o coletor reiniciou) e marcado(s) como "
-                "falha. A fila continua sozinha.",
-            )
+            dados = Dados(linhas=(f"{interrompidos} ciclo(s) marcado(s) como falha: o coletor reiniciou",))
+            self._avisador.avisar(TipoAviso.AMAZON_INTERROMPIDA, CHAVE_GERAL, dados)
 
     def _janela(self, agora: datetime, tipo: str, inicio: time, fim: time) -> Janela:
         dia = agora.astimezone(self._config.zona).date()
@@ -275,6 +342,8 @@ class VarreduraAmazon:
         with self._sessoes() as s, s.begin():
             cfg = repo_amz.obter_config(s)
             estado = repo.obter_estado(s, agora, COLETOR_AMAZON).estado
+        if estado is EstadoColetorTipo.ATIVO:
+            self._avisador.resolver(TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL)  # retomada: a pausa acabou
         descoberta_aberta = self._janela(agora, "busca", cfg.janela_inicio, cfg.janela_fim).contem(agora)
         monitor_aberto = self._janela(agora, "monitor", cfg.monitor_janela_inicio, cfg.monitor_janela_fim).contem(agora)
         if not descoberta_aberta:
@@ -332,6 +401,7 @@ class VarreduraAmazon:
             return self._conferir(candidatas[0], cfg)
         if proximo is not None:
             return self._monitorar(*proximo, cfg)
+        self._fechar_rodada()  # nada vencido: a rodada (se houve leitura) terminou
         return None
 
     def _talvez_retirar(self, cfg: ConfigAmazon) -> float | None:
@@ -362,7 +432,7 @@ class VarreduraAmazon:
             novo = repo_amz.marcar_conferir_a_mao(s, item.conferencia_id, self._relogio(), razao)
         log.warning("item %s da conferência %s fica para conferir à mão: %s", item.asin, item.conferencia_id, razao)
         if novo:
-            self._notificador.enviar(Destino.ADMIN, mensagem_conferir_a_mao(self._config, item.asin))
+            self._avisador.avisar(TipoAviso.AMAZON_CARRINHO, item.asin, dados_conferir_a_mao(item.asin, razao))
 
     def _falha_na_retirada(self, item: repo_amz.ItemNoCarrinho, motivo: str) -> None:
         with self._sessoes() as s, s.begin():
@@ -395,6 +465,7 @@ class VarreduraAmazon:
             if item.asin not in estado.asins_ativos:  # já saiu: resolve sem clicar
                 with self._sessoes() as s, s.begin():
                     repo_amz.marcar_asin_removido(s, item.asin)
+                self._avisador.resolver(TipoAviso.AMAZON_CARRINHO, item.asin)
                 return 0
             razao = self._sem_clique(item, estado)
             if razao is not None:
@@ -419,11 +490,13 @@ class VarreduraAmazon:
         if removido:  # carrinho ativo conferido sem o item: resolve as marcas desse ASIN
             with self._sessoes() as s, s.begin():
                 repo_amz.marcar_asin_removido(s, item.asin)
+            self._avisador.resolver(TipoAviso.AMAZON_CARRINHO, item.asin)
             return 0
         self._falha_na_retirada(item, "o item continua no carrinho depois de excluir")
         return 0
 
     def _conferir(self, candidata: repo_amz.CandidataCheckout, cfg: ConfigAmazon) -> float:
+        self._rodada_atual().conferencias += 1
         ctx = self._contexto(cfg, f"amazon-checkout-{candidata.asin}", self._cota_falhas_monitor)
         alvo = checkout.AlvoCheckout(candidata.asin, candidata.vendedor_nome, candidata.preco_anunciado)
         marca: list[int] = []
@@ -471,7 +544,9 @@ class VarreduraAmazon:
                 avisar_sem_login = True
         log.info("conferência de checkout de %s: %s (%s)", candidata.asin, resultado.situacao.value, resultado.motivo or "ok")
         if avisar_sem_login:
-            self._notificador.enviar(Destino.ADMIN, mensagem_sem_login(self._config))
+            self._avisador.avisar(TipoAviso.AMAZON_SEM_LOGIN, CHAVE_GERAL, DADOS_SEM_LOGIN)
+        elif resultado.situacao is not SituacaoCheckout.SEM_LOGIN:
+            self._avisador.resolver(TipoAviso.AMAZON_SEM_LOGIN, CHAVE_GERAL)
         if resultado.situacao is SituacaoCheckout.OK:
             self._falhas_seguidas = 0
             monitor.aplicar_conferencia(ctx, candidata.anuncio_id, conferencia_id)
@@ -480,6 +555,7 @@ class VarreduraAmazon:
         if resultado.desafio_url is not None:
             self._registrar_desafio(resultado.desafio_url, None if resultado.item_removido else candidata.asin)
             return ESPERA_OCIOSA_S
+        self._pagina_ok()
         return 0
 
     def _monitorar(self, anuncio_id: int, asin: str, cfg: ConfigAmazon) -> float:
@@ -505,6 +581,10 @@ class VarreduraAmazon:
         self._registrar_paginas(resultado.paginas)
         self._falhas_seguidas = 0
         self._erros_seguidos = 0
+        rodada = self._rodada_atual()
+        rodada.lidos += 1
+        rodada.quedas += resultado.caiu
+        self._pagina_ok()
         return 0
 
     # --- descoberta ------------------------------------------------------------------------------
@@ -543,6 +623,7 @@ class VarreduraAmazon:
             teve_candidato = processar_produto(contexto, produto, usar_en).candidatos > 0
             self._ok += 1
             self._falhas_seguidas = 0
+            self._pagina_ok()
         except DesafioAmazon as desafio:
             self._registrar_desafio(desafio.url)
             return ESPERA_OCIOSA_S
@@ -575,36 +656,26 @@ class VarreduraAmazon:
             repo_amz.reagendar(s, produto.id, depois, proxima, teve_candidato, usar_en)
             repo_amz.fechar_oportunidades_sem_leitura(s, depois)
         self._pendentes.discard(produto.id)
+        if self._falhas_seguidas >= MAX_FALHAS_SEGUIDAS:  # antes do fim do ciclo: a pausa leva o aviso
+            return self._pausar_por_falhas(cfg)
         if not self._pendentes:
             self._encerrar_ciclo(cfg)
-        if self._falhas_seguidas >= MAX_FALHAS_SEGUIDAS:
-            return self._pausar_por_falhas(cfg)
         return 0
 
     def _pausar_por_falhas(self, cfg: ConfigAmazon) -> float:
         """Bloqueio sem CAPTCHA ou layout novo: toda página falha. Pausa em vez de seguir no ritmo normal."""
         self._falhas_seguidas = 0
-        pasta = self._config.dir_dados / "falhas"
+        motivo = f"{MAX_FALHAS_SEGUIDAS} páginas seguidas com falha (bloqueio ou layout novo?)"
         try:
             with self._sessoes() as s, s.begin():
                 repo.pausar(s, "falhas seguidas", self._relogio(), COLETOR_AMAZON)
         except Exception:
             log.exception("não foi possível registrar a pausa da busca na Amazon")
-            self._notificador.enviar(
-                Destino.ADMIN,
-                f"{MAX_FALHAS_SEGUIDAS} páginas seguidas da Amazon falharam (bloqueio ou mudança de layout?); "
-                f"não foi possível registrar a pausa no banco. HTMLs em {pasta}.",
-            )
+            self._avisador.avisar(TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL, dados_pausa(motivo, sem_registro=True))
             return ESPERA_ERRO_S
         log.warning("%d páginas seguidas da Amazon falharam; varredura pausada", MAX_FALHAS_SEGUIDAS)
-        self._encerrar_ciclo(cfg)
-        self._notificador.enviar(
-            Destino.ADMIN,
-            f"Amazon pausada depois de {MAX_FALHAS_SEGUIDAS} páginas seguidas com falha (bloqueio ou "
-            f"mudança de layout?). HTMLs em {pasta}. Com a Amazon pausada, a retirada automática de item do "
-            "carrinho também para. Veja `docker compose logs coletor-amazon` e clique em "
-            f"Retomar (Amazon) em http://{self._config.host_publico}:8000",
-        )
+        self._encerrar_ciclo(cfg, por_pausa=True)
+        self._avisador.avisar(TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL, dados_pausa(motivo))
         return ESPERA_OCIOSA_S
 
     def tratar_erro(self, erro: Exception) -> float:
@@ -614,29 +685,27 @@ class VarreduraAmazon:
         self._erros_seguidos += 1
         if self._erros_seguidos >= MAX_ERROS_SEGUIDOS:
             self._erros_seguidos = 0
+            motivo = f"{MAX_ERROS_SEGUIDOS} erros inesperados seguidos (último: {erro!r})"
             try:
                 with self._sessoes() as s, s.begin():
                     repo.pausar(s, "erros seguidos", self._relogio(), COLETOR_AMAZON)
             except Exception:
                 log.exception("não foi possível registrar a pausa da varredura da Amazon")
-                self._notificador.enviar(
-                    Destino.ADMIN,
-                    f"Erros inesperados seguidos na varredura da Amazon (último: {erro!r}); não foi possível "
-                    "registrar a pausa no banco. Nova tentativa em 15 minutos.",
-                )
+                self._avisador.avisar(TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL, dados_pausa(motivo, sem_registro=True))
                 return ESPERA_ERRO_S
-            self._notificador.enviar(
-                Destino.ADMIN,
-                f"Varredura da Amazon pausada depois de {MAX_ERROS_SEGUIDOS} erros inesperados seguidos "
-                f"(último: {erro!r}). Com a Amazon pausada, a retirada automática de item do carrinho também para. "
-                "Veja `docker compose logs coletor-amazon` e clique em Retomar (Amazon) "
-                f"em http://{self._config.host_publico}:8000",
-            )
+            self._avisador.avisar(TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL, dados_pausa(motivo))
             return ESPERA_OCIOSA_S
-        self._notificador.enviar(
-            Destino.ADMIN, f"Erro inesperado na varredura da Amazon: {erro!r}. Nova tentativa em 15 minutos."
-        )
+        self._avisador.avisar(TipoAviso.AMAZON_ERRO, CHAVE_GERAL, Dados(linhas=(f"Erro: {erro!r}",)))
         return ESPERA_ERRO_S
+
+    def executar_passo(self) -> float:
+        """Um passo protegido: erro inesperado vira aviso/espera; passo ok fecha o erro aberto."""
+        try:
+            espera = self.passo()
+        except Exception as erro:  # noqa: BLE001 - qualquer falha inesperada vira espera/pausa
+            return self.tratar_erro(erro)
+        self._avisador.resolver(TipoAviso.AMAZON_ERRO, CHAVE_GERAL)
+        return espera
 
     def rodar(self) -> None:
         try:
@@ -647,10 +716,7 @@ class VarreduraAmazon:
                 self.inicializar()
                 log.info("varredura da Amazon iniciada")
                 while True:
-                    try:
-                        espera = self.passo()
-                    except Exception as erro:  # noqa: BLE001 - qualquer falha inesperada vira espera/pausa
-                        espera = self.tratar_erro(erro)
+                    espera = self.executar_passo()
                     if espera > 0:
                         self._dormir(espera)
         finally:

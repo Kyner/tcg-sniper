@@ -3,9 +3,10 @@ from contextlib import nullcontext
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from fakes import NavegadorFake, NotificadorFake, fixture_liga, pagina_html
+from fakes import AvisadorFake, NavegadorFake, fixture_liga, pagina_html
 from sqlalchemy import func, select, text
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.coletor_liga.agendador import (
     ID_LOCK,
     Agendador,
@@ -53,19 +54,19 @@ def agendador(engine, sessoes, config, relogio, chamadas, falhar=False):
         if falhar:
             raise RuntimeError("chromium não abriu")
 
-    notificador = NotificadorFake()
+    avisador = AvisadorFake()
     a = Agendador(
         engine,
         sessoes,
         lambda: nullcontext(NavegadorFake({})),
-        notificador,
+        avisador,
         config,
         relogio=relogio,
         rng=random.Random(42),
         dormir=lambda _: None,
         executor=executor,
     )
-    return a, notificador
+    return a, avisador
 
 
 def test_alvo_do_dia_respeita_jitter():
@@ -251,13 +252,15 @@ def test_excecao_no_job_avisa_e_nao_repete_no_dia(engine, sessoes, config):
     job_ok(sessoes, ONTEM, 14)
     relogio = Relogio(local(TERCA, 10, 31))
     chamadas = []
-    a, notificador = agendador(engine, sessoes, config, relogio, chamadas, falhar=True)
+    a, avisador = agendador(engine, sessoes, config, relogio, chamadas, falhar=True)
     a.inicializar()
     assert a.tick() == "agendado"
     relogio.agora += timedelta(minutes=1)
     assert a.tick() is None
     assert chamadas == [True]
-    assert "chromium não abriu" in notificador.mensagens[0][1]
+    [(tipo, chave, dados)] = avisador.avisos
+    assert (tipo, chave) == (TipoAviso.LIGA_ERRO, CHAVE_GERAL)
+    assert dados.linhas[0] == "Onde: job agendado" and "chromium não abriu" in dados.linhas[1]
 
 
 def agendador_real(engine, sessoes, config, navegador):
@@ -265,7 +268,7 @@ def agendador_real(engine, sessoes, config, navegador):
         engine,
         sessoes,
         lambda: nullcontext(navegador),
-        NotificadorFake(),
+        AvisadorFake(),
         config,
         relogio=Relogio(datetime.now(UTC)),
         rng=random.Random(1),
@@ -317,7 +320,7 @@ def criar(engine, sessoes, config, relogio, executor, rng=None, dormir=lambda _:
         engine,
         sessoes,
         lambda: nullcontext(NavegadorFake({})),
-        NotificadorFake(),
+        AvisadorFake(),
         config,
         relogio=relogio,
         rng=rng or random.Random(42),
@@ -487,7 +490,7 @@ def agendador_com_fabrica(engine, sessoes, config, fabrica, relogio=None):
         engine,
         sessoes,
         fabrica,
-        NotificadorFake(),
+        AvisadorFake(),
         config,
         relogio=relogio or Relogio(datetime.now(UTC)),
         rng=random.Random(1),
@@ -616,76 +619,108 @@ def test_solicitado_limpa_atrasada_pendente(engine, sessoes, config):
 def test_inicializar_avisa_admin_das_interrompidas(engine, sessoes, config):
     coleta(sessoes, TipoColeta.LISTAGEM, local(TERCA, 10), status=StatusColeta.RODANDO)
     coleta(sessoes, TipoColeta.PRODUTOS, local(TERCA, 10, 30), status=StatusColeta.RODANDO)
-    a, notificador = agendador(engine, sessoes, config, Relogio(local(TERCA, 12)), [])
+    a, avisador = agendador(engine, sessoes, config, Relogio(local(TERCA, 12)), [])
     a.inicializar()
-    assert len(notificador.mensagens) == 1
-    destino, texto = notificador.mensagens[0]
-    assert destino is Destino.ADMIN
-    assert "2 coleta(s) interrompida(s)" in texto
-    assert "http://host.test:8000" in texto
-    assert "Rodar agora" in texto
+    assert avisador.avisos == [
+        (
+            TipoAviso.LIGA_INTERROMPIDA,
+            CHAVE_GERAL,
+            Dados(linhas=("2 coleta(s) marcada(s) como falha: o coletor reiniciou no meio do job",)),
+        )
+    ]
+    [(destino, texto)] = avisador.mensagens
+    assert destino is Destino.ADMIN and "Rodar agora" in texto and ":8000" not in texto
 
 
 def test_inicializar_sem_interrompidas_nao_avisa(engine, sessoes, config):
     job_ok(sessoes, ONTEM, 14)
-    a, notificador = agendador(engine, sessoes, config, Relogio(local(TERCA, 12)), [])
+    a, avisador = agendador(engine, sessoes, config, Relogio(local(TERCA, 12)), [])
     a.inicializar()
-    assert notificador.mensagens == []
+    assert avisador.mensagens == []
 
 
 def agendador_resumo(engine, sessoes, config, navegador):
-    notificador = NotificadorFake()
+    avisador = AvisadorFake()
     a = Agendador(
         engine,
         sessoes,
         lambda: nullcontext(navegador),
-        notificador,
+        avisador,
         config,
         relogio=Relogio(local(TERCA, 10, 40)),
         rng=random.Random(1),
         dormir=lambda _: None,
     )
-    return a, notificador
+    return a, avisador
 
 
-def resumos(notificador):
-    return [(d, t) for d, t in notificador.mensagens if t.startswith("Coleta de ")]
+def resumos(avisador):
+    tipos = (TipoAviso.LIGA_COLETA_CONCLUIDA, TipoAviso.LIGA_COLETA_PARCIAL)
+    return [(tipo, dados) for tipo, _, dados in avisador.avisos if tipo in tipos]
 
 
 def test_job_completo_envia_resumo(engine, sessoes, config):
     c, url = config_uma_categoria(config)
     navegador = NavegadorFake({url: pagina_html(fixture_liga("catalogo_pagina_1"), url=url)})
-    a, notificador = agendador_resumo(engine, sessoes, c, navegador)
+    a, avisador = agendador_resumo(engine, sessoes, c, navegador)
     a.executar_job(incluir_listagens=True)
     with sessoes() as s:
         novos = s.scalar(select(func.count()).select_from(ProdutoLiga))
-    assert resumos(notificador) == [
+    assert resumos(avisador) == [
         (
-            Destino.ADMIN,
-            (
-                "Coleta de 13/10 concluída.\n"
-                f"Listagens: ok (1 de 1 categorias, {novos} produtos novos).\n"
-                "Produtos: ok (0 ok, 0 falhas).\n"
-                "Admin: http://host.test:8000"
+            TipoAviso.LIGA_COLETA_CONCLUIDA,
+            Dados(
+                titulo_extra="13/10",
+                linhas=(
+                    f"Listagens: ok · 1 de 1 categorias · {novos} produtos novos",
+                    "Produtos: ok · 0 ok · 0 falhas",
+                    "Duração: menos de 1 min",
+                ),
             ),
         )
     ]
+    for tipo in (TipoAviso.LIGA_DESAFIO, TipoAviso.LIGA_COLETA_FALHOU, TipoAviso.LIGA_ERRO):
+        assert (tipo, CHAVE_GERAL) in avisador.resolvidos
 
 
 def test_job_so_produtos_envia_resumo_sem_listagens(engine, sessoes, config):
-    a, notificador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a, avisador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
     a.executar_job(incluir_listagens=False)
-    assert resumos(notificador) == [
-        (Destino.ADMIN, "Coleta de 13/10 concluída.\nProdutos: ok (0 ok, 0 falhas).\nAdmin: http://host.test:8000")
+    assert resumos(avisador) == [
+        (
+            TipoAviso.LIGA_COLETA_CONCLUIDA,
+            Dados(titulo_extra="13/10", linhas=("Produtos: ok · 0 ok · 0 falhas", "Duração: menos de 1 min")),
+        )
     ]
 
 
 def test_desafio_nao_envia_resumo(engine, sessoes, config):
     c, url = config_uma_categoria(config)
-    a, notificador = agendador_resumo(engine, sessoes, c, NavegadorFake({url: DESAFIO}))
+    a, avisador = agendador_resumo(engine, sessoes, c, NavegadorFake({url: DESAFIO}))
     a.executar_job(incluir_listagens=True)
-    assert notificador.mensagens  # o aviso do desafio
-    assert resumos(notificador) == []
+    assert TipoAviso.LIGA_DESAFIO in avisador.tipos()
+    assert resumos(avisador) == []
+
+
+def test_job_com_etapa_parcial_avisa_coleta_parcial(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_liga import agendador as modulo
+
+    monkeypatch.setattr(modulo, "coletar_produtos", lambda *_a, **_k: ResultadoColeta(1, StatusColeta.PARCIAL, 3, 1))
+    a, avisador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a.executar_job(incluir_listagens=False)
+    [(tipo, dados)] = resumos(avisador)
+    assert tipo is TipoAviso.LIGA_COLETA_PARCIAL and dados.linhas[0] == "Produtos: parcial · 3 ok · 1 falhas"
+    assert (TipoAviso.LIGA_COLETA_FALHOU, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_job_com_etapa_que_falhou_nao_manda_conclusao_nem_resolve(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_liga import agendador as modulo
+
+    monkeypatch.setattr(modulo, "coletar_produtos", lambda *_a, **_k: ResultadoColeta(1, StatusColeta.FALHA, 0, 3))
+    a, avisador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a.executar_job(incluir_listagens=False)
+    assert resumos(avisador) == []
+    assert (TipoAviso.LIGA_COLETA_FALHOU, CHAVE_GERAL) not in avisador.resolvidos
 
 
 def test_etapa_interrompida_por_erro_nao_envia_resumo(engine, sessoes, config, monkeypatch):
@@ -696,9 +731,9 @@ def test_etapa_interrompida_por_erro_nao_envia_resumo(engine, sessoes, config, m
         "coletar_produtos",
         lambda *_a, **_k: ResultadoColeta(1, StatusColeta.FALHA, 0, 0, interrompida=True),
     )
-    a, notificador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a, avisador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
     a.executar_job(incluir_listagens=False)
-    assert resumos(notificador) == []
+    assert resumos(avisador) == []
 
 
 def test_excecao_no_job_nao_envia_resumo(engine, sessoes, config, monkeypatch):
@@ -708,12 +743,12 @@ def test_excecao_no_job_nao_envia_resumo(engine, sessoes, config, monkeypatch):
         raise RuntimeError("banco caiu")
 
     monkeypatch.setattr(modulo, "coletar_produtos", quebrar)
-    a, notificador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a, avisador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
     try:
         a.executar_job(incluir_listagens=False)
     except RuntimeError:
         pass
-    assert resumos(notificador) == []
+    assert resumos(avisador) == []
 
 
 def salvar_liga(sessoes, config, **valores):

@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos import formato
+from tcg_sniper.avisos import servico as avisos
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_mensagens as repo_msg
@@ -25,6 +28,7 @@ ESPERA_SEM_DESTINO = timedelta(minutes=1)
 ESPERA_MAX_MIN = 30
 INTERVALO_LIMPEZA = timedelta(hours=24)
 TIMEOUT_S = 15
+JANELA_FALHAS = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -95,7 +99,7 @@ class ServicoNotificador:
                 lote = repo_msg.lote_pendente(s, agora, 1)
                 if not lote:
                     break
-                resultado = self._processar(lote[0], cfg, agora)
+                resultado = self._processar(s, lote[0], cfg, agora)
             processadas += 1
             if resultado is Resultado.OK:
                 enviou = True
@@ -109,7 +113,7 @@ class ServicoNotificador:
                 log.info("%d mensagem(ns) em espera voltam à fila", acordadas)
         return processadas
 
-    def _processar(self, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
+    def _processar(self, s: Session, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
         """Devolve o resultado do envio, ou `None` se a mensagem nem chegou a ser enviada."""
         m.atualizado_em = agora
         validade = timedelta(hours=geral.validade_oportunidade_h)
@@ -128,8 +132,10 @@ class ServicoNotificador:
             m.ultimo_erro = falta
             m.proxima_tentativa_em = agora + ESPERA_SEM_DESTINO
             return None
+        # linhas antigas da fila e "reenviar" saem como estão gravadas: a guarda de URL vale aqui também
+        texto = formato.conferir_urls(m.texto, avisos.zona_e_host(s)[1], estrito=False)
         resultado, erro = enviar_uma_vez(
-            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, m.texto
+            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, texto
         )
         if resultado is Resultado.OK:
             m.status = StatusMensagem.ENVIADA
@@ -141,10 +147,23 @@ class ServicoNotificador:
         if resultado is Resultado.DEFINITIVO and m.tentativas >= MAX_TENTATIVAS_DEFINITIVAS:
             m.status = StatusMensagem.FALHA
             log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
+            if not formato.eh_do_tipo(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
+                self._avisar_falha(s, agora)
             return resultado
         m.proxima_tentativa_em = agora + timedelta(minutes=min(2 ** min(m.tentativas - 1, 5), ESPERA_MAX_MIN))
         log.warning("mensagem %d para %s não saiu (tentativa %d): %s", m.id, m.destino, m.tentativas, erro)
         return resultado
+
+    @staticmethod
+    def _avisar_falha(s: Session, agora: datetime) -> None:
+        """Lista as falhas definitivas da última hora (menos os próprios avisos) para o grupo admin."""
+        s.flush()
+        falhas = [
+            f for f in repo_msg.falhas_recentes(s, agora - JANELA_FALHAS)
+            if not formato.eh_do_tipo(f.texto, TipoAviso.MENSAGEM_NAO_ENVIADA)
+        ]
+        linhas = tuple(f"#{f.id} para {f.destino}: {f.ultimo_erro or 'sem detalhe'}" for f in falhas)
+        avisos.avisar(s, TipoAviso.MENSAGEM_NAO_ENVIADA, CHAVE_GERAL, Dados(linhas=linhas), agora)
 
     def rodar(self) -> None:
         log.info("notificador iniciado")

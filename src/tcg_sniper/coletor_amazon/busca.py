@@ -13,6 +13,7 @@ from urllib.parse import quote_plus
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
 from tcg_sniper.coletor_amazon.parsers import parse_busca
 from tcg_sniper.coletor_amazon.termo import termo_busca
@@ -22,7 +23,6 @@ from tcg_sniper.db.models import ConfigAmazon, ProdutoLiga
 from tcg_sniper.navegador.base import NavegadorInterativo
 from tcg_sniper.navegador.modelos import Pagina
 from tcg_sniper.navegador.ritmo import Dormir, com_um_retry, pausa_aleatoria, salvar_html_falha
-from tcg_sniper.notificador.base import Notificador
 from tcg_sniper.oportunidades import motor
 from tcg_sniper.parsing import ErroParser
 
@@ -55,7 +55,7 @@ class CotaHtmlFalha:
 class ContextoBusca:
     sessoes: sessionmaker[Session]
     navegador: NavegadorInterativo
-    notificador: Notificador
+    avisador: Avisador
     config: Config
     cfg: ConfigAmazon
     relogio: Callable[[], datetime]

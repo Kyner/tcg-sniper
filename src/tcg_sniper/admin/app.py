@@ -25,6 +25,9 @@ from tcg_sniper.admin import (
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
+from tcg_sniper.avisos import formato
+from tcg_sniper.avisos import servico as avisos
+from tcg_sniper.avisos.catalogo import CATALOGO, EMOJI, Dados, TipoAviso
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
@@ -42,16 +45,27 @@ from tcg_sniper.db.models import (
     COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
     AnuncioAmazon,
+    ConferenciaCheckout,
     EstadoColetorTipo,
     ProdutoLiga,
     TipoColeta,
 )
 from tcg_sniper.formatacao import formatar_brl, formatar_bytes
 from tcg_sniper.manutencao.servico import HORA_BACKUP
+from tcg_sniper.notificador.base import Destino
 from tcg_sniper.oportunidades import motor
 
 SENHA_PADRAO = "trocar-esta-senha"
 MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
+
+NOMES_SERVICOS = {
+    COLETOR_LIGA: "LigaMagic",
+    COLETOR_AMAZON: "Amazon",
+    COLETOR_CASADOR: "Casador (IA)",
+    COLETOR_NOTIFICADOR: "WhatsApp (notificador)",
+    COLETOR_MANUTENCAO: "Backup (manutenção)",
+}
+MENSAGEM_AVISOS = "Salvo; vale a partir do próximo aviso."
 
 
 MENSAGENS_SERVICOS = {
@@ -323,10 +337,16 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 },
             )
 
+    def _avisar_mudanca(s: Session, coletor: str, novo: str, agora: datetime) -> None:
+        dados = Dados(titulo_extra=NOMES_SERVICOS[coletor], linhas=(f"Novo estado: {novo}",))
+        avisos.avisar(s, TipoAviso.SERVICO_PAUSADO_MANUAL, coletor, dados, agora)
+
     @app.post("/retomar")
     def retomar():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc())
+            repo.retomar(s, agora)
+            _avisar_mudanca(s, COLETOR_LIGA, "ativo", agora)
         return RedirectResponse("/servicos?msg=retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/rodar-agora")
@@ -343,6 +363,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 msg = "desafio_pendente"
             else:
                 repo.pausar(s, "pausado no admin", agora, coletor)
+                _avisar_mudanca(s, coletor, "pausado", agora)
         return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/liga/pausar")
@@ -351,8 +372,10 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/liga/retomar")
     def retomar_liga():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc(), COLETOR_LIGA, solicitar=False)
+            repo.retomar(s, agora, COLETOR_LIGA, solicitar=False)
+            _avisar_mudanca(s, COLETOR_LIGA, "ativo", agora)
         return RedirectResponse("/servicos?msg=liga_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/notificador/pausar")
@@ -361,8 +384,10 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/notificador/retomar")
     def retomar_notificador():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc(), COLETOR_NOTIFICADOR, solicitar=False)
+            repo.retomar(s, agora, COLETOR_NOTIFICADOR, solicitar=False)
+            _avisar_mudanca(s, COLETOR_NOTIFICADOR, "ativo", agora)
         return RedirectResponse("/servicos?msg=notificador_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/manutencao/pausar")
@@ -371,20 +396,26 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/manutencao/retomar")
     def retomar_manutencao():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc(), COLETOR_MANUTENCAO, solicitar=False)
+            repo.retomar(s, agora, COLETOR_MANUTENCAO, solicitar=False)
+            _avisar_mudanca(s, COLETOR_MANUTENCAO, "ativo", agora)
         return RedirectResponse("/servicos?msg=manutencao_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/pausar")
     def pausar_amazon():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_AMAZON)
+            repo.pausar(s, "pausado no admin", agora, COLETOR_AMAZON)
+            _avisar_mudanca(s, COLETOR_AMAZON, "pausado", agora)
         return RedirectResponse("/servicos?msg=amazon_pausar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/retomar")
     def retomar_amazon():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc(), COLETOR_AMAZON)
+            repo.retomar(s, agora, COLETOR_AMAZON)
+            _avisar_mudanca(s, COLETOR_AMAZON, "ativo", agora)
         return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     def _ajustar_amazon(valores: dict[str, object], msg: str) -> RedirectResponse:
@@ -414,23 +445,33 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/amazon/carrinho/{conferencia_id}/conferido")
     def carrinho_conferido(conferencia_id: int):
-        """"Já conferi": o usuário viu o carrinho pelo noVNC; a conferência sai do "conferir à mão"."""
+        """"Já conferi": o usuário viu o carrinho pelo noVNC; a conferência sai do "conferir à mão" e o
+        aviso do carrinho daquele ASIN fecha."""
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
+            conferencia = s.get(ConferenciaCheckout, conferencia_id)
+            anuncio = s.get(AnuncioAmazon, conferencia.anuncio_id) if conferencia is not None else None
             resolvida = repo_amz.marcar_item_removido(s, conferencia_id)
+            if resolvida and anuncio is not None:
+                avisos.resolver(s, TipoAviso.AMAZON_CARRINHO, anuncio.asin, agora)
         if not resolvida:  # inexistente ou fora do "conferir à mão": não marca nada
             raise HTTPException(status.HTTP_404_NOT_FOUND, "conferência não está aguardando conferência à mão")
         return RedirectResponse("/servicos?msg=carrinho_conferido", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/casador/pausar")
     def pausar_casador():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.pausar(s, "pausado no admin", repo.agora_utc(), COLETOR_CASADOR)
+            repo.pausar(s, "pausado no admin", agora, COLETOR_CASADOR)
+            _avisar_mudanca(s, COLETOR_CASADOR, "pausado", agora)
         return RedirectResponse("/servicos?msg=casador_pausar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/casador/retomar")
     def retomar_casador():
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.retomar(s, repo.agora_utc(), COLETOR_CASADOR)
+            repo.retomar(s, agora, COLETOR_CASADOR)
+            _avisar_mudanca(s, COLETOR_CASADOR, "ativo", agora)
         return RedirectResponse("/servicos?msg=casador_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/casador/rodar-agora")
@@ -523,6 +564,26 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 "chave": bool((config.openai_api_key or "").strip()),
             }
 
+    def _avisos_da_tela(request: Request) -> list[dict]:
+        zona = request.state.config.zona
+        agora = repo.agora_utc()
+        with sessoes() as s:
+            estados = avisos.ligados(s)
+        return [
+            {
+                "tipo": tipo.value,
+                "titulo": d.titulo,
+                "emoji": EMOJI[d.severidade],
+                "severidade": d.severidade.value,
+                "grupo": "oportunidades" if d.grupo is Destino.OPORTUNIDADES else "admin",
+                "descricao": d.descricao,
+                "agrupa": d.agrupa,
+                "exemplo": formato.formatar(formato.aviso_de(tipo, d.exemplo, agora), zona, estrito=False),
+                "ligado": estados[tipo],
+            }
+            for tipo, d in CATALOGO.items()
+        ]
+
     def _tela_configuracoes(
         request: Request,
         msg: str = "",
@@ -556,13 +617,29 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     }
                     for id_, titulo, campos, rotulos, explicacoes in secoes
                 ],
-                "mensagem": MENSAGEM_CONFIG if msg in ("geral", "liga", "amazon", "ia") else None,
+                "avisos": _avisos_da_tela(request),
+                "mensagem": (
+                    MENSAGEM_AVISOS
+                    if msg == "avisos"
+                    else MENSAGEM_CONFIG if msg in ("geral", "liga", "amazon", "ia") else None
+                ),
                 "resumo_ia": _resumo_ia(request),
                 "categorias_padrao": ",".join(CATEGORIAS_SELADOS),
-                "secao_ativa": secao_com_erro or (msg if msg in ("geral", "liga", "amazon", "ia") else "geral"),
+                "secao_ativa": secao_com_erro or (msg if msg in ("geral", "liga", "amazon", "ia", "avisos") else "geral"),
             },
             status_code=status.HTTP_400_BAD_REQUEST if secao_com_erro else status.HTTP_200_OK,
         )
+
+    @app.post("/configuracoes/avisos")
+    async def salvar_aviso(request: Request):
+        formulario = await ler_formulario(request)
+        try:
+            tipo = TipoAviso(formulario.get("tipo", ""))
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "tipo de aviso desconhecido") from None
+        with sessoes() as s, s.begin():
+            avisos.definir_ligado(s, tipo, formulario.get("ligado") == "1")
+        return RedirectResponse("/configuracoes?msg=avisos", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/configuracoes", response_class=HTMLResponse)
     def configuracoes(request: Request, msg: str = ""):

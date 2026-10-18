@@ -4,6 +4,7 @@ import signal
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
+from tcg_sniper.avisos.vigia import Batimento
 from tcg_sniper.config import Config
 from tcg_sniper.db.session import criar_engine, criar_sessoes, migrar
 
@@ -70,30 +71,32 @@ def main(argv: list[str] | None = None) -> None:
     sessoes = criar_sessoes(engine)
 
     if args.comando == "coletor-liga":
+        from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_liga.agendador import Agendador
         from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
-        from tcg_sniper.notificador import criar_notificador
 
+        Batimento(sessoes, "liga").iniciar()
         instalar_sigterm()
         Agendador(
             engine,
             sessoes,
             lambda: NavegadorPlaywright(config.dir_dados / "perfil"),
-            criar_notificador(config, sessoes),
+            criar_avisador(sessoes),
             config,
         ).rodar()
     elif args.comando == "coletor-amazon":
+        from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
         from tcg_sniper.coletor_amazon.varredura import VarreduraAmazon
         from tcg_sniper.navegador.chromium import NavegadorChromium
-        from tcg_sniper.notificador import criar_notificador
 
+        Batimento(sessoes, "amazon").iniciar()
         instalar_sigterm()
         VarreduraAmazon(
             engine,
             sessoes,
             lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
-            criar_notificador(config, sessoes),
+            criar_avisador(sessoes),
             config,
         ).rodar()
     elif args.comando == "notificador":
@@ -104,22 +107,23 @@ def main(argv: list[str] | None = None) -> None:
         signal.signal(signal.SIGTERM, lambda _signum, _frame: notificador.parar())
         notificador.rodar()
     elif args.comando == "casador":
+        from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.casador.servico import ServicoCasador
         from tcg_sniper.ia.transporte_openai import TransporteOpenAI
-        from tcg_sniper.notificador import criar_notificador
 
         chave = (config.openai_api_key or "").strip()
         # timeout e repetições menores que os do padrão: o desligamento (stop_grace_period) espera a chamada em curso
         transporte = TransporteOpenAI(chave, timeout_s=30, max_retries=2) if chave else None
-        casador = ServicoCasador(sessoes, transporte, config, criar_notificador(config, sessoes))
+        casador = ServicoCasador(sessoes, transporte, config, criar_avisador(sessoes))
         signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
+        Batimento(sessoes, "casador").iniciar()
         casador.rodar()
     elif args.comando == "manutencao":
+        from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.manutencao.r2 import criar_enviador
         from tcg_sniper.manutencao.servico import ServicoManutencao
-        from tcg_sniper.notificador import criar_notificador
 
-        manutencao = ServicoManutencao(sessoes, config, criar_notificador(config, sessoes), criar_enviador(config))
+        manutencao = ServicoManutencao(sessoes, config, criar_avisador(sessoes), criar_enviador(config))
         # SIGTERM pede parada limpa: o backup em andamento termina (stop_grace_period no compose).
         signal.signal(signal.SIGTERM, lambda _signum, _frame: manutencao.parar())
         manutencao.rodar()
