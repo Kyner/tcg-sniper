@@ -13,12 +13,11 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 ## 2. Pacote B: proteção e operação (próximo a fazer)
 
 - [ ] **Backup automático do banco**: `pg_dump` diário, com rodízio (7 diários + 4 semanais) e cópia fora do PC (o R2 da Cloudflare serve). Hoje só há backups manuais antes de cada deploy (`dados/backups/`).
-- [ ] **Limpeza de histórico**: já existe limpeza de 30 dias para `oferta_amazon` e `mensagem_saida`. Ainda crescem sem limite. Prazos propostos, **aguardando ok**:
-  - `preco_amazon`: 1 ano;
-  - `resumo_preco`/preços da Liga: 90 dias;
+- [ ] **Limpeza de histórico**: já existe limpeza de 30 dias para `oferta_amazon` e `mensagem_saida`. Ainda crescem sem limite. Prazos aprovados em 2026-10-18:
+  - `preco_amazon` e `resumo_preco`/preços da Liga: **nunca apagar** (histórico longo de preço é desejado);
   - `chamada_ia`: 90 dias;
   - `conferencia_checkout`: 180 dias;
-  - `coleta`: definir junto (sugestão: 180 dias).
+  - `coleta`: 180 dias.
 - [ ] Bancos de teste (`tcg_test*`) ficam no mesmo Postgres de produção: separar num container próprio.
 
 ## 3. Pequenas (sem pressa, juntar num pacote)
@@ -45,7 +44,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 ## Ordem sugerida
 
 1. Seção 1 (acompanhar) nos próximos dias.
-2. Pacote B (seção 2): backup automático primeiro; retenção depois do ok nos prazos.
+2. Pacote B (seção 2): limpeza do histórico (prazos aprovados) e backup automático (cópia no R2 precisa das credenciais).
 3. Seção 3 quando houver outra mexida no coletor da Amazon.
 4. Margem líquida (seção 4), quando o grupo tiver os valores.
 
