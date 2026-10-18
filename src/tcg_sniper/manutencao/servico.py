@@ -131,8 +131,7 @@ class ServicoManutencao:
                 except Exception as erro:  # noqa: BLE001 - sem log da exceção crua: o texto passa por limpar_texto
                     erros.append(f"envio ao R2 falhou: {type(erro).__name__}: {erro}")
             try:
-                with self._sessoes() as s, s.begin():
-                    apagados = retencao.limpar_historico(s, self._relogio())
+                apagados = retencao.limpar_historico(self._sessoes, self._relogio())
                 log.info("limpeza do histórico: %s", ", ".join(f"{t} {n}" for t, n in apagados.items()))
             except Exception as erro:
                 log.exception("limpeza do histórico falhou")

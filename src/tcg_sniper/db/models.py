@@ -149,6 +149,7 @@ class Coleta(Base):
 
 class ResumoPreco(Base):
     __tablename__ = "resumo_preco"
+    __table_args__ = (Index("ix_resumo_preco_coleta", "coleta_id"),)  # limpeza das coletas sem preço
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"), primary_key=True)
@@ -163,6 +164,7 @@ class PrecoListagem(Base):
     """Histórico append-only do preço "à partir de" da listagem: uma linha por produto e coleta."""
 
     __tablename__ = "preco_listagem"
+    __table_args__ = (Index("ix_preco_listagem_coleta", "coleta_id"),)  # limpeza das coletas sem preço
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"), primary_key=True)
@@ -175,6 +177,10 @@ class PrecoAtualLiga(Base):
     listagem (`preco_a_partir`, `listagem_*`) e página de produto (resumo, `num_lojas`, `resumo_*`)."""
 
     __tablename__ = "preco_atual_liga"
+    __table_args__ = (
+        Index("ix_preco_atual_liga_listagem_coleta", "listagem_coleta_id"),
+        Index("ix_preco_atual_liga_resumo_coleta", "resumo_coleta_id"),
+    )
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     preco_a_partir: Mapped[Decimal | None] = mapped_column(DINHEIRO)
@@ -669,6 +675,7 @@ class AvaliacaoIA(Base):
     __table_args__ = (
         UniqueConstraint("anuncio_id", "produto_id", name="uq_avaliacao_ia_par"),
         CheckConstraint("confianca BETWEEN 0 AND 100", name="ck_avaliacao_ia_confianca"),
+        Index("ix_avaliacao_ia_chamada", "chamada_id"),  # limpeza das chamadas antigas
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

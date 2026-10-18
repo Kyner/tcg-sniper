@@ -1,4 +1,4 @@
-"""serviço de manutenção: execuções (backup + limpeza), estado vivo e linha 5 em estado_coletor
+"""serviço de manutenção: execuções (backup + limpeza), estado vivo, linha 5 em estado_coletor e índices da limpeza
 
 Revision ID: d1a7f3c9e5b2
 Revises: c8f2d6a1e4b9
@@ -17,6 +17,14 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 STATUS = ("rodando", "ok", "so_local", "erro", "interrompida")
+# Índices das chaves que a limpeza do histórico procura (coletas sem preço, chamadas da IA antigas).
+INDICES = (
+    ("ix_resumo_preco_coleta", "resumo_preco", "coleta_id"),
+    ("ix_preco_listagem_coleta", "preco_listagem", "coleta_id"),
+    ("ix_preco_atual_liga_listagem_coleta", "preco_atual_liga", "listagem_coleta_id"),
+    ("ix_preco_atual_liga_resumo_coleta", "preco_atual_liga", "resumo_coleta_id"),
+    ("ix_avaliacao_ia_chamada", "avaliacao_ia", "chamada_id"),
+)
 
 
 def upgrade() -> None:
@@ -49,9 +57,13 @@ def upgrade() -> None:
         "INSERT INTO estado_coletor (id, coletor, estado, execucao_solicitada, atualizado_em) "
         "VALUES (5, 'manutencao', 'ativo', false, now()) ON CONFLICT (id) DO NOTHING"
     )
+    for nome, tabela, coluna in INDICES:
+        op.create_index(nome, tabela, [coluna])
 
 
 def downgrade() -> None:
+    for nome, tabela, _ in INDICES:
+        op.drop_index(nome, table_name=tabela)
     op.execute("DELETE FROM estado_coletor WHERE id = 5")
     op.drop_constraint("ck_estado_coletor_linhas", "estado_coletor", type_="check")
     op.create_check_constraint("ck_estado_coletor_linhas", "estado_coletor", "id IN (1, 2, 3, 4)")

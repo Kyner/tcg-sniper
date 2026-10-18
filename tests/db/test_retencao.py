@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from fakes import criar_anuncio, criar_produto
 from sqlalchemy import func, select
+from sqlalchemy.orm import sessionmaker
 
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
@@ -48,6 +49,14 @@ def _coleta(s, tipo, em, status=StatusColeta.OK):
     return coleta
 
 
+def _limpar(s, agora):
+    """Roda a limpeza (um lote por transação) na mesma conexão do teste (o `s` lê o resultado por consulta)."""
+    s.flush()
+    sessoes = sessionmaker(bind=s.connection(), join_transaction_mode="create_savepoint", expire_on_commit=False)
+    apagados = retencao.limpar_historico(sessoes, agora)
+    return apagados
+
+
 def _ids(s, modelo):
     return set(s.scalars(select(modelo.id)))
 
@@ -62,7 +71,7 @@ def test_chamada_ia_apaga_mais_de_90_dias_e_solta_a_avaliacao(s):
         modelo="gpt-5", assinatura="x", sem_imagem=False, chamada_id=velha.id, agora=AGORA - timedelta(days=91),
     )
 
-    apagados = retencao.limpar_historico(s, AGORA)
+    apagados = _limpar(s, AGORA)
 
     assert apagados["chamada_ia"] == 1
     assert _ids(s, ChamadaIA) == {limite.id}
@@ -74,8 +83,25 @@ def test_chamada_ia_em_lotes(s, monkeypatch):
     monkeypatch.setattr(retencao, "LOTE", 2)
     for _ in range(5):
         _chamada(s, AGORA - timedelta(days=100))
-    assert retencao.limpar_historico(s, AGORA)["chamada_ia"] == 5
+    assert _limpar(s, AGORA)["chamada_ia"] == 5
     assert s.scalar(select(func.count()).select_from(ChamadaIA)) == 0
+
+
+def test_cada_lote_e_uma_transacao_curta(s, monkeypatch):
+    """Lotes de 2 com 5 chamadas: 3 transações (2 + 2 + 1), mais uma por tabela que não tem nada."""
+    monkeypatch.setattr(retencao, "LOTE", 2)
+    for _ in range(5):
+        _chamada(s, AGORA - timedelta(days=100))
+    s.flush()
+    fabrica = sessionmaker(bind=s.connection(), join_transaction_mode="create_savepoint", expire_on_commit=False)
+    abertas = []
+
+    def sessoes():
+        abertas.append(1)
+        return fabrica()
+
+    assert retencao.limpar_historico(sessoes, AGORA)["chamada_ia"] == 5
+    assert len(abertas) == 3 + 1 + 1
 
 
 def test_conferencia_apaga_mais_de_180_dias_menos_item_que_pode_estar_no_carrinho(s):
@@ -87,7 +113,7 @@ def test_conferencia_apaga_mais_de_180_dias_menos_item_que_pode_estar_no_carrinh
     recente = _conferencia(s, anuncio, AGORA - timedelta(days=179))
     s.flush()
 
-    apagados = retencao.limpar_historico(s, AGORA)
+    apagados = _limpar(s, AGORA)
 
     assert apagados["conferencia_checkout"] == 1
     assert velha.id not in _ids(s, ConferenciaCheckout)
@@ -111,7 +137,7 @@ def test_coleta_apaga_so_as_velhas_sem_nenhum_preco(s):
     recente = _coleta(s, TipoColeta.LISTAGEM, AGORA - timedelta(days=179), StatusColeta.FALHA)
     s.flush()
 
-    apagados = retencao.limpar_historico(s, AGORA)
+    apagados = _limpar(s, AGORA)
 
     assert apagados["coleta"] == 2
     assert _ids(s, Coleta) == {com_resumo.id, com_listagem.id, so_no_atual.id, resumo_no_atual.id, rodando.id, recente.id}
@@ -128,7 +154,7 @@ def test_precos_nunca_sao_apagados(s):
     s.add(PrecoAmazon(anuncio_id=anuncio.id, coletado_em=muito_velho, preco=Decimal(9), origem=OrigemPreco.BUSCA, envio=Envio.AMAZON))
     s.flush()
 
-    retencao.limpar_historico(s, AGORA)
+    _limpar(s, AGORA)
 
     for modelo in (PrecoListagem, ResumoPreco, PrecoAmazon):
         assert s.scalar(select(func.count()).select_from(modelo)) == 1, modelo.__tablename__
@@ -136,4 +162,4 @@ def test_precos_nunca_sao_apagados(s):
 
 
 def test_nada_a_apagar_devolve_zeros(s):
-    assert retencao.limpar_historico(s, AGORA) == {"chamada_ia": 0, "conferencia_checkout": 0, "coleta": 0}
+    assert _limpar(s, AGORA) == {"chamada_ia": 0, "conferencia_checkout": 0, "coleta": 0}
