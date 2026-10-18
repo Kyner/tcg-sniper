@@ -84,11 +84,19 @@ class ServicoManutencao:
             zona = ZoneInfo(repo.obter_config_geral(s, self._config_env).fuso)
             local = agora.astimezone(zona)
             inicio_do_dia = local.replace(hour=0, minute=0, second=0, microsecond=0)
-            rodou_hoje = repo_man.rodou_desde(s, inicio_do_dia)
+            horario = inicio_do_dia.replace(hour=HORA_BACKUP.hour, minute=HORA_BACKUP.minute)
+            # (início, deu erro) das execuções de hoje, fora das interrompidas
+            hoje = [(e.inicio, e.status is StatusManutencao.ERRO) for e in repo_man.execucoes_desde(s, inicio_do_dia)]
             ultima = repo_man.ultima_ok(s)
         recuperar, self._recuperar = self._recuperar, False
-        if rodou_hoje:
-            return False
+        if hoje:
+            # Só um erro da recuperação de madrugada (antes do horário) ganha mais uma tentativa no horário.
+            so_erro_de_madrugada = all(erro and inicio < horario for inicio, erro in hoje)
+            if not (so_erro_de_madrugada and local >= horario):
+                return False
+            log.info("a recuperação da madrugada falhou; tenta de novo no horário")
+            self.executar(agora)
+            return True
         atrasado = recuperar and (ultima is None or agora - ultima.inicio > ATRASO_RECUPERAR)
         if local.time() < HORA_BACKUP and not atrasado:
             return False

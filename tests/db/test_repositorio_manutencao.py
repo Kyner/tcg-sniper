@@ -34,14 +34,14 @@ def test_marcar_interrompidas_fecha_so_as_rodando(s):
     assert s.get(ExecucaoManutencao, ok.id).status is StatusManutencao.OK
 
 
-def test_rodou_desde_conta_erro_mas_nao_interrompida(s):
+def test_execucoes_desde_conta_erro_mas_nao_interrompida(s):
     desde = AGORA - timedelta(hours=3)
     _finalizada(s, AGORA - timedelta(days=1), StatusManutencao.OK)
-    assert not repo_man.rodou_desde(s, desde)
+    assert repo_man.execucoes_desde(s, desde) == []
     _finalizada(s, AGORA, StatusManutencao.INTERROMPIDA)
-    assert not repo_man.rodou_desde(s, desde)
-    _finalizada(s, AGORA, StatusManutencao.ERRO, erro="falhou")
-    assert repo_man.rodou_desde(s, desde)
+    assert repo_man.execucoes_desde(s, desde) == []
+    erro = _finalizada(s, AGORA, StatusManutencao.ERRO, erro="falhou")
+    assert [e.id for e in repo_man.execucoes_desde(s, desde)] == [erro.id]
 
 
 def test_ultima_ok_aceita_so_local_e_ignora_erro(s):

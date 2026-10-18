@@ -290,3 +290,27 @@ def test_falha_na_copia_semanal_mantem_o_diario_envia_e_limpa(sessoes, config, p
     assert e.apagados is not None
     (_, texto), = notificador.mensagens
     assert "O backup local ficou salvo" in texto and "nenhum backup novo" not in texto.lower()
+
+
+def test_erro_na_recuperacao_da_madrugada_ganha_mais_uma_tentativa_as_4h(sessoes, config):
+    madrugada = QUARTA_4H - timedelta(hours=3)  # 01:00 local, último ok velho: recupera já
+    gravar_execucao(sessoes, madrugada - timedelta(days=2), StatusManutencao.OK)
+    srv = servico(sessoes, config, madrugada, executar=ExecutorFake(dump_codigo=1))
+    srv.inicializar()
+    assert srv.tick() is True  # falhou
+    srv._relogio.agora = QUARTA_4H - timedelta(minutes=1)
+    assert srv.tick() is False
+    srv._relogio.agora = QUARTA_4H
+    assert srv.tick() is True  # a do horário ainda roda
+    srv._relogio.agora = QUARTA_4H + timedelta(hours=1)
+    assert srv.tick() is False  # e só uma vez
+    assert [e.status for e in execucoes(sessoes)][1:] == [StatusManutencao.ERRO, StatusManutencao.ERRO]
+
+
+def test_recuperacao_ok_na_madrugada_nao_repete_as_4h(sessoes, config):
+    madrugada = QUARTA_4H - timedelta(hours=3)
+    srv = servico(sessoes, config, madrugada)
+    srv.inicializar()
+    assert srv.tick() is True
+    srv._relogio.agora = QUARTA_4H
+    assert srv.tick() is False

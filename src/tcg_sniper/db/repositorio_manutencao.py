@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import EstadoManutencao, ExecucaoManutencao, StatusManutencao
@@ -51,14 +51,15 @@ def marcar_interrompidas(s: Session, agora: datetime) -> int:
     return resultado.rowcount
 
 
-def rodou_desde(s: Session, desde: datetime) -> bool:
-    """Alguma execução (com qualquer resultado, menos interrompida) começou a partir de `desde`."""
-    total = s.scalar(
-        select(func.count())
-        .select_from(ExecucaoManutencao)
-        .where(ExecucaoManutencao.inicio >= desde, ExecucaoManutencao.status != StatusManutencao.INTERROMPIDA)
+def execucoes_desde(s: Session, desde: datetime) -> list[ExecucaoManutencao]:
+    """Execuções (com qualquer resultado, menos interrompida) que começaram a partir de `desde`."""
+    return list(
+        s.scalars(
+            select(ExecucaoManutencao)
+            .where(ExecucaoManutencao.inicio >= desde, ExecucaoManutencao.status != StatusManutencao.INTERROMPIDA)
+            .order_by(ExecucaoManutencao.inicio)
+        )
     )
-    return bool(total)
 
 
 def ultima_ok(s: Session) -> ExecucaoManutencao | None:
