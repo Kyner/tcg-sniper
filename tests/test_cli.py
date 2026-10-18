@@ -251,3 +251,31 @@ def test_amazon_capturar_mostra_o_que_salvou_e_os_avisos_mesmo_com_erro(monkeypa
     assert f"capturas em {tmp_path}" in saida
     assert "carrinho_inicial.html" in saida
     assert "AVISO: o item B0DNV55QBS pode ter ficado no carrinho" in saida
+
+
+def test_manutencao_instala_sigterm_e_roda_o_servico_sem_r2(monkeypatch):
+    from tcg_sniper.manutencao import servico
+
+    for var in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"):
+        monkeypatch.setenv(var, "")
+    anterior = signal.getsignal(signal.SIGTERM)
+    criados, paradas = [], []
+
+    class ServicoFalso:
+        def __init__(self, sessoes, config, notificador, enviador):
+            criados.append(enviador)
+
+        def parar(self):
+            paradas.append(True)
+
+        def rodar(self):
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+
+    monkeypatch.setattr(servico, "ServicoManutencao", ServicoFalso)
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    try:
+        cli.main(["manutencao"])
+        assert criados == [None] and paradas == [True]
+    finally:
+        signal.signal(signal.SIGTERM, anterior)
