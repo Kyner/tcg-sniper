@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 
 import pytest
 from fakes import (
+    AvisadorFake,
     NavegadorFake,
-    NotificadorFake,
     cartao_busca,
     criar_anuncio,
     criar_preco_liga,
@@ -36,11 +36,11 @@ def contexto(sessoes, config, paginas, dormidas=None):
     with sessoes() as s:
         cfg = repo.obter_config(s)
     navegador = NavegadorFake(paginas)
-    notificador = NotificadorFake()
+    avisador = AvisadorFake()
     ctx = ContextoBusca(
         sessoes=sessoes,
         navegador=navegador,
-        notificador=notificador,
+        avisador=avisador,
         config=config,
         cfg=cfg,
         relogio=lambda: AGORA,
@@ -48,7 +48,7 @@ def contexto(sessoes, config, paginas, dormidas=None):
         rng=random.Random(1),
         nome_falha="amazon-1-1",
     )
-    return ctx, navegador, notificador
+    return ctx, navegador, avisador
 
 
 def busca(cfg_url, *cartoes):
@@ -67,22 +67,22 @@ def test_asin_novo_fica_pendente_e_so_a_busca_e_aberta(sessoes, config, produto)
     with sessoes() as s:
         url = url_busca(repo.obter_config(s), NOME)
     dormidas = []
-    ctx, navegador, notificador = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 100,00"))}, dormidas)
+    ctx, navegador, avisador = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 100,00"))}, dormidas)
     assert processar_produto(ctx, produto) == Conferencia(0)
     assert navegador.visitadas == [url] and len(dormidas) == 1
     with sessoes() as s:
         anuncio = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B01"))
     assert (anuncio.status_casamento, anuncio.produto_id) == (StatusCasamento.PENDENTE, produto.id)
-    assert notificador.mensagens == []
+    assert avisador.mensagens == []
 
 
 def test_confirmado_barato_conta_candidato_sem_abrir_o_produto_nem_alertar(sessoes, config, produto):
     with sessoes() as s, s.begin():
         criar_anuncio(s, "B01", produto=produto, status=StatusCasamento.CONFIRMADO)
         url = url_busca(repo.obter_config(s), NOME)
-    ctx, navegador, notificador = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 700,00"))})
+    ctx, navegador, avisador = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 700,00"))})
     assert processar_produto(ctx, produto) == Conferencia(1)
-    assert navegador.visitadas == [url] and notificador.mensagens == []  # o preço e o alerta são do monitor
+    assert navegador.visitadas == [url] and avisador.mensagens == []  # o preço e o alerta são do monitor
 
 
 def test_confirmado_acima_do_limite_nao_e_candidato(sessoes, config, produto):

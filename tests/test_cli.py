@@ -59,7 +59,7 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
     vistos = []
 
     class VarreduraFalsa:
-        def __init__(self, engine, sessoes, fabrica, notificador, config):
+        def __init__(self, engine, sessoes, fabrica, avisador, config):
             vistos.append(fabrica()._dir_perfil)
 
         def rodar(self):

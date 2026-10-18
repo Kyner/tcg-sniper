@@ -19,6 +19,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from tcg_sniper.avisos.catalogo import Dados, TipoAviso
 from tcg_sniper.coletor_amazon.busca import ContextoBusca, DesafioAmazon, abrir_pagina, ler_pagina
 from tcg_sniper.coletor_amazon.checkout import MOTIVO_OFERTA_SUMIU
 from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
@@ -40,15 +41,15 @@ from tcg_sniper.db.models import (
     Envio,
     OfertaAmazon,
     OrigemPreco,
+    PrecoAtualAmazon,
     PrecoAtualLiga,
     SituacaoCheckout,
     VendedorAmazon,
 )
 from tcg_sniper.navegador.modelos import Pagina
 from tcg_sniper.navegador.ritmo import com_um_retry, pausa_aleatoria
-from tcg_sniper.notificador.base import Destino
 from tcg_sniper.oportunidades import motor
-from tcg_sniper.oportunidades.mensagens import Detalhes, mensagem_oportunidade
+from tcg_sniper.oportunidades.mensagens import Detalhes, dados_oportunidade
 from tcg_sniper.parsing import ErroParser
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class ResultadoMonitor:
     paginas: int  # páginas abertas: lista de ofertas, perfis de vendedor, página do produto
     ofertas: int
     melhor: OfertaLista | None  # a que virou o preço atual (None: nenhuma oferta nova)
+    caiu: bool = False  # a melhor oferta ficou abaixo do preço atual anterior
 
 
 @dataclass(frozen=True)
@@ -207,16 +209,18 @@ def _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora, conferido
         repo.fechar_oportunidade(s, aberta, agora)
 
 
-def _mensagem(ctx: ContextoBusca, linha, leitura: motor.Leitura, ref: motor.RefLiga, detalhes: Detalhes) -> str:
-    return mensagem_oportunidade(
+def _dados(linha, leitura: motor.Leitura, ref: motor.RefLiga, detalhes: Detalhes) -> Dados:
+    """`leitura.preco` já é o preço que vale (o conferido, quando há conferência): o "% abaixo da Liga"
+    do título e a linha da Amazon falam do mesmo preço."""
+    return dados_oportunidade(
         nome_produto=linha.produto.nome, variacao=linha.anuncio.variacao, leitura=leitura, ref=ref,
-        url_amazon=linha.anuncio.url, host=ctx.config.host_publico, produto_id=linha.produto.id, detalhes=detalhes,
+        url_amazon=linha.anuncio.url, detalhes=detalhes,
     )
 
 
 def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> None:
     agora = ctx.relogio()
-    mensagem = None
+    aviso: Dados | None = None
     with ctx.sessoes() as s, s.begin():
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
         if not linhas:  # o casamento foi desfeito no admin enquanto a página abria
@@ -259,9 +263,9 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
             else:
                 motivo = _motivo_nao_conferido(s, ctx.cfg, anuncio_id, agora)
                 detalhes = dataclasses.replace(selos, motivo_nao_conferido=motivo)
-            mensagem = _mensagem(ctx, linha, leitura, ref, detalhes)
-    if mensagem is not None:
-        ctx.notificador.enviar(Destino.OPORTUNIDADES, mensagem)
+            aviso = _dados(linha, leitura, ref, detalhes)
+    if aviso is not None:
+        ctx.avisador.avisar(TipoAviso.OPORTUNIDADE, str(anuncio_id), aviso)
 
 
 def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMonitor:
@@ -281,6 +285,8 @@ def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMoni
     melhor = avaliadas[indice] if indice is not None else None
     agora = ctx.relogio()
     with ctx.sessoes() as s, s.begin():
+        anterior = s.get(PrecoAtualAmazon, anuncio_id)
+        preco_anterior = anterior.preco if anterior is not None else None
         repo.gravar_ofertas(
             s, anuncio_id, agora,
             [
@@ -299,7 +305,9 @@ def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMoni
     _decidir(ctx, anuncio_id, melhor)  # antes do título: a página do produto falhar não pula a decisão
     if titulo_provisorio:
         paginas += _ler_titulo(ctx, anuncio_id, asin)
-    return ResultadoMonitor(paginas, len(ofertas), melhor.oferta if melhor else None)
+    novo = melhor.oferta.preco if melhor else None
+    caiu = preco_anterior is not None and novo is not None and novo < preco_anterior
+    return ResultadoMonitor(paginas, len(ofertas), melhor.oferta if melhor else None, caiu)
 
 
 def redecidir(ctx: ContextoBusca, anuncio_id: int) -> None:
@@ -329,7 +337,7 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
     da melhor oferta), ok e dentro da validade: é preciso que `repo.conferencia_valida` devolva esta
     conferência. Senão não faz nada (a próxima leitura decide)."""
     agora = ctx.relogio()
-    mensagem = None
+    aviso: Dados | None = None
     with ctx.sessoes() as s, s.begin():
         conferencia = s.get(ConferenciaCheckout, conferencia_id)
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
@@ -362,6 +370,6 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
                 preco_conferido=conferido, impostos=conferencia.impostos, frete=conferencia.frete,
                 importada=melhor.importada, origem_envio=melhor.origem_envio, prime=melhor.prime,
             )
-            mensagem = _mensagem(ctx, linha, leitura, ref, detalhes)
-    if mensagem is not None:
-        ctx.notificador.enviar(Destino.OPORTUNIDADES, mensagem)
+            aviso = _dados(linha, leitura, ref, detalhes)
+    if aviso is not None:
+        ctx.avisador.avisar(TipoAviso.OPORTUNIDADE, str(anuncio_id), aviso)

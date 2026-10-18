@@ -83,17 +83,17 @@ def main(argv: list[str] | None = None) -> None:
             config,
         ).rodar()
     elif args.comando == "coletor-amazon":
+        from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
         from tcg_sniper.coletor_amazon.varredura import VarreduraAmazon
         from tcg_sniper.navegador.chromium import NavegadorChromium
-        from tcg_sniper.notificador import criar_notificador
 
         instalar_sigterm()
         VarreduraAmazon(
             engine,
             sessoes,
             lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
-            criar_notificador(config, sessoes),
+            criar_avisador(sessoes),
             config,
         ).rodar()
     elif args.comando == "notificador":

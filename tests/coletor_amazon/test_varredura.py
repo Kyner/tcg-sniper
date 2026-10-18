@@ -4,8 +4,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fakes import (
+    AvisadorFake,
     NavegadorFake,
-    NotificadorFake,
     cartao_busca,
     criar_preco_liga,
     criar_produto,
@@ -14,6 +14,7 @@ from fakes import (
 )
 from sqlalchemy import select
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.coletor_amazon.busca import url_busca
 from tcg_sniper.coletor_amazon.config import aplicar_config
 from tcg_sniper.coletor_amazon.varredura import (
@@ -83,18 +84,18 @@ def produtos(sessoes, *nomes):
 def varredura(engine, sessoes, config, paginas, relogio=None):
     navegador = NavegadorFake(paginas)
     fabrica = FabricaFake(navegador)
-    notificador = NotificadorFake()
+    avisador = AvisadorFake()
     v = VarreduraAmazon(
         engine,
         sessoes,
         fabrica,
-        notificador,
+        avisador,
         config,
         relogio=relogio or Relogio(MEIO_DIA),
         rng=random.Random(1),
         dormir=lambda _: None,
     )
-    return v, navegador, fabrica, notificador
+    return v, navegador, fabrica, avisador
 
 
 def ciclos(sessoes):
@@ -153,37 +154,43 @@ def test_pausado_nao_busca(engine, sessoes, config):
 def test_captcha_pausa_avisa_e_mantem_o_navegador(engine, sessoes, config):
     _, urls = produtos(sessoes, "a")
     [url] = urls.values()
-    v, _, fabrica, notificador = varredura(engine, sessoes, config, {url: pagina_html(CAPTCHA, url=url)})
+    v, _, fabrica, avisador = varredura(engine, sessoes, config, {url: pagina_html(CAPTCHA, url=url)})
     assert v.passo() == ESPERA_OCIOSA_S
     with sessoes() as s:
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO_DESAFIO
     [ciclo] = ciclos(sessoes)
     assert ciclo.status is StatusColeta.PAUSADA_DESAFIO
-    [(destino, texto)] = notificador.mensagens
-    assert destino is Destino.ADMIN and ":6081/vnc.html" in texto
+    [(destino, _)] = avisador.mensagens
+    assert destino is Destino.ADMIN
+    [(tipo, chave, dados)] = avisador.avisos
+    assert (tipo, chave) == (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL)
+    assert dados.linhas[1] == "Busca, monitor e conferência pausados até você retomar"
+    assert "noVNC da Amazon (porta 6081)" in avisador.mensagens[0][1]
     assert fabrica.fechados == 0
 
 
 def test_retomar_continua_no_mesmo_navegador(engine, sessoes, config):
     _, urls = produtos(sessoes, "a")
     [url] = urls.values()
-    v, navegador, fabrica, _ = varredura(engine, sessoes, config, {url: [pagina_html(CAPTCHA, url=url), vazia(url)]})
+    v, navegador, fabrica, avisador = varredura(engine, sessoes, config, {url: [pagina_html(CAPTCHA, url=url), vazia(url)]})
     v.passo()
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) not in avisador.resolvidos
     with sessoes() as s, s.begin():
         repo.retomar(s, MEIO_DIA, COLETOR_AMAZON)
     assert v.passo() == 0
     assert navegador.visitadas == [url, url]
     assert fabrica.abertos == 1
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
 
 
 def test_falha_de_layout_conta_falha_e_ciclo_falho_avisa(engine, sessoes, config):
     _, urls = produtos(sessoes, "a")
     [url] = urls.values()
-    v, _, _, notificador = varredura(engine, sessoes, config, {url: pagina_html("<html>novo</html>", url=url)})
+    v, _, _, avisador = varredura(engine, sessoes, config, {url: pagina_html("<html>novo</html>", url=url)})
     v.passo()
     [ciclo] = ciclos(sessoes)
     assert (ciclo.status, ciclo.produtos_falha) == (StatusColeta.FALHA, 1)
-    assert any(d is Destino.ADMIN and "falhou" in t for d, t in notificador.mensagens)
+    assert TipoAviso.AMAZON_BUSCA_FALHOU in avisador.tipos()
 
 
 def test_teto_por_hora(engine, sessoes, config):
@@ -237,7 +244,7 @@ def test_erros_inesperados_seguidos_pausam(engine, sessoes, config, monkeypatch)
     monkeypatch.setattr(modulo, "processar_produto", quebrar)
     _, urls = produtos(sessoes, "a")
     relogio = Relogio(MEIO_DIA)
-    v, _, fabrica, notificador = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio)
+    v, _, fabrica, avisador = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio)
     esperas = []
     for _ in range(3):
         try:
@@ -249,7 +256,8 @@ def test_erros_inesperados_seguidos_pausam(engine, sessoes, config, monkeypatch)
     with sessoes() as s:
         estado = repo.obter_estado(s, coletor=COLETOR_AMAZON)
     assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO, "erros seguidos")
-    assert len([m for m in notificador.mensagens if "falhou" not in m[1]]) == 3
+    seguidos = [t for t in avisador.tipos() if t in (TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_PAUSADA)]
+    assert seguidos == [TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_PAUSADA]
     assert fabrica.fechados == 3
 
 
@@ -257,12 +265,12 @@ def test_inicializar_so_marca_os_ciclos_da_amazon(engine, sessoes, config):
     with sessoes() as s, s.begin():
         liga = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, MEIO_DIA)
         amazon = repo.iniciar_coleta(s, TipoColeta.AMAZON, MEIO_DIA)
-    v, _, _, notificador = varredura(engine, sessoes, config, {})
+    v, _, _, avisador = varredura(engine, sessoes, config, {})
     v.inicializar()
     with sessoes() as s:
         assert s.get(Coleta, liga.id).status is StatusColeta.RODANDO
         assert s.get(Coleta, amazon.id).status is StatusColeta.FALHA
-    assert len(notificador.mensagens) == 1
+    assert avisador.tipos() == [TipoAviso.AMAZON_INTERROMPIDA]
 
 
 @pytest.mark.parametrize("hora", [7, 22])
@@ -321,10 +329,13 @@ def test_tratar_erro_nunca_levanta_se_a_pausa_falhar(engine, sessoes, config, mo
         raise RuntimeError("banco fora")
 
     monkeypatch.setattr(modulo.repo, "pausar", quebrar)
-    v, _, _, notificador = varredura(engine, sessoes, config, {})
+    v, _, _, avisador = varredura(engine, sessoes, config, {})
     esperas = [v.tratar_erro(RuntimeError("x")) for _ in range(3)]
     assert esperas == [ESPERA_ERRO_S] * 3
-    assert len(notificador.mensagens) == 3
+    assert avisador.tipos() == [TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_PAUSADA]
+    assert avisador.dados(TipoAviso.AMAZON_PAUSADA)[0].linhas[1] == (
+        "Não consegui registrar a pausa no banco: nova tentativa em 15 min"
+    )
 
 
 def quebrada(url):
@@ -337,15 +348,17 @@ def nomes(n):
 
 def test_falhas_seguidas_pausam_a_busca(engine, sessoes, config):
     _, urls = produtos(sessoes, *nomes(MAX_FALHAS_SEGUIDAS + 1))
-    v, navegador, _, notificador = varredura(engine, sessoes, config, {u: quebrada(u) for u in urls.values()})
+    v, navegador, _, avisador = varredura(engine, sessoes, config, {u: quebrada(u) for u in urls.values()})
     for _ in range(MAX_FALHAS_SEGUIDAS):
         v.passo()
     with sessoes() as s:
         estado = repo.obter_estado(s, coletor=COLETOR_AMAZON)
     assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO, "falhas seguidas")
-    avisos = [t for d, t in notificador.mensagens if d is Destino.ADMIN and "seguidas com falha" in t]
-    assert len(avisos) == 1
-    assert "Retomar (Amazon)" in avisos[0]
+    [pausa] = avisador.dados(TipoAviso.AMAZON_PAUSADA)
+    assert pausa.linhas[0] == f"Motivo: {MAX_FALHAS_SEGUIDAS} páginas seguidas com falha (bloqueio ou layout novo?)"
+    assert "Admin → Serviços → Amazon → Retomar" in avisador.mensagens[-1][1]
+    # o ciclo terminou pela pausa: só o aviso da pausa, sem "busca falhou" nem conclusão
+    assert avisador.tipos() == [TipoAviso.AMAZON_PAUSADA]
     [ciclo] = ciclos(sessoes)
     assert (ciclo.status, ciclo.produtos_falha) == (StatusColeta.FALHA, MAX_FALHAS_SEGUIDAS)
     assert v.passo() == ESPERA_OCIOSA_S
@@ -356,13 +369,13 @@ def test_busca_com_sucesso_zera_as_falhas_seguidas(engine, sessoes, config):
     criados, urls = produtos(sessoes, *nomes(2 * MAX_FALHAS_SEGUIDAS - 1))
     meio = criados[MAX_FALHAS_SEGUIDAS - 1].id
     paginas = {u: vazia(u) if pid == meio else quebrada(u) for pid, u in urls.items()}
-    v, navegador, _, notificador = varredura(engine, sessoes, config, paginas)
+    v, navegador, _, avisador = varredura(engine, sessoes, config, paginas)
     for _ in range(len(criados)):
         v.passo()
     assert navegador.visitadas[MAX_FALHAS_SEGUIDAS - 1] == urls[meio]
     with sessoes() as s:
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
-    assert not any("seguidas com falha" in t for _, t in notificador.mensagens)
+    assert TipoAviso.AMAZON_PAUSADA not in avisador.tipos()
 
 
 def test_no_maximo_tres_htmls_de_falha_por_ciclo(engine, sessoes, config):
@@ -375,16 +388,18 @@ def test_no_maximo_tres_htmls_de_falha_por_ciclo(engine, sessoes, config):
     assert len(list((config.dir_dados / "falhas").iterdir())) == 3
 
 
-def test_host_salvo_na_tela_vale_na_mensagem_do_captcha(engine, sessoes, config):
-    _, urls = produtos(sessoes, "a")
-    [url] = urls.values()
+def test_mensagem_do_captcha_nunca_leva_o_host_salvo(engine, sessoes, config):
     with sessoes() as s, s.begin():
         repo.obter_config_geral(s, config)
         repo.salvar_config_geral(s, {"host_publico": "10.9.8.7"}, MEIO_DIA)
-    v, _, _, notificador = varredura(engine, sessoes, config, {url: pagina_html(CAPTCHA, url=url)})
+    _, urls = produtos(sessoes, "a")
+    [url] = urls.values()
+    v, _, _, _ = varredura(engine, sessoes, config, {url: pagina_html(CAPTCHA, url=url)})
+    avisador = AvisadorFake(host_publico="10.9.8.7")  # modo estrito: o host no texto faz o avisar levantar
+    v._avisador = avisador
     v.passo()
-    [(_, texto)] = notificador.mensagens
-    assert "http://10.9.8.7:6081/vnc.html" in texto
+    [(_, texto)] = avisador.mensagens
+    assert "porta 6081" in texto and "10.9.8.7" not in texto
 
 
 def test_busca_alterna_portugues_e_ingles_quando_ha_nome_en(engine, sessoes, config):
@@ -455,3 +470,81 @@ def test_flag_do_termo_tambem_alterna_quando_a_busca_falha_no_parser(engine, ses
         relogio.agora += timedelta(hours=3)
     assert navegador.visitadas == [url_pt, url_en]
     assert flags == [False, True]
+
+
+def test_ciclo_ok_avisa_busca_concluida_e_resolve_a_falha(engine, sessoes, config):
+    _, urls = produtos(sessoes, "a")
+    [url] = urls.values()
+    v, _, _, avisador = varredura(engine, sessoes, config, {url: vazia(url)})
+    v.passo()
+    [(tipo, chave, dados)] = avisador.avisos
+    assert (tipo, chave) == (TipoAviso.AMAZON_BUSCA_CONCLUIDA, CHAVE_GERAL)
+    assert dados.titulo_extra.startswith("ciclo ") and dados.linhas == ("Buscas: 1 ok · 0 falhas", "Duração: menos de 1 min")
+    assert (TipoAviso.AMAZON_BUSCA_FALHOU, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_ciclo_parcial_avisa_busca_parcial(engine, sessoes, config):
+    with sessoes() as s, s.begin():
+        aplicar_config(s, {"limite_falha_pct": 60}, MEIO_DIA)
+    (a, b), urls = produtos(sessoes, "a", "b")
+    relogio = Relogio(MEIO_DIA)
+    v, _, _, avisador = varredura(
+        engine, sessoes, config, {urls[a.id]: vazia(urls[a.id]), urls[b.id]: quebrada(urls[b.id])}, relogio
+    )
+    v.passo()
+    relogio.agora += timedelta(minutes=30)
+    v.passo()
+    [(tipo, _, dados)] = avisador.avisos
+    assert tipo is TipoAviso.AMAZON_BUSCA_PARCIAL
+    assert dados.linhas == ("Buscas: 1 ok · 1 falha", "Duração: 30 min")
+    assert (TipoAviso.AMAZON_BUSCA_FALHOU, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_janela_que_fecha_no_meio_do_ciclo_nao_avisa_conclusao(engine, sessoes, config):
+    _, urls = produtos(sessoes, "a", "b")
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, avisador = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio)
+    assert v.passo() == 0  # um dos dois buscado; o outro fica pendente
+    relogio.agora = datetime(2026, 10, 15, 23, 0, tzinfo=SP)  # fora da janela: o ciclo fecha pela metade
+    assert v.passo() == ESPERA_OCIOSA_S
+    [ciclo] = ciclos(sessoes)
+    assert ciclo.status is not StatusColeta.RODANDO and len(navegador.visitadas) == 1
+    assert avisador.avisos == []
+
+
+def test_ciclo_que_termina_com_a_pausa_so_avisa_a_pausa(engine, sessoes, config):
+    _, urls = produtos(sessoes, *nomes(MAX_FALHAS_SEGUIDAS))  # a última busca fecha o ciclo e pausa
+    v, _, _, avisador = varredura(engine, sessoes, config, {u: quebrada(u) for u in urls.values()})
+    for _ in range(MAX_FALHAS_SEGUIDAS):
+        v.passo()
+    [ciclo] = ciclos(sessoes)
+    assert ciclo.status is StatusColeta.FALHA
+    assert avisador.tipos() == [TipoAviso.AMAZON_PAUSADA]
+
+
+def test_passo_com_a_amazon_ativa_resolve_a_pausa(engine, sessoes, config):
+    v, _, _, avisador = varredura(engine, sessoes, config, {})
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "erros seguidos", MEIO_DIA, COLETOR_AMAZON)
+    v.passo()
+    assert (TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL) not in avisador.resolvidos
+    with sessoes() as s, s.begin():
+        repo.retomar(s, MEIO_DIA, COLETOR_AMAZON)
+    v.passo()
+    assert (TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_executar_passo_avisa_erro_e_o_passo_ok_seguinte_resolve(engine, sessoes, config, monkeypatch):
+    v, _, _, avisador = varredura(engine, sessoes, config, {})
+
+    def quebrar():
+        raise RuntimeError("navegador fechou")
+
+    monkeypatch.setattr(v, "passo", quebrar)
+    assert v.executar_passo() == ESPERA_ERRO_S
+    [(tipo, _, dados)] = avisador.avisos
+    assert tipo is TipoAviso.AMAZON_ERRO and dados.linhas == ("Erro: RuntimeError('navegador fechou')",)
+    assert (TipoAviso.AMAZON_ERRO, CHAVE_GERAL) not in avisador.resolvidos
+    monkeypatch.setattr(v, "passo", lambda: 0)
+    assert v.executar_passo() == 0
+    assert (TipoAviso.AMAZON_ERRO, CHAVE_GERAL) in avisador.resolvidos
