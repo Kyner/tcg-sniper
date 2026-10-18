@@ -6,6 +6,7 @@ __pycache__/
 .perfil-dev/
 dados/
 .superpowers/
+.ruff_cache/
 
 # Planejamento interno, fora do repositório público.
 Monitor de arbitragem de selados de Magic.md
