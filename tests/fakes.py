@@ -1,7 +1,10 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+from tcg_sniper.avisos import formato
+from tcg_sniper.avisos.catalogo import CATALOGO, Dados, TipoAviso
 from tcg_sniper.coletor_amazon.modelos import OfertaLista
 from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
 from tcg_sniper.db.models import AnuncioAmazon, Envio, PrecoAtualLiga, ProdutoLiga, StatusCasamento
@@ -267,3 +270,33 @@ class NavegadorInterativoFake(NavegadorFake):
         self.cliques.append((seletor, indice))
         self._atual = self._seguinte(seletor)
         return self._atual
+
+
+class AvisadorFake:
+    """Guarda os avisos e monta o texto de cada um pelo `formato`, em modo estrito: endereço do sistema
+    numa mensagem de qualquer serviço faz o teste falhar. Não agrupa (a regra de repetição é do serviço
+    de avisos e tem os próprios testes)."""
+
+    def __init__(self, host_publico: str = "host.test"):
+        self._host = host_publico
+        self.avisos: list[tuple[TipoAviso, str, Dados]] = []
+        self.resolvidos: list[tuple[TipoAviso, str]] = []
+        self.mensagens: list[tuple[Destino, str]] = []
+
+    def avisar(self, tipo: TipoAviso, chave: str, dados: Dados) -> None:
+        aviso = formato.aviso_de(tipo, dados, T0)
+        texto = formato.formatar(aviso, ZoneInfo("America/Sao_Paulo"), self._host, estrito=True)
+        self.avisos.append((tipo, chave, dados))
+        self.mensagens.append((CATALOGO[tipo].grupo, texto))
+
+    def resolver(self, tipo: TipoAviso, chave: str) -> None:
+        self.resolvidos.append((tipo, chave))
+
+    def resolver_todos(self, tipo: TipoAviso) -> None:
+        self.resolvidos.append((tipo, "*"))
+
+    def tipos(self) -> list[TipoAviso]:
+        return [tipo for tipo, _, _ in self.avisos]
+
+    def dados(self, tipo: TipoAviso) -> list[Dados]:
+        return [d for t, _, d in self.avisos if t is tipo]

@@ -587,6 +587,40 @@ class ExecucaoManutencao(Base):
     erro: Mapped[str | None] = mapped_column(Text)
 
 
+class EstadoAviso(Base):
+    """Um problema por (tipo, chave) dos avisos do WhatsApp que agrupam: aberto até `resolver`.
+    `ultimo_envio_em` nulo: nada saiu ainda (tipo desligado)."""
+
+    __tablename__ = "estado_aviso"
+    __table_args__ = (CheckConstraint("ocorrencias >= 0", name="ck_estado_aviso_ocorrencias"),)
+
+    tipo: Mapped[str] = mapped_column(Text, primary_key=True)
+    chave: Mapped[str] = mapped_column(Text, primary_key=True)
+    aberto: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    primeiro_em: Mapped[datetime] = mapped_column(DATA)
+    ultimo_em: Mapped[datetime] = mapped_column(DATA)
+    ultimo_envio_em: Mapped[datetime | None] = mapped_column(DATA)
+    ocorrencias: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class ConfigAviso(Base):
+    """Liga/desliga de cada tipo de aviso (Configurações → Avisos). Linha ausente = ligado_padrao do catálogo."""
+
+    __tablename__ = "config_aviso"
+
+    tipo: Mapped[str] = mapped_column(Text, primary_key=True)
+    ligado: Mapped[bool] = mapped_column(Boolean)
+
+
+class SinalServico(Base):
+    """Último sinal de vida de cada serviço sem tabela de estado própria (coletores e casador); o vigia lê."""
+
+    __tablename__ = "sinal_servico"
+
+    servico: Mapped[str] = mapped_column(Text, primary_key=True)
+    ultimo_em: Mapped[datetime] = mapped_column(DATA)
+
+
 ESFORCOS_IA = ("minimal", "low", "medium", "high")
 
 LIMITES_CONFIG_IA: dict[str, tuple[int, int]] = {
