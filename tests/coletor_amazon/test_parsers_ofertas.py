@@ -111,3 +111,23 @@ def test_cupom_real_com_espacos_duplos():
 def test_usado_como_novo_e_usado():
     [oferta] = parse_ofertas(html_ofertas(bloco_oferta(condicao="Usado - Como novo")))
     assert oferta.condicao == "usado"
+
+
+# Painel real (2026-10-18) de anúncio sem oferta em destaque: o bloco fixo só traz foto, título e
+# avaliações, com "Nenhuma opção de compra em destaque"; as ofertas vêm só na lista.
+SEM_DESTAQUE = (
+    '<div id="aod-pinned-offer"><div id="pinned-image-id"><img id="aod-asin-image-id"></div>'
+    '<div id="pinned-de-id"><div id="aod-asin-block-asin"><h5 id="aod-asin-title">'
+    '<span id="aod-asin-title-text">Commander Deck - Jeskai Striker</span></h5>'
+    '<div id="aod-asin-reviews"><span id="aod-asin-reviews-star">4,8 de 5 estrelas</span>'
+    '<span id="aod-asin-reviews-count-title">417 avaliações de clientes</span></div>'
+    '<span class="a-size-base">Nenhuma opção de compra em destaque</span></div></div></div>'
+)
+
+
+def test_painel_sem_oferta_em_destaque_le_a_lista_sem_aviso(caplog):
+    html = html_ofertas(SEM_DESTAQUE, bloco_oferta("R$ 275,91"))
+    with caplog.at_level("WARNING"):
+        ofertas = parse_ofertas(html)
+    assert [(o.vendedor_nome, o.posicao) for o in ofertas] == [("Shazaar", 1)]
+    assert "sem preço legível" not in caplog.text

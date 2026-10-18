@@ -7,11 +7,14 @@ Marcar `[x]` ao concluir e anotar o commit. Sem dados pessoais neste arquivo (o 
 
 ## 1. Acompanhar (sem código)
 
-- [ ] Primeiro dia do monitor de preço e da conferência de checkout (deploy `32c80a4`): conferir Logs → Monitor, Logs → Checkout e avisos do Dashboard ("sem login", "conferir à mão", monitor atrasado).
+- [x] Primeiro dia do monitor de preço e da conferência de checkout (deploy `32c80a4`), 2026-10-18 às 08:36: 49 de 51 anúncios lidos (129 leituras); 1 conferência ok (Kit Inicial Final Fantasy, anunciado R$ 161,47 → conferido R$ 155,52 = 129,28 + 26,24 de imposto, item removido); 1 alerta com preço conferido; nada preso no carrinho, sem "sem login".
 - [ ] Frequência de CAPTCHA da Amazon com o monitor ligado (até 150 páginas/h).
 - [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare.
 
 ## 2. Pequenas, desta última entrega (fazer juntas)
+
+- [x] "oferta 0 do painel sem preço legível": não perdia oferta. Em 5 dos 51 anúncios a Amazon não tem oferta em destaque ("Nenhuma opção de compra em destaque") e o bloco fixo só traz foto e título; as ofertas da lista eram lidas normalmente. O leitor agora pula esse bloco sem aviso (branch `fix/painel-sem-destaque`).
+- [x] "Monitor rodou antes da janela": não é bug. As janelas da busca e do monitor variam até 15 min para não parecer robô (texto de ajuda em Configurações já diz isso).
 
 - [ ] Teste `tests/admin/test_admin_dashboard.py::test_dashboard_mostra_ultimas_execucoes_e_horario` depende do horário: falha depois das 22:00 (card da Amazon mostra "fora do horário"). Fixar o relógio no teste.
 - [ ] Monitor: depois de uma conferência que falhou com "a oferta não está mais no painel", não mandar o alerta com o preço anunciado já velho (`monitor.redecidir`); deixar a próxima leitura decidir.
