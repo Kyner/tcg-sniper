@@ -12,12 +12,6 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 2. Pacote B: proteção e operação (próximo a fazer)
 
-- [ ] **Backup automático do banco**: `pg_dump` diário, com rodízio (7 diários + 4 semanais) e cópia fora do PC (o R2 da Cloudflare serve). Hoje só há backups manuais antes de cada deploy (`dados/backups/`).
-- [ ] **Limpeza de histórico**: já existe limpeza de 30 dias para `oferta_amazon` e `mensagem_saida`. Ainda crescem sem limite. Prazos aprovados em 2026-10-18:
-  - `preco_amazon` e `resumo_preco`/preços da Liga: **nunca apagar** (histórico longo de preço é desejado);
-  - `chamada_ia`: 90 dias;
-  - `conferencia_checkout`: 180 dias;
-  - `coleta`: 180 dias.
 - [ ] Bancos de teste (`tcg_test*`) ficam no mesmo Postgres de produção: separar num container próprio.
 
 ## 3. Pequenas (sem pressa, juntar num pacote)
@@ -49,6 +43,16 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 4. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### Pacote B (2026-10-18)
+
+- [x] **Backup automático do banco**: serviço `manutencao` (compose), todo dia às 04:00 no fuso de Configurações → Geral, com recuperação ao subir se o último ok tem mais de 24 h. `pg_dump -Fc` validado com `pg_restore --list`, rodízio de 7 diários + 4 semanais em `dados/backups/` (os `tcg-antes-*.dump` manuais nunca são tocados) e cópia no R2 (`diario/`, `semanal/`; o bucket expira sozinho). Card Backup no Dashboard, liga/desliga em Serviços, Logs → Manutenção; falha avisa o grupo admin uma vez (`ef4c008`, `e79560f`, `1011a75`, `7ab2ed4`). Falta a primeira cópia real no R2 com as credenciais.
+- [x] **Limpeza de histórico** (`db/retencao.py`, na mesma execução diária, só depois de um backup local ok) (`c006baa`):
+  - preços (`preco_amazon`, `resumo_preco`, `preco_listagem`, `preco_atual_*`), `avaliacao_ia` e `oportunidade`: nunca apagados;
+  - `chamada_ia`: 90 dias; antes de apagar, `avaliacao_ia.chamada_id` vira NULL (a avaliação fica; nenhuma tela junta a chamada pela avaliação);
+  - `conferencia_checkout`: 180 dias, só com `item_removido` (as que ainda podem ter item no carrinho ficam);
+  - `coleta`: 180 dias, só as que nenhum preço referencia (`resumo_preco`, `preco_listagem`, `preco_atual_liga`): rodadas que falharam ou vieram vazias e os ciclos da Amazon. Nunca uma `rodando`;
+  - `oferta_amazon` e `mensagem_saida` continuam com a limpeza de 30 dias de antes (coletor-amazon e notificador).
 
 ### Pacote A (2026-10-18)
 
