@@ -317,7 +317,7 @@ O serviço `manutencao` faz, todo dia às 04:00 (fuso de Configurações → Ger
 - **Acompanhar:** card **Backup** no Dashboard (último ok, tamanho, cópia no R2), **Serviços** para ligar e desligar e **Logs → Manutenção** com cada execução. Falha avisa o grupo admin uma vez e tenta de novo no dia seguinte.
 - **Limpeza do histórico** (só depois de um backup local ok): chamadas da IA com mais de 90 dias (a avaliação da IA fica, sem o vínculo com a chamada), conferências de checkout com mais de 180 dias (menos as que podem ter deixado item no carrinho) e coletas com mais de 180 dias que nenhum preço usa. Preços, avaliações da IA e oportunidades nunca são apagados.
 
-Para restaurar um backup (apaga e recria o conteúdo do banco `tcg`), pare os serviços que escrevem no banco e rode:
+Para restaurar um backup (apaga e recria o conteúdo do banco `tcg`): primeiro pare os serviços do app, que escrevem no banco; depois restaure; por fim suba tudo de novo:
 
 ```bash
 docker compose stop coletor-liga coletor-amazon casador notificador manutencao admin
@@ -372,7 +372,7 @@ uv run pytest -q
 uv run ruff check
 ```
 
-Os testes usam `tcg_test` no `postgres-teste` (`127.0.0.1:5433`), nunca o Postgres de produção: a suíte recusa rodar em banco que não comece com `tcg_test` ou na porta 5432. Para outro banco (por exemplo um por trabalho paralelo), crie-o com `docker compose exec -T postgres-teste createdb -U tcg tcg_test_<nome>` e aponte `DATABASE_URL_TESTE` para ele. Os dados do `postgres-teste` somem ao reiniciar o container, e as migrações recriam tudo no próximo `pytest`.
+Os testes usam `tcg_test` no `postgres-teste` (`127.0.0.1:5433`), nunca o Postgres de produção: a suíte recusa rodar em banco que não comece com `tcg_test` ou na porta 5432. Para outro banco (por exemplo um por trabalho paralelo), crie-o com `docker compose exec -T postgres-teste createdb -U tcg tcg_test_<nome>` e aponte `DATABASE_URL_TESTE` para ele. O `postgres-teste` guarda os dados em memória (tmpfs): ao reiniciar o container ou o Docker, tudo some. O `tcg_test` padrão volta sozinho (o container o cria e as migrações recriam as tabelas no próximo `pytest`), mas os bancos extras (`tcg_test_<nome>`) precisam ser criados de novo com o `createdb` acima.
 
 Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
 
