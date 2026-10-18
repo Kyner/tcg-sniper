@@ -81,7 +81,7 @@ Configurações → aba **Avisos** (DaisyUI, classes literais): para cada tipo, 
 
 ### O que não muda
 
-`notificador` (envio, tentativas, validade de 30 min para oportunidades, avisos do admin não vencem), tabela `mensagem_saida` e tela Mensagens.
+`notificador` (envio, tentativas, validade das oportunidades configurável em Configurações → Geral (padrão 6 h), avisos do admin não vencem), tabela `mensagem_saida` e tela Mensagens.
 
 ## Catálogo
 
