@@ -1,6 +1,6 @@
 {# Peças comuns de todas as telas. Só classes do DaisyUI 5 / Tailwind. #}
 
-{% macro selo(situacao, texto=None) -%}
+{% macro selo(situacao, texto=None, quebra=False) -%}
 {%- set cores = {
   "ok": "badge-success", "ativo": "badge-success", "enviada": "badge-success", "confirmado": "badge-success",
   "parcial": "badge-warning", "pendente": "badge-warning",
@@ -9,13 +9,13 @@
   "expirada": "badge-ghost", "descartada": "badge-ghost", "ignorado": "badge-ghost", "inativo": "badge-ghost",
   "nao_verificado": "badge-ghost",
 } -%}
-<span class="badge badge-sm whitespace-nowrap {{ cores.get(situacao, 'badge-ghost') }}">{{ texto or situacao|replace("_", " ") }}</span>
+<span class="badge badge-sm {{ 'h-auto whitespace-normal text-left' if quebra else 'whitespace-nowrap' }} {{ cores.get(situacao, 'badge-ghost') }}">{{ texto or situacao|replace("_", " ") }}</span>
 {%- endmacro %}
 
 {% macro selo_vendedor(verificado, confiavel, envio, vendedor) -%}
 {%- if not verificado -%}{{ selo("nao_verificado", "vendedor não verificado") }}<div class="text-xs text-base-content/60">preço lido só na busca</div>
-{%- elif confiavel -%}{{ selo("confirmado", envio|envio(vendedor)) }}
-{%- else -%}{{ selo("nao_verificado", envio|envio(vendedor)) }} <span class="text-xs text-base-content/60">(não elegível)</span>
+{%- elif confiavel -%}{{ selo("confirmado", envio|envio(vendedor), quebra=True) }}
+{%- else -%}{{ selo("nao_verificado", envio|envio(vendedor), quebra=True) }} <span class="text-xs text-base-content/60">(não elegível)</span>
 {%- endif -%}
 {%- endmacro %}
 
