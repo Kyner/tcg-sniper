@@ -157,7 +157,7 @@ docker compose up -d --build coletor-liga
 
 Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://<IP deste PC>:6080/vnc.html`, com a `VNC_SENHA`.
 
-Ao final, o grupo admin recebe "N produtos novos no catálogo" e o resumo da coleta.
+Ao final, o grupo admin recebe "🟡 Liga · produtos novos no catálogo" e "✅ Liga · coleta concluída".
 
 ### 7. Escolha os produtos que quer acompanhar
 
@@ -213,7 +213,7 @@ A conferência e o monitor dividem um teto de páginas por hora (padrão 150; a 
 
 **Preço conferido = itens + impostos, sem o frete.** O alerta e o admin mostram esse valor, com os impostos inclusos e o frete à parte ("frete R$ X à parte"). Com a conferência ligada, o aviso de uma oferta que vai ao checkout espera a conferência e sai com o preço conferido; uma conferência vencida também não fecha nem realerta a oportunidade aberta antes da nova conferência. Só quando não há conferência possível (desligada, conta sem login, seu carrinho com itens ou a conferência dessa oferta falhou) o alerta sai com "preço anunciado, não conferido" e o motivo. O resumo do checkout precisa fechar no centavo (itens + frete + impostos = total); se não fechar, a conferência falha. Cupons e descontos de cartão aparecem só como informação.
 
-O item adicionado sai do carrinho na própria conferência, também depois de um erro no meio. Antes de adicionar, o coletor grava a conferência como "em andamento"; se ele cair no meio (ou a exclusão falhar), tenta tirar o item nas voltas seguintes, mesmo fora da janela, com 15 min entre tentativas. Essa retirada automática **só clica em Excluir com o carrinho exatamente como a conferência o deixou**: só aquele item no carrinho ativo, quantidade 1, subtotal igual ao preço anunciado e conferência de até 30 min. Em qualquer outro caso (por exemplo, você pôs o mesmo produto no carrinho) ou depois de 3 tentativas que falharam, o coletor não clica: o grupo admin recebe uma vez "Confira o carrinho da Amazon: pode haver 1× <ASIN>…", e o Dashboard e Serviços mostram o alerta até você conferir o carrinho pelo noVNC (porta 6081), tirar o item se não for seu e clicar em **Já conferi**. Com a Amazon pausada (CAPTCHA, erros seguidos ou desligada em Serviços), a retirada automática também para; ela volta quando você retomar. Em Logs → Checkout, "item no carrinho" mostra esses casos.
+O item adicionado sai do carrinho na própria conferência, também depois de um erro no meio. Antes de adicionar, o coletor grava a conferência como "em andamento"; se ele cair no meio (ou a exclusão falhar), tenta tirar o item nas voltas seguintes, mesmo fora da janela, com 15 min entre tentativas. Essa retirada automática **só clica em Excluir com o carrinho exatamente como a conferência o deixou**: só aquele item no carrinho ativo, quantidade 1, subtotal igual ao preço anunciado e conferência de até 30 min. Em qualquer outro caso (por exemplo, você pôs o mesmo produto no carrinho) ou depois de 3 tentativas que falharam, o coletor não clica: o grupo admin recebe "🔴 Amazon · conferir o carrinho · <ASIN>" (com lembrete a cada 2 h até resolver), e o Dashboard e Serviços mostram o alerta até você conferir o carrinho pelo noVNC (porta 6081), tirar o item se não for seu e clicar em **Já conferi**. Com a Amazon pausada (CAPTCHA, erros seguidos ou desligada em Serviços), a retirada automática também para; ela volta quando você retomar. Em Logs → Checkout, "item no carrinho" mostra esses casos.
 
 Tudo em Configurações → Amazon → Monitor de preço; liga e desliga em Serviços.
 
@@ -282,19 +282,18 @@ Preço que a página não mostra aparece como "—", nunca como zero.
 
 ### Mensagens no WhatsApp
 
-| Mensagem | Quando chega | O que fazer |
-| --- | --- | --- |
-| **Coleta de DD/MM concluída** | Ao fim de toda coleta sem desafio e sem erro. | Nada; é o resumo do dia. |
-| **N produtos novos no catálogo** | Quando a listagem encontra produtos que ainda não estavam no catálogo. | Se quiser acompanhá-los, ative-os pelo link (filtro "novos"). |
-| **Oportunidade:** | No grupo de oportunidades, quando uma oferta confirmada da Amazon fica pelo menos 25% abaixo do "À partir de" da Liga. | Conferir o anúncio pelo link e decidir a compra. |
-| **CAPTCHA na Amazon** | No grupo admin, quando a Amazon pede uma verificação. A fila da Amazon fica pausada. | Resolver pelo noVNC na porta 6081 e clicar em **Retomar (Amazon)** em Serviços. |
-| **Conta Amazon sem login** | No grupo admin, uma vez, quando a conferência de checkout cai no login. A conferência para; o monitor continua. | Logar a conta pelo noVNC na porta 6081 e clicar em **Retomar conferência** em Serviços. |
-| **Confira o carrinho da Amazon** | No grupo admin, uma vez por conferência, quando o coletor não pôde tirar sozinho o item de uma conferência (carrinho diferente do que ela deixou, ou 3 tentativas falharam). | Conferir o carrinho pelo noVNC na 6081, tirar o item se não for seu e clicar em **Já conferi** no Dashboard ou em Serviços. |
-| **Varredura da Amazon pausada** | No grupo admin, quando a fila da Amazon parou por erros seguidos. | Resolver pelo noVNC na 6081 e clicar em **Retomar (Amazon)** em Serviços, ou ver `docker compose logs coletor-amazon`. |
-| **Desafio Cloudflare na LigaMagic** | Quando aparece uma verificação. A coleta fica pausada. | Resolver pelo noVNC e clicar em **Retomar** em Serviços (ver abaixo). |
-| **... falhou em X de Y** | Quando mais da metade das categorias ou dos produtos falhou. Em geral, a LigaMagic mudou o layout. | Ver os HTMLs salvos em `/data/falhas` e abrir uma issue. |
-| **Backup do banco com erro** | No grupo admin, uma vez por execução, quando o backup diário, a cópia no R2 ou a limpeza falhou. | Ver Logs → Manutenção e `docker compose logs manutencao`. Tenta de novo no dia seguinte. |
-| **Erro inesperado** / **coleta(s) interrompida(s)** | Erro no meio da coleta, ou o coletor reiniciou no meio de uma. | Ver `docker compose logs coletor-liga` e clicar em **Rodar agora** em Serviços. |
+Todas as mensagens seguem o mesmo formato: emoji de severidade (🔴 falha, 🟡 atenção, ✅ concluído, 💰 oportunidade), título em negrito, linhas com "•", "*O que fazer:*" e, em itálico, a hora e quem mandou. Nenhuma leva endereço do admin ou do noVNC (só abrem na rede de casa); a ação diz onde fazer, por exemplo "noVNC da Amazon (porta 6081)" ou "Admin → Serviços → Amazon → Retomar". Links de produto (Amazon, LigaMagic) continuam.
+
+Um problema que se repete sai uma vez, volta como lembrete a cada 2 h enquanto continuar ("continua · N vezes desde HH:MM") e fecha com "✅ … resolvido". Cada tipo pode ser desligado em **Configurações → Avisos**, que mostra um exemplo de cada um.
+
+| Grupo | Avisos |
+| --- | --- |
+| LigaMagic | ✅ coleta concluída · 🟡 coleta parcial · 🔴 coleta falhou · 🔴 desafio do Cloudflare · 🟡 produtos novos no catálogo · 🟡 coleta interrompida · 🔴 erro inesperado |
+| Amazon | ✅ busca concluída · ✅ rodada do monitor · 🟡 busca parcial · 🔴 busca falhou · 🔴 CAPTCHA · 🔴 conta sem login · 🔴 conferir o carrinho (um por ASIN) · 🔴 pausada · 🟡 erro inesperado · 🟡 ciclo interrompido |
+| IA | ✅ rodada concluída · 🔴 casador pausado · 🟡 sem orçamento · 🟡 falhas seguidas |
+| Backup | ✅ concluído · 🔴 erro · 🟡 interrompido |
+| Serviços | 🔴 serviço sem sinal (ativo e mudo há mais de 10 min) · 🟡 serviço mudou no admin (pausar/retomar) · 🔴 mensagem não enviada (no máximo uma por hora) |
+| Oportunidades | 💰 oportunidade, no grupo de oportunidades: preço da Amazon (conferido com impostos, frete à parte; ou anunciado, sem impostos), quem vende, referência da Liga e o link do anúncio |
 
 ### Quando chegar um aviso de desafio
 

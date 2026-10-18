@@ -28,14 +28,6 @@ def criar_produto(s, liga_id="p1", ativo=True, agora=T0, nome=None, url=None) ->
     return produto
 
 
-class NotificadorFake:
-    def __init__(self):
-        self.mensagens: list[tuple[Destino, str]] = []
-
-    def enviar(self, destino: Destino, texto: str) -> None:
-        self.mensagens.append((destino, texto))
-
-
 def fixture_liga(nome: str) -> str:
     return (DIR_FIXTURES / f"{nome}.html").read_text(encoding="utf-8")
 

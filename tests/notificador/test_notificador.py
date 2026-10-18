@@ -1,40 +1,14 @@
 import json
-import logging
 from datetime import UTC, datetime
 
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
 
-from tcg_sniper.db.models import MensagemSaida, StatusMensagem
-from tcg_sniper.notificador import criar_notificador
-from tcg_sniper.notificador.base import Destino
 from tcg_sniper.notificador.evolution import Resultado, enviar_uma_vez
-from tcg_sniper.notificador.fila import NotificadorFila
 
 URL = "http://evo.test"
 AGORA = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
-
-
-def test_fila_grava_pendente(sessoes):
-    NotificadorFila(sessoes, relogio=lambda: AGORA).enviar(Destino.OPORTUNIDADES, "oferta")
-    with sessoes() as s:
-        [m] = s.scalars(select(MensagemSaida))
-    assert (m.destino, m.texto, m.status, m.criada_em) == ("oportunidades", "oferta", StatusMensagem.PENDENTE, AGORA)
-
-
-def test_fila_com_banco_fora_nao_lanca_e_registra_o_texto(caplog):
-    def quebrado():
-        raise RuntimeError("banco fora")
-
-    with caplog.at_level(logging.ERROR):
-        NotificadorFila(quebrado).enviar(Destino.ADMIN, "aviso importante")
-    assert "aviso importante" in caplog.text and "banco fora" in caplog.text
-
-
-def test_criar_notificador_devolve_a_fila(config, sessoes):
-    assert isinstance(criar_notificador(config, sessoes), NotificadorFila)
 
 
 @respx.mock

@@ -15,6 +15,8 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 - [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare.
 - [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio para em 7 diários + 4 semanais.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
+- [ ] Volume de avisos no grupo admin na primeira semana (~60–70/dia com a rodada do monitor); desligar em Configurações → Avisos o que virar ruído.
+- [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida é uma thread de 60 s).
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
@@ -36,11 +38,19 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
-0. Seção 0 (anúncio ignorado preso ao primeiro produto), logo depois dos avisos.
+0. Seção 0 (anúncio ignorado preso ao primeiro produto).
 1. Seção 1 (acompanhar) nos próximos dias.
 2. Margem líquida (seção 3), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### Avisos no WhatsApp (2026-10-18)
+
+- [x] Formato único (emoji, título em negrito, "•", "O que fazer", rodapé com hora e origem), sem endereço do sistema nas mensagens (só links de produto da Amazon e da LigaMagic), com escape e corte em 1500 caracteres.
+- [x] Catálogo de 28 tipos, cada um desligável em Configurações → Avisos com exemplo; repetição agrupada (lembrete a cada 2 h, "✅ resolvido"); tabelas `estado_aviso` e `config_aviso`.
+- [x] Avisos novos: conclusão de cada tarefa (Liga, busca e rodada do monitor da Amazon, rodada da IA, backup), parciais, falhas seguidas da IA, mensagem não enviada, pausar/retomar no admin.
+- [x] Vigia de serviços no `manutencao`: serviço ativo sem sinal há mais de 10 min abre "Serviço sem sinal"; batida de vida dos coletores e do casador em `sinal_servico`.
+- [x] Testes globais: nenhum exemplo leva endereço do sistema; fora de `avisos/` nada grava mensagem direto; `host_publico` só no admin, na configuração e nos avisos. Saem `NotificadorFila`, `criar_notificador` e o Protocol `Notificador`.
 
 ### Bloco 2: pequenas da Amazon (2026-10-18)
 

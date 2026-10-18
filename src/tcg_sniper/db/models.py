@@ -527,7 +527,7 @@ class ConfigLiga(Base):
 
 
 class MensagemSaida(Base):
-    """Tabela de saída do WhatsApp: os serviços gravam aqui (`NotificadorFila`) e o serviço
+    """Tabela de saída do WhatsApp: os serviços gravam aqui (`avisos.servico`) e o serviço
     `notificador` envia, com tentativas, validade e registro do resultado."""
 
     __tablename__ = "mensagem_saida"
