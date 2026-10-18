@@ -18,7 +18,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
   - `chamada_ia`: 90 dias;
   - `conferencia_checkout`: 180 dias;
   - `coleta`: 180 dias.
-- [ ] Bancos de teste (`tcg_test*`) ficam no mesmo Postgres de produção: separar num container próprio.
+- [x] Bancos de teste separados no container `postgres-teste` (porta 5433). Falta, após o deploy, apagar `tcg_test*` do Postgres de produção.
 
 ## 3. Pequenas (sem pressa, juntar num pacote)
 
