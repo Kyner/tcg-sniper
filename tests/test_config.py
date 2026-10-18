@@ -55,3 +55,31 @@ def test_url_listagem_sem_marcador():
 def test_pausa_minima_maior_que_maxima():
     with pytest.raises(ValidationError):
         Config(_env_file=None, pausa_min_s=30, pausa_max_s=10)
+
+
+VARIAVEIS_BACKUP = ("DIR_BACKUPS", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
+
+
+def test_pasta_de_backups_padrao_e_dentro_dos_dados(monkeypatch, tmp_path):
+    for var in VARIAVEIS_BACKUP:
+        monkeypatch.delenv(var, raising=False)
+    c = Config(_env_file=None, dir_dados=tmp_path)
+    assert c.pasta_backups == tmp_path / "backups"
+    assert Config(_env_file=None, dir_dados=tmp_path, dir_backups=tmp_path / "outra").pasta_backups == tmp_path / "outra"
+    assert not c.r2_configurado
+    monkeypatch.setenv("DIR_BACKUPS", "")
+    assert Config(_env_file=None, dir_dados=tmp_path).pasta_backups == tmp_path / "backups"
+
+
+def test_r2_configurado_so_com_as_quatro_variaveis_e_segredos_nao_aparecem(monkeypatch):
+    monkeypatch.setenv("R2_ACCOUNT_ID", "conta123")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "CHAVE-ID-FALSA")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "segredo-falso-xyz")
+    monkeypatch.setenv("R2_BUCKET", "balde")
+    c = Config(_env_file=None)
+    assert c.r2_configurado
+    assert c.r2_secret_access_key.get_secret_value() == "segredo-falso-xyz"
+    assert "segredo-falso-xyz" not in repr(c) and "segredo-falso-xyz" not in str(c)
+    assert "CHAVE-ID-FALSA" not in repr(c)
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "  ")
+    assert not Config(_env_file=None).r2_configurado
