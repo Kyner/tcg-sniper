@@ -338,3 +338,20 @@ def test_envio_ok_nao_acorda_erro_4xx_em_espera(sessoes, env, configurado):
     nova(sessoes, "admin", "envia", AGORA - timedelta(minutes=9))
     servico(sessoes, env).ciclo()
     assert ler(sessoes, recusada).proxima_tentativa_em == AGORA + timedelta(minutes=10)
+
+
+@respx.mock
+def test_falha_definitiva_avisa_o_admin_e_a_falha_do_aviso_nao_gera_outro(sessoes, env, configurado):
+    respx.post(ROTA).mock(return_value=httpx.Response(400, text="grupo não encontrado"))
+    mid = nova(sessoes, "oportunidades", "oferta")
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    for _ in range(12):  # a original e o aviso falham de vez (5 recusas cada)
+        svc.ciclo()
+        relogio.agora += timedelta(minutes=31)
+    with sessoes() as s:
+        outras = list(s.scalars(select(MensagemSaida).where(MensagemSaida.id != mid)))
+    [aviso] = outras
+    assert aviso.destino == "admin" and aviso.status is StatusMensagem.FALHA
+    assert aviso.texto.startswith("🔴 *WhatsApp · mensagem não enviada*\n")
+    assert f"• #{mid} para oportunidades: HTTP 400: grupo não encontrado" in aviso.texto

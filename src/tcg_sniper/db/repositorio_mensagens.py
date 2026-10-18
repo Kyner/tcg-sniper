@@ -111,3 +111,15 @@ def descartar(s: Session, mensagem_id: int, agora: datetime) -> None:
     mensagem.status = StatusMensagem.DESCARTADA
     mensagem.atualizado_em = agora
     s.flush()
+
+
+def falhas_recentes(s: Session, desde: datetime, limite: int = 5) -> list[MensagemSaida]:
+    """Mensagens que falharam de vez a partir de `desde`, das mais novas (aviso MENSAGEM_NAO_ENVIADA)."""
+    return list(
+        s.scalars(
+            select(MensagemSaida)
+            .where(MensagemSaida.status == StatusMensagem.FALHA, MensagemSaida.atualizado_em >= desde)
+            .order_by(MensagemSaida.atualizado_em.desc(), MensagemSaida.id.desc())
+            .limit(limite)
+        )
+    )
