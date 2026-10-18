@@ -69,6 +69,23 @@ PROIBIDOS_COMPACTOS = (
 )
 # Hífens e traços Unicode (U+2010 a U+2015, U+2212) viram "-" antes de tudo: o NFKD + ASCII apagaria.
 TRACOS = dict.fromkeys([*range(0x2010, 0x2016), 0x2212], "-")
+# Sósias (já em minúsculas, depois do casefold) que o NFKD + ASCII apagaria: letras cirílicas e gregas
+# parecidas com as latinas e letras latinas sem decomposição. Viram a letra ASCII parecida, para a lista
+# proibida achar "Cоmprar agora" (о cirílico) ou "Finalızar pedido" (ı sem ponto).
+SOSIAS = str.maketrans(
+    {
+        # cirílico
+        "а": "a", "в": "b", "е": "e", "ё": "e", "з": "3", "і": "i", "ї": "i", "ј": "j", "к": "k", "м": "m",
+        "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x", "ѕ": "s", "ԁ": "d", "ԛ": "q",
+        "ԝ": "w", "һ": "h", "ӏ": "l", "ү": "y",
+        # grego
+        "α": "a", "β": "b", "ε": "e", "η": "n", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t",
+        "υ": "u", "χ": "x", "ω": "w",
+        # latinas sem decomposição (Latin-1 e Latin Extended-A)
+        "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ð": "d", "ħ": "h", "ı": "i", "ĸ": "k", "ł": "l", "ŀ": "l",
+        "ŋ": "n", "ŧ": "t", "þ": "th",
+    }
+)
 # O botão/link/form em volta do elemento (a Amazon põe o texto do botão num span irmão do input).
 SELETOR_EM_VOLTA = ".a-button, button, a, [role=button], form"
 LIMITE_CONTEXTO = 4_000
@@ -138,10 +155,30 @@ ESCOPO_OFERTA_DESTAQUE = "#aod-pinned-offer"
 ESCOPO_OFERTA_LISTA = "#aod-offer"
 
 
-def _normalizar(texto: str) -> str:
+def _dobrar(texto: str) -> str:
+    """Entidades resolvidas, traços unificados, NFKC (largura cheia, ligaduras) e casefold."""
     texto = unescape(texto.translate(TRACOS)).translate(TRACOS)  # entidades (&nbsp;, &#8209;) não escondem texto
-    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
-    return re.sub(r"\s+", " ", sem_acento.lower())
+    return unicodedata.normalize("NFKC", texto).casefold()
+
+
+def _normalizar(texto: str) -> str:
+    """Texto comparável com as listas: sósias cirílicos/gregos e letras latinas sem decomposição viram
+    as ASCII parecidas antes de tirar os acentos (senão o encode ASCII apagaria a letra e "Finalızar",
+    ou "Cоmprar" com o "о" cirílico, escapariam da lista proibida)."""
+    sem_acento = unicodedata.normalize("NFKD", _dobrar(texto).translate(SOSIAS)).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", sem_acento)
+
+
+def _caractere_de_rotulo(c: str) -> bool:
+    ponto = ord(c)
+    return ponto < 0x180 or 0x2000 <= ponto <= 0x206F or c.isspace()
+
+
+def rotulo_latino(texto: str) -> bool:
+    """O rótulo só tem ASCII, Latin-1, Latin Extended-A, espaços e a pontuação comum (U+2000 a U+206F),
+    depois de NFKC + casefold. Uma letra de outro alfabeto (o "о" cirílico de "Cоmprar") é um sósia
+    possível: o rótulo não vale nem para a lista de permitidos."""
+    return all(_caractere_de_rotulo(c) for c in _dobrar(texto))
 
 
 def _raiz(no: LexborNode) -> LexborNode:
@@ -220,7 +257,10 @@ def conferir_clique(acao: Acao, html_elemento: str, texto: str) -> None:
     for trecho in PROIBIDOS_COMPACTOS:
         if trecho in compacto:
             raise CliqueProibido(f"{acao.nome}: elemento proibido ({trecho!r}): {html_elemento[:200]}")
-    rotulo = _normalizar(f"{texto} {_rotulo_do_html(html_elemento)}")
+    rotulo_bruto = f"{texto} {_rotulo_do_html(html_elemento)}"
+    if not rotulo_latino(rotulo_bruto):
+        raise CliqueProibido(f"{acao.nome}: rótulo com letra fora do alfabeto latino (sósia?): {rotulo_bruto[:200]!r}")
+    rotulo = _normalizar(rotulo_bruto)
     if not acao.padrao.search(rotulo):
         raise CliqueProibido(f"{acao.nome}: o elemento não é o botão esperado: {html_elemento[:200]}")
 

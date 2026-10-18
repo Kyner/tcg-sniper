@@ -1,4 +1,5 @@
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,43 @@ def test_botao_de_cada_acao_e_aceito(acao):
 def test_proibido_disfarcado_e_recusado_pela_lista_proibida(acao, html):
     with pytest.raises(CliqueProibido, match="elemento proibido"):
         conferir_clique(acao, html, "")
+
+
+# Rótulos com sósias Unicode (cirílico, grego) de letras latinas: não passam na lista de permitidos
+# nem escapam da lista proibida.
+ROTULOS_SOSIAS = [
+    (EXCLUIR, "Excluіr"),  # i cirílico
+    (ADICIONAR, "Adicionar ao carrinhо"),  # o cirílico
+    (FECHAR_PEDIDO, "Fechar pеdido"),  # e cirílico
+    (ENTREGAR, "Entregar neste endereοo"),  # ómicron grego
+    (ADICIONAR, "Adicionar ao carrinho Cоmprar agora"),  # "Comprar agora" com o cirílico
+    (EXCLUIR, "Excluir Finаlizar pedido"),  # a cirílico
+]
+
+
+@pytest.mark.parametrize(("acao", "rotulo"), ROTULOS_SOSIAS)
+def test_rotulo_com_sosia_unicode_e_recusado(acao, rotulo):
+    with pytest.raises(CliqueProibido):
+        conferir_clique(acao, '<input type="submit">', rotulo)
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        '<input name="submit.addToCart" value="Adicionar ao carrinho" data-x="plаce-order">',  # a cirílico
+        '<input name="submit.addToCart" value="Adicionar ao carrinho" title="Finalizаr pedido">',
+        '<input name="submit.addToCart" value="Adicionar ao carrinho" title="Finalızar pedido">',  # i sem ponto
+        '<input name="submit.addToCart" value="Adicionar ao carrinho" title="Ｃomprar agora">',  # C de largura cheia
+    ],
+)
+def test_sosia_no_contexto_nao_escapa_da_lista_proibida(html):
+    with pytest.raises(CliqueProibido, match="elemento proibido"):
+        conferir_clique(ADICIONAR, html, "")
+
+
+def test_rotulo_latino_com_acento_e_pontuacao_continua_aceito():
+    conferir_clique(EXCLUIR, '<input type="submit">', "Excluir Magic: The Gathering Æther — Booster «50»™")
+    conferir_clique(ENTREGAR, '<input type="submit">', "ENTREGAR NESTE ENDEREÇO ")
 
 
 def test_token_do_seletor_sem_rotulo_nao_basta():
@@ -276,7 +314,16 @@ def test_remover_que_cai_no_login_devolve_falso():
 
 
 RAIZ_REPO = Path(tcg_sniper.__file__).parents[2]
-CLIQUES_DO_PLAYWRIGHT = {"click", "dispatch_event", "tap", "press"}
+CLIQUES_DO_PLAYWRIGHT = {
+    "click", "dblclick", "dispatch_event", "tap", "press", "press_sequentially", "check", "uncheck", "set_checked",
+    "submit", "request_submit",
+}
+METODOS_QUE_CLICAM = CLIQUES_DO_PLAYWRIGHT | {"clicar", "requestSubmit"}
+ACESSO_DINAMICO = {"getattr", "methodcaller", "attrgetter"}
+AVALIA_JS = {"evaluate", "evaluate_handle", "evaluate_all", "eval_on_selector", "eval_on_selector_all"}
+JS_QUE_CLICA = re.compile(
+    r"\.\s*(click|submit|requestSubmit)\s*\(|dispatchEvent\s*\(|\[\s*['\"`](click|submit|requestSubmit)['\"`]\s*\]"
+)
 SO_CLIQUES_PY = {"src/tcg_sniper/coletor_amazon/cliques.py"}
 SO_NAVEGADORES = {"src/tcg_sniper/navegador/chromium.py", "src/tcg_sniper/coletor_liga/navegador.py"}
 
@@ -294,9 +341,41 @@ def _eh_mouse(dono):
     return (isinstance(dono, ast.Attribute) and dono.attr == "mouse") or (isinstance(dono, ast.Name) and dono.id == "mouse")
 
 
+def _eh_teclado(dono):
+    return (isinstance(dono, ast.Attribute) and dono.attr == "keyboard") or (
+        isinstance(dono, ast.Name) and dono.id == "keyboard"
+    )
+
+
+def _resolvivel(no, constantes):
+    """O JS é só texto conhecido: literais e constantes do módulo (nada importado, montado ou chamado)."""
+    for filho in ast.walk(no):
+        if isinstance(filho, (ast.Call, ast.Attribute, ast.Subscript)):
+            return False
+        if isinstance(filho, ast.Name) and filho.id not in constantes:
+            return False
+    return True
+
+
+def _expressao_js(no):
+    """O argumento com o JS: o 1º em `evaluate*`, o 2º em `eval_on_selector*` (ou `expression=`)."""
+    for kw in no.keywords:
+        if kw.arg == "expression":
+            return kw.value
+    posicao = 1 if no.func.attr.startswith("eval_on_selector") else 0
+    return no.args[posicao] if len(no.args) > posicao else None
+
+
 def chamadas_de_clique(raiz=RAIZ_REPO):
-    """{arquivo: {tipos}} com `.clicar(`, cliques do Playwright (`click`, `dispatch_event`, `tap`,
-    `press`, `mouse.*`) e `evaluate` com `.click(` no JS, em src/ e scripts/."""
+    """{arquivo: {tipos}} em src/ e scripts/:
+    - "clicar": `.clicar(` (o clique com guarda do navegador);
+    - "playwright": cliques e teclas do Playwright (`click`, `dispatch_event`, `tap`, `check`, `press`,
+      `submit`, `mouse.*`, `keyboard.*` e afins);
+    - "js_clique": JS avaliado na página (`evaluate`, `evaluate_handle`, `evaluate_all`,
+      `eval_on_selector[_all]`) que clica ou envia form (`.click(`, `.submit(`, `requestSubmit(`,
+      `dispatchEvent(`, `['click']`);
+    - "js_opaco": JS avaliado que não é texto conhecido no módulo (importado, montado por função);
+    - "dinamico": `getattr(x, "click")`, `methodcaller("click")` e afins com o nome de um método que clica."""
     achados: dict[str, set[str]] = {}
     for caminho in [*(raiz / "src").rglob("*.py"), *(raiz / "scripts").rglob("*.py")]:
         arvore = ast.parse(caminho.read_text(encoding="utf-8"))
@@ -309,15 +388,26 @@ def chamadas_de_clique(raiz=RAIZ_REPO):
         }
         nome = caminho.relative_to(raiz).as_posix()
         for no in ast.walk(arvore):
-            if not (isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute)):
+            if not isinstance(no, ast.Call):
                 continue
-            metodo = no.func.attr
-            if metodo == "clicar":
+            funcao = no.func.id if isinstance(no.func, ast.Name) else no.func.attr if isinstance(no.func, ast.Attribute) else ""
+            argumentos = [*no.args, *(kw.value for kw in no.keywords)]
+            if funcao in ACESSO_DINAMICO and any(
+                t in METODOS_QUE_CLICAM for arg in argumentos for t in _strings(arg, constantes)
+            ):
+                achados.setdefault(nome, set()).add("dinamico")
+            if not isinstance(no.func, ast.Attribute):
+                continue
+            if funcao == "clicar":
                 achados.setdefault(nome, set()).add("clicar")
-            if metodo in CLIQUES_DO_PLAYWRIGHT or _eh_mouse(no.func.value):
+            if funcao in CLIQUES_DO_PLAYWRIGHT or _eh_mouse(no.func.value) or _eh_teclado(no.func.value):
                 achados.setdefault(nome, set()).add("playwright")
-            if metodo == "evaluate" and any(".click(" in t for arg in no.args for t in _strings(arg, constantes)):
-                achados.setdefault(nome, set()).add("evaluate_click")
+            if funcao in AVALIA_JS:
+                if any(JS_QUE_CLICA.search(t) for arg in argumentos for t in _strings(arg, constantes)):
+                    achados.setdefault(nome, set()).add("js_clique")
+                expressao = _expressao_js(no)
+                if expressao is None or not _resolvivel(expressao, constantes):
+                    achados.setdefault(nome, set()).add("js_opaco")
     return achados
 
 
@@ -330,7 +420,61 @@ def test_so_cliques_py_chama_clicar_do_navegador():
     assert _com(achados, "clicar") == SO_CLIQUES_PY
     assert _com(achados, "playwright") <= SO_NAVEGADORES
     assert "src/tcg_sniper/navegador/chromium.py" in _com(achados, "playwright")  # a varredura enxerga o clique
-    assert _com(achados, "evaluate_click") == set()
+    assert _com(achados, "js_clique") == set()
+    assert _com(achados, "js_opaco") == set()
+    assert _com(achados, "dinamico") == set()
+
+
+@pytest.mark.parametrize(
+    ("codigo", "tipo"),
+    [
+        ("pagina.eval_on_selector('#b', 'e => e.click()')\n", "js_clique"),
+        ("pagina.eval_on_selector_all('form', 'fs => fs[0].submit()')\n", "js_clique"),
+        ("pagina.locator('form').evaluate_all('fs => fs[0].requestSubmit()')\n", "js_clique"),
+        ("JS = 'e => e . click ()'\nh = pagina.evaluate_handle(JS)\n", "js_clique"),
+        ("pagina.evaluate(\"e => e.dispatchEvent(new MouseEvent('click'))\")\n", "js_clique"),
+        ("pagina.evaluate(f\"document.querySelector('{s}').click()\")\n", "js_clique"),
+        ("pagina.evaluate(\"e => e['click']()\")\n", "js_clique"),
+        ("from x import JS\npagina.evaluate(JS)\n", "js_opaco"),
+        ("pagina.evaluate(montar_js())\n", "js_opaco"),
+        ("botao.dispatch_event('click')\n", "playwright"),
+        ("botao.tap()\n", "playwright"),
+        ("caixa.check()\n", "playwright"),
+        ("caixa.set_checked(True)\n", "playwright"),
+        ("botao.dblclick()\n", "playwright"),
+        ("pagina.keyboard.press('Enter')\n", "playwright"),
+        ("campo.press('Enter')\n", "playwright"),
+        ("pagina.keyboard.down('Enter')\n", "playwright"),
+        ("form.submit()\n", "playwright"),
+        ("getattr(botao, 'click')()\n", "dinamico"),
+        ("NOME = 'clicar'\ngetattr(nav, NOME)('#x', 0, g)\n", "dinamico"),
+        ("operator.methodcaller('dispatch_event', 'click')(botao)\n", "dinamico"),
+    ],
+)
+def test_varredura_acha_outras_formas_de_clicar(tmp_path, codigo, tipo):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "src" / "a.py").write_text(codigo, encoding="utf-8")
+    assert tipo in chamadas_de_clique(tmp_path).get("src/a.py", set())
+
+
+@pytest.mark.parametrize(
+    "codigo",
+    [
+        "pagina.evaluate('1')\n",
+        "pagina.evaluate('document.documentElement.scrollWidth')\n",
+        "JS = 'e => [e.outerHTML, e.innerText]'\nelemento.evaluate(JS)\n",
+        "pagina.eval_on_selector('#preco', 'e => e.textContent')\n",
+        "valor = getattr(cfg, campo)\n",
+        "x = getattr(oferta, 'cupom', None)\n",
+        "campo.fill('texto')\n",
+    ],
+)
+def test_varredura_nao_acusa_leitura(tmp_path, codigo):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "src" / "a.py").write_text(codigo, encoding="utf-8")
+    assert chamadas_de_clique(tmp_path) == {}
 
 
 def test_varredura_acha_cliques_escondidos(tmp_path):
@@ -342,7 +486,7 @@ def test_varredura_acha_cliques_escondidos(tmp_path):
     assert chamadas_de_clique(tmp_path) == {
         "src/a.py": {"clicar"},
         "src/b.py": {"playwright"},
-        "scripts/c.py": {"evaluate_click"},
+        "scripts/c.py": {"js_clique"},
     }
 
 
