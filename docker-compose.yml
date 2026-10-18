@@ -31,6 +31,24 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Postgres só de testes: bancos descartáveis (tcg_test, tcg_test_<lane>), dados em memória.
+  # Nada depende dele; separado do Postgres de produção para os testes nunca tocarem nos dados reais.
+  postgres-teste:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tcg
+      POSTGRES_PASSWORD: tcg
+      POSTGRES_DB: tcg_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tcg -d tcg_test"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
   evolution:
     # v2.3.7: última versão estável (2.4.0 ainda é release candidate). Postgres sem Redis.
     image: evoapicloud/evolution-api:v2.3.7

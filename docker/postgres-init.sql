@@ -1,2 +1,1 @@
-CREATE DATABASE tcg_test;
 CREATE DATABASE evolution;

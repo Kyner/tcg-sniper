@@ -365,12 +365,14 @@ Quem já tinha os antigos `HOST_PUBLICO`, `FUSO`, `COLETA_*`, `PAUSA_*`, `LIGA_*
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres     # o banco de testes (tcg_test) é criado junto
+docker compose up -d postgres postgres-teste   # postgres-teste: banco só de testes (porta 5433, em memória)
 uv sync
 uv run playwright install chromium
-uv run pytest
+uv run pytest -q
 uv run ruff check
 ```
+
+Os testes usam `tcg_test` no `postgres-teste` (`127.0.0.1:5433`), nunca o Postgres de produção: a suíte recusa rodar em banco que não comece com `tcg_test` ou na porta 5432. Para outro banco (por exemplo um por trabalho paralelo), crie-o com `docker compose exec -T postgres-teste createdb -U tcg tcg_test_<nome>` e aponte `DATABASE_URL_TESTE` para ele. Os dados do `postgres-teste` somem ao reiniciar o container, e as migrações recriam tudo no próximo `pytest`.
 
 Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
 
