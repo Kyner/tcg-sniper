@@ -30,6 +30,9 @@ Marcar `[x]` ao concluir e anotar o commit. Sem dados pessoais neste arquivo (o 
 - [ ] Anonimizador: número de rua sozinho em `proibidos.txt` troca dígitos dentro de preços/ASIN; preço sem centavos depois de "final" vira "cartão"; CPF/CNPJ e telefone fixo sem parênteses não são pegos. (Só importa numa nova captura.)
 - [ ] Trava de cliques: varredura AST não pega `eval_on_selector`/`evaluate_all`/`submit()`/`getattr`; caracteres Unicode parecidos (ex.: "о" cirílico). Defesa extra, sem falha conhecida.
 
+- [ ] Retirada do carrinho: quando o clique de excluir falha, a página aberta não entra no teto por hora (`cliques.remover_do_carrinho`).
+- [ ] `abrir_oportunidade`/`atualizar_oportunidade`: tornar `conferido` obrigatório (hoje padrão False) para um chamador futuro não registrar alerta conferido como anunciado.
+
 ## 4. Proteção e operação (recomendado antes de crescer)
 
 - [ ] **Backup automático do banco**: `pg_dump` diário, com rodízio (ex.: 7 diários + 4 semanais) e cópia fora do PC. Hoje só há backups manuais antes de cada deploy (`dados/backups/`).
