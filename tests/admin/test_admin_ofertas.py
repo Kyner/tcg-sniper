@@ -53,7 +53,7 @@ def cenario(sessoes):
         repo_amz.abrir_oportunidade(
             s, anuncio_id=caixa_amazon.id,
             produto_id=caixa.id, preco_amazon=Decimal("700.00"), preco_liga=Decimal("1000.00"),
-            desconto_pct=Decimal("30.00"), vendedor_id=amazon.id, envio=Envio.AMAZON, agora=T0,
+            desconto_pct=Decimal("30.00"), vendedor_id=amazon.id, envio=Envio.AMAZON, agora=T0, conferido=False,
         )
 
 

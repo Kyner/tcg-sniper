@@ -131,6 +131,8 @@ def test_abre_oportunidade_com_o_preco_anunciado_nao_conferido(sessoes, config, 
         "Amazon: R$ 700,00, preço anunciado, não conferido (conferência desligada) (vendido pela Amazon · Prime), "
         "30% abaixo da Liga"
     ) in texto
+    with sessoes() as s:  # aviso pelo preço anunciado: a oportunidade não fica marcada como conferida
+        assert s.scalar(select(Oportunidade)).alerta_conferido is False
 
 
 def test_conferencia_valida_troca_o_preco_pelos_itens_com_impostos(sessoes, config, anuncio):
@@ -152,8 +154,9 @@ def test_conferencia_valida_abre_com_o_preco_conferido_sem_frete(sessoes, config
         "Amazon: R$ 740,00, preço conferido (sem frete), impostos R$ 40,00 inclusos, frete R$ 50,00 à parte "
         "(vendido pela Amazon), 26% abaixo"
     ) in texto
-    with sessoes() as s:
-        assert s.scalar(select(Oportunidade)).preco_amazon == Decimal("740.00")
+    with sessoes() as s:  # aviso pelo preço conferido no checkout: marcada como conferida
+        op = s.scalar(select(Oportunidade))
+        assert (op.preco_amazon, op.alerta_conferido) == (Decimal("740.00"), True)
 
 
 def test_conferencia_desligada_aparece_como_motivo(sessoes, config, anuncio):
