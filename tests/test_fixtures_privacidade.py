@@ -82,10 +82,11 @@ def test_fixture_sem_proibidos_nem_codificados(caminho):
 def _tem_proibido(texto: str, valor: str) -> bool:
     """Número curto (o da casa) só conta solto, como o anonimizador troca: "742" não acusa "R$ 1.742,90"."""
     if NUMERO_SOLTO.fullmatch(valor):
-        return re.search(rf"(?<![0-9a-zà-ÿ])(?<![0-9][.,]){valor}(?![0-9a-zà-ÿ])(?![.,][0-9])", texto) is not None
+        return re.search(rf"(?<![0-9a-zà-ÿ])(?<![0-9][.,])(?<!\$)(?<!\$ )(?<!brl ){valor}(?![0-9])(?![.,][0-9])", texto) is not None
     return _sem_espacos(valor) in texto
 
 
 def test_numero_curto_proibido_so_conta_solto():
     assert _tem_proibido(_sem_espacos("Rua Fictícia, 742, apto 1"), "742")
-    assert not _tem_proibido(_sem_espacos("R$ 1.742,90 B0742XYZ12 17420"), "742")
+    assert _tem_proibido(_sem_espacos("Casa 742A"), "742")
+    assert not _tem_proibido(_sem_espacos("R$ 1.742,90 B0742XYZ12 17420 R$ 742 R$742"), "742")

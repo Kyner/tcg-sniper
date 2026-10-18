@@ -91,8 +91,9 @@ _RE_CPF = re.compile(r"(?<![\d*])[\d*]{3}\.[\d*]{3}\.[\d*]{3}-[\d*]{2}(?![\d*])"
 _RE_CEP = re.compile(r"(?<!\d)\d{5}-\d{3}(?!\d)")
 # Entre "cartão" e os 4 dígitos: tags e texto sem dígito e sem moeda ("valor final R$ 1299" é preço).
 _GAP = r"(?:<[^>]*>|(?!R\$|\$|BRL)[^\d<]){0,60}?"
-# Depois de "final"/"terminado em": os 4 dígitos logo em seguida (só tags, espaço e pontuação no meio).
-_GAP_CURTO = r"(?:<[^>]*>|[\s:.•*-]){0,12}?"
+# Depois de "final"/"terminado em": poucos caracteres até os 4 dígitos ("final (crédito) 1234",
+# "terminado em Visa 1234"), sem dígito e sem moeda no meio ("final R$ 1299" é preço).
+_GAP_CURTO = r"(?:<[^>]*>|(?!R\$|\$|BRL)[^\d<]){0,30}?"
 _RES_CARTAO = (
     re.compile(r"(?i)(cart[aã]o)(" + _GAP + r")(\d{4})(?!\d|[,.]\d)"),
     re.compile(
@@ -120,10 +121,12 @@ _RE_CNPJ = re.compile(r"(?<![\d*])[\d*]{2}\.[\d*]{3}\.[\d*]{3}/[\d*]{4}-[\d*]{2}
 # CNPJ público que fica: o da própria Amazon, no rodapé de toda página.
 CNPJS_PUBLICOS = frozenset({"15.436.940/0001-03"})
 _RE_CNPJ_BRUTO = re.compile(r"(?i)(\bCNPJ(?:<[^>]*>|[^\w<]){0,8})(\d{14})(?!\d)")
-# Número proibido curto (número da casa): só como número solto, nunca dentro de preço, ASIN ou outro número.
+# Número proibido curto (número da casa): só como número solto, nunca dentro de preço, ASIN ou outro
+# número. Antes: nem dígito, nem letra (ASIN "B0X742..."), nem "1." de milhar, nem moeda ("R$ 742").
+# Depois: nem dígito, nem ",90"; letra pode ("742A", sufixo da casa).
 _RE_NUMERO_SOLTO = re.compile(r"\d{1,6}")
-_ANTES_DO_NUMERO = r"(?<![0-9A-Za-zÀ-ÿ])(?<![0-9][.,])"
-_DEPOIS_DO_NUMERO = r"(?![0-9A-Za-zÀ-ÿ])(?![.,][0-9])"
+_ANTES_DO_NUMERO = r"(?<![0-9A-Za-zÀ-ÿ])(?<![0-9][.,])(?<!\$)(?<!\$ )(?<!BRL )"
+_DEPOIS_DO_NUMERO = r"(?![0-9])(?![.,][0-9])"
 _RE_SAUDACAO = re.compile(r"(?i)(Ol[aá],(?:\s|<[^>]*>)*)(?!fa[cç]a|fa&|entre|sign)(?![\s<])[^<]{1,60}")
 _RE_ENTREGA = re.compile(r"(?i)\b((?:Enviar|Entrega|Entregar|Enviando) para\s+)[^<,\d\-]{1,60}?(\s*(?:[<,\d\-]|\Z))")
 _RE_PEDIDO = re.compile(r"(?<!\d)\d{3}-\d{7}-\d{7}(?!\d)")
@@ -444,7 +447,7 @@ def achados(html: str, proibidos: Sequence[str] = ()) -> list[str]:
     for valor in sorted(_lista(proibidos)):
         alvo = valor.lower()
         if _RE_NUMERO_SOLTO.fullmatch(valor):  # número da casa: só solto (o mesmo critério da troca)
-            solto = re.compile(_padrao_proibido(valor))
+            solto = re.compile(_padrao_proibido(valor), re.IGNORECASE)
             if (achado := solto.search(baixo) or solto.search(visivel)) is not None:
                 problemas.append(f"texto proibido (número) na posição {achado.start()}")
             continue

@@ -113,6 +113,8 @@ RAIZ = Path(__file__).parent.parent.parent
         "Elo terminando em 1234",
         "Cartão de crédito Amex terminando em 1234",
         "Visa final 1234",
+        "Visa final (crédito) 1234",
+        "Elo terminado em Visa 1234",
     ],
 )
 def test_final_de_cartao_em_varias_formas(trecho):
@@ -398,7 +400,8 @@ def test_numero_de_rua_proibido_so_casa_como_numero_solto():
     )
     saida = anonimizar(pagina, ["742"])
     assert "<p>Rua Fictícia, 0000, apto 1</p>" in saida and "<p>nº 0000.</p>" in saida
-    for intacto in ("R$ 1.742,90", "R$ 742,90", "B0742XYZ12", "17420 unidades", "pacote 742a"):
+    assert "pacote 0000a" in saida  # sufixo da casa (742A): a letra depois não protege o número
+    for intacto in ("R$ 1.742,90", "R$ 742,90", "B0742XYZ12", "17420 unidades"):
         assert intacto in saida, intacto
     assert achados(saida, ["742"]) == []
     assert any(p.startswith("texto proibido") for p in achados(pagina, ["742"]))
@@ -461,3 +464,11 @@ def test_cnpj_da_amazon_no_rodape_fica():
     rodape = "<li>Amazon Serviços de Varejo do Brasil Ltda. | CNPJ 15.436.940/0001-03</li>"
     assert achados(rodape) == []
     assert anonimizar(rodape) == rodape
+
+
+@pytest.mark.parametrize("preco", ["R$ 742", "R$742", "BRL 742", "US$ 742"])
+def test_numero_curto_proibido_nao_troca_preco_sem_centavos(preco):
+    pagina = f"<p>{preco}</p><p>Casa 742A</p>"
+    saida = anonimizar(pagina, ["742"])
+    assert f"<p>{preco}</p>" in saida and "Casa 0000A" in saida
+    assert achados(saida, ["742"]) == []
