@@ -113,6 +113,8 @@ RAIZ = Path(__file__).parent.parent.parent
         "Elo terminando em 1234",
         "Cartão de crédito Amex terminando em 1234",
         "Visa final 1234",
+        "Visa final (crédito) 1234",
+        "Elo terminado em Visa 1234",
     ],
 )
 def test_final_de_cartao_em_varias_formas(trecho):
@@ -386,3 +388,87 @@ def test_salvos_para_depois_viram_um_bloco_sintetico():
     asins, titulos = itens_salvos(PAGINA_CARRINHO)
     assert asins == {"B0REAL0001", "B0REAL0002", "B0REAL0003"}
     assert {"Caneca Azul de Porcelana Grande", "Livro de Receitas da Vovó", "Café Torrado Especial"} <= titulos
+
+
+# --- bloco 2: número de rua, "final" de preço, CPF/CNPJ e telefone fixo (valores sintéticos) ---
+
+
+def test_numero_de_rua_proibido_so_casa_como_numero_solto():
+    pagina = (
+        "<p>Rua Fictícia, 742, apto 1</p><p>nº 742.</p><p>R$ 1.742,90</p><p>R$ 742,90</p>"
+        '<a href="/dp/B0742XYZ12">B0742XYZ12</a><p>17420 unidades</p><p>pacote 742a</p>'
+    )
+    saida = anonimizar(pagina, ["742"])
+    assert "<p>Rua Fictícia, 0000, apto 1</p>" in saida and "<p>nº 0000.</p>" in saida
+    assert "pacote 0000a" in saida  # sufixo da casa (742A): a letra depois não protege o número
+    for intacto in ("R$ 1.742,90", "R$ 742,90", "B0742XYZ12", "17420 unidades"):
+        assert intacto in saida, intacto
+    assert achados(saida, ["742"]) == []
+    assert any(p.startswith("texto proibido") for p in achados(pagina, ["742"]))
+
+
+@pytest.mark.parametrize(
+    "trecho",
+    [
+        "<b>Total final R$ 1299</b>",
+        "<b>Preço final: R$ 1299</b>",
+        "<b>final R$1299</b>",
+        "<b>Cartão de presente: valor final R$ 1299</b>",
+        "<b>terminado em R$ 1299</b>",
+    ],
+)
+def test_preco_sem_centavos_depois_de_final_nao_e_cartao(trecho):
+    assert achados(trecho) == []
+    assert anonimizar(trecho) == trecho
+
+
+@pytest.mark.parametrize(
+    ("trecho", "real"),
+    [
+        ("<p>CPF 123.456.789-09</p>", "123.456.789"),
+        ("<p>CPF: 12345678909</p>", "12345678909"),
+        ("<p>CNPJ 12.345.678/0001-95</p>", "12.345.678/0001"),
+        ("<p>CNPJ: 12345678000195</p>", "12345678000195"),
+        ("<p>Contato 11 3333-4444 amanhã</p>", "3333-4444"),
+        ("<p>Contato 11-3333-4444 amanhã</p>", "3333-4444"),
+        ("<p>Telefone: 1133334444</p>", "1133334444"),
+        ("<p>Tel. 11933334444</p>", "11933334444"),
+        ("<p>Contato +55 11 3333-4444</p>", "3333-4444"),
+    ],
+)
+def test_cpf_cnpj_e_telefone_fixo_viram_ficticios(trecho, real):
+    assert achados(trecho) != []
+    saida = anonimizar(trecho)
+    assert real not in saida
+    assert achados(saida) == []
+
+
+@pytest.mark.parametrize(
+    "trecho",
+    [
+        "<p>R$ 1.299,00</p><p>R$ 11 3333,40</p>",
+        '<a href="/dp/B011333344">B011333344</a>',
+        "<p>Entrega em 18/10/2026, 2026-10-18 às 11:30</p>",
+        "<p>Código 12345678000195 do lote</p>",
+        "<p>Ref. 1133334444</p>",
+        "<p>Modelo 12.345.678 e 11.223.344</p>",
+        "<p>Booster 2026 1234</p>",
+    ],
+)
+def test_padroes_novos_nao_pegam_precos_asins_datas_nem_codigos(trecho):
+    assert achados(trecho) == []
+    assert anonimizar(trecho) == trecho
+
+
+def test_cnpj_da_amazon_no_rodape_fica():
+    rodape = "<li>Amazon Serviços de Varejo do Brasil Ltda. | CNPJ 15.436.940/0001-03</li>"
+    assert achados(rodape) == []
+    assert anonimizar(rodape) == rodape
+
+
+@pytest.mark.parametrize("preco", ["R$ 742", "R$742", "BRL 742", "US$ 742"])
+def test_numero_curto_proibido_nao_troca_preco_sem_centavos(preco):
+    pagina = f"<p>{preco}</p><p>Casa 742A</p>"
+    saida = anonimizar(pagina, ["742"])
+    assert f"<p>{preco}</p>" in saida and "Casa 0000A" in saida
+    assert achados(saida, ["742"]) == []

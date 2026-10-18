@@ -577,7 +577,7 @@ def test_erro_depois_do_clique_na_retirada_conta_as_paginas_abertas(engine, sess
     with sessoes() as s, s.begin():
         aplicar_config(s, {"monitor_max_paginas_hora": 2}, MEIO_DIA)
 
-    def quebra_depois_de_abrir(nav, asin, abrir, pausar, carrinho=None):
+    def quebra_depois_de_abrir(nav, asin, abrir, pausar, carrinho=None, contar_clique=None):
         abrir(URL_CARRINHO)  # recarrega depois do clique e quebra
         raise RuntimeError("bug")
 
@@ -587,6 +587,30 @@ def test_erro_depois_do_clique_na_retirada_conta_as_paginas_abertas(engine, sess
     with pytest.raises(RuntimeError):
         v.passo()
     assert v._teto_monitor.liberado_em(MEIO_DIA, 2) is not None  # as 2 páginas abertas contaram
+
+
+def test_clique_de_excluir_que_falha_depois_de_carregar_conta_no_teto(engine, sessoes, config):
+    from tcg_sniper.navegador.modelos import ErroRede
+
+    preso(sessoes)
+    with sessoes() as s, s.begin():
+        aplicar_config(s, {"monitor_max_paginas_hora": 2}, MEIO_DIA)
+    um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
+    v, navegador, _, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [um_item]}, [ErroRede("timeout depois do clique")])
+    v.passo()
+    assert len(navegador.cliques) == 1
+    assert v._teto_monitor.liberado_em(MEIO_DIA, 2) is not None  # o carrinho e a página do clique que falhou
+
+
+def test_retirada_ok_conta_tambem_a_pagina_do_clique(engine, sessoes, config):
+    preso(sessoes)
+    with sessoes() as s, s.begin():
+        aplicar_config(s, {"monitor_max_paginas_hora": 3}, MEIO_DIA)
+    um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
+    v, navegador, _, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [um_item, carrinho()]}, [carrinho()])
+    v.passo()
+    assert len(navegador.cliques) == 1
+    assert v._teto_monitor.liberado_em(MEIO_DIA, 3) is not None  # carrinho, clique em Excluir e a recarga
 
 
 def test_carrinho_de_visitante_nao_resolve_a_retirada(engine, sessoes, config):

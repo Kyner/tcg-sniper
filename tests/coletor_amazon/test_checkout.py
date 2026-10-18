@@ -11,6 +11,7 @@ from tcg_sniper.coletor_amazon.checkout import AlvoCheckout, ResultadoCheckout, 
 from tcg_sniper.coletor_amazon.cliques import PROIBIDOS
 from tcg_sniper.coletor_amazon.parsers import URL_CARRINHO, url_painel_ofertas
 from tcg_sniper.db.models import SituacaoCheckout
+from tcg_sniper.navegador.modelos import ErroRede
 
 ASIN = "B0DNV55QBS"
 ALVO = AlvoCheckout(ASIN, "Shazaar", Decimal("275.91"))
@@ -269,6 +270,29 @@ def test_erro_inesperado_na_retirada_nao_escapa():
         [um_item, checkout_resumo(), RuntimeError("quebrou")],
     )
     assert resultado.situacao is SituacaoCheckout.OK and not resultado.item_removido
+
+
+@pytest.mark.parametrize("erro", [RuntimeError("quebrou"), ErroRede("timeout depois do clique")], ids=["inesperado", "rede"])
+def test_clique_de_excluir_que_falha_depois_de_carregar_conta_a_pagina(erro):
+    um_item = carrinho(ASIN, subtotal="R$ 275,91")
+    resultado, nav = conferir_com(
+        {URL_CARRINHO: [carrinho(), um_item, um_item], url_painel_ofertas(ASIN): PAINEL},
+        [um_item, checkout_resumo(), erro],  # o clique em Excluir carregou e quebrou
+    )
+    assert not resultado.item_removido
+    # carrinho, painel, adicionar, carrinho, fechar pedido, carrinho da retirada e o clique que falhou
+    assert resultado.paginas == len(nav.visitadas) + len(nav.cliques) == 7
+
+
+def test_excluir_recusado_pela_guarda_na_retirada_nao_conta_o_clique():
+    um_item = carrinho(ASIN, subtotal="R$ 275,91")
+    armadilha = pagina_html(um_item.html.replace('aria-label="Excluir Item', 'aria-label="Comprar agora Excluir Item'), url=URL_CARRINHO)
+    resultado, nav = conferir_com(
+        {URL_CARRINHO: [carrinho(), um_item, armadilha], url_painel_ofertas(ASIN): PAINEL},
+        [um_item, checkout_resumo()],
+    )
+    assert not resultado.item_removido and clicados(nav)[-1] != EXCLUIR_ATIVO
+    assert resultado.paginas == len(nav.visitadas) + len(nav.cliques) == 6
 
 
 def test_erro_inesperado_antes_de_adicionar_sobe_sem_clicar():

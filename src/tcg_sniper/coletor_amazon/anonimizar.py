@@ -2,8 +2,9 @@
 
 `limpar` tira scripts, estilos, imagens, comentários e todo atributo fora de uma lista curta (sem
 `data-*` com JSON, sem valor de campo oculto, links reduzidos a /dp/<ASIN> ou seller=<ID>);
-`anonimizar` troca CPF, CEP, final de cartão, e-mail, telefone, número de pedido e os textos de
-`proibidos` por valores fictícios (número proibido leva junto os dígitos vizinhos), troca a bandeira do
+`anonimizar` troca CPF, CNPJ, CEP, final de cartão, e-mail, telefone (celular e fixo), número de pedido e os textos de
+`proibidos` por valores fictícios (número proibido longo leva junto os dígitos vizinhos; o curto, até 6
+dígitos, só troca solto), troca a bandeira do
 cartão e ids de pedido/item/sessão nos atributos por fictícios estáveis; no carrinho, os itens do "Salvo
 para depois" viram "Produto salvo N" / B0SALVO00N; `achados` lista o que ainda parece dado pessoal (o script e o
 teste de privacidade usam). Em `proibidos` liste também o primeiro nome e o sobrenome em linhas
@@ -79,16 +80,24 @@ FICTICIOS = {
     "texto": "Fulano de Tal",
     "cep_bruto": "01001000",
     "cpf_bruto": "00000000000",
+    "cnpj": "00.000.000/0000-00",
+    "cnpj_bruto": "00000000000000",
+    "telefone_bruto": "1130000000",
     "numero": "0000",
     "pagando": "Pagando com cartão final 0000",
 }
 
 _RE_CPF = re.compile(r"(?<![\d*])[\d*]{3}\.[\d*]{3}\.[\d*]{3}-[\d*]{2}(?![\d*])")
 _RE_CEP = re.compile(r"(?<!\d)\d{5}-\d{3}(?!\d)")
-_GAP = r"(?:<[^>]*>|[^\d<]){0,60}?"
+# Entre "cartão" e os 4 dígitos: tags e texto sem dígito e sem moeda ("valor final R$ 1299" é preço).
+_GAP = r"(?:<[^>]*>|(?!R\$|\$|BRL)[^\d<]){0,60}?"
+# Depois de "final"/"terminado em": poucos caracteres até os 4 dígitos ("final (crédito) 1234",
+# "terminado em Visa 1234"), sem dígito e sem moeda no meio ("final R$ 1299" é preço).
+_GAP_CURTO = r"(?:<[^>]*>|(?!R\$|\$|BRL)[^\d<]){0,30}?"
 _RES_CARTAO = (
+    re.compile(r"(?i)(cart[aã]o)(" + _GAP + r")(\d{4})(?!\d|[,.]\d)"),
     re.compile(
-        r"(?i)(cart[aã]o|\bfinal\b|terminad[oa] em|terminando em|termina em|ending in)(" + _GAP + r")(\d{4})(?!\d|,\d)"
+        r"(?i)(\bfinal\b|terminad[oa] em|terminando em|termina em|ending in)(" + _GAP_CURTO + r")(\d{4})(?!\d|[,.]\d)"
     ),
     re.compile(r"(?i)([•*]{3,}|\bx{4,})((?:<[^>]*>|\s){0,10}?)(\d{4})(?!\d|,\d)"),
 )
@@ -100,8 +109,24 @@ _RE_TELEFONE = re.compile(
 _RE_NUMERO_DE_TELEFONE = re.compile(r"(?i)(N[uú]mero de telefone\s*:?(?:\s|<[^>]*>)*)([^<\s][^<]*)")
 _RE_PAGANDO = re.compile(r"(?i)Pagando com\b[^<]*")
 _RE_FIXO = re.compile(r"\(\d{2}\)\s?\d{4}-\d{4}(?!\d)")
+# Fixo sem parênteses: DDD, espaço ou traço e o número de 8 dígitos com traço (fixo começa em 2 a 5).
+_RE_FIXO_SEM_PARENTESES = re.compile(r"(?<![\w+.,/$-])[1-9]\d[\s-][2-5]\d{3}-\d{4}(?![\d-])")
+# DDD + número só com dígitos (10 ou 11), só logo depois de uma palavra de telefone.
+_RE_TELEFONE_BRUTO = re.compile(
+    r"(?i)(\b(?:telefone|tel|fone|celular|cel|contato|whatsapp)\b(?:<[^>]*>|[^\w<]){0,8})(\d{10,11})(?!\d)"
+)
 _RE_CEP_BRUTO = re.compile(r"(?i)(\bCEP(?:<[^>]*>|[^\w<]){0,5})(\d{8})(?!\d)")
 _RE_CPF_BRUTO = re.compile(r"(?i)(\bCPF(?:<[^>]*>|[^\w<]){0,8})(\d{11})(?!\d)")
+_RE_CNPJ = re.compile(r"(?<![\d*])[\d*]{2}\.[\d*]{3}\.[\d*]{3}/[\d*]{4}-[\d*]{2}(?![\d*])")
+# CNPJ público que fica: o da própria Amazon, no rodapé de toda página.
+CNPJS_PUBLICOS = frozenset({"15.436.940/0001-03"})
+_RE_CNPJ_BRUTO = re.compile(r"(?i)(\bCNPJ(?:<[^>]*>|[^\w<]){0,8})(\d{14})(?!\d)")
+# Número proibido curto (número da casa): só como número solto, nunca dentro de preço, ASIN ou outro
+# número. Antes: nem dígito, nem letra (ASIN "B0X742..."), nem "1." de milhar, nem moeda ("R$ 742").
+# Depois: nem dígito, nem ",90"; letra pode ("742A", sufixo da casa).
+_RE_NUMERO_SOLTO = re.compile(r"\d{1,6}")
+_ANTES_DO_NUMERO = r"(?<![0-9A-Za-zÀ-ÿ])(?<![0-9][.,])(?<!\$)(?<!\$ )(?<!BRL )"
+_DEPOIS_DO_NUMERO = r"(?![0-9])(?![.,][0-9])"
 _RE_SAUDACAO = re.compile(r"(?i)(Ol[aá],(?:\s|<[^>]*>)*)(?!fa[cç]a|fa&|entre|sign)(?![\s<])[^<]{1,60}")
 _RE_ENTREGA = re.compile(r"(?i)\b((?:Enviar|Entrega|Entregar|Enviando) para\s+)[^<,\d\-]{1,60}?(\s*(?:[<,\d\-]|\Z))")
 _RE_PEDIDO = re.compile(r"(?<!\d)\d{3}-\d{7}-\d{7}(?!\d)")
@@ -339,7 +364,10 @@ def _lista(proibidos: Sequence[str]) -> list[str]:
 
 def _padrao_proibido(valor: str) -> str:
     """Valor que começa/termina em dígito leva junto os dígitos ligados a ele (+55, DDD, final do número):
-    trocar só o meio deixaria parte do telefone na página."""
+    trocar só o meio deixaria parte do telefone na página. Número curto (até 6 dígitos, o número da casa)
+    só casa solto: "742" não mexe em "R$ 1.742,90", "B0742XYZ12" nem "17420"."""
+    if _RE_NUMERO_SOLTO.fullmatch(valor):
+        return _ANTES_DO_NUMERO + re.escape(valor) + _DEPOIS_DO_NUMERO
     padrao = _padrao_texto(valor)
     if re.match(r"[\d(+]", valor):
         padrao = r"(?:[+(]*\d(?:[\d()]|[ -](?=[\d(]))*[ -]?)?" + padrao  # sem quantificador aninhado
@@ -392,12 +420,16 @@ def anonimizar(html: str, proibidos: Sequence[str] = ()) -> str:
     texto = _RE_ENTREGA.sub(lambda m: f"{m.group(1)}{FICTICIOS['texto']}{m.group(2)}", texto)
     texto = _RE_CPF.sub(FICTICIOS["cpf"], texto)
     texto = _RE_CPF_BRUTO.sub(lambda m: f"{m.group(1)}{FICTICIOS['cpf_bruto']}", texto)
+    texto = _RE_CNPJ.sub(lambda m: m.group() if m.group() in CNPJS_PUBLICOS else FICTICIOS["cnpj"], texto)
+    texto = _RE_CNPJ_BRUTO.sub(lambda m: f"{m.group(1)}{FICTICIOS['cnpj_bruto']}", texto)
     texto = _RE_PEDIDO.sub(FICTICIOS["pedido"], texto)  # antes do CEP: o número do pedido tem traços
     texto = _RE_CEP.sub(FICTICIOS["cep"], texto)
     texto = _RE_CEP_BRUTO.sub(lambda m: f"{m.group(1)}{FICTICIOS['cep_bruto']}", texto)
     texto = _RE_EMAIL.sub(FICTICIOS["email"], texto)
     texto = _RE_TELEFONE.sub(FICTICIOS["telefone"], texto)
     texto = _RE_FIXO.sub(FICTICIOS["telefone"], texto)
+    texto = _RE_FIXO_SEM_PARENTESES.sub(FICTICIOS["telefone"], texto)
+    texto = _RE_TELEFONE_BRUTO.sub(lambda m: f"{m.group(1)}{FICTICIOS['telefone_bruto']}", texto)
     texto = _RE_NUMERO_DE_TELEFONE.sub(lambda m: f"{m.group(1)}{FICTICIOS['telefone']}", texto)
     texto = _RE_PAGANDO.sub(FICTICIOS["pagando"], texto)
     for regex in _RES_CARTAO:
@@ -414,6 +446,11 @@ def achados(html: str, proibidos: Sequence[str] = ()) -> list[str]:
     visivel = " ".join((corpo.text(separator=" ") if corpo is not None else "").lower().split())
     for valor in sorted(_lista(proibidos)):
         alvo = valor.lower()
+        if _RE_NUMERO_SOLTO.fullmatch(valor):  # número da casa: só solto (o mesmo critério da troca)
+            solto = re.compile(_padrao_proibido(valor), re.IGNORECASE)
+            if (achado := solto.search(baixo) or solto.search(visivel)) is not None:
+                problemas.append(f"texto proibido (número) na posição {achado.start()}")
+            continue
         if (posicao := baixo.find(alvo)) >= 0:
             problemas.append(f"texto proibido na posição {posicao}")
         elif (posicao := visivel.find(alvo)) >= 0:
@@ -421,15 +458,23 @@ def achados(html: str, proibidos: Sequence[str] = ()) -> list[str]:
     genericos = (
         ("CPF", _RE_CPF, FICTICIOS["cpf"], 0),
         ("CPF", _RE_CPF_BRUTO, FICTICIOS["cpf_bruto"], 2),
+        ("CNPJ", _RE_CNPJ, FICTICIOS["cnpj"], 0),
+        ("CNPJ", _RE_CNPJ_BRUTO, FICTICIOS["cnpj_bruto"], 2),
         ("CEP", _RE_CEP, FICTICIOS["cep"], 0),
         ("CEP", _RE_CEP_BRUTO, FICTICIOS["cep_bruto"], 2),
         ("e-mail", _RE_EMAIL, FICTICIOS["email"], 0),
         ("telefone", _RE_TELEFONE, FICTICIOS["telefone"], 0),
         ("telefone", _RE_FIXO, FICTICIOS["telefone"], 0),
+        ("telefone", _RE_FIXO_SEM_PARENTESES, FICTICIOS["telefone"], 0),
+        ("telefone", _RE_TELEFONE_BRUTO, FICTICIOS["telefone_bruto"], 2),
         ("pedido", _RE_PEDIDO, FICTICIOS["pedido"], 0),
     )
     for tipo, regex, ficticio, grupo in genericos:
-        problemas += [f"{tipo} na posição {m.start()}" for m in regex.finditer(html) if m.group(grupo) != ficticio]
+        problemas += [
+            f"{tipo} na posição {m.start()}"
+            for m in regex.finditer(html)
+            if m.group(grupo) != ficticio and m.group(grupo) not in CNPJS_PUBLICOS
+        ]
     for regex in _RES_CARTAO:
         problemas += [
             f"cartão na posição {m.start()}" for m in regex.finditer(html) if m.group(3) != FICTICIOS["cartao"]

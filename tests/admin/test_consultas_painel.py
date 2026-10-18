@@ -200,7 +200,7 @@ def test_numeros_de_oportunidades(s, config):
         anuncio = criar_anuncio(s, f"B00000000{i}", produto, StatusCasamento.CONFIRMADO)
         op = repo_amz.abrir_oportunidade(
             s, anuncio_id=anuncio.id, produto_id=produto.id, preco_amazon=Decimal(70), preco_liga=Decimal(100),
-            desconto_pct=Decimal(desconto), vendedor_id=None, envio=Envio.AMAZON, agora=alertada,
+            desconto_pct=Decimal(desconto), vendedor_id=None, envio=Envio.AMAZON, agora=alertada, conferido=False,
         )
         op.fechada_em = fechada
     s.flush()
@@ -242,7 +242,7 @@ def test_alertas_de_hoje_usam_o_dia_do_fuso(s, config):
         anuncio = criar_anuncio(s, f"B00000000{i}", produto, StatusCasamento.CONFIRMADO)
         repo_amz.abrir_oportunidade(
             s, anuncio_id=anuncio.id, produto_id=produto.id, preco_amazon=Decimal(70), preco_liga=Decimal(100),
-            desconto_pct=Decimal(30), vendedor_id=None, envio=Envio.AMAZON, agora=alertada,
+            desconto_pct=Decimal(30), vendedor_id=None, envio=Envio.AMAZON, agora=alertada, conferido=False,
         )
     n = painel.numeros(s, NOITE, config)
     assert (n.alertas_hoje, n.alertas_semana) == (1, 2)

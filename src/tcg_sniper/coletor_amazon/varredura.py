@@ -379,6 +379,9 @@ class VarreduraAmazon:
             abertas[0] += 1  # conta também as páginas abertas antes de um erro (o teto cobra todas)
             return abrir_pagina(ctx, url)
 
+        def contar_clique() -> None:
+            abertas[0] += 1  # a página do clique em Excluir, também quando ele carrega e dá erro
+
         try:
             carrinho = abrir(URL_CARRINHO)
             try:
@@ -397,7 +400,9 @@ class VarreduraAmazon:
             if razao is not None:
                 self._conferir_a_mao(item, razao)
                 return 0
-            removido, _ = remover_do_carrinho(ctx.navegador, item.asin, abrir, self._pausar(cfg), carrinho)
+            removido, _ = remover_do_carrinho(
+                ctx.navegador, item.asin, abrir, self._pausar(cfg), carrinho, contar_clique=contar_clique
+            )
         except ERROS_DE_PAGINA as erro:
             self._falha_na_retirada(item, str(erro))
             return 0

@@ -69,6 +69,23 @@ PROIBIDOS_COMPACTOS = (
 )
 # Hífens e traços Unicode (U+2010 a U+2015, U+2212) viram "-" antes de tudo: o NFKD + ASCII apagaria.
 TRACOS = dict.fromkeys([*range(0x2010, 0x2016), 0x2212], "-")
+# Sósias (já em minúsculas, depois do casefold) que o NFKD + ASCII apagaria: letras cirílicas e gregas
+# parecidas com as latinas e letras latinas sem decomposição. Viram a letra ASCII parecida, para a lista
+# proibida achar "Cоmprar agora" (о cirílico) ou "Finalızar pedido" (ı sem ponto).
+SOSIAS = str.maketrans(
+    {
+        # cirílico
+        "а": "a", "в": "b", "е": "e", "ё": "e", "з": "3", "і": "i", "ї": "i", "ј": "j", "к": "k", "м": "m",
+        "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x", "ѕ": "s", "ԁ": "d", "ԛ": "q",
+        "ԝ": "w", "һ": "h", "ӏ": "l", "ү": "y",
+        # grego
+        "α": "a", "β": "b", "ε": "e", "η": "n", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t",
+        "υ": "u", "χ": "x", "ω": "w",
+        # latinas sem decomposição (Latin-1 e Latin Extended-A)
+        "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ð": "d", "ħ": "h", "ı": "i", "ĸ": "k", "ł": "l", "ŀ": "l",
+        "ŋ": "n", "ŧ": "t", "þ": "th",
+    }
+)
 # O botão/link/form em volta do elemento (a Amazon põe o texto do botão num span irmão do input).
 SELETOR_EM_VOLTA = ".a-button, button, a, [role=button], form"
 LIMITE_CONTEXTO = 4_000
@@ -138,10 +155,73 @@ ESCOPO_OFERTA_DESTAQUE = "#aod-pinned-offer"
 ESCOPO_OFERTA_LISTA = "#aod-offer"
 
 
-def _normalizar(texto: str) -> str:
+def _dobrar(texto: str) -> str:
+    """Entidades resolvidas, traços unificados, NFKC (largura cheia, ligaduras) e casefold."""
     texto = unescape(texto.translate(TRACOS)).translate(TRACOS)  # entidades (&nbsp;, &#8209;) não escondem texto
-    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
-    return re.sub(r"\s+", " ", sem_acento.lower())
+    return unicodedata.normalize("NFKC", texto).casefold()
+
+
+def _normalizar(texto: str) -> str:
+    """Texto comparável com as listas: sósias cirílicos/gregos e letras latinas sem decomposição viram
+    as ASCII parecidas antes de tirar os acentos (senão o encode ASCII apagaria a letra e "Finalızar",
+    ou "Cоmprar" com o "о" cirílico, escapariam da lista proibida)."""
+    sem_acento = unicodedata.normalize("NFKD", _dobrar(texto).translate(SOSIAS)).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", sem_acento)
+
+
+# Controles bidirecionais (LRE, RLE, PDF, LRO, RLO, LRI, RLI, FSI, PDI): reordenam o texto na tela.
+BIDI = re.compile(r"[\u202a-\u202e\u2066-\u2069]")
+
+
+def _caractere_de_rotulo(c: str) -> bool:
+    ponto = ord(c)
+    if BIDI.match(c):
+        return False
+    return ponto < 0x180 or 0x2000 <= ponto <= 0x206F or c.isspace()
+
+
+def texto_latino(texto: str) -> bool:
+    """Só ASCII, Latin-1, Latin Extended-A, espaços e a pontuação comum (U+2000 a U+206F, sem os
+    controles bidirecionais), depois de NFKC + casefold."""
+    return all(_caractere_de_rotulo(c) for c in _dobrar(texto))
+
+
+def _letra_neutra(c: str) -> bool:
+    """Ideograma, kana ou hangul: nada parecido com letra latina (título japonês colado em "MTG" vale)."""
+    return unicodedata.name(c, "").startswith(("CJK", "HIRAGANA", "KATAKANA", "HALFWIDTH KATAKANA", "HANGUL"))
+
+
+def mistura_alfabetos(palavra: str) -> bool:
+    """A palavra tem letra latina e letra de outro alfabeto que sobrou depois de trocar os sósias
+    conhecidos ("aɡora" com o ɡ do IPA, "Cօmprar" com o o armênio, "ᴄomprar" com o c versalete): um
+    sósia fora de SOSIAS, que o NFKD + ASCII apagaria. Palavra toda em outro alfabeto (título em
+    japonês) não mistura."""
+    letras = [c for c in _dobrar(palavra).translate(SOSIAS) if c.isalpha()]
+    latinas = any(ord(c) < 0x180 for c in letras)
+    return latinas and any(ord(c) >= 0x180 and not _letra_neutra(c) for c in letras)
+
+
+MAX_PALAVRAS_DA_ACAO = 5
+
+
+def _limpa(palavra: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", _normalizar(palavra))
+
+
+def acao_no_rotulo(acao: Acao, rotulo: str) -> bool:
+    """O rótulo COMEÇA pela frase da ação ("Excluir", "Adicionar ao carrinho"...) escrita só com letras
+    latinas (rótulos reais: "Excluir <título>", "Adicionar ao carrinho do vendedor X...", "Proceed to
+    checkout Fechar pedido..."). Só essa parte precisa ser latina: o título do produto que vem depois
+    pode estar em japonês. Uma ação escrita com sósia (o "Е" cirílico de "Еxcluir") não vale; a lista
+    proibida continua olhando o rótulo inteiro, com os sósias trocados."""
+    palavras = rotulo.split()
+    while palavras and not _limpa(palavras[0]) and texto_latino(palavras[0]):
+        palavras = palavras[1:]  # pontuação solta antes do texto
+    for fim in range(1, min(MAX_PALAVRAS_DA_ACAO, len(palavras)) + 1):
+        frase = " ".join(p for p in map(_limpa, palavras[:fim]) if p)
+        if acao.padrao.fullmatch(frase) and all(texto_latino(p) for p in palavras[:fim]):
+            return True
+    return False
 
 
 def _raiz(no: LexborNode) -> LexborNode:
@@ -220,8 +300,11 @@ def conferir_clique(acao: Acao, html_elemento: str, texto: str) -> None:
     for trecho in PROIBIDOS_COMPACTOS:
         if trecho in compacto:
             raise CliqueProibido(f"{acao.nome}: elemento proibido ({trecho!r}): {html_elemento[:200]}")
-    rotulo = _normalizar(f"{texto} {_rotulo_do_html(html_elemento)}")
-    if not acao.padrao.search(rotulo):
+    if BIDI.search(f"{html_elemento} {texto}"):
+        raise CliqueProibido(f"{acao.nome}: controle bidirecional no elemento: {html_elemento[:200]}")
+    if any(mistura_alfabetos(p) for p in f"{html_elemento} {texto}".split()):
+        raise CliqueProibido(f"{acao.nome}: palavra que mistura alfabetos (sósia?): {html_elemento[:200]}")
+    if not any(acao_no_rotulo(acao, rotulo) for rotulo in (texto, _rotulo_do_html(html_elemento))):
         raise CliqueProibido(f"{acao.nome}: o elemento não é o botão esperado: {html_elemento[:200]}")
 
 
@@ -295,16 +378,43 @@ def item_fora_do_carrinho_ativo(pagina: Pagina, asin: str) -> bool:
     return not asin_no_carrinho_ativo(pagina, asin)
 
 
+def clicar_contando(
+    nav: NavegadorInterativo,
+    acao: Acao,
+    pagina: Pagina,
+    contar: Callable[[], None],
+    escopo: str = "",
+    bloco: int = 0,
+) -> Pagina:
+    """`clicar_permitido` que chama `contar` para a página que o clique carrega, para o teto de páginas
+    por hora. Recusa da guarda antes do clique (SeletorAusente, CliqueProibido) não conta: nada
+    carregou. Qualquer outro desfecho (sucesso ou erro depois do clique) conta."""
+    try:
+        resultado = clicar_permitido(nav, acao, pagina, escopo, bloco)
+    except (CliqueProibido, SeletorAusente):
+        raise
+    except BaseException:
+        contar()  # o clique pode ter carregado uma página antes do erro
+        raise
+    contar()
+    return resultado
+
+
 def remover_do_carrinho(
     nav: NavegadorInterativo,
     asin: str,
     abrir: Callable[[str], Pagina],
     pausar: Callable[[], None],
     carrinho: Pagina | None = None,
+    contar_clique: Callable[[], None] | None = None,
 ) -> tuple[bool, int]:
     """Exclui o ASIN do carrinho ativo (nunca de "Salvo para depois"). Devolve (removido, páginas
     abertas); removido é True só com o carrinho ativo na tela e sem o item (também quando ele já
-    não estava lá); num desafio, login ou erro no lugar do carrinho, False."""
+    não estava lá); num desafio, login ou erro no lugar do carrinho, False.
+
+    As páginas abertas por `abrir` são de quem chama (que conta no próprio `abrir`); a do clique em
+    Excluir chama `contar_clique`, também quando o clique carrega e dá erro (o teto cobra a página
+    mesmo sem a contagem devolvida, que se perde no erro)."""
     abertas = 0
     if carrinho is None:  # `carrinho`: a página do carrinho que quem chama acabou de abrir e conferir
         carrinho, abertas = abrir(URL_CARRINHO), 1
@@ -313,7 +423,7 @@ def remover_do_carrinho(
         if localizar(EXCLUIR, carrinho, escopo) is None:
             continue
         pausar()
-        clicar_permitido(nav, EXCLUIR, carrinho, escopo)
+        clicar_contando(nav, EXCLUIR, carrinho, contar_clique or (lambda: None), escopo)
         conferido = abrir(URL_CARRINHO)  # o clique pode só esconder o item por JS: confere recarregando
         return item_fora_do_carrinho_ativo(conferido, asin), abertas + 2
     return item_fora_do_carrinho_ativo(carrinho, asin), abertas

@@ -149,7 +149,7 @@ def test_oportunidade_abrir_atualizar_fechar(s):
     op = repo.abrir_oportunidade(
         s, anuncio_id=anuncio.id, produto_id=produto.id, preco_amazon=Decimal("700.00"),
         preco_liga=Decimal("1000.00"), desconto_pct=Decimal("30.00"), vendedor_id=amazon.id,
-        envio=Envio.AMAZON, agora=T0,
+        envio=Envio.AMAZON, agora=T0, conferido=False,
     )
     assert repo.oportunidade_aberta(s, anuncio.id).id == op.id
     assert (op.alertada_em, op.preco_alertado) == (T0, Decimal("700.00"))
@@ -157,12 +157,29 @@ def test_oportunidade_abrir_atualizar_fechar(s):
     depois = T0 + timedelta(hours=1)
     repo.atualizar_oportunidade(
         s, op, preco_amazon=Decimal("650.00"), preco_liga=Decimal("1000.00"), desconto_pct=Decimal("35.00"),
-        vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=True, agora=depois,
+        vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=True, agora=depois, conferido=False,
     )
     assert (op.preco_amazon, op.alertada_em, op.preco_alertado) == (Decimal("650.00"), depois, Decimal("650.00"))
 
     repo.fechar_oportunidade(s, op, depois)
     assert repo.oportunidade_aberta(s, anuncio.id) is None
+
+
+def test_conferido_e_obrigatorio_ao_abrir_e_ao_atualizar_oportunidade(s):
+    produto = criar_produto(s)
+    anuncio = criar_anuncio(s, "B0OBRIG001", produto=produto, status=StatusCasamento.CONFIRMADO, agora=T0)
+    campos = {
+        "preco_amazon": Decimal(1), "preco_liga": Decimal(2), "desconto_pct": Decimal(50), "vendedor_id": None,
+        "envio": Envio.AMAZON,
+    }
+    with pytest.raises(TypeError, match="conferido"):
+        repo.abrir_oportunidade(s, anuncio_id=anuncio.id, produto_id=produto.id, agora=T0, **campos)
+    op = repo.abrir_oportunidade(s, anuncio_id=anuncio.id, produto_id=produto.id, agora=T0, conferido=True, **campos)
+    assert op.alerta_conferido is True
+    with pytest.raises(TypeError, match="conferido"):
+        repo.atualizar_oportunidade(s, op, alertou=True, agora=T0, **campos)
+    repo.atualizar_oportunidade(s, op, alertou=True, agora=T0, conferido=False, **campos)
+    assert op.alerta_conferido is False
 
 
 def test_fechar_oportunidades_sem_leitura_ha_24h(s):
@@ -172,7 +189,7 @@ def test_fechar_oportunidades_sem_leitura_ha_24h(s):
     for anuncio in (velho, novo):
         repo.abrir_oportunidade(
             s, anuncio_id=anuncio.id, produto_id=produto.id, preco_amazon=Decimal(1), preco_liga=Decimal(2),
-            desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0,
+            desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0, conferido=False,
         )
     assert repo.fechar_oportunidades_sem_leitura(s, T0 + timedelta(hours=25)) == 1
     assert repo.oportunidade_aberta(s, velho.id) is None
@@ -188,7 +205,7 @@ def test_casamento_confirmar_trocar_ignorar_desfazer(s):
 
     op = repo.abrir_oportunidade(
         s, anuncio_id=anuncio.id, produto_id=a.id, preco_amazon=Decimal(1), preco_liga=Decimal(2),
-        desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0,
+        desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0, conferido=False,
     )
     assert repo.confirmar_casamento(s, anuncio.id, b.id, T0) is True  # trocar fecha a oportunidade do produto antigo
     s.refresh(op)
@@ -258,7 +275,7 @@ def test_casar_link_manual_de_asin_conhecido_troca_o_produto_e_fecha_oportunidad
     anuncio = criar_anuncio(s, "B0CONHEC01", produto=antigo, status=StatusCasamento.IGNORADO)
     op = repo.abrir_oportunidade(
         s, anuncio_id=anuncio.id, produto_id=antigo.id, preco_amazon=Decimal(1), preco_liga=Decimal(2),
-        desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0,
+        desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0, conferido=False,
     )
     resultado = repo.casar_link_manual(s, novo.id, "B0CONHEC01", T0 + timedelta(hours=1))
     s.refresh(op)
