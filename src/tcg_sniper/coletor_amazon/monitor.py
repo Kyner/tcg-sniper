@@ -9,7 +9,7 @@ espera e a oferta é candidata ao checkout, sem falha nem ok da mesma oferta na 
 decide pelo preço anunciado: não abre, não avisa, não fecha nem realerta. Quem decide é
 `aplicar_conferencia`, com o preço conferido, logo depois da conferência. O aviso com o preço anunciado
 ("não conferido (<motivo>)") só sai quando não há conferência possível; se ela falha, `redecidir` avisa
-na hora com o anunciado."""
+na hora com o anunciado (menos quando a oferta saiu do painel: aí a próxima leitura decide)."""
 
 import dataclasses
 import logging
@@ -20,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from tcg_sniper.coletor_amazon.busca import ContextoBusca, DesafioAmazon, abrir_pagina, ler_pagina
+from tcg_sniper.coletor_amazon.checkout import MOTIVO_OFERTA_SUMIU
 from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
 from tcg_sniper.coletor_amazon.modelos import AvaliacaoVendedor, OfertaLista
 from tcg_sniper.coletor_amazon.parsers import (
@@ -300,8 +301,13 @@ def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMoni
 def redecidir(ctx: ContextoBusca, anuncio_id: int) -> None:
     """Conferência que não deu ok (falha, carrinho ocupado, sem login): refaz na hora a decisão da
     leitura atual, que agora não espera mais conferência e usa o preço anunciado ("não conferido
-    (<motivo>)"). Sem leitura atual de ofertas não faz nada (a próxima leitura decide)."""
+    (<motivo>)"). Sem leitura atual de ofertas, ou quando a conferência falhou porque a oferta não está
+    mais no painel (o anunciado da leitura já não vale), não faz nada: a próxima leitura decide."""
     with ctx.sessoes() as s:
+        ultima = repo.ultima_conferencia(s, anuncio_id)
+        if ultima is not None and ultima.situacao is SituacaoCheckout.FALHA and ultima.motivo == MOTIVO_OFERTA_SUMIU:
+            log.info("anúncio %s: a oferta saiu do painel; a próxima leitura decide", anuncio_id)
+            return
         cfg = repo.obter_config(s)  # a conferência pode ter acabado de marcar a conta sem login
         lidas = repo.ofertas_da_ultima_leitura(s, [anuncio_id]).get(anuncio_id, [])
         melhor = next((o for o in lidas if o.melhor), None)

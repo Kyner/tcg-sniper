@@ -52,6 +52,8 @@ log = logging.getLogger(__name__)
 
 ERROS_DO_PASSO = (CliqueProibido, SeletorAusente, ErroParser, ErroRede)
 MAX_ITENS_SOBRE_ANUNCIADO = Decimal("1.5")  # itens do resumo acima disso × o anunciado: mais de uma unidade
+# A oferta da leitura não está mais no painel: o preço anunciado dela já não vale (o monitor não avisa por ele).
+MOTIVO_OFERTA_SUMIU = "a oferta não está mais no painel (preço ou vendedor mudou)"
 
 
 @dataclass(frozen=True)
@@ -161,7 +163,7 @@ def conferir(
             raise DesafioAmazon(url)
         oferta = _achar(parse_ofertas(painel.html), alvo)
         if oferta is None:
-            raise _Parada(SituacaoCheckout.FALHA, "a oferta não está mais no painel (preço ou vendedor mudou)")
+            raise _Parada(SituacaoCheckout.FALHA, MOTIVO_OFERTA_SUMIU)
         # Relê o carrinho logo antes do clique, na própria página do painel (a que precisa estar na tela
         # para o clique): o usuário pode ter posto algo no carrinho depois da primeira leitura.
         contador = contador_do_carrinho(painel.html)
