@@ -97,12 +97,12 @@ def test_proibido_disfarcado_e_recusado_pela_lista_proibida(acao, html):
 # Rótulos com sósias Unicode (cirílico, grego) de letras latinas: não passam na lista de permitidos
 # nem escapam da lista proibida.
 ROTULOS_SOSIAS = [
-    (EXCLUIR, "Excluіr"),  # i cirílico
-    (ADICIONAR, "Adicionar ao carrinhо"),  # o cirílico
-    (FECHAR_PEDIDO, "Fechar pеdido"),  # e cirílico
-    (ENTREGAR, "Entregar neste endereοo"),  # ómicron grego
-    (ADICIONAR, "Adicionar ao carrinho Cоmprar agora"),  # "Comprar agora" com o cirílico
-    (EXCLUIR, "Excluir Finаlizar pedido"),  # a cirílico
+    (EXCLUIR, "Exclu\u0456r"),  # i cirílico
+    (ADICIONAR, "Adicionar ao carrinh\u043e"),  # o cirílico
+    (FECHAR_PEDIDO, "Fechar p\u0435dido"),  # e cirílico
+    (ENTREGAR, "Entregar neste endere\u03bfo"),  # ómicron grego
+    (ADICIONAR, "Adicionar ao carrinho C\u043emprar agora"),  # "Comprar agora" com o cirílico
+    (EXCLUIR, "Excluir Fin\u0430lizar pedido"),  # a cirílico
 ]
 
 
@@ -115,10 +115,10 @@ def test_rotulo_com_sosia_unicode_e_recusado(acao, rotulo):
 @pytest.mark.parametrize(
     "html",
     [
-        '<input name="submit.addToCart" value="Adicionar ao carrinho" data-x="plаce-order">',  # a cirílico
-        '<input name="submit.addToCart" value="Adicionar ao carrinho" title="Finalizаr pedido">',
+        '<input name="submit.addToCart" value="Adicionar ao carrinho" data-x="pl\u0430ce-order">',  # a cirílico
+        '<input name="submit.addToCart" value="Adicionar ao carrinho" title="Finaliz\u0430r pedido">',
         '<input name="submit.addToCart" value="Adicionar ao carrinho" title="Finalızar pedido">',  # i sem ponto
-        '<input name="submit.addToCart" value="Adicionar ao carrinho" title="Ｃomprar agora">',  # C de largura cheia
+        '<input name="submit.addToCart" value="Adicionar ao carrinho" title="\uff23omprar agora">',  # C de largura cheia
     ],
 )
 def test_sosia_no_contexto_nao_escapa_da_lista_proibida(html):
@@ -127,7 +127,7 @@ def test_sosia_no_contexto_nao_escapa_da_lista_proibida(html):
 
 
 def test_rotulo_latino_com_acento_e_pontuacao_continua_aceito():
-    conferir_clique(EXCLUIR, '<input type="submit">', "Excluir Magic: The Gathering Æther — Booster «50»™")
+    conferir_clique(EXCLUIR, '<input type="submit">', "Excluir Magic: The Gathering Æther \u2014 Booster «50»\u2122")
     conferir_clique(ENTREGAR, '<input type="submit">', "ENTREGAR NESTE ENDEREÇO ")
 
 
@@ -145,6 +145,43 @@ def test_acao_com_sosia_e_recusada_mesmo_com_titulo_japones():
 def test_frase_proibida_com_sosias_no_titulo_e_recusada():
     with pytest.raises(CliqueProibido, match="elemento proibido"):
         conferir_clique(EXCLUIR, '<input type="submit">', "Excluir \u904a\u622f\u738b C\u043empr\u0430r \u0430gora")
+
+
+@pytest.mark.parametrize(
+    ("rotulo", "html"),
+    [
+        ("Fechar pedido Comprar a\u0261ora", '<input type="submit">'),  # \u0261 do IPA, fora de SOSIAS
+        ("Fechar pedido C\u0585mprar agora", '<input type="submit">'),  # o armênio
+        ("Fechar pedido \u1d04omprar agora", '<input type="submit">'),  # c versalete
+        ("Fechar pedido", '<input type="submit" title="Comprar a\u0261ora">'),  # no contexto
+    ],
+)
+def test_palavra_que_mistura_latino_com_outro_alfabeto_e_recusada(rotulo, html):
+    with pytest.raises(CliqueProibido, match="mistura"):
+        conferir_clique(FECHAR_PEDIDO, html, rotulo)
+
+
+def test_titulo_japones_colado_em_sigla_latina_continua_aceito():
+    conferir_clique(EXCLUIR, '<input type="submit">', "Excluir MTG\u904a\u622f\u738b \u3010MTG\u3011\u30de\u30b8\u30c3\u30af")
+
+
+@pytest.mark.parametrize(
+    ("acao", "rotulo"),
+    [
+        (EXCLUIR, "Remover item Excluir"),
+        (ADICIONAR, "Ver carrinho Adicionar ao carrinho"),
+        (FECHAR_PEDIDO, "Comprar Fechar pedido"),
+    ],
+)
+def test_acao_tem_de_estar_no_comeco_do_rotulo(acao, rotulo):
+    with pytest.raises(CliqueProibido, match="não é o botão esperado"):
+        conferir_clique(acao, '<input type="submit">', rotulo)
+
+
+@pytest.mark.parametrize("rotulo", ["Excluir\u202e", "Excluir \u2066titulo\u2069", "\u202aExcluir"])
+def test_controle_bidi_no_rotulo_e_recusado(rotulo):
+    with pytest.raises(CliqueProibido):
+        conferir_clique(EXCLUIR, '<input type="submit">', rotulo)
 
 
 def test_token_do_seletor_sem_rotulo_nao_basta():
@@ -336,21 +373,44 @@ CLIQUES_DO_PLAYWRIGHT = {
 }
 METODOS_QUE_CLICAM = CLIQUES_DO_PLAYWRIGHT | {"clicar", "requestSubmit"}
 ACESSO_DINAMICO = {"getattr", "methodcaller", "attrgetter"}
-AVALIA_JS = {"evaluate", "evaluate_handle", "evaluate_all", "eval_on_selector", "eval_on_selector_all"}
-JS_QUE_CLICA = re.compile(
-    r"\.\s*(click|submit|requestSubmit)\s*\(|dispatchEvent\s*\(|\[\s*['\"`](click|submit|requestSubmit)['\"`]\s*\]"
-)
+AVALIA_JS = {
+    "evaluate", "evaluate_handle", "evaluate_all", "eval_on_selector", "eval_on_selector_all", "wait_for_function",
+    "add_init_script", "add_script_tag",
+}
+# Argumentos que apontam JS de fora (arquivo ou URL): nunca é texto conhecido.
+JS_DE_FORA = {"path", "url"}
+DIGITA = {"type", "fill", "press_sequentially", "insert_text"}  # com "\n"/"\r" no texto: Enter
+JS_QUE_CLICA = re.compile(r"\b(click|submit|requestSubmit)\b|dispatchEvent")
 SO_CLIQUES_PY = {"src/tcg_sniper/coletor_amazon/cliques.py"}
 SO_NAVEGADORES = {"src/tcg_sniper/navegador/chromium.py", "src/tcg_sniper/coletor_liga/navegador.py"}
 
 
+def _valores(no, constantes):
+    """Valores possíveis do texto de `no`: literal, constante do módulo, soma de textos ("cl" + "ick") e
+    f-string (as partes interpoladas viram "")."""
+    if isinstance(no, ast.Constant) and isinstance(no.value, str):
+        return [no.value]
+    if isinstance(no, ast.Name) and no.id in constantes:
+        return list(constantes[no.id])
+    if isinstance(no, ast.BinOp) and isinstance(no.op, ast.Add):
+        esquerda, direita = _valores(no.left, constantes), _valores(no.right, constantes)
+        return [a + b for a in esquerda for b in direita][:50]
+    if isinstance(no, ast.JoinedStr):
+        partes = [v.value if isinstance(v, ast.Constant) else "" for v in no.values]
+        return ["".join(str(p) for p in partes)]
+    return []
+
+
 def _strings(no, constantes):
-    """Strings literais dentro de `no`, com nomes resolvidos pelas constantes do módulo."""
+    """Strings dentro de `no` (cada literal e cada soma/f-string inteira), com nomes resolvidos pelas
+    constantes do módulo."""
     for filho in ast.walk(no):
         if isinstance(filho, ast.Constant) and isinstance(filho.value, str):
             yield filho.value
         elif isinstance(filho, ast.Name) and filho.id in constantes:
             yield from constantes[filho.id]
+        elif isinstance(filho, (ast.BinOp, ast.JoinedStr)):
+            yield from _valores(filho, constantes)
 
 
 def _eh_mouse(dono):
@@ -364,19 +424,26 @@ def _eh_teclado(dono):
 
 
 def _resolvivel(no, constantes):
-    """O JS é só texto conhecido: literais e constantes do módulo (nada importado, montado ou chamado)."""
-    for filho in ast.walk(no):
+    """O JS é só texto conhecido: literais e constantes do módulo (nada importado, montado ou chamado).
+    O que entra interpolado numa f-string é dado (tema, seletor), não código: não conta."""
+    pendentes = [no]
+    while pendentes:
+        filho = pendentes.pop()
+        if isinstance(filho, ast.FormattedValue):
+            continue
         if isinstance(filho, (ast.Call, ast.Attribute, ast.Subscript)):
             return False
         if isinstance(filho, ast.Name) and filho.id not in constantes:
             return False
+        pendentes.extend(ast.iter_child_nodes(filho))
     return True
 
 
 def _expressao_js(no):
-    """O argumento com o JS: o 1º em `evaluate*`, o 2º em `eval_on_selector*` (ou `expression=`)."""
+    """O argumento com o JS: o 1º (o 2º em `eval_on_selector*`) ou `expression=`/`script=`/`content=`.
+    None quando não há JS no texto (só `path=`/`url=`, ou nada)."""
     for kw in no.keywords:
-        if kw.arg == "expression":
+        if kw.arg in ("expression", "script", "content"):
             return kw.value
     posicao = 1 if no.func.attr.startswith("eval_on_selector") else 0
     return no.args[posicao] if len(no.args) > posicao else None
@@ -386,11 +453,13 @@ def chamadas_de_clique(raiz=RAIZ_REPO):
     """{arquivo: {tipos}} em src/ e scripts/:
     - "clicar": `.clicar(` (o clique com guarda do navegador);
     - "playwright": cliques e teclas do Playwright (`click`, `dispatch_event`, `tap`, `check`, `press`,
-      `submit`, `mouse.*`, `keyboard.*` e afins);
-    - "js_clique": JS avaliado na página (`evaluate`, `evaluate_handle`, `evaluate_all`,
-      `eval_on_selector[_all]`) que clica ou envia form (`.click(`, `.submit(`, `requestSubmit(`,
-      `dispatchEvent(`, `['click']`);
-    - "js_opaco": JS avaliado que não é texto conhecido no módulo (importado, montado por função);
+      `submit`, `mouse.*`, `keyboard.*` e afins; `type`/`fill` com "\\n" ou "\\r");
+    - "js_clique": JS avaliado na página (`evaluate*`, `eval_on_selector[_all]`, `wait_for_function`,
+      `add_init_script`, `add_script_tag`) com a palavra `click`, `submit`, `requestSubmit` ou
+      `dispatchEvent` (somas de texto e constantes resolvidas);
+    - "js_opaco": JS avaliado que não é texto conhecido no módulo (importado, montado por função,
+      `path=`/`url=`); valores interpolados em f-string são dado, não código;
+    - "cdp": `send("Input.dispatch...")` do protocolo do Chromium;
     - "dinamico": `getattr(x, "click")`, `methodcaller("click")` e afins com o nome de um método que clica."""
     achados: dict[str, set[str]] = {}
     for caminho in [*(raiz / "src").rglob("*.py"), *(raiz / "scripts").rglob("*.py")]:
@@ -416,13 +485,20 @@ def chamadas_de_clique(raiz=RAIZ_REPO):
                 continue
             if funcao == "clicar":
                 achados.setdefault(nome, set()).add("clicar")
+            textos = [t for arg in argumentos for t in _strings(arg, constantes)]
             if funcao in CLIQUES_DO_PLAYWRIGHT or _eh_mouse(no.func.value) or _eh_teclado(no.func.value):
                 achados.setdefault(nome, set()).add("playwright")
+            if funcao in DIGITA and any("\n" in t or "\r" in t for t in textos):
+                achados.setdefault(nome, set()).add("playwright")  # digitar com Enter envia o form
+            if funcao == "send" and any(t.startswith("Input.dispatch") for t in textos):
+                achados.setdefault(nome, set()).add("cdp")  # clique/tecla pelo protocolo do Chromium
             if funcao in AVALIA_JS:
-                if any(JS_QUE_CLICA.search(t) for arg in argumentos for t in _strings(arg, constantes)):
-                    achados.setdefault(nome, set()).add("js_clique")
                 expressao = _expressao_js(no)
-                if expressao is None or not _resolvivel(expressao, constantes):
+                js = list(_strings(expressao, constantes)) if expressao is not None else []
+                if any(JS_QUE_CLICA.search(t) for t in js):
+                    achados.setdefault(nome, set()).add("js_clique")
+                de_fora = any(kw.arg in JS_DE_FORA for kw in no.keywords)
+                if de_fora or expressao is None or not _resolvivel(expressao, constantes):
                     achados.setdefault(nome, set()).add("js_opaco")
     return achados
 
@@ -439,6 +515,7 @@ def test_so_cliques_py_chama_clicar_do_navegador():
     assert _com(achados, "js_clique") == set()
     assert _com(achados, "js_opaco") == set()
     assert _com(achados, "dinamico") == set()
+    assert _com(achados, "cdp") == set()
 
 
 @pytest.mark.parametrize(
@@ -487,6 +564,46 @@ def test_varredura_acha_outras_formas_de_clicar(tmp_path, codigo, tipo):
     ],
 )
 def test_varredura_nao_acusa_leitura(tmp_path, codigo):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "src" / "a.py").write_text(codigo, encoding="utf-8")
+    assert chamadas_de_clique(tmp_path) == {}
+
+
+@pytest.mark.parametrize(
+    ("codigo", "tipo"),
+    [
+        ("JS = 'e => e.cl' + 'ick()'\npagina.evaluate(JS)\n", "js_clique"),
+        ("getattr(botao, 'cli' + 'ck')()\n", "dinamico"),
+        ("pagina.evaluate('e => { const m = \"click\"; e[m](); }')\n", "js_clique"),
+        ("pagina.wait_for_function('() => (document.querySelector(\"#b\").click(), true)')\n", "js_clique"),
+        ("contexto.add_init_script('addEventListener(\"load\", () => document.forms[0].submit())')\n", "js_clique"),
+        ("pagina.add_script_tag(content='document.querySelector(\"#b\").click()')\n", "js_clique"),
+        ("pagina.add_script_tag(url='https://exemplo.invalid/x.js')\n", "js_opaco"),
+        ("contexto.add_init_script(path='x.js')\n", "js_opaco"),
+        ("cdp.send('Input.dispatchMouseEvent', {'type': 'mousePressed'})\n", "cdp"),
+        ("campo.fill('texto\\n')\n", "playwright"),
+        ("campo.type('abc\\r')\n", "playwright"),
+    ],
+)
+def test_varredura_acha_cliques_montados_e_outras_entradas(tmp_path, codigo, tipo):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "src" / "a.py").write_text(codigo, encoding="utf-8")
+    assert tipo in chamadas_de_clique(tmp_path).get("src/a.py", set())
+
+
+@pytest.mark.parametrize(
+    "codigo",
+    [
+        "contexto.add_init_script(f\"localStorage.setItem('tema', '{tema}')\")\n",
+        "JS = '([s, n]) => document.querySelectorAll(s).length > n'\npagina.wait_for_function(JS, arg=[1, 2])\n",
+        "pagina.eval_on_selector('input[type=submit]', 'e => e.value')\n",
+        "cdp.send('Network.enable')\n",
+        "campo.type('abc')\n",
+    ],
+)
+def test_varredura_nao_acusa_leitura_nem_dado_interpolado(tmp_path, codigo):
     (tmp_path / "src").mkdir()
     (tmp_path / "scripts").mkdir()
     (tmp_path / "src" / "a.py").write_text(codigo, encoding="utf-8")

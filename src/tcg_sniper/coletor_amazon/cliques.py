@@ -169,32 +169,58 @@ def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", sem_acento)
 
 
+# Controles bidirecionais (LRE, RLE, PDF, LRO, RLO, LRI, RLI, FSI, PDI): reordenam o texto na tela.
+BIDI = re.compile(r"[\u202a-\u202e\u2066-\u2069]")
+
+
 def _caractere_de_rotulo(c: str) -> bool:
     ponto = ord(c)
+    if BIDI.match(c):
+        return False
     return ponto < 0x180 or 0x2000 <= ponto <= 0x206F or c.isspace()
 
 
 def texto_latino(texto: str) -> bool:
-    """Só ASCII, Latin-1, Latin Extended-A, espaços e a pontuação comum (U+2000 a U+206F), depois de
-    NFKC + casefold."""
+    """Só ASCII, Latin-1, Latin Extended-A, espaços e a pontuação comum (U+2000 a U+206F, sem os
+    controles bidirecionais), depois de NFKC + casefold."""
     return all(_caractere_de_rotulo(c) for c in _dobrar(texto))
+
+
+def _letra_neutra(c: str) -> bool:
+    """Ideograma, kana ou hangul: nada parecido com letra latina (título japonês colado em "MTG" vale)."""
+    return unicodedata.name(c, "").startswith(("CJK", "HIRAGANA", "KATAKANA", "HALFWIDTH KATAKANA", "HANGUL"))
+
+
+def mistura_alfabetos(palavra: str) -> bool:
+    """A palavra tem letra latina e letra de outro alfabeto que sobrou depois de trocar os sósias
+    conhecidos ("aɡora" com o ɡ do IPA, "Cօmprar" com o o armênio, "ᴄomprar" com o c versalete): um
+    sósia fora de SOSIAS, que o NFKD + ASCII apagaria. Palavra toda em outro alfabeto (título em
+    japonês) não mistura."""
+    letras = [c for c in _dobrar(palavra).translate(SOSIAS) if c.isalpha()]
+    latinas = any(ord(c) < 0x180 for c in letras)
+    return latinas and any(ord(c) >= 0x180 and not _letra_neutra(c) for c in letras)
 
 
 MAX_PALAVRAS_DA_ACAO = 5
 
 
+def _limpa(palavra: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", _normalizar(palavra))
+
+
 def acao_no_rotulo(acao: Acao, rotulo: str) -> bool:
-    """O rótulo tem a frase da ação ("Excluir", "Adicionar ao carrinho"...) escrita só com letras
-    latinas. Só essa parte precisa ser latina: o título do produto que vem depois ("Excluir <título>")
+    """O rótulo COMEÇA pela frase da ação ("Excluir", "Adicionar ao carrinho"...) escrita só com letras
+    latinas (rótulos reais: "Excluir <título>", "Adicionar ao carrinho do vendedor X...", "Proceed to
+    checkout Fechar pedido..."). Só essa parte precisa ser latina: o título do produto que vem depois
     pode estar em japonês. Uma ação escrita com sósia (o "Е" cirílico de "Еxcluir") não vale; a lista
     proibida continua olhando o rótulo inteiro, com os sósias trocados."""
     palavras = rotulo.split()
-    limpas = [re.sub(r"[^a-z0-9]", "", _normalizar(p)) for p in palavras]
-    for inicio in range(len(palavras)):
-        for fim in range(inicio + 1, min(inicio + MAX_PALAVRAS_DA_ACAO, len(palavras)) + 1):
-            frase = " ".join(p for p in limpas[inicio:fim] if p)
-            if acao.padrao.fullmatch(frase) and all(texto_latino(p) for p in palavras[inicio:fim]):
-                return True
+    while palavras and not _limpa(palavras[0]) and texto_latino(palavras[0]):
+        palavras = palavras[1:]  # pontuação solta antes do texto
+    for fim in range(1, min(MAX_PALAVRAS_DA_ACAO, len(palavras)) + 1):
+        frase = " ".join(p for p in map(_limpa, palavras[:fim]) if p)
+        if acao.padrao.fullmatch(frase) and all(texto_latino(p) for p in palavras[:fim]):
+            return True
     return False
 
 
@@ -274,7 +300,11 @@ def conferir_clique(acao: Acao, html_elemento: str, texto: str) -> None:
     for trecho in PROIBIDOS_COMPACTOS:
         if trecho in compacto:
             raise CliqueProibido(f"{acao.nome}: elemento proibido ({trecho!r}): {html_elemento[:200]}")
-    if not acao_no_rotulo(acao, f"{texto} {_rotulo_do_html(html_elemento)}"):
+    if BIDI.search(f"{html_elemento} {texto}"):
+        raise CliqueProibido(f"{acao.nome}: controle bidirecional no elemento: {html_elemento[:200]}")
+    if any(mistura_alfabetos(p) for p in f"{html_elemento} {texto}".split()):
+        raise CliqueProibido(f"{acao.nome}: palavra que mistura alfabetos (sósia?): {html_elemento[:200]}")
+    if not any(acao_no_rotulo(acao, rotulo) for rotulo in (texto, _rotulo_do_html(html_elemento))):
         raise CliqueProibido(f"{acao.nome}: o elemento não é o botão esperado: {html_elemento[:200]}")
 
 
