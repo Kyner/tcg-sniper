@@ -16,17 +16,17 @@ Marcar `[x]` ao concluir e anotar o commit. Sem dados pessoais neste arquivo (o 
 - [x] "oferta 0 do painel sem preço legível": não perdia oferta. Em 5 dos 51 anúncios a Amazon não tem oferta em destaque ("Nenhuma opção de compra em destaque") e o bloco fixo só traz foto e título; as ofertas da lista eram lidas normalmente. O leitor agora pula esse bloco sem aviso (branch `fix/painel-sem-destaque`).
 - [x] "Monitor rodou antes da janela": não é bug. As janelas da busca e do monitor variam até 15 min para não parecer robô (texto de ajuda em Configurações já diz isso).
 
-- [ ] Teste `tests/admin/test_admin_dashboard.py::test_dashboard_mostra_ultimas_execucoes_e_horario` depende do horário: falha depois das 22:00 (card da Amazon mostra "fora do horário"). Fixar o relógio no teste.
-- [ ] Monitor: depois de uma conferência que falhou com "a oferta não está mais no painel", não mandar o alerta com o preço anunciado já velho (`monitor.redecidir`); deixar a próxima leitura decidir.
-- [ ] Monitor: não mandar REALERTAR com preço anunciado (sem imposto) quando a oportunidade já foi alertada com preço conferido e nenhuma conferência pode rodar.
-- [ ] Incluir `/logs` (abas) no `scripts/verificar_layout.py`.
+- [x] Teste `tests/admin/test_admin_dashboard.py::test_dashboard_mostra_ultimas_execucoes_e_horario` depende do horário: falha depois das 22:00 (card da Amazon mostra "fora do horário"). Fixar o relógio no teste. Relógio fixo em 12:00 (monkeypatch de `repo.agora_utc`); o resto dos testes do admin rodou às 23:30 e às 06:00 sem outra dependência do horário (branch `fix/pacote-a`).
+- [x] Monitor: depois de uma conferência que falhou com "a oferta não está mais no painel", não mandar o alerta com o preço anunciado já velho (`monitor.redecidir`); deixar a próxima leitura decidir. `redecidir` não faz nada com esse motivo (`checkout.MOTIVO_OFERTA_SUMIU`); as outras falhas continuam avisando com o anunciado.
+- [x] Monitor: não mandar REALERTAR com preço anunciado (sem imposto) quando a oportunidade já foi alertada com preço conferido e nenhuma conferência pode rodar. Nova coluna `oportunidade.alerta_conferido` (migração `c8f2d6a1e4b9`); com ela, a queda pelo anunciado só atualiza a aberta, sem aviso, até um novo conferido.
+- [x] Incluir `/logs` (abas) no `scripts/verificar_layout.py`. `/logs` e as abas amazon, ia, checkout e monitor nas telas fixas.
 
 ## 3. Pequenas, antigas
 
-- [ ] Ofertas: arredondamento do filtro de desconto (24,996% passa no "≥ 25%").
-- [ ] Dashboard/Logs: aba da Amazon reabrindo depois de paginar a LigaMagic com filtro ativo — conferir se ainda acontece na tela de Logs.
-- [ ] htmx carregado sem SRI (integridade do script).
-- [ ] Checkout: um clique bloqueado pela trava ainda conta como página no teto por hora; mensagem de carrinho ocupado com contagem certa quando o contador lê 0.
+- [x] Ofertas: arredondamento do filtro de desconto (24,996% passa no "≥ 25%"). O filtro compara o desconto exato (`atinge_desconto`); a tela mostra o desconto arredondado para baixo (24,99%).
+- [x] Dashboard/Logs: aba da Amazon reabrindo depois de paginar a LigaMagic com filtro ativo — conferir se ainda acontece na tela de Logs. Não acontece em `/logs`: o teste novo passou de primeira e fica como guarda.
+- [x] htmx carregado sem SRI (integridade do script). `integrity` sha384 (igual ao publicado pelo htmx 1.9.12) e `crossorigin="anonymous"`.
+- [x] Checkout: um clique bloqueado pela trava ainda conta como página no teto por hora; mensagem de carrinho ocupado com contagem certa quando o contador lê 0. Clique recusado antes de clicar (trava ou botão ausente) não conta; com contador 0 a mensagem usa os itens ativos.
 - [ ] Anonimizador: número de rua sozinho em `proibidos.txt` troca dígitos dentro de preços/ASIN; preço sem centavos depois de "final" vira "cartão"; CPF/CNPJ e telefone fixo sem parênteses não são pegos. (Só importa numa nova captura.)
 - [ ] Trava de cliques: varredura AST não pega `eval_on_selector`/`evaluate_all`/`submit()`/`getattr`; caracteres Unicode parecidos (ex.: "о" cirílico). Defesa extra, sem falha conhecida.
 
