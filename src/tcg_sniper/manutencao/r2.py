@@ -36,9 +36,9 @@ def _cliente_boto3(**kwargs: Any):
 class EnviadorR2:
     def __init__(self, config: Config, fabrica_cliente: Callable[..., Any] = _cliente_boto3):
         self._bucket = (config.r2_bucket or "").strip()
-        self._segredos = tuple(
-            s.get_secret_value() for s in (config.r2_access_key_id, config.r2_secret_access_key) if s is not None
-        )
+        chaves = (s.get_secret_value() for s in (config.r2_access_key_id, config.r2_secret_access_key) if s is not None)
+        # o account id vai na URL do endpoint, que aparece nas mensagens de erro do boto3
+        self._segredos = tuple(v for v in (*(c.strip() for c in chaves), (config.r2_account_id or "").strip()) if v)
         self._cliente = fabrica_cliente(
             endpoint_url=f"https://{(config.r2_account_id or '').strip()}.r2.cloudflarestorage.com",
             region_name="auto",
@@ -48,7 +48,7 @@ class EnviadorR2:
 
     @property
     def segredos(self) -> tuple[str, ...]:
-        """Para tirar das mensagens de erro (nunca vão para log, banco ou WhatsApp)."""
+        """Chaves e account id, para tirar das mensagens de erro (nunca vão para log, banco ou WhatsApp)."""
         return self._segredos
 
     def __repr__(self) -> str:

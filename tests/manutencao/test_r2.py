@@ -49,3 +49,10 @@ def test_cliente_boto3_de_verdade_e_criado_sem_rede(config):
     assert enviador is not None
     assert enviador._cliente.meta.endpoint_url == "https://conta123.r2.cloudflarestorage.com"
     assert enviador._cliente.meta.region_name == "auto"
+
+
+def test_segredos_sem_espacos_e_com_o_account_id(config):
+    enviador = r2.EnviadorR2(
+        _config(config, r2_account_id=" conta-abc123 ", r2_secret_access_key=f"  {SEGREDO}\n"), ClienteFake
+    )
+    assert set(enviador.segredos) == {SEGREDO, "ID-FALSO-R2", "conta-abc123"}
