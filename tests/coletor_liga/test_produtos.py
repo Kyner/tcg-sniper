@@ -1,12 +1,15 @@
+from urllib.parse import urlsplit
+
 from fakes import (
+    AvisadorFake,
     NavegadorFake,
-    NotificadorFake,
     criar_produto,
     fixture_liga,
     pagina_html,
 )
 from sqlalchemy import func, select
 
+from tcg_sniper.avisos.catalogo import TipoAviso
 from tcg_sniper.coletor_liga.modelos import ErroRede
 from tcg_sniper.coletor_liga.parsers import parse_produto
 from tcg_sniper.coletor_liga.produtos import coletar_produtos
@@ -20,7 +23,6 @@ from tcg_sniper.db.models import (
     StatusColeta,
     TipoColeta,
 )
-from tcg_sniper.notificador.base import Destino
 
 HTML_OK = fixture_liga("produto_varios_vendedores")
 HTML_QUEBRADO = "<html><body><p>layout novo</p></body></html>"
@@ -36,22 +38,22 @@ def preparar(sessoes, *liga_ids, inativos=()):
 
 def coletar(sessoes, config, paginas, pausas=None):
     navegador = NavegadorFake(paginas)
-    notificador = NotificadorFake()
+    avisador = AvisadorFake()
     resultado = coletar_produtos(
         sessoes,
         navegador,
-        notificador,
+        avisador,
         config,
         dormir=(pausas if pausas is not None else []).append,
         embaralhar=lambda lista: None,
     )
-    return resultado, navegador, notificador
+    return resultado, navegador, avisador
 
 
 def test_coleta_ok_grava_resumos_e_pausa_entre_produtos(sessoes, config):
     urls = preparar(sessoes, "a", "b", "c", inativos=("z",))
     pausas = []
-    resultado, navegador, notificador = coletar(
+    resultado, navegador, avisador = coletar(
         sessoes, config, {u: pagina_html(HTML_OK, url=u) for u in urls.values()}, pausas
     )
 
@@ -59,7 +61,7 @@ def test_coleta_ok_grava_resumos_e_pausa_entre_produtos(sessoes, config):
     assert resultado.status is StatusColeta.OK
     assert (resultado.produtos_ok, resultado.produtos_falha) == (3, 0)
     assert len(pausas) == 2 and all(8 <= p <= 20 for p in pausas)
-    assert notificador.mensagens == []
+    assert avisador.mensagens == []
     with sessoes() as s:
         assert s.scalar(select(func.count()).select_from(ResumoPreco)) == 3
         atuais = s.scalars(select(PrecoAtualLiga)).all()
@@ -78,14 +80,13 @@ def test_coleta_ok_grava_resumos_e_pausa_entre_produtos(sessoes, config):
 def test_desafio_pausa_coleta_avisa_admin_e_para(sessoes, config):
     urls = preparar(sessoes, "a", "b", "c")
     paginas = {urls["a"]: pagina_html(HTML_OK), urls["b"]: DESAFIO, urls["c"]: pagina_html(HTML_OK)}
-    resultado, navegador, notificador = coletar(sessoes, config, paginas)
+    resultado, navegador, avisador = coletar(sessoes, config, paginas)
 
     assert resultado.status is StatusColeta.PAUSADA_DESAFIO
     assert navegador.visitadas == [urls["a"], urls["b"]]
-    assert len(notificador.mensagens) == 1
-    destino, texto = notificador.mensagens[0]
-    assert destino is Destino.ADMIN
-    assert "http://host.test:6080/vnc.html" in texto and "http://host.test:8000" in texto
+    [(tipo, _, dados)] = avisador.avisos
+    assert tipo is TipoAviso.LIGA_DESAFIO and dados.linhas[0] == f"Página: {urlsplit(urls['b']).path}"
+    assert ":6080" not in avisador.mensagens[0][1] and ":8000" not in avisador.mensagens[0][1]
     with sessoes() as s:
         assert repo.obter_estado(s).estado is EstadoColetorTipo.PAUSADO_DESAFIO
         assert s.get(Coleta, resultado.coleta_id).status is StatusColeta.PAUSADA_DESAFIO
@@ -110,10 +111,10 @@ def test_falha_de_parser_salva_html_e_status_parcial(sessoes, config):
         urls["b"]: pagina_html(HTML_QUEBRADO),
         urls["c"]: pagina_html(HTML_OK),
     }
-    resultado, _, notificador = coletar(sessoes, config, paginas)
+    resultado, _, avisador = coletar(sessoes, config, paginas)
     assert resultado.status is StatusColeta.PARCIAL
     assert (resultado.produtos_ok, resultado.produtos_falha) == (2, 1)
-    assert notificador.mensagens == []
+    assert avisador.mensagens == []
     salvos = list((config.dir_dados / "falhas").glob("produto-*.html"))
     assert len(salvos) == 1 and salvos[0].read_text(encoding="utf-8") == HTML_QUEBRADO
 
@@ -125,11 +126,10 @@ def test_mais_da_metade_falhando_avisa_layout(sessoes, config):
         urls["b"]: pagina_html(HTML_QUEBRADO),
         urls["c"]: pagina_html(HTML_QUEBRADO),
     }
-    resultado, _, notificador = coletar(sessoes, config, paginas)
+    resultado, _, avisador = coletar(sessoes, config, paginas)
     assert resultado.status is StatusColeta.FALHA
-    assert len(notificador.mensagens) == 1
-    assert "falhou em 2 de 3 produtos" in notificador.mensagens[0][1]
-    assert "layout" in notificador.mensagens[0][1]
+    [falhou] = avisador.dados(TipoAviso.LIGA_COLETA_FALHOU)
+    assert falhou.linhas == ("Etapa: Coleta dos produtos ativos", "Falhas: 2 de 3 produtos")
 
 
 def test_erro_de_rede_tenta_de_novo_uma_vez(sessoes, config):
@@ -146,9 +146,9 @@ def test_erro_de_rede_tenta_de_novo_uma_vez(sessoes, config):
 
 def test_erro_inesperado_fecha_coleta_como_falha(sessoes, config):
     urls = preparar(sessoes, "a")
-    resultado, _, notificador = coletar(sessoes, config, {urls["a"]: RuntimeError("chromium morreu")})
+    resultado, _, avisador = coletar(sessoes, config, {urls["a"]: RuntimeError("chromium morreu")})
     assert resultado.status is StatusColeta.FALHA and resultado.interrompida
-    assert len(notificador.mensagens) == 1
+    assert avisador.tipos() == [TipoAviso.LIGA_ERRO]
     with sessoes() as s:
         coleta = s.get(Coleta, resultado.coleta_id)
         assert coleta.status is StatusColeta.FALHA and "chromium morreu" in coleta.erro

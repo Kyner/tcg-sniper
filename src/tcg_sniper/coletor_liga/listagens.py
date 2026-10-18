@@ -12,6 +12,8 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
+from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.coletor_liga.execucao import (
     DesafioDetectado,
     Dormir,
@@ -30,7 +32,6 @@ from tcg_sniper.coletor_liga.parsers import parse_listagem
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import StatusColeta, TipoColeta
-from tcg_sniper.notificador.base import Destino, Notificador
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ DESCRICAO = "Coleta das listagens"
 def coletar_listagens(
     sessoes: sessionmaker[Session],
     navegador: Navegador,
-    notificador: Notificador,
+    avisador: Avisador,
     config: Config,
     dormir: Dormir = time.sleep,
     embaralhar: Callable[[list], None] = random.shuffle,
@@ -48,12 +49,10 @@ def coletar_listagens(
     coleta_id = iniciar_se_ativo(sessoes, TipoColeta.LISTAGEM)
     if coleta_id is None:
         return None
-    resultado = _varrer(sessoes, navegador, notificador, config, coleta_id, dormir, embaralhar)
+    resultado = _varrer(sessoes, navegador, avisador, config, coleta_id, dormir, embaralhar)
     if resultado.novos:
-        notificador.enviar(
-            Destino.ADMIN,
-            f"{resultado.novos} produtos novos no catálogo. "
-            f"Ativar em http://{config.host_publico}:8000/catalogo?filtro=novos",
+        avisador.avisar(
+            TipoAviso.LIGA_PRODUTOS_NOVOS, CHAVE_GERAL, Dados(linhas=(f"{resultado.novos} produtos novos nas listagens",))
         )
     return resultado
 
@@ -61,7 +60,7 @@ def coletar_listagens(
 def _varrer(
     sessoes: sessionmaker[Session],
     navegador: Navegador,
-    notificador: Notificador,
+    avisador: Avisador,
     config: Config,
     coleta_id: int,
     dormir: Dormir,
@@ -79,7 +78,7 @@ def _varrer(
             try:
                 expandida = abrir_listagem(navegador, url, config, dormir)
             except DesafioDetectado:
-                registrar_desafio(sessoes, notificador, config, coleta_id, url, ok, falha)
+                registrar_desafio(sessoes, avisador, coleta_id, url, ok, falha)
                 return ResultadoColeta(coleta_id, StatusColeta.PAUSADA_DESAFIO, ok, falha, novos)
             except ErroRede as erro:
                 log.warning("categoria %s falhou por rede: %s", categ, erro)
@@ -113,5 +112,5 @@ def _varrer(
             log.info("categoria %s: %d cartões lidos", categ, len(itens))
             ok += 1
     except Exception as erro:  # noqa: BLE001 - erro inesperado fecha a coleta como falha
-        return encerrar_por_erro(sessoes, notificador, coleta_id, DESCRICAO, erro, ok, falha, novos)
-    return concluir_coleta(sessoes, notificador, config, coleta_id, DESCRICAO, "categorias", ok, falha, novos)
+        return encerrar_por_erro(sessoes, avisador, coleta_id, DESCRICAO, erro, ok, falha, novos)
+    return concluir_coleta(sessoes, avisador, config, coleta_id, DESCRICAO, "categorias", ok, falha, novos)

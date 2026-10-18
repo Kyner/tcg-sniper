@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.coletor_liga.execucao import mensagem_resumo, pausa_humana
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
+from tcg_sniper.avisos.servico import Avisador
+from tcg_sniper.coletor_liga.execucao import dados_resumo, pausa_humana
 from tcg_sniper.coletor_liga.listagens import coletar_listagens
 from tcg_sniper.coletor_liga.navegador import Navegador
 from tcg_sniper.coletor_liga.produtos import coletar_produtos
@@ -17,7 +19,6 @@ from tcg_sniper.config import Config
 from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, StatusColeta, TipoColeta
-from tcg_sniper.notificador.base import Destino, Notificador
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class Agendador:
         engine: Engine,
         sessoes: sessionmaker[Session],
         fabrica_navegador: Callable[[], AbstractContextManager[Navegador]],
-        notificador: Notificador,
+        avisador: Avisador,
         config: Config,
         relogio: Callable[[], datetime] | None = None,
         rng: random.Random | None = None,
@@ -60,7 +61,7 @@ class Agendador:
         self._engine = engine
         self._sessoes = sessoes
         self._fabrica_navegador = fabrica_navegador
-        self._notificador = notificador
+        self._avisador = avisador
         self._config_env = config
         self._config = config
         self._relogio = relogio or (lambda: datetime.now(UTC))
@@ -91,12 +92,8 @@ class Agendador:
             ultima = repo.ultima_coleta_sucesso(s, TipoColeta.PRODUTOS)
         if interrompidas:
             log.warning("%d coleta(s) interrompida(s) marcadas como falha", interrompidas)
-            self._notificador.enviar(
-                Destino.ADMIN,
-                f"{interrompidas} coleta(s) interrompida(s) (o coletor reiniciou no meio do job) e marcadas "
-                f"como falha. A coleta de hoje pode não rodar de novo sozinha: clique em \"Rodar agora\" em "
-                f"http://{self._config.host_publico}:8000",
-            )
+            dados = Dados(linhas=(f"{interrompidas} coleta(s) marcada(s) como falha: o coletor reiniciou no meio do job",))
+            self._avisador.avisar(TipoAviso.LIGA_INTERROMPIDA, CHAVE_GERAL, dados)
         if ultima is None or agora - ultima > timedelta(hours=24):
             self._atrasada_em = agora + timedelta(minutes=self._rng.uniform(0, self._config.coleta_jitter_min))
             log.info("último job com sucesso: %s; execução atrasada em %s", ultima, self._atrasada_em)
@@ -147,7 +144,8 @@ class Agendador:
                 log.info("pedido de execução rearmado; tenta de novo no próximo tick")
         except Exception as erro:
             log.exception("job %s falhou", motivo)
-            self._notificador.enviar(Destino.ADMIN, f"Erro inesperado no coletor ({motivo}): {erro!r}")
+            dados = Dados(linhas=(f"Onde: job {motivo}", f"Erro: {erro!r}"))
+            self._avisador.avisar(TipoAviso.LIGA_ERRO, CHAVE_GERAL, dados)
         return motivo
 
     def executar_job(self, incluir_listagens: bool) -> bool:
@@ -168,24 +166,35 @@ class Agendador:
         return True
 
     def _coletar(self, navegador: Navegador, incluir_listagens: bool) -> bool:
-        """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare. Se o job vai até
-        o fim, sem desafio e sem etapa interrompida por erro, avisa o admin com um resumo."""
+        """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare. Se o job vai até o fim
+        sem desafio, sem etapa interrompida por erro e sem etapa que falhou, avisa "concluída" (ou
+        "parcial") e resolve as falhas e erros abertos. O job só roda com a Liga ativa: um desafio aberto
+        foi resolvido (retomada)."""
+        inicio = self._relogio()
+        self._avisador.resolver(TipoAviso.LIGA_DESAFIO, CHAVE_GERAL)
         listagens = None
         if incluir_listagens:
-            listagens = coletar_listagens(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+            listagens = coletar_listagens(self._sessoes, navegador, self._avisador, self._config, self._dormir)
             if listagens is None:
                 return False
             if listagens.status is StatusColeta.PAUSADA_DESAFIO:
                 return True
             pausa_humana(self._config, self._dormir)
-        produtos = coletar_produtos(self._sessoes, navegador, self._notificador, self._config, self._dormir)
+        produtos = coletar_produtos(self._sessoes, navegador, self._avisador, self._config, self._dormir)
         if produtos is None:
             return False
         if produtos.status is StatusColeta.PAUSADA_DESAFIO:
             return True
-        if not produtos.interrompida and not (listagens is not None and listagens.interrompida):
-            hoje = self._relogio().astimezone(self._config.zona).date()
-            self._notificador.enviar(Destino.ADMIN, mensagem_resumo(self._config, hoje, listagens, produtos))
+        etapas = [r for r in (listagens, produtos) if r is not None]
+        if any(r.interrompida or r.status is StatusColeta.FALHA for r in etapas):
+            return False  # o LIGA_ERRO ou o LIGA_COLETA_FALHOU da etapa já saiu
+        hoje = self._relogio().astimezone(self._config.zona).date()
+        dados = dados_resumo(hoje, listagens, produtos, self._relogio() - inicio)
+        parcial = any(r.status is StatusColeta.PARCIAL for r in etapas)
+        tipo = TipoAviso.LIGA_COLETA_PARCIAL if parcial else TipoAviso.LIGA_COLETA_CONCLUIDA
+        self._avisador.avisar(tipo, CHAVE_GERAL, dados)
+        self._avisador.resolver(TipoAviso.LIGA_COLETA_FALHOU, CHAVE_GERAL)
+        self._avisador.resolver(TipoAviso.LIGA_ERRO, CHAVE_GERAL)
         return False
 
     def _obter_navegador(self) -> Navegador:
