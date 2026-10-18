@@ -22,7 +22,7 @@ from playwright.sync_api import sync_playwright
 BASE = os.environ.get("ADMIN_BASE", "http://127.0.0.1:8000")
 FIXAS = [
     "/", "/servicos", "/catalogo", "/casamentos?situacao=todos", "/ofertas", "/mensagens", "/configuracoes",
-    "/logs", "/logs?aba=amazon", "/logs?aba=ia", "/logs?aba=checkout", "/logs?aba=monitor",
+    "/logs", "/logs?aba=amazon", "/logs?aba=ia", "/logs?aba=checkout", "/logs?aba=monitor", "/logs?aba=manutencao",
 ]
 TAMANHOS = {"celular": (390, 844), "computador": (1440, 900)}
 SAIDA = Path("/tmp/verificar_layout")

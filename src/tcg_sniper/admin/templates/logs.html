@@ -2,7 +2,7 @@
 {% from "_componentes.html" import selo, cabecalho, paginacao %}
 {% block titulo %}Logs · TCG Sniper{% endblock %}
 {% block conteudo %}
-{{ cabecalho("Logs", "Histórico das coletas, dos ciclos, do monitor, das conferências de checkout e das chamadas da IA.") }}
+{{ cabecalho("Logs", "Histórico das coletas, dos ciclos, do monitor, das conferências de checkout, das chamadas da IA e do backup.") }}
 
 {# Campos ocultos de um filtro: os parâmetros das outras abas e a própria aba; a página do filtro volta para 1. #}
 {% macro ocultos(nome_aba, proprios) %}
@@ -17,6 +17,7 @@
 {% macro url_monitor(n) %}{{ link(aba="monitor", monitor_pagina=n) }}{% endmacro %}
 {% macro url_checkout(n) %}{{ link(aba="checkout", checkout_pagina=n) }}{% endmacro %}
 {% macro url_ia(n) %}{{ link(aba="ia", ia_pagina=n) }}{% endmacro %}
+{% macro url_manutencao(n) %}{{ link(aba="manutencao", manutencao_pagina=n) }}{% endmacro %}
 
 {% macro filtro_status(nome_aba, campo, valor) %}
 <form method="get" action="/logs" class="flex flex-wrap items-end gap-3">
@@ -190,6 +191,34 @@
       {% endfor %}
     </div>
     {{ paginacao(pagina_ia, paginas_ia, url_ia) }}
+  </div>
+
+  <input type="radio" name="logs" class="tab" aria-label="Manutenção"{% if aba == "manutencao" %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    <p class="text-sm text-base-content/70">Backup diário do banco (pasta de backups e cópia no R2) e limpeza do histórico antigo, uma vez por dia.</p>
+    {% set selos_manutencao = {"ok": ("ok", "ok"), "so_local": ("ok", "só local"), "erro": ("falha", "erro"), "rodando": ("rodando", "rodando"), "interrompida": ("parcial", "interrompida")} %}
+    <div class="card bg-base-100 shadow-sm"><div class="card-body overflow-x-auto p-4">
+      <table class="table table-zebra">
+        <thead><tr><th>Início</th><th>Situação</th><th>Arquivo</th><th class="text-right">Tamanho</th><th>R2</th><th>Apagados</th><th>Duração</th><th>Erro</th></tr></thead>
+        <tbody>
+        {% for e in execucoes %}{% set cor, rotulo = selos_manutencao[e.status.value] %}
+          <tr data-execucao="{{ e.id }}">
+            <td class="whitespace-nowrap tabular-nums">{{ e.inicio|data }}</td>
+            <td>{{ selo(cor, rotulo) }}</td>
+            <td class="font-mono text-xs">{{ e.arquivo or "—" }}</td>
+            <td class="text-right whitespace-nowrap tabular-nums">{{ e.tamanho_bytes|tamanho }}</td>
+            <td>{{ "sim" if e.enviado_r2 else "não" }}</td>
+            <td class="text-sm tabular-nums">{% if e.apagados %}{% for tabela, n in e.apagados.items() %}{{ tabela }} {{ n|milhar }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap tabular-nums">{{ e.inicio|duracao(e.fim) }}</td>
+            <td class="text-sm">{{ e.erro or "" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8">Nenhuma execução da manutenção ainda.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {{ paginacao(pagina_manutencao, paginas_manutencao, url_manutencao) }}
   </div>
 </div>
 {% endblock %}

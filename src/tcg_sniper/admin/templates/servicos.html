@@ -136,5 +136,24 @@
     <p class="text-sm">{% if processo == "rodando" %}{{ selo("ok", "rodando") }} Notificador rodando.{% elif processo == "parado" %}{{ selo("falha", "parado") }} Notificador parado desde {{ ultimo_ciclo|data }}.{% else %}{{ selo("falha", "parado") }} Notificador nunca rodou.{% endif %}</p>
     <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/mensagens">Abrir Mensagens</a></div>
   </div></div>
+
+  {# Backup e limpeza (manutenção) #}
+  {% set manutencao_ativa = estado_manutencao.estado.value == "ativo" %}
+  {% set backup_rodando = backup_ultima is not none and backup_ultima.status.value == "rodando" %}
+  {% set processo_m, ciclo_m = processo_manutencao %}
+  <div data-servico="manutencao" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="card-title text-base">Backup e limpeza {{ selo_ligado(manutencao_ativa) }}{% if backup_rodando %} {{ selo("rodando", "backup em andamento") }}{% endif %}</h2>
+      {{ chave("/manutencao/pausar" if manutencao_ativa else "/manutencao/retomar", manutencao_ativa, "backup e limpeza") }}
+    </div>
+    {% if manutencao_ativa %}
+    <p class="text-sm">Backup do banco todo dia às {{ hora_backup }} (fuso de Configurações → Geral), {% if r2 %}com cópia no R2{% else %}sem as variáveis R2_* no .env: fica só local, no PC{% endif %}. Depois apaga o histórico antigo (preços nunca).</p>
+    {% else %}
+    <p class="text-sm">Desligado: {{ estado_manutencao.motivo or "sem motivo" }}. Sem backup nem limpeza até ligar de novo.</p>
+    {% endif %}
+    <p class="text-sm">{% if backup_ok %}Último backup ok {{ backup_ok.inicio|data }} · {{ backup_ok.tamanho_bytes|tamanho }} · {{ "com cópia no R2" if backup_ok.enviado_r2 else "só local" }}.{% else %}Nenhum backup ainda.{% endif %}{% if backup_ultima is not none and backup_ultima.status.value == "erro" %} <span class="text-error">Última execução com erro: {{ backup_ultima.erro }}</span>{% endif %}</p>
+    <p class="text-sm">{% if processo_m == "rodando" or backup_rodando %}{{ selo("ok", "rodando") }} Serviço rodando.{% elif processo_m == "parado" %}{{ selo("falha", "parado") }} Serviço parado desde {{ ciclo_m|data }}.{% else %}{{ selo("falha", "parado") }} Serviço nunca rodou.{% endif %}</p>
+    <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/logs?aba=manutencao">Ver histórico</a></div>
+  </div></div>
 </div>
 {% endblock %}

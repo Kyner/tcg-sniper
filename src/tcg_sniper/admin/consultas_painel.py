@@ -16,9 +16,11 @@ from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
+from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_CASADOR,
+    COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
     AnuncioAmazon,
     AvaliacaoIA,
@@ -32,9 +34,12 @@ from tcg_sniper.db.models import (
     ProdutoLiga,
     StatusCasamento,
     StatusColeta,
+    StatusManutencao,
     StatusMensagem,
     TipoColeta,
 )
+from tcg_sniper.formatacao import formatar_bytes
+from tcg_sniper.manutencao.servico import HORA_BACKUP
 
 # Texto do selo de cada situação (as chaves são as do macro `selo` de _componentes.html).
 ROTULOS = {
@@ -304,6 +309,68 @@ def saude_servicos(
         _saude_casador(s, agora, config_efetiva, chave_ia),
         _saude_whatsapp(s, agora, config_efetiva, resumo),
     ]
+
+
+MANUTENCAO_VIVA = timedelta(minutes=5)  # o serviço registra que está vivo a cada minuto
+BACKUP_ATRASADO = timedelta(hours=26)
+EXECUCAO_LONGA = timedelta(hours=2)  # um backup "rodando" há mais que isso não explica o serviço calado
+
+
+def processo_manutencao(s: Session, agora: datetime) -> tuple[str, datetime | None]:
+    """("rodando" | "parado" | "nunca", último ciclo) do serviço de manutenção."""
+    ultimo = repo_man.ultimo_ciclo(s)
+    if ultimo is None:
+        return "nunca", None
+    return ("rodando" if agora - ultimo < MANUTENCAO_VIVA else "parado"), ultimo
+
+
+def saude_backup(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
+    """Card "Backup" do Dashboard: serviço de manutenção vivo, ligado e com um backup ok recente."""
+    zona = cfg.zona
+    link = "/logs?aba=manutencao"
+    ultima = repo_man.ultima(s)
+    rodando = ultima is not None and ultima.status is StatusManutencao.RODANDO and agora - ultima.inicio < EXECUCAO_LONGA
+    ok = repo_man.ultima_ok(s)
+    if ok is not None:
+        r2 = "sim" if ok.enviado_r2 else "não (só local)"
+        detalhe = f"{formatar_bytes(ok.tamanho_bytes)} · cópia no R2: {r2} · todo dia às {HORA_BACKUP:%H:%M}"
+    else:
+        detalhe = f"Todo dia às {HORA_BACKUP:%H:%M}; ao subir, roda já se o último tiver mais de 24 h"
+    processo, ultimo_ciclo = processo_manutencao(s, agora)
+    if processo != "rodando" and not rodando:
+        if processo == "nunca":
+            aviso = "O serviço de manutenção (backup) nunca rodou — veja Serviços."
+            return SaudeServico("Backup", "falha", "Serviço de manutenção nunca rodou", detalhe, "/servicos", aviso=aviso)
+        quando = _quando(ultimo_ciclo, agora, zona)
+        aviso = f"O serviço de manutenção (backup) está parado desde {quando} — veja Serviços."
+        texto = f"Serviço de manutenção parado desde {quando}"
+        return SaudeServico("Backup", "falha", texto, detalhe, "/servicos", aviso=aviso)
+    estado = repo.obter_estado(s, agora, COLETOR_MANUTENCAO)
+    if estado.estado is not EstadoColetorTipo.ATIVO:
+        return SaudeServico(
+            "Backup", "pausado", f"Backup desligado: {estado.motivo or 'sem motivo'}", detalhe, "/servicos", "desligado"
+        )
+    if rodando:
+        return SaudeServico("Backup", "rodando", f"Backup em andamento desde {_quando(ultima.inicio, agora, zona)}", detalhe, link)
+    if ok is None:
+        return SaudeServico("Backup", "parcial", "Nenhum backup ainda", detalhe, link)
+    texto_ok = f"Último backup {_quando(ok.inicio, agora, zona)} · {formatar_bytes(ok.tamanho_bytes)}"
+    if ultima is not None and ultima.status is StatusManutencao.ERRO:
+        texto = f"O último backup ({_quando(ultima.inicio, agora, zona)}) teve erro"
+        return SaudeServico("Backup", "parcial", texto, f"{ultima.erro or 'erro'} · último ok: {texto_ok}", link)
+    if agora - ok.inicio > BACKUP_ATRASADO:
+        texto = f"Último backup ok {_quando(ok.inicio, agora, zona)}: mais de 26 h"
+        return SaudeServico("Backup", "parcial", texto, detalhe, link)
+    return SaudeServico("Backup", "ok", texto_ok, detalhe, link)
+
+
+def avisos_backup(backup: SaudeServico) -> list[Aviso]:
+    """Serviço parado ou desligado vira erro; backup atrasado ou com erro vira atenção."""
+    if backup.situacao in PROBLEMAS:
+        return [Aviso("error", backup.aviso or f"{backup.nome} — {backup.texto}.", "/servicos", "Ir para Serviços")]
+    if backup.situacao == "parcial":
+        return [Aviso("warning", f"{backup.nome} — {backup.texto}.", "/logs?aba=manutencao", "Ver nos logs")]
+    return []
 
 
 def avisos(
