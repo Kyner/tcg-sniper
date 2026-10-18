@@ -5,6 +5,10 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 Última revisão: 2026-10-18.
 
+## 0. Crítico (próximo a fazer)
+
+- [ ] **Anúncio ignorado preso ao primeiro produto**: cada anúncio da Amazon fica ligado ao primeiro produto da Liga para o qual foi sugerido (`gravar_busca` nunca troca `produto_id`/status de um ASIN conhecido). Se foi ignorado para o produto errado (ex.: Colecionador sugerido para Jogo) e depois aparece na busca do produto certo, continua ignorado e nunca vira pendente para o produto certo; a IA só avalia pendentes. Perde oportunidades. Decidido (2026-10-18): **ignorado vale só para aquele par** — o mesmo anúncio achado na busca de outro produto vira pendente para esse outro produto e a IA avalia. Precisa de modelo de pares (anúncio × produto) ou equivalente. Relacionados, depois: busca alternativa (nome encurtado/sem edição) após muitos dias sem candidato; botões "rebuscar agora" e "reavaliar com a IA"; "Desfazer" não faz a IA reavaliar anúncio igual.
+
 ## 1. Acompanhar (sem código)
 
 - [ ] Frequência de CAPTCHA da Amazon com o monitor ligado (até 150 páginas/h).
@@ -32,6 +36,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
+0. Seção 0 (anúncio ignorado preso ao primeiro produto), logo depois dos avisos.
 1. Seção 1 (acompanhar) nos próximos dias.
 2. Margem líquida (seção 3), quando o grupo tiver os valores.
 
