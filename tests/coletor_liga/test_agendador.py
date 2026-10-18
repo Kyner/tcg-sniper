@@ -449,7 +449,9 @@ def test_lock_coleta_nao_fica_ocioso_em_transacao(engine):
             estados = outra.execute(
                 text(
                     "SELECT a.state FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid "
-                    "WHERE l.locktype = 'advisory' AND l.objid = :id"
+                    "WHERE l.locktype = 'advisory' AND l.objid = :id "
+                    # O Postgres é o mesmo da produção: ignora o lock do coletor de lá.
+                    "AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())"
                 ),
                 {"id": ID_LOCK},
             ).scalars().all()
