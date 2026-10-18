@@ -117,3 +117,32 @@ def test_texto_do_notificador_desligado(cliente):
     cliente.post("/notificador/pausar")
     c = card(cliente.get("/servicos").text, "notificador")
     assert "saem quando ligar (ofertas vencidas expiram)" in c
+
+
+def test_ja_conferi_resolve_o_aviso_do_carrinho(cliente, sessoes):
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from fakes import criar_anuncio, criar_produto
+
+    from tcg_sniper.avisos import servico as avisos
+    from tcg_sniper.avisos.catalogo import CATALOGO, TipoAviso
+    from tcg_sniper.db import repositorio_amazon as repo_amz
+    from tcg_sniper.db.models import EstadoAviso, SituacaoCheckout, StatusCasamento
+
+    agora = datetime(2026, 10, 18, 13, 0, tzinfo=UTC)
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1", nome="Caixa")
+        a = criar_anuncio(s, "B0CAND0001", produto=p, status=StatusCasamento.CONFIRMADO)
+        c = repo_amz.registrar_conferencia(
+            s, em=agora, anuncio_id=a.id, vendedor_nome="Amazon.com.br", preco_anunciado=Decimal("700.00"),
+            itens=None, frete=None, impostos=None, total=None, situacao=SituacaoCheckout.FALHA, motivo="x",
+            item_removido=False,
+        )
+        repo_amz.marcar_conferir_a_mao(s, c.id, agora, "carrinho com outros itens")
+        avisos.avisar(s, TipoAviso.AMAZON_CARRINHO, "B0CAND0001", CATALOGO[TipoAviso.AMAZON_CARRINHO].exemplo, agora)
+        conferencia_id = c.id
+    r = cliente.post(f"/amazon/carrinho/{conferencia_id}/conferido", follow_redirects=False)
+    assert r.status_code == 303
+    with sessoes() as s:
+        assert s.get(EstadoAviso, ("amazon_carrinho", "B0CAND0001")).aberto is False

@@ -25,6 +25,8 @@ from tcg_sniper.admin import (
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
+from tcg_sniper.avisos import servico as avisos
+from tcg_sniper.avisos.catalogo import TipoAviso
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
@@ -42,6 +44,7 @@ from tcg_sniper.db.models import (
     COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
     AnuncioAmazon,
+    ConferenciaCheckout,
     EstadoColetorTipo,
     ProdutoLiga,
     TipoColeta,
@@ -414,9 +417,15 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/amazon/carrinho/{conferencia_id}/conferido")
     def carrinho_conferido(conferencia_id: int):
-        """"Já conferi": o usuário viu o carrinho pelo noVNC; a conferência sai do "conferir à mão"."""
+        """"Já conferi": o usuário viu o carrinho pelo noVNC; a conferência sai do "conferir à mão" e o
+        aviso do carrinho daquele ASIN fecha."""
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
+            conferencia = s.get(ConferenciaCheckout, conferencia_id)
+            anuncio = s.get(AnuncioAmazon, conferencia.anuncio_id) if conferencia is not None else None
             resolvida = repo_amz.marcar_item_removido(s, conferencia_id)
+            if resolvida and anuncio is not None:
+                avisos.resolver(s, TipoAviso.AMAZON_CARRINHO, anuncio.asin, agora)
         if not resolvida:  # inexistente ou fora do "conferir à mão": não marca nada
             raise HTTPException(status.HTTP_404_NOT_FOUND, "conferência não está aguardando conferência à mão")
         return RedirectResponse("/servicos?msg=carrinho_conferido", status_code=status.HTTP_303_SEE_OTHER)
