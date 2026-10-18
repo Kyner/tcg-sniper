@@ -18,7 +18,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
-- Nada no momento.
+- [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
 
 ## 3. Próximas funcionalidades (decisão do grupo)
 

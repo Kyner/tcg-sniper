@@ -5,6 +5,16 @@ import pytest
 from tcg_sniper import cli
 
 
+@pytest.fixture(autouse=True)
+def batidas(monkeypatch):
+    """Nenhum teste do CLI sobe a thread de verdade; guarda quais serviços iniciaram a batida."""
+    from tcg_sniper.avisos import vigia
+
+    iniciadas = []
+    monkeypatch.setattr(vigia.Batimento, "iniciar", lambda self: iniciadas.append(self._servico))
+    return iniciadas
+
+
 def test_subcomando_obrigatorio():
     with pytest.raises(SystemExit):
         cli.main([])
@@ -29,7 +39,7 @@ def test_sigterm_vira_systemexit():
         signal.signal(signal.SIGTERM, anterior)
 
 
-def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch):
+def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch, batidas):
     from tcg_sniper.coletor_liga import agendador
 
     anterior = signal.getsignal(signal.SIGTERM)
@@ -48,11 +58,12 @@ def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch):
     try:
         cli.main(["coletor-liga"])
         assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        assert batidas == ["liga"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
 
-def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tmp_path):
+def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tmp_path, batidas):
     from tcg_sniper.coletor_amazon import varredura
 
     anterior = signal.getsignal(signal.SIGTERM)
@@ -73,6 +84,7 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
         cli.main(["coletor-amazon"])
         assert vistos[0] == tmp_path / "perfil-amazon"
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        assert batidas == ["amazon"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -113,7 +125,7 @@ def test_casador_existe():
 
 
 @pytest.mark.parametrize("chave", ["", "sk-teste"])
-def test_casador_so_cria_transporte_com_chave(monkeypatch, chave):
+def test_casador_so_cria_transporte_com_chave(monkeypatch, chave, batidas):
     from tcg_sniper.casador import servico
     from tcg_sniper.ia import transporte_openai
 
@@ -139,6 +151,7 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave):
         cli.main(["casador"])
         assert vistos[0] == (("transporte", chave, {"timeout_s": 30, "max_retries": 2}) if chave else None)
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        assert batidas == ["casador"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 

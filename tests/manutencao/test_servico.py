@@ -333,3 +333,19 @@ def test_interrompida_ao_subir_avisa_o_admin_uma_vez(sessoes, config):
     outro = AvisadorFake()
     servico(sessoes, config, QUARTA_4H + timedelta(minutes=20), avisador=outro).inicializar()
     assert outro.avisos == []
+
+
+def test_tick_roda_a_vigia_mesmo_com_o_backup_desligado(sessoes, config):
+    from tcg_sniper.avisos import servico as avisos
+    from tcg_sniper.avisos.catalogo import TipoAviso
+
+    relogio = Relogio(QUARTA_4H - timedelta(hours=3))
+    srv = ServicoManutencao(
+        sessoes, config, AvisadorFake(), None, ExecutorFake(), relogio=relogio, dormir=lambda _: None
+    )
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", relogio.agora, COLETOR_MANUTENCAO)
+    relogio.agora += timedelta(minutes=11)
+    srv.tick()
+    with sessoes() as s:
+        assert "casador" in avisos.abertos(s, TipoAviso.SERVICO_SEM_SINAL)

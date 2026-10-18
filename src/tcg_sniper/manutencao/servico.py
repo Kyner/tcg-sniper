@@ -3,6 +3,7 @@ banco, copia para o R2 (se configurado) e, com o backup local feito, limpa o his
 
 - Uma execução por dia local: reiniciar não repete (a execução que caiu no meio não conta).
 - Ao subir, se o último backup ok tem mais de 24 h, roda já (PC desligado às 04:00).
+- A cada passo, o vigia confere o sinal de vida dos outros serviços (`avisos/vigia.py`).
 - Falha (dump, validação, R2 ou limpeza): grava o erro e avisa o grupo admin (`BACKUP_ERRO`, com lembrete
   enquanto continuar); ok avisa `BACKUP_CONCLUIDO`. Tenta de novo no dia seguinte. Sem as variáveis R2_*,
   o backup fica só no PC ("só local").
@@ -16,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos import vigia
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.config import Config
@@ -66,6 +68,7 @@ class ServicoManutencao:
         self._recuperar = True  # a primeira passada (serviço ativo) confere se o backup está atrasado
         self._conexao = backup.conexao_do_banco(config_env.database_url)
         self._segredos = (*getattr(enviador, "segredos", ()), self._conexao.senha or "")
+        self._vigia_desde = self._relogio()
 
     def parar(self) -> None:
         """Pede o encerramento: a execução em andamento termina e `rodar` volta."""
@@ -86,6 +89,7 @@ class ServicoManutencao:
         agora = self._relogio()
         with self._sessoes() as s, s.begin():
             repo_man.registrar_ciclo(s, agora)
+            vigia.verificar(s, agora, self._vigia_desde)  # roda também com o backup desligado
             if repo.obter_estado(s, agora, COLETOR_MANUTENCAO).estado is not EstadoColetorTipo.ATIVO:
                 return False
             zona = ZoneInfo(repo.obter_config_geral(s, self._config_env).fuso)
