@@ -5,8 +5,12 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
+from tcg_sniper.avisos import formato
 from tcg_sniper.config import Config
 from tcg_sniper.db.session import migrar
+
+# Nos testes, endereço do sistema numa mensagem é erro (em produção é removido e vai para o log).
+formato.ESTRITO = True
 
 URL_TESTE = os.environ.get(
     "DATABASE_URL_TESTE", "postgresql+psycopg://tcg:tcg@127.0.0.1:5433/tcg_test"
