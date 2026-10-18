@@ -22,6 +22,7 @@ UUID_FICTICIO = "00000000-0000-0000-0000-"
 TOKEN = re.compile(r"(?<![A-Za-z0-9+/=_])[A-Za-z0-9+/_]{16,}={0,2}(?![A-Za-z0-9+/=_])")
 PEDIDO = re.compile(r"(?<!\d)\d{3}-\d{7}-\d{7}(?!\d)")
 PEDIDO_FICTICIO = "000-0000000-0000000"
+NUMERO_SOLTO = re.compile(r"\d{1,6}")
 
 
 def _desescapar(texto: str) -> str:
@@ -75,4 +76,16 @@ def test_fixture_sem_itens_salvos_reais(caminho):
 @pytest.mark.parametrize("caminho", FIXTURES, ids=lambda p: p.name)
 def test_fixture_sem_proibidos_nem_codificados(caminho):
     texto = _sem_espacos(caminho.read_text(encoding="utf-8"))
-    assert sum(_sem_espacos(p) in texto for p in PROIBIDOS) == 0
+    assert sum(_tem_proibido(texto, p) for p in PROIBIDOS) == 0
+
+
+def _tem_proibido(texto: str, valor: str) -> bool:
+    """Número curto (o da casa) só conta solto, como o anonimizador troca: "742" não acusa "R$ 1.742,90"."""
+    if NUMERO_SOLTO.fullmatch(valor):
+        return re.search(rf"(?<![0-9a-zà-ÿ])(?<![0-9][.,]){valor}(?![0-9a-zà-ÿ])(?![.,][0-9])", texto) is not None
+    return _sem_espacos(valor) in texto
+
+
+def test_numero_curto_proibido_so_conta_solto():
+    assert _tem_proibido(_sem_espacos("Rua Fictícia, 742, apto 1"), "742")
+    assert not _tem_proibido(_sem_espacos("R$ 1.742,90 B0742XYZ12 17420"), "742")
