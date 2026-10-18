@@ -21,6 +21,8 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
 - [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
+- [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
+- [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
 
 ## 3. Próximas funcionalidades (decisão do grupo)
 
@@ -38,7 +40,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
-0. Seção 0 (anúncio ignorado preso ao primeiro produto).
+0. Seção 0 (anúncio ignorado preso ao primeiro produto), logo depois dos avisos.
 1. Seção 1 (acompanhar) nos próximos dias.
 2. Margem líquida (seção 3), quando o grupo tiver os valores.
 

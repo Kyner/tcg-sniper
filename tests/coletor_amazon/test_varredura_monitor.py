@@ -19,7 +19,7 @@ from fakes_checkout import carrinho, checkout_resumo, login
 from fakes_ofertas import bloco_oferta, html_ofertas
 from sqlalchemy import select
 
-from tcg_sniper.avisos.catalogo import TipoAviso
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.coletor_amazon.busca import url_busca
 from tcg_sniper.coletor_amazon.config import aplicar_config
 from tcg_sniper.coletor_amazon.parsers import URL_CARRINHO, url_ofertas, url_painel_ofertas, url_vendedor
@@ -722,4 +722,48 @@ def test_retirada_que_ve_o_carrinho_sem_o_item_resolve_o_aviso_do_carrinho(engin
         )
     v, _, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: carrinho()})
     v.passo()
+    assert (TipoAviso.AMAZON_CARRINHO, "B0CAND0001") in avisador.resolvidos
+
+
+def test_conferencia_ok_resolve_o_aviso_de_sem_login_e_o_de_captcha(engine, sessoes, config):
+    confirmado(sessoes, "cand", "B0CAND0001", "700.00")
+    um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
+    paginas = {
+        URL_CARRINHO: [carrinho(), um_item, um_item, carrinho()],
+        url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 700,00"),
+    }
+    v, _, avisador, _ = varredura(
+        engine, sessoes, config, paginas, [um_item, checkout_resumo("R$ 700,00", "R$ 0,00", None, "R$ 700,00"), carrinho()]
+    )
+    v.passo()
+    assert [c.situacao for c in conferencias(sessoes)] == [SituacaoCheckout.OK]
+    assert (TipoAviso.AMAZON_SEM_LOGIN, CHAVE_GERAL) in avisador.resolvidos
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos  # a página do checkout abriu limpa
+
+
+def test_leitura_do_monitor_sem_captcha_resolve_o_aviso_de_captcha(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 990,00")})
+    assert v.passo() == 0
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_captcha_do_monitor_resolve_na_primeira_leitura_limpa_depois_de_retomar(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    url = url_ofertas("B0AAAA0001")
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url: [pagina_html(CAPTCHA, url=url), ofertas("B0AAAA0001", "R$ 990,00")]})
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) not in avisador.resolvidos
+    with sessoes() as s, s.begin():
+        repo.retomar(s, MEIO_DIA, COLETOR_AMAZON)
+    assert v.passo() == 0
+    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
+
+
+def test_retirada_por_clique_resolve_o_aviso_do_carrinho(engine, sessoes, config):
+    preso(sessoes)
+    um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [um_item, carrinho()]}, [carrinho()])
+    v.passo()
+    assert len(navegador.cliques) == 1
     assert (TipoAviso.AMAZON_CARRINHO, "B0CAND0001") in avisador.resolvidos
