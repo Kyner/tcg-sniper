@@ -174,11 +174,28 @@ def _caractere_de_rotulo(c: str) -> bool:
     return ponto < 0x180 or 0x2000 <= ponto <= 0x206F or c.isspace()
 
 
-def rotulo_latino(texto: str) -> bool:
-    """O rótulo só tem ASCII, Latin-1, Latin Extended-A, espaços e a pontuação comum (U+2000 a U+206F),
-    depois de NFKC + casefold. Uma letra de outro alfabeto (o "о" cirílico de "Cоmprar") é um sósia
-    possível: o rótulo não vale nem para a lista de permitidos."""
+def texto_latino(texto: str) -> bool:
+    """Só ASCII, Latin-1, Latin Extended-A, espaços e a pontuação comum (U+2000 a U+206F), depois de
+    NFKC + casefold."""
     return all(_caractere_de_rotulo(c) for c in _dobrar(texto))
+
+
+MAX_PALAVRAS_DA_ACAO = 5
+
+
+def acao_no_rotulo(acao: Acao, rotulo: str) -> bool:
+    """O rótulo tem a frase da ação ("Excluir", "Adicionar ao carrinho"...) escrita só com letras
+    latinas. Só essa parte precisa ser latina: o título do produto que vem depois ("Excluir <título>")
+    pode estar em japonês. Uma ação escrita com sósia (o "Е" cirílico de "Еxcluir") não vale; a lista
+    proibida continua olhando o rótulo inteiro, com os sósias trocados."""
+    palavras = rotulo.split()
+    limpas = [re.sub(r"[^a-z0-9]", "", _normalizar(p)) for p in palavras]
+    for inicio in range(len(palavras)):
+        for fim in range(inicio + 1, min(inicio + MAX_PALAVRAS_DA_ACAO, len(palavras)) + 1):
+            frase = " ".join(p for p in limpas[inicio:fim] if p)
+            if acao.padrao.fullmatch(frase) and all(texto_latino(p) for p in palavras[inicio:fim]):
+                return True
+    return False
 
 
 def _raiz(no: LexborNode) -> LexborNode:
@@ -257,11 +274,7 @@ def conferir_clique(acao: Acao, html_elemento: str, texto: str) -> None:
     for trecho in PROIBIDOS_COMPACTOS:
         if trecho in compacto:
             raise CliqueProibido(f"{acao.nome}: elemento proibido ({trecho!r}): {html_elemento[:200]}")
-    rotulo_bruto = f"{texto} {_rotulo_do_html(html_elemento)}"
-    if not rotulo_latino(rotulo_bruto):
-        raise CliqueProibido(f"{acao.nome}: rótulo com letra fora do alfabeto latino (sósia?): {rotulo_bruto[:200]!r}")
-    rotulo = _normalizar(rotulo_bruto)
-    if not acao.padrao.search(rotulo):
+    if not acao_no_rotulo(acao, f"{texto} {_rotulo_do_html(html_elemento)}"):
         raise CliqueProibido(f"{acao.nome}: o elemento não é o botão esperado: {html_elemento[:200]}")
 
 

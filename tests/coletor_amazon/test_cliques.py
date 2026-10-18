@@ -131,6 +131,22 @@ def test_rotulo_latino_com_acento_e_pontuacao_continua_aceito():
     conferir_clique(ENTREGAR, '<input type="submit">', "ENTREGAR NESTE ENDEREÇO ")
 
 
+def test_titulo_em_japones_depois_da_acao_e_aceito():
+    # O grupo compra produtos japoneses: só a parte da ação ("Excluir") precisa ser latina.
+    conferir_clique(EXCLUIR, '<input type="submit">', "Excluir \u904a\u622f\u738b \u30d6\u30fc\u30b9\u30bf\u30fc")
+    conferir_clique(ADICIONAR, '<input type="submit">', "Adicionar ao carrinho \u30de\u30b8\u30c3\u30af")
+
+
+def test_acao_com_sosia_e_recusada_mesmo_com_titulo_japones():
+    with pytest.raises(CliqueProibido, match="não é o botão esperado"):
+        conferir_clique(EXCLUIR, '<input type="submit">', "\u0415xcluir \u904a\u622f\u738b")  # E cirílico
+
+
+def test_frase_proibida_com_sosias_no_titulo_e_recusada():
+    with pytest.raises(CliqueProibido, match="elemento proibido"):
+        conferir_clique(EXCLUIR, '<input type="submit">', "Excluir \u904a\u622f\u738b C\u043empr\u0430r \u0430gora")
+
+
 def test_token_do_seletor_sem_rotulo_nao_basta():
     with pytest.raises(CliqueProibido, match="não é o botão esperado"):
         conferir_clique(ENTREGAR, '<input data-testid="Address_selectShipToThisAddress" type="submit">', "")
