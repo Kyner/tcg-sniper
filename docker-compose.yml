@@ -112,6 +112,25 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  manutencao:
+    <<: *app
+    command: tcg-sniper manutencao
+    # Backup diário do banco (04:00) e limpeza do histórico. Os arquivos ficam em ./dados/backups
+    # no PC, junto dos backups manuais tcg-antes-*.dump (o rodízio não toca neles).
+    environment:
+      DATABASE_URL: postgresql+psycopg://tcg:tcg@postgres:5432/tcg
+      DIR_DADOS: /data
+      DIR_BACKUPS: /backups
+      EVOLUTION_URL: http://evolution:8080
+      TZ: America/Sao_Paulo
+    volumes:
+      - dados:/data
+      - ./dados/backups:/backups
+    stop_grace_period: 120s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   admin:
     <<: *app
     command: tcg-sniper admin
