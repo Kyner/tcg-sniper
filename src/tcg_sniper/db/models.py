@@ -3,6 +3,7 @@ from datetime import datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -84,10 +86,19 @@ class StatusMensagem(enum.StrEnum):
     DESCARTADA = "descartada"  # descartada no admin
 
 
+class StatusManutencao(enum.StrEnum):
+    RODANDO = "rodando"
+    OK = "ok"  # backup local e cópia no R2
+    SO_LOCAL = "so_local"  # backup local; R2 não configurado (variáveis R2_* vazias)
+    ERRO = "erro"  # dump, validação, envio ao R2 ou limpeza falhou (o arquivo local fica se o dump deu certo)
+    INTERROMPIDA = "interrompida"  # o serviço reiniciou no meio; não conta como a execução do dia
+
+
 COLETOR_LIGA = "liga"
 COLETOR_AMAZON = "amazon"
 COLETOR_CASADOR = "casador"
 COLETOR_NOTIFICADOR = "notificador"
+COLETOR_MANUTENCAO = "manutencao"
 
 
 def _enum(cls: type[enum.Enum], nome: str) -> Enum:
@@ -178,12 +189,12 @@ class PrecoAtualLiga(Base):
 
 
 class EstadoColetor(Base):
-    """Uma linha por serviço: id 1 = Liga, id 2 = Amazon, id 3 = casador, id 4 = notificador
-    (ver `repositorio.ID_COLETOR`)."""
+    """Uma linha por serviço: id 1 = Liga, id 2 = Amazon, id 3 = casador, id 4 = notificador,
+    id 5 = manutenção (ver `repositorio.ID_COLETOR`)."""
 
     __tablename__ = "estado_coletor"
     __table_args__ = (
-        CheckConstraint("id IN (1, 2, 3, 4)", name="ck_estado_coletor_linhas"),
+        CheckConstraint("id IN (1, 2, 3, 4, 5)", name="ck_estado_coletor_linhas"),
         UniqueConstraint("coletor", name="uq_estado_coletor_coletor"),
     )
 
@@ -542,6 +553,32 @@ class EstadoNotificador(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
     ultimo_ciclo_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
+class EstadoManutencao(Base):
+    """Uma linha (id 1): quando o serviço de manutenção passou pelo último ciclo (Serviços mostra se está vivo)."""
+
+    __tablename__ = "estado_manutencao"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_estado_manutencao_linha_unica"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    ultimo_ciclo_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
+class ExecucaoManutencao(Base):
+    """Uma execução diária do serviço de manutenção: backup do banco e limpeza do histórico."""
+
+    __tablename__ = "execucao_manutencao"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inicio: Mapped[datetime] = mapped_column(DATA)
+    fim: Mapped[datetime | None] = mapped_column(DATA)
+    status: Mapped[StatusManutencao] = mapped_column(_enum(StatusManutencao, "status_manutencao"))
+    arquivo: Mapped[str | None] = mapped_column(Text)  # nome do backup diário (sem a pasta)
+    tamanho_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    enviado_r2: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    apagados: Mapped[dict[str, int] | None] = mapped_column(JSONB)  # linhas apagadas por tabela
+    erro: Mapped[str | None] = mapped_column(Text)
 
 
 ESFORCOS_IA = ("minimal", "low", "medium", "high")

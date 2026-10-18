@@ -13,6 +13,7 @@ from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_CASADOR,
     COLETOR_LIGA,
+    COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
     Coleta,
     ConfigGeral,
@@ -175,7 +176,7 @@ def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], a
     return novos
 
 
-ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2, COLETOR_CASADOR: 3, COLETOR_NOTIFICADOR: 4}
+ID_COLETOR = {COLETOR_LIGA: 1, COLETOR_AMAZON: 2, COLETOR_CASADOR: 3, COLETOR_NOTIFICADOR: 4, COLETOR_MANUTENCAO: 5}
 
 
 def obter_estado(s: Session, agora: datetime | None = None, coletor: str = COLETOR_LIGA) -> EstadoColetor:
