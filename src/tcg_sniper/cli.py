@@ -70,16 +70,16 @@ def main(argv: list[str] | None = None) -> None:
     sessoes = criar_sessoes(engine)
 
     if args.comando == "coletor-liga":
+        from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_liga.agendador import Agendador
         from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
-        from tcg_sniper.notificador import criar_notificador
 
         instalar_sigterm()
         Agendador(
             engine,
             sessoes,
             lambda: NavegadorPlaywright(config.dir_dados / "perfil"),
-            criar_notificador(config, sessoes),
+            criar_avisador(sessoes),
             config,
         ).rodar()
     elif args.comando == "coletor-amazon":

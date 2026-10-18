@@ -1,8 +1,8 @@
 from decimal import Decimal
 
 from fakes import (
+    AvisadorFake,
     NavegadorFake,
-    NotificadorFake,
     cartao_listagem,
     fixture_liga,
     html_listagem,
@@ -10,6 +10,7 @@ from fakes import (
 )
 from sqlalchemy import func, select
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.coletor_liga.listagens import coletar_listagens
 from tcg_sniper.coletor_liga.modelos import ErroRede, PaginaExpandida
 from tcg_sniper.db import repositorio as repo
@@ -22,7 +23,6 @@ from tcg_sniper.db.models import (
     StatusColeta,
     TipoColeta,
 )
-from tcg_sniper.notificador.base import Destino
 
 HTML_10 = fixture_liga("catalogo_pagina_1")  # 40 cartões, todos com preço
 # categoria 11: um produto que também está na 10 (127987) e um novo sem estoque
@@ -53,16 +53,16 @@ def paginas_ok(config):
 
 def coletar(sessoes, config, paginas, pausas=None):
     navegador = NavegadorFake(paginas)
-    notificador = NotificadorFake()
+    avisador = AvisadorFake()
     resultado = coletar_listagens(
         sessoes,
         navegador,
-        notificador,
+        avisador,
         config,
         dormir=(pausas if pausas is not None else []).append,
         embaralhar=lambda lista: None,
     )
-    return resultado, navegador, notificador
+    return resultado, navegador, avisador
 
 
 def contar(sessoes, modelo):
@@ -72,15 +72,15 @@ def contar(sessoes, modelo):
 
 def test_varre_todas_as_categorias_grava_catalogo_e_preco_atual(sessoes, config):
     pausas = []
-    resultado, navegador, notificador = coletar(sessoes, config, paginas_ok(config), pausas)
+    resultado, navegador, avisador = coletar(sessoes, config, paginas_ok(config), pausas)
 
     assert navegador.expandidas == [(url(config, c), 5) for c in ("10", "11", "12")]
     assert resultado.status is StatusColeta.OK
     assert (resultado.produtos_ok, resultado.produtos_falha, resultado.novos) == (3, 0, 42)
     # 2 pausas antes dos cliques em "Exibir mais" da categoria 10 + 2 entre categorias
     assert len(pausas) == 4 and all(8 <= p <= 20 for p in pausas)
-    assert notificador.mensagens == [
-        (Destino.ADMIN, "42 produtos novos no catálogo. Ativar em http://host.test:8000/catalogo?filtro=novos")
+    assert avisador.avisos == [
+        (TipoAviso.LIGA_PRODUTOS_NOVOS, CHAVE_GERAL, Dados(linhas=("42 produtos novos nas listagens",)))
     ]
     assert contar(sessoes, ProdutoLiga) == 42
     assert contar(sessoes, PrecoListagem) == 42
@@ -103,9 +103,9 @@ def test_varre_todas_as_categorias_grava_catalogo_e_preco_atual(sessoes, config)
 
 def test_segunda_coleta_nao_avisa_e_acrescenta_historico(sessoes, config):
     coletar(sessoes, config, paginas_ok(config))
-    resultado, _, notificador = coletar(sessoes, config, paginas_ok(config))
+    resultado, _, avisador = coletar(sessoes, config, paginas_ok(config))
     assert resultado.novos == 0
-    assert notificador.mensagens == []
+    assert avisador.avisos == []
     assert contar(sessoes, ProdutoLiga) == 42
     assert contar(sessoes, PrecoListagem) == 84
     with sessoes() as s:
@@ -115,14 +115,16 @@ def test_segunda_coleta_nao_avisa_e_acrescenta_historico(sessoes, config):
 def test_desafio_na_segunda_categoria_pausa_e_avisa(sessoes, config):
     paginas = paginas_ok(config)
     paginas[url(config, "11")] = PaginaExpandida(DESAFIO, 0, False)
-    resultado, navegador, notificador = coletar(sessoes, config, paginas)
+    resultado, navegador, avisador = coletar(sessoes, config, paginas)
 
     assert resultado.status is StatusColeta.PAUSADA_DESAFIO
     assert (resultado.produtos_ok, resultado.novos) == (1, 40)
     assert navegador.visitadas == [url(config, "10"), url(config, "11")]
-    textos = [texto for _, texto in notificador.mensagens]
-    assert "http://host.test:6080/vnc.html" in textos[0]
-    assert textos[1].startswith("40 produtos novos")
+    assert avisador.tipos() == [TipoAviso.LIGA_DESAFIO, TipoAviso.LIGA_PRODUTOS_NOVOS]
+    desafio = avisador.dados(TipoAviso.LIGA_DESAFIO)[0]
+    assert desafio.linhas == ("Página: /listagem?categ=11", "A coleta fica pausada até você retomar")
+    assert "noVNC da Liga (porta 6080)" in avisador.mensagens[0][1]
+    assert avisador.dados(TipoAviso.LIGA_PRODUTOS_NOVOS)[0].linhas == ("40 produtos novos nas listagens",)
     with sessoes() as s:
         assert repo.obter_estado(s).estado is EstadoColetorTipo.PAUSADO_DESAFIO
         assert s.get(Coleta, resultado.coleta_id).status is StatusColeta.PAUSADA_DESAFIO
@@ -140,10 +142,10 @@ def test_coletor_pausado_nao_executa(sessoes, config):
 def test_falha_de_parser_salva_html_e_status_parcial(sessoes, config):
     paginas = paginas_ok(config)
     paginas[url(config, "11")] = expandida(HTML_QUEBRADO, url(config, "11"))
-    resultado, _, notificador = coletar(sessoes, config, paginas)
+    resultado, _, avisador = coletar(sessoes, config, paginas)
     assert resultado.status is StatusColeta.PARCIAL
     assert (resultado.produtos_ok, resultado.produtos_falha) == (2, 1)
-    assert [t for _, t in notificador.mensagens if "layout" in t] == []
+    assert TipoAviso.LIGA_COLETA_FALHOU not in avisador.tipos()
     salvos = list((config.dir_dados / "falhas").glob("*.html"))
     assert [p.name for p in salvos] == [f"listagem-{resultado.coleta_id}-11.html"]
     assert salvos[0].read_text(encoding="utf-8") == HTML_QUEBRADO
@@ -153,10 +155,10 @@ def test_mais_da_metade_falhando_avisa_layout(sessoes, config):
     paginas = paginas_ok(config)
     paginas[url(config, "11")] = expandida(HTML_QUEBRADO, url(config, "11"))
     paginas[url(config, "12")] = expandida(HTML_QUEBRADO, url(config, "12"))
-    resultado, _, notificador = coletar(sessoes, config, paginas)
+    resultado, _, avisador = coletar(sessoes, config, paginas)
     assert resultado.status is StatusColeta.FALHA
-    textos = [t for _, t in notificador.mensagens]
-    assert any("falhou em 2 de 3 categorias" in t and "layout" in t for t in textos)
+    [falhou] = avisador.dados(TipoAviso.LIGA_COLETA_FALHOU)
+    assert falhou.linhas == ("Etapa: Coleta das listagens", "Falhas: 2 de 3 categorias")
 
 
 def test_limite_de_cliques_conta_como_falha_da_categoria(sessoes, config):
@@ -182,10 +184,11 @@ def test_erro_de_rede_tenta_de_novo_uma_vez(sessoes, config):
 def test_erro_inesperado_fecha_coleta_como_falha(sessoes, config):
     paginas = paginas_ok(config)
     paginas[url(config, "11")] = RuntimeError("chromium morreu")
-    resultado, _, notificador = coletar(sessoes, config, paginas)
+    resultado, _, avisador = coletar(sessoes, config, paginas)
     assert resultado.status is StatusColeta.FALHA
-    assert any("chromium morreu" in t for _, t in notificador.mensagens)
-    assert any(t.startswith("40 produtos novos") for _, t in notificador.mensagens)
+    [erro] = avisador.dados(TipoAviso.LIGA_ERRO)
+    assert erro.linhas[0].startswith("Onde: Coleta das listagens ") and "chromium morreu" in erro.linhas[1]
+    assert avisador.dados(TipoAviso.LIGA_PRODUTOS_NOVOS)[0].linhas == ("40 produtos novos nas listagens",)
     with sessoes() as s:
         coleta = s.get(Coleta, resultado.coleta_id)
         assert coleta.status is StatusColeta.FALHA and "chromium morreu" in coleta.erro

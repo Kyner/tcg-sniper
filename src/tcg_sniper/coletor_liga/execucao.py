@@ -2,11 +2,15 @@
 
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
+from tcg_sniper.avisos.formato import formatar_duracao
+from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.coletor_liga.desafio import eh_desafio
 from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
 from tcg_sniper.coletor_liga.navegador import Navegador
@@ -17,7 +21,6 @@ from tcg_sniper.navegador import ritmo
 from tcg_sniper.navegador.ritmo import ESPERA_RETRY_S as ESPERA_RETRY_S  # noqa: PLC0414
 from tcg_sniper.navegador.ritmo import Dormir as Dormir  # noqa: PLC0414
 from tcg_sniper.navegador.ritmo import com_um_retry, pausa_aleatoria
-from tcg_sniper.notificador.base import Destino, Notificador
 
 log = logging.getLogger(__name__)
 
@@ -73,35 +76,33 @@ def abrir_listagem(
     return expandida
 
 
-def mensagem_desafio(config: Config, url: str) -> str:
-    return (
-        f"Desafio Cloudflare na LigaMagic ({url}). "
-        f"Resolver em http://{config.host_publico}:6080/vnc.html "
-        f"e depois clicar em retomar em http://{config.host_publico}:8000"
-    )
+def dados_desafio(url: str) -> Dados:
+    """Só o caminho da página (sem o domínio): o aviso diz onde parou, a ação diz onde resolver."""
+    partes = urlsplit(url)
+    pagina = (partes.path or "/") + (f"?{partes.query}" if partes.query else "")
+    return Dados(linhas=(f"Página: {pagina}", "A coleta fica pausada até você retomar"))
 
 
-def mensagem_resumo(
-    config: Config, dia: date, listagens: ResultadoColeta | None, produtos: ResultadoColeta
-) -> str:
-    """Resumo enviado ao admin no fim de um job concluído. `listagens` é None quando o job rodou
-    só os produtos. Nas listagens, ok/falha contam categorias."""
-    linhas = [f"Coleta de {dia:%d/%m} concluída."]
+def dados_resumo(
+    dia: date, listagens: ResultadoColeta | None, produtos: ResultadoColeta, duracao: timedelta
+) -> Dados:
+    """Resumo de um job concluído. `listagens` é None quando o job rodou só os produtos. Nas listagens,
+    ok/falha contam categorias."""
+    linhas = []
     if listagens is not None:
         total = listagens.produtos_ok + listagens.produtos_falha
         linhas.append(
-            f"Listagens: {listagens.status.value} ({listagens.produtos_ok} de {total} categorias, "
-            f"{listagens.novos} produtos novos)."
+            f"Listagens: {listagens.status.value} · {listagens.produtos_ok} de {total} categorias · "
+            f"{listagens.novos} produtos novos"
         )
-    linhas.append(f"Produtos: {produtos.status.value} ({produtos.produtos_ok} ok, {produtos.produtos_falha} falhas).")
-    linhas.append(f"Admin: http://{config.host_publico}:8000")
-    return "\n".join(linhas)
+    linhas.append(f"Produtos: {produtos.status.value} · {produtos.produtos_ok} ok · {produtos.produtos_falha} falhas")
+    linhas.append(f"Duração: {formatar_duracao(duracao)}")
+    return Dados(titulo_extra=f"{dia:%d/%m}", linhas=tuple(linhas))
 
 
 def registrar_desafio(
     sessoes: sessionmaker[Session],
-    notificador: Notificador,
-    config: Config,
+    avisador: Avisador,
     coleta_id: int,
     url: str,
     ok: int,
@@ -114,7 +115,7 @@ def registrar_desafio(
         )
         repo.pausar_por_desafio(s, f"desafio em {url}", agora)
     log.warning("desafio do Cloudflare em %s; coletor pausado", url)
-    notificador.enviar(Destino.ADMIN, mensagem_desafio(config, url))
+    avisador.avisar(TipoAviso.LIGA_DESAFIO, CHAVE_GERAL, dados_desafio(url))
 
 
 def salvar_html_falha(config: Config, nome: str, html: str) -> Path:
@@ -123,7 +124,7 @@ def salvar_html_falha(config: Config, nome: str, html: str) -> Path:
 
 def concluir_coleta(
     sessoes: sessionmaker[Session],
-    notificador: Notificador,
+    avisador: Avisador,
     config: Config,
     coleta_id: int,
     descricao: str,
@@ -138,17 +139,14 @@ def concluir_coleta(
         repo.finalizar_coleta(s, coleta_id, status, ok, falha, repo.agora_utc())
     log.info("%s %s terminou: %s (%d ok, %d falhas)", descricao, coleta_id, status.value, ok, falha)
     if status is StatusColeta.FALHA:
-        notificador.enviar(
-            Destino.ADMIN,
-            f"{descricao} {coleta_id} falhou em {falha} de {ok + falha} {unidade}. "
-            f"O layout da LigaMagic pode ter mudado. HTMLs em {config.dir_dados / 'falhas'}.",
-        )
+        dados = Dados(linhas=(f"Etapa: {descricao}", f"Falhas: {falha} de {ok + falha} {unidade}"))
+        avisador.avisar(TipoAviso.LIGA_COLETA_FALHOU, CHAVE_GERAL, dados)
     return ResultadoColeta(coleta_id, status, ok, falha, novos)
 
 
 def encerrar_por_erro(
     sessoes: sessionmaker[Session],
-    notificador: Notificador,
+    avisador: Avisador,
     coleta_id: int,
     descricao: str,
     erro: Exception,
@@ -161,5 +159,6 @@ def encerrar_por_erro(
     log.exception("erro inesperado em %s %s", descricao, coleta_id)
     with sessoes() as s, s.begin():
         repo.finalizar_coleta(s, coleta_id, StatusColeta.FALHA, ok, falha, repo.agora_utc(), erro=repr(erro))
-    notificador.enviar(Destino.ADMIN, f"{descricao} {coleta_id} interrompida por erro inesperado: {erro!r}")
+    dados = Dados(linhas=(f"Onde: {descricao} {coleta_id}", f"Erro: {erro!r}"))
+    avisador.avisar(TipoAviso.LIGA_ERRO, CHAVE_GERAL, dados)
     return ResultadoColeta(coleta_id, StatusColeta.FALHA, ok, falha, novos, interrompida=True)
