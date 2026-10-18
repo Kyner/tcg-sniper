@@ -295,16 +295,43 @@ def item_fora_do_carrinho_ativo(pagina: Pagina, asin: str) -> bool:
     return not asin_no_carrinho_ativo(pagina, asin)
 
 
+def clicar_contando(
+    nav: NavegadorInterativo,
+    acao: Acao,
+    pagina: Pagina,
+    contar: Callable[[], None],
+    escopo: str = "",
+    bloco: int = 0,
+) -> Pagina:
+    """`clicar_permitido` que chama `contar` para a página que o clique carrega, para o teto de páginas
+    por hora. Recusa da guarda antes do clique (SeletorAusente, CliqueProibido) não conta: nada
+    carregou. Qualquer outro desfecho (sucesso ou erro depois do clique) conta."""
+    try:
+        resultado = clicar_permitido(nav, acao, pagina, escopo, bloco)
+    except (CliqueProibido, SeletorAusente):
+        raise
+    except BaseException:
+        contar()  # o clique pode ter carregado uma página antes do erro
+        raise
+    contar()
+    return resultado
+
+
 def remover_do_carrinho(
     nav: NavegadorInterativo,
     asin: str,
     abrir: Callable[[str], Pagina],
     pausar: Callable[[], None],
     carrinho: Pagina | None = None,
+    contar_clique: Callable[[], None] | None = None,
 ) -> tuple[bool, int]:
     """Exclui o ASIN do carrinho ativo (nunca de "Salvo para depois"). Devolve (removido, páginas
     abertas); removido é True só com o carrinho ativo na tela e sem o item (também quando ele já
-    não estava lá); num desafio, login ou erro no lugar do carrinho, False."""
+    não estava lá); num desafio, login ou erro no lugar do carrinho, False.
+
+    As páginas abertas por `abrir` são de quem chama (que conta no próprio `abrir`); a do clique em
+    Excluir chama `contar_clique`, também quando o clique carrega e dá erro (o teto cobra a página
+    mesmo sem a contagem devolvida, que se perde no erro)."""
     abertas = 0
     if carrinho is None:  # `carrinho`: a página do carrinho que quem chama acabou de abrir e conferir
         carrinho, abertas = abrir(URL_CARRINHO), 1
@@ -313,7 +340,7 @@ def remover_do_carrinho(
         if localizar(EXCLUIR, carrinho, escopo) is None:
             continue
         pausar()
-        clicar_permitido(nav, EXCLUIR, carrinho, escopo)
+        clicar_contando(nav, EXCLUIR, carrinho, contar_clique or (lambda: None), escopo)
         conferido = abrir(URL_CARRINHO)  # o clique pode só esconder o item por JS: confere recarregando
         return item_fora_do_carrinho_ativo(conferido, asin), abertas + 2
     return item_fora_do_carrinho_ativo(carrinho, asin), abertas

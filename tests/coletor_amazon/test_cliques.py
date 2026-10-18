@@ -217,6 +217,33 @@ def test_remover_tira_so_do_carrinho_ativo():
     assert nav.cliques == [('[data-name="Active Items"] [data-asin="B0ALVO0001"] input[data-action="delete"]', 0)]
 
 
+def test_clique_de_excluir_conta_a_pagina_mesmo_quando_falha_depois_de_carregar():
+    from tcg_sniper.navegador.modelos import ErroRede
+
+    antes, depois = carrinho(["B0ALVO0001"]), carrinho()
+    cliques_contados = []
+    nav = NavegadorInterativoFake({URL_CARRINHO: [antes, depois]}, apos_clique=[depois])
+    assert remover_do_carrinho(nav, "B0ALVO0001", nav.abrir, lambda: None, contar_clique=lambda: cliques_contados.append(1)) == (True, 3)
+    assert cliques_contados == [1]
+    nav = NavegadorInterativoFake({URL_CARRINHO: [antes]}, apos_clique=[ErroRede("timeout depois do clique")])
+    with pytest.raises(ErroRede):
+        remover_do_carrinho(nav, "B0ALVO0001", nav.abrir, lambda: None, contar_clique=lambda: cliques_contados.append(1))
+    assert cliques_contados == [1, 1]  # o clique carregou a página antes do erro: conta
+
+
+def test_excluir_recusado_pela_guarda_nao_conta_o_clique():
+    cliques_contados = []
+    armadilha = pagina(
+        SAIR_DA_CONTA + '<span id="nav-cart-count">1</span><div data-name="Active Items"><div data-asin="B0ALVO0001">'
+        '<input data-action="delete" value="Excluir" aria-label="Comprar agora" type="submit"></div></div>',
+        url=URL_CARRINHO,
+    )
+    nav = NavegadorInterativoFake({URL_CARRINHO: [armadilha]})
+    with pytest.raises(CliqueProibido):
+        remover_do_carrinho(nav, "B0ALVO0001", nav.abrir, lambda: None, contar_clique=lambda: cliques_contados.append(1))
+    assert cliques_contados == [] and nav.cliques == []
+
+
 def test_item_so_em_salvo_para_depois_nunca_e_tocado():
     nav = NavegadorInterativoFake({URL_CARRINHO: carrinho([], ["B0ALVO0001"])})
     assert remover_do_carrinho(nav, "B0ALVO0001", nav.abrir, lambda: None) == (True, 1)

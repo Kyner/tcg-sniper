@@ -27,7 +27,7 @@ from tcg_sniper.coletor_amazon.cliques import (
     Acao,
     CliqueProibido,
     SeletorAusente,
-    clicar_permitido,
+    clicar_contando,
     localizar,
     remover_do_carrinho,
 )
@@ -137,18 +137,13 @@ def conferir(
         paginas += 1
         return abrir(url)
 
-    def clicar(acao: Acao, pagina: Pagina, escopo: str = "", bloco: int = 0) -> Pagina:
+    def contar_pagina() -> None:
         nonlocal paginas
-        pausar()
-        try:
-            resultado = clicar_permitido(nav, acao, pagina, escopo, bloco)
-        except (CliqueProibido, SeletorAusente):
-            raise  # recusado antes do clique: nenhuma página carregou, não conta no teto
-        except Exception:
-            paginas += 1  # o clique pode ter carregado uma página antes do erro
-            raise
         paginas += 1
-        return resultado
+
+    def clicar(acao: Acao, pagina: Pagina, escopo: str = "", bloco: int = 0) -> Pagina:
+        pausar()
+        return clicar_contando(nav, acao, pagina, contar_pagina, escopo, bloco)
 
     try:
         carrinho = abrir_contando(URL_CARRINHO)
@@ -235,8 +230,8 @@ def conferir(
     removido = not adicionou
     if adicionou and desafio is None:
         try:
-            removido, abertas = remover_do_carrinho(nav, alvo.asin, abrir, pausar)
-            paginas += abertas
+            # Conta página a página (abertas e o clique), para não perder a contagem num erro no meio.
+            removido, _ = remover_do_carrinho(nav, alvo.asin, abrir_contando, pausar, contar_clique=contar_pagina)
         except DesafioAmazon as erro:
             desafio = erro.url
         except ERROS_DO_PASSO as erro:
