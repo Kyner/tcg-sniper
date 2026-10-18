@@ -35,6 +35,8 @@ def test_todo_campo_tem_explicacao():
         ("url_busca", "http://www.amazon.com.br/s?k={termo}", "https://"),
         ("janela_inicio", "25:00", "HH:MM"),
         ("janela_inicio", "0800Z", "HH:MM"),
+        ("monitor_intervalo_min", "4", "entre 5 e 1440"),
+        ("monitor_janela_inicio", "8h", "HH:MM"),
     ],
 )
 def test_campo_invalido(campo, valor, trecho):
@@ -73,3 +75,8 @@ def test_todo_campo_tem_rotulo():
     from tcg_sniper.coletor_amazon.config import ROTULOS
 
     assert set(ROTULOS) == set(CAMPOS)
+
+
+def test_janela_do_monitor_invertida():
+    _, erros = validar_config(formulario(monitor_janela_inicio="22:00", monitor_janela_fim="08:00"))
+    assert erros == {"monitor_janela_fim": "O fim da janela do monitor precisa ser depois do início."}

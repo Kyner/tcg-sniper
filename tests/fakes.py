@@ -2,8 +2,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from tcg_sniper.coletor_amazon.modelos import OfertaLista
 from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
-from tcg_sniper.db.models import AnuncioAmazon, PrecoAtualLiga, ProdutoLiga, StatusCasamento
+from tcg_sniper.db.models import AnuncioAmazon, Envio, PrecoAtualLiga, ProdutoLiga, StatusCasamento
 from tcg_sniper.notificador.base import Destino
 
 T0 = datetime(2026, 10, 13, 13, 0, tzinfo=UTC)
@@ -202,3 +203,67 @@ class TransporteFake:
         if isinstance(resposta, Exception):
             raise resposta
         return resposta
+
+
+def oferta_lista(preco="275.91", vendedor="Shazaar", seller_id="A2SHZ", envio=Envio.FBA, posicao=1, **campos) -> OfertaLista:
+    valores = {
+        "posicao": posicao, "vendedor_nome": vendedor, "seller_id": seller_id, "preco": Decimal(preco),
+        "preco_de": None, "condicao": "novo", "envio": envio, "origem_envio": None, "importada": False,
+        "prime": False, "pct_positivas": None, "num_avaliacoes": None, "cupom": None,
+    }
+    valores.update(campos)
+    return OfertaLista(**valores)
+
+
+class NavegadorInterativoFake(NavegadorFake):
+    """NavegadorFake que também clica, como o Chromium: acha o elemento no HTML da página atual
+    (selectolax) e passa HTML e texto à guarda antes de registrar o clique. `apos_clique` diz a página
+    seguinte: uma lista (cada clique consome a próxima) ou um dict {trecho do seletor: Pagina | lista}."""
+
+    def __init__(self, paginas, apos_clique=None):
+        super().__init__(paginas)
+        self.apos_clique = apos_clique if apos_clique is not None else []
+        self.cliques: list[tuple[str, int]] = []
+        self.esperas: list[tuple[str, str]] = []
+        self._atual = None
+
+    def abrir(self, url):
+        self._atual = super().abrir(url)
+        return self._atual
+
+    def abrir_e_esperar(self, url, seletor, timeout_ms=15_000):
+        self.esperas.append((url, seletor))
+        return self.abrir(url)
+
+    def atual(self):
+        return self._atual
+
+    def _seguinte(self, seletor):
+        if isinstance(self.apos_clique, list):
+            resposta = self.apos_clique.pop(0)
+        else:
+            chave = next((trecho for trecho in self.apos_clique if trecho in seletor), None)
+            if chave is None:
+                raise AssertionError(f"clique sem página seguinte no teste: {seletor}")
+            resposta = self.apos_clique[chave]
+            if isinstance(resposta, list):
+                resposta = resposta.pop(0)
+        if isinstance(resposta, Exception):
+            raise resposta
+        return resposta
+
+    def clicar(self, seletor, indice, guarda):
+        # Imports locais: o bloco fica todo aqui no fim (outras tarefas também acrescentam ao arquivo).
+        from selectolax.lexbor import LexborHTMLParser
+
+        from tcg_sniper.coletor_amazon.cliques import descrever_elemento
+        from tcg_sniper.navegador.modelos import ErroRede
+
+        nos = LexborHTMLParser(self._atual.html).css(seletor) if self._atual is not None else []
+        if len(nos) <= indice:
+            raise ErroRede(f"elemento {seletor} [{indice}] não encontrado")
+        no = nos[indice]
+        guarda(*descrever_elemento(no))  # contexto e rótulo, como o JS_DESCREVER do Chromium
+        self.cliques.append((seletor, indice))
+        self._atual = self._seguinte(seletor)
+        return self._atual

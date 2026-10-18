@@ -1,5 +1,6 @@
-"""Motor de oportunidades: decide, para uma leitura da página do produto na Amazon, se há uma
-oferta elegível e o que fazer com a oportunidade do anúncio. Funções puras."""
+"""Motor de oportunidades: decide, para uma leitura da Amazon (melhor oferta da lista de ofertas, com o
+preço conferido no checkout quando há conferência: itens + impostos, sem o frete), se há uma oferta
+elegível e o que fazer com a oportunidade do anúncio. Funções puras."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -60,6 +61,20 @@ class Acao(StrEnum):
     NADA = "nada"
 
 
+def preco_conferido(
+    itens: Decimal | None, impostos: Decimal | None, total: Decimal | None = None, frete: Decimal | None = None
+) -> Decimal | None:
+    """O preço que vale para a oportunidade quando há conferência de checkout (regra do usuário,
+    2026-10-17): itens + impostos, SEM o frete (o frete só aparece à parte). Sem impostos, só os itens;
+    sem itens lidos, total menos frete; sem nada, None. Única definição: monitor, conferência e admin
+    usam esta."""
+    if itens is not None:
+        return itens + (impostos or Decimal(0))
+    if total is None:
+        return None
+    return total - (frete or Decimal(0))
+
+
 def atinge_desconto(preco_amazon: Decimal | None, preco_liga: Decimal | None, desconto_min_pct: int) -> bool:
     """`1 − amazon/liga ≥ desconto/100`, em aritmética exata (sem arredondar): 25% conta.
     Preço da Amazon zero ou negativo é leitura errada, não desconto de 100%."""
@@ -82,11 +97,12 @@ def vendedor_confiavel(vendedor: Vendedor | None, regras: Regras) -> bool:
     )
 
 
-def _vendedor_elegivel(leitura: Leitura, regras: Regras) -> bool:
-    if leitura.envio is Envio.AMAZON:
+def vendedor_elegivel(envio: Envio, vendedor: Vendedor | None, regras: Regras) -> bool:
+    """Vendido pela Amazon sempre; lojista com envio pela Amazon (FBA) só se confiável; o resto nunca."""
+    if envio is Envio.AMAZON:
         return True
-    if leitura.envio is Envio.FBA:
-        return vendedor_confiavel(leitura.vendedor, regras)
+    if envio is Envio.FBA:
+        return vendedor_confiavel(vendedor, regras)
     return False
 
 
@@ -100,7 +116,7 @@ def _referencia_valida(ref: RefLiga, regras: Regras, agora: datetime) -> bool:
 
 def elegivel(leitura: Leitura, ref: RefLiga, regras: Regras, agora: datetime) -> bool:
     return (
-        _vendedor_elegivel(leitura, regras)
+        vendedor_elegivel(leitura.envio, leitura.vendedor, regras)
         and _referencia_valida(ref, regras, agora)
         and atinge_desconto(leitura.preco, ref.preco_a_partir, regras.desconto_min_pct)
     )

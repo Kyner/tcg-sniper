@@ -1,0 +1,49 @@
+{
+  "ofertas_importada": {
+    "asin": "B0DNV55QBS",
+    "num_ofertas": 6,
+    "destaque": {"vendedor": "Amazon Global", "preco": "314.11"},
+    "ofertas": [
+      {"vendedor": "Shazaar", "preco": "275.91", "condicao": "novo", "envio": "fba",
+       "origem_envio": "Estados Unidos", "importada": true, "pct_positivas": "100", "num_avaliacoes": 66},
+      {"vendedor": "Bigg Time Sales", "preco": "326.17", "condicao": "novo", "envio": "fba",
+       "origem_envio": "Estados Unidos", "importada": true, "pct_positivas": "100", "num_avaliacoes": 17},
+      {"vendedor": "MIRAGEMHOBBYSTORE", "preco": "521.55", "condicao": "novo", "envio": "fba",
+       "pct_positivas": "86", "num_avaliacoes": 29},
+      {"vendedor": "SUMMER GEEK", "preco": "660.25", "condicao": "novo", "envio": "proprio",
+       "pct_positivas": "69", "num_avaliacoes": 26}
+    ]
+  },
+  "painel_importada": {
+    "asin": "B0DNV55QBS",
+    "num_ofertas": 6,
+    "destaque": {"vendedor": "Amazon Global", "preco": "314.11"},
+    "ofertas": []
+  },
+  "ofertas_amazon": {
+    "asin": "B0D9MX37KP",
+    "num_ofertas": 4,
+    "destaque": {"vendedor": "Amazon Global", "preco": "116.06"},
+    "ofertas": [
+      {"vendedor": "Ozone Toys", "preco": "136.80", "condicao": "novo", "envio": "fba",
+       "origem_envio": "Estados Unidos", "pct_positivas": "97", "num_avaliacoes": 175}
+    ]
+  },
+  "ofertas_fba": {
+    "asin": "B0D9KXBNBB",
+    "num_ofertas": 4,
+    "destaque": {"vendedor": "MIRAGEMHOBBYSTORE", "preco": "282.81"},
+    "ofertas": [
+      {"vendedor": "LOJA DO TOGURO", "preco": "292.59", "condicao": "novo", "envio": "proprio",
+       "pct_positivas": "87", "num_avaliacoes": 247},
+      {"vendedor": "lojailusoe", "preco": "330.60", "condicao": "novo", "envio": "fba",
+       "pct_positivas": "88", "num_avaliacoes": 367}
+    ]
+  },
+  "carrinho_inicial": {"contador": 0, "asins_ativos": []},
+  "carrinho_um_item": {"contador": 1, "asins_ativos": ["B0DNV55QBS"], "subtotal": "314.11"},
+  "carrinho_vazio": {"contador": 0, "asins_ativos": []},
+  "checkout_endereco": {"etapa": "endereco"},
+  "checkout_resumo": {"etapa": "resumo", "itens": "251.49", "frete": "0.00", "impostos": "51.05", "total": "302.54"},
+  "login": {"etapa": "login"}
+}

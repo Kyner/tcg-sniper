@@ -2,7 +2,7 @@
 {% from "_componentes.html" import selo, cabecalho, paginacao %}
 {% block titulo %}Logs · TCG Sniper{% endblock %}
 {% block conteudo %}
-{{ cabecalho("Logs", "Histórico das coletas, dos ciclos e das chamadas da IA.") }}
+{{ cabecalho("Logs", "Histórico das coletas, dos ciclos, do monitor, das conferências de checkout e das chamadas da IA.") }}
 
 {# Campos ocultos de um filtro: os parâmetros das outras abas e a própria aba; a página do filtro volta para 1. #}
 {% macro ocultos(nome_aba, proprios) %}
@@ -14,6 +14,8 @@
 
 {% macro url_liga(n) %}{{ link(aba="liga", liga_pagina=n) }}{% endmacro %}
 {% macro url_amazon(n) %}{{ link(aba="amazon", amazon_pagina=n) }}{% endmacro %}
+{% macro url_monitor(n) %}{{ link(aba="monitor", monitor_pagina=n) }}{% endmacro %}
+{% macro url_checkout(n) %}{{ link(aba="checkout", checkout_pagina=n) }}{% endmacro %}
 {% macro url_ia(n) %}{{ link(aba="ia", ia_pagina=n) }}{% endmacro %}
 
 {% macro filtro_status(nome_aba, campo, valor) %}
@@ -75,6 +77,70 @@
     {{ filtro_status("amazon", "amazon_status", amazon_status) }}
     {{ coletas_tabela(ciclos, False, "Buscas", "Nenhum ciclo ainda.") }}
     {{ paginacao(pagina_amazon, paginas_amazon, url_amazon) }}
+  </div>
+
+  <input type="radio" name="logs" class="tab" aria-label="Monitor"{% if aba == "monitor" %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    {% if leituras is none %}
+    <p class="text-sm"><a class="link" href="{{ url_monitor(pagina_monitor) }}">Carregar as leituras do monitor</a></p>
+    {% else %}
+    <div class="card bg-base-100 shadow-sm"><div class="card-body overflow-x-auto p-4">
+      <table class="table table-zebra">
+        <thead><tr><th>Quando</th><th>Anúncio</th><th class="text-right">Ofertas</th><th class="text-right">Melhor preço</th><th>Melhor vendedor</th></tr></thead>
+        <tbody>
+        {% for l in leituras %}
+          <tr>
+            <td class="whitespace-nowrap tabular-nums">{{ l.lida_em|data }}</td>
+            <td><span class="font-mono text-xs">{{ l.asin }}</span>{% if l.produto %}<div class="text-sm">{{ l.produto }}</div>{% endif %}</td>
+            <td class="text-right tabular-nums">{{ l.ofertas }}</td>
+            <td class="text-right tabular-nums whitespace-nowrap">{{ l.melhor_preco|brl }}</td>
+            <td>{{ l.melhor_vendedor or "—" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5">Nenhuma leitura do monitor ainda.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {{ paginacao(pagina_monitor, paginas_monitor, url_monitor) }}
+    {% endif %}
+  </div>
+
+  <input type="radio" name="logs" class="tab" aria-label="Checkout"{% if aba == "checkout" %} checked{% endif %}>
+  <div class="tab-content space-y-3 pt-4">
+    <form method="get" action="/logs" class="flex flex-wrap items-end gap-3">
+      {{ ocultos("checkout", ("checkout_situacao", "checkout_pagina")) }}
+      <fieldset class="fieldset"><legend class="fieldset-legend">Situação</legend>
+        <select name="checkout_situacao" class="select select-sm w-auto" aria-label="Situação da conferência">
+          {% for v in situacoes_checkout %}<option value="{{ v }}" {% if v == checkout_situacao %}selected{% endif %}>{{ v|replace("_", " ") }}</option>{% endfor %}
+        </select>
+      </fieldset>
+      <button type="submit" class="btn btn-sm btn-primary mb-1">Filtrar</button>
+    </form>
+    <div class="card bg-base-100 shadow-sm"><div class="card-body overflow-x-auto p-4">
+      <table class="table table-zebra">
+        <thead><tr><th>Quando</th><th>Anúncio</th><th>Vendedor</th><th class="text-right">Anunciado</th><th class="text-right">Itens</th><th class="text-right">Impostos</th><th class="text-right">Conferido (sem frete)</th><th class="text-right">Total do pedido</th><th>Situação</th><th>Motivo</th></tr></thead>
+        <tbody>
+        {% for l in conferencias %}{% set c = l.conferencia %}
+          <tr>
+            <td class="whitespace-nowrap tabular-nums">{{ c.em|data }}</td>
+            <td><span class="font-mono text-xs">{{ l.asin }}</span>{% if l.produto %}<div class="text-sm">{{ l.produto }}</div>{% endif %}</td>
+            <td>{{ c.vendedor_nome or "—" }}</td>
+            <td class="text-right tabular-nums whitespace-nowrap">{{ c.preco_anunciado|brl }}</td>
+            <td class="text-right tabular-nums whitespace-nowrap">{{ c.itens|brl }}</td>
+            <td class="text-right tabular-nums whitespace-nowrap">{{ c.impostos|brl }}</td>
+            <td class="text-right tabular-nums whitespace-nowrap">{% if c.situacao.value == "ok" %}{{ valor_conferido(c)|brl }}{% if c.frete is not none %}<div class="text-xs text-base-content/60">frete {{ c.frete|brl }} à parte</div>{% endif %}{% else %}—{% endif %}</td>
+            <td class="text-right tabular-nums whitespace-nowrap">{{ c.total|brl }}</td>
+            <td>{{ selo({"ok": "ok", "falha": "falha", "carrinho_ocupado": "parcial", "sem_login": "pausado"}[c.situacao.value], c.situacao.value|replace("_", " ")) }}{% if not c.item_removido %} {{ selo("pausado", "item no carrinho") }}{% endif %}</td>
+            <td class="text-sm">{{ c.motivo or "" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="10">Nenhuma conferência de checkout ainda.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+    {{ paginacao(pagina_checkout, paginas_checkout, url_checkout) }}
   </div>
 
   <input type="radio" name="logs" class="tab" aria-label="IA"{% if aba == "ia" %} checked{% endif %}>

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import StatusCasamento
+from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
 
 
 def basic(usuario, senha):
@@ -27,6 +27,7 @@ def avaliar(s, anuncio, produto, mesmo, confianca, motivo, aplicada=False, revis
     if aplicada:
         av.aplicada_em = T0
         anuncio.revisado_em = revisado  # o automático grava os dois no mesmo instante
+        anuncio.origem_casamento = OrigemCasamento.AUTOMATICO_IA if revisado == T0 else OrigemCasamento.MANUAL
         s.flush()
     return av
 
@@ -58,7 +59,7 @@ def test_selos_motivo_e_ordem(cliente, cenario):
     # sim primeiro (por confiança), depois os demais na ordem de hoje
     assert html.index("Anúncio B3") < html.index("Anúncio B2") < html.index("Anúncio B1")
     assert "avaliado contra outro produto" not in html  # avaliação de outro par não aparece
-    assert "pela IA" in html and "idêntico" in html  # confirmado pelo automático
+    assert "automático pela IA" in html and "idêntico" in html  # confirmado pelo automático
 
 
 def test_contagem_ia_sugere_na_lista(cliente, cenario):
@@ -82,5 +83,5 @@ def test_selo_pela_ia_some_quando_o_usuario_decidiu_depois(cliente, sessoes):
         avaliar(s, pela_ia, p, False, 99, "carta avulsa", aplicada=True)
         produto_id = p.id
     html = cliente.get(f"/casamentos/produto/{produto_id}").text
-    assert html.count(">pela IA<") == 1 and "carta avulsa" in html
+    assert html.count(">automático pela IA<") == 1 and "carta avulsa" in html
     assert "motivo velho um" not in html and "motivo velho dois" not in html

@@ -7,18 +7,15 @@ from fakes import (
     NavegadorFake,
     NotificadorFake,
     cartao_busca,
-    criar_anuncio,
     criar_preco_liga,
     criar_produto,
     html_busca,
-    html_produto_amazon,
     pagina_html,
 )
 from sqlalchemy import select
 
 from tcg_sniper.coletor_amazon.busca import url_busca
 from tcg_sniper.coletor_amazon.config import aplicar_config
-from tcg_sniper.coletor_amazon.parsers import url_produto
 from tcg_sniper.coletor_amazon.varredura import (
     ESPERA_ERRO_S,
     ESPERA_OCIOSA_S,
@@ -34,7 +31,6 @@ from tcg_sniper.db.models import (
     EstadoColetorTipo,
     FilaAmazon,
     ProdutoLiga,
-    StatusCasamento,
     StatusColeta,
     TipoColeta,
 )
@@ -123,23 +119,6 @@ def test_passo_busca_reagenda_e_fecha_o_ciclo(engine, sessoes, config):
     assert fila.ultima_busca_em == MEIO_DIA
     assert fila.proxima_busca_em == MEIO_DIA + timedelta(minutes=60)
     assert v.passo() == ESPERA_OCIOSA_S  # nada vencido
-
-
-def test_so_ausente_conferido_nao_conta_como_candidato(engine, sessoes, config):
-    (a,), urls = produtos(sessoes, "a")
-    with sessoes() as s, s.begin():
-        criar_anuncio(s, "B0AUSENTE1", produto=s.get(ProdutoLiga, a.id), status=StatusCasamento.CONFIRMADO)
-    paginas = {
-        urls[a.id]: vazia(urls[a.id]),
-        url_produto("B0AUSENTE1"): pagina_html(html_produto_amazon("Item", "R$ 900,00", "Loja", "Loja")),
-    }
-    v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
-    v.passo()
-    assert url_produto("B0AUSENTE1") in navegador.visitadas
-    with sessoes() as s:
-        fila = s.get(FilaAmazon, a.id)
-    assert fila.ultimo_candidato_em is None
-    assert fila.proxima_busca_em == MEIO_DIA + timedelta(minutes=60)
 
 
 def test_fora_da_janela_nao_busca_e_fecha_o_navegador(engine, sessoes, config):

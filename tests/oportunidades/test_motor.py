@@ -14,6 +14,7 @@ from tcg_sniper.oportunidades.motor import (
     decidir,
     desconto_pct,
     elegivel,
+    vendedor_elegivel,
 )
 
 AGORA = datetime(2026, 10, 15, 15, 0, tzinfo=UTC)
@@ -88,3 +89,20 @@ def test_decidir(preco, preco_alertado, acao):
 
 def test_decidir_fecha_quando_o_vendedor_deixa_de_ser_elegivel():
     assert decidir(leitura(envio=Envio.PROPRIO), LIGA, REGRAS, AGORA, Decimal("700.00")) is Acao.FECHAR
+
+
+REGRAS_ELEGIVEL = Regras(
+    desconto_min_pct=25, realerta_queda_pct=5, liga_preco_max_idade_h=48,
+    vendedor_min_positivas_pct=90, vendedor_min_avaliacoes=100,
+)
+
+
+def test_vendedor_elegivel():
+    confiavel = Vendedor("Loja Boa", Decimal(98), 5000)
+    poucas = Vendedor("Shazaar", Decimal(100), 66)
+    assert vendedor_elegivel(Envio.AMAZON, None, REGRAS_ELEGIVEL)
+    assert vendedor_elegivel(Envio.FBA, confiavel, REGRAS_ELEGIVEL)
+    assert not vendedor_elegivel(Envio.FBA, poucas, REGRAS_ELEGIVEL)
+    assert not vendedor_elegivel(Envio.FBA, None, REGRAS_ELEGIVEL)
+    assert not vendedor_elegivel(Envio.PROPRIO, confiavel, REGRAS_ELEGIVEL)
+    assert not vendedor_elegivel(Envio.DESCONHECIDO, confiavel, REGRAS_ELEGIVEL)

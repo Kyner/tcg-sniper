@@ -43,6 +43,17 @@ def main(argv: list[str] | None = None) -> None:
     avaliar_p.add_argument("--limite", type=int, default=None, help="no máximo N anúncios")
     avaliar_p.add_argument("--preco-entrada", type=_preco, default=None, help="US$ por milhão de tokens de entrada (padrão: o de Configurações, aba IA)")
     avaliar_p.add_argument("--preco-saida", type=_preco, default=None, help="US$ por milhão de tokens de saída (padrão: o de Configurações, aba IA)")
+    amazon = sub.add_parser("amazon", help="ferramentas da Amazon")
+    amazon_sub = amazon.add_subparsers(dest="acao_amazon", required=True)
+    capturar_p = amazon_sub.add_parser(
+        "capturar", help="salva páginas reais para as fixtures (pare o coletor-amazon antes)"
+    )
+    capturar_p.add_argument("--asin", action="append", required=True, type=str.upper, help="pode repetir")
+    capturar_p.add_argument(
+        "--checkout", action="store_true",
+        help="também põe a oferta em destaque do 1º ASIN no carrinho, vai ao resumo do pedido (sem confirmar) e tira o item",
+    )
+    capturar_p.add_argument("--login", action="store_true", help="também salva a página de login (perfil temporário)")
     admin = sub.add_parser("admin", help="inicia a página de admin")
     admin.add_argument("--porta", type=int, default=8000)
     args = parser.parse_args(argv)
@@ -124,6 +135,41 @@ def main(argv: list[str] | None = None) -> None:
         relatorio = relatorio_markdown(resultados, agora, preco_entrada=args.preco_entrada, preco_saida=args.preco_saida)
         destino.write_text(relatorio, encoding="utf-8")
         print(f"relatório em {destino}")
+    elif args.comando == "amazon":
+        import random
+        import tempfile
+        import time
+        from pathlib import Path
+
+        from tcg_sniper.coletor_amazon.captura import Captura, capturar, capturar_login
+        from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
+        from tcg_sniper.coletor_amazon.varredura import ID_LOCK_AMAZON
+        from tcg_sniper.coletor_liga import agendador
+        from tcg_sniper.db import repositorio as repo
+        from tcg_sniper.navegador.chromium import NavegadorChromium
+
+        destino = config.dir_dados / "capturas" / f"{repo.agora_utc():%Y%m%d-%H%M%S}"
+
+        def pausar() -> None:
+            time.sleep(random.uniform(3, 8))
+
+        with agendador.lock_coleta(engine, ID_LOCK_AMAZON) as obtido:
+            if not obtido:
+                raise SystemExit("o coletor-amazon está rodando (mesmo perfil do Chromium): docker compose stop coletor-amazon")
+            cap = Captura(destino)
+            try:
+                with NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon) as nav:
+                    capturar(nav, args.asin, destino, checkout=args.checkout, pausar=pausar, cap=cap)
+                if args.login:
+                    with tempfile.TemporaryDirectory() as perfil, NavegadorChromium(Path(perfil), eh_desafio_amazon) as anonimo:
+                        cap.salvas.append(capturar_login(anonimo, destino))
+            finally:
+                # Mesmo com erro (que sobe em seguida): onde ficou e, sobretudo, se o item pode ter ficado no carrinho.
+                print(f"capturas em {destino}")
+                for caminho in cap.salvas:
+                    print(caminho)
+                for aviso in cap.avisos:
+                    print(f"AVISO: {aviso}")
     elif args.comando == "admin":
         import uvicorn
 

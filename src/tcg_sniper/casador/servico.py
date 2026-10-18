@@ -14,7 +14,7 @@ from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import COLETOR_CASADOR, AnuncioAmazon, EstadoColetorTipo, StatusCasamento
+from tcg_sniper.db.models import COLETOR_CASADOR, AnuncioAmazon, EstadoColetorTipo, OrigemCasamento, StatusCasamento
 from tcg_sniper.ia.modelos import (
     ChaveInvalida,
     ConfiguracaoInvalida,
@@ -72,7 +72,7 @@ class ServicoCasador:
             zona = ZoneInfo(repo.obter_config_geral(s, self._config_env).fuso)
             lote, automatico = cfg.lote, cfg.automatico
             limites = (cfg.confianca_confirmar, cfg.confianca_ignorar)
-            pendentes = repo_ia.pares_pendentes(s)
+            pendentes = repo_ia.pares_pendentes(s, so_descoberta=True)
             self._esquecer_falhas_fora_de({(p.anuncio.id, p.produto.id) for p in pendentes})
             candidatos = []
             ja_avaliados = []  # avaliação em dia que o automático ainda não aplicou (ex.: ligado depois)
@@ -177,9 +177,9 @@ class ServicoCasador:
         if anuncio.status_casamento is not StatusCasamento.PENDENTE or anuncio.produto_id != av.produto_id:
             return  # o usuário decidiu enquanto a IA respondia
         if av.mesmo_produto and av.confianca >= confirmar:
-            repo_amz.confirmar_casamento(s, anuncio.id, av.produto_id, agora)
+            repo_amz.confirmar_casamento(s, anuncio.id, av.produto_id, agora, OrigemCasamento.AUTOMATICO_IA)
         elif not av.mesmo_produto and av.confianca >= ignorar:
-            repo_amz.ignorar_anuncio(s, anuncio.id, agora)
+            repo_amz.ignorar_anuncio(s, anuncio.id, agora, OrigemCasamento.AUTOMATICO_IA)
         else:
             return
         av.aplicada_em = agora

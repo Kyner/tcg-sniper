@@ -1,16 +1,22 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 
-from sqlalchemy import ColumnElement, func, or_, select, update
+from sqlalchemy import ColumnElement, case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import (
+    AnuncioAmazon,
     ChamadaIA,
     Coleta,
+    ConferenciaCheckout,
+    OfertaAmazon,
     PrecoAtualLiga,
     PrecoListagem,
     ProdutoLiga,
     ResumoPreco,
+    SituacaoCheckout,
     StatusColeta,
     TipoColeta,
 )
@@ -223,3 +229,79 @@ def detalhe_produto(
         )
     )
     return produto, s.get(PrecoAtualLiga, produto_id), historico_resumo, historico_listagem
+
+
+SITUACOES_CHECKOUT = ("todas", *(situacao.value for situacao in SituacaoCheckout))
+
+
+def _pagina(total: int, pagina: int, por_pagina: int) -> tuple[int, int]:
+    paginas = max(1, -(-total // por_pagina))
+    return min(max(pagina, 1), paginas), paginas
+
+
+@dataclass(frozen=True)
+class LinhaConferencia:
+    conferencia: ConferenciaCheckout
+    asin: str
+    produto: str | None
+
+
+def historico_conferencias(
+    s: Session, situacao: str, pagina: int, por_pagina: int = POR_PAGINA_HISTORICO
+) -> tuple[list[LinhaConferencia], int, int]:
+    """Conferências de checkout, das mais recentes, com o filtro de situação da aba Checkout."""
+    condicoes = [] if situacao == "todas" else [ConferenciaCheckout.situacao == SituacaoCheckout(situacao)]
+    total = s.scalar(select(func.count()).select_from(ConferenciaCheckout).where(*condicoes)) or 0
+    pagina, paginas = _pagina(total, pagina, por_pagina)
+    consulta = (
+        select(ConferenciaCheckout, AnuncioAmazon.asin, ProdutoLiga.nome)
+        .join(AnuncioAmazon, AnuncioAmazon.id == ConferenciaCheckout.anuncio_id)
+        .outerjoin(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .where(*condicoes)
+        .order_by(ConferenciaCheckout.em.desc(), ConferenciaCheckout.id.desc())
+        .offset((pagina - 1) * por_pagina)
+        .limit(por_pagina)
+    )
+    return [LinhaConferencia(c, asin, nome) for c, asin, nome in s.execute(consulta)], pagina, paginas
+
+
+@dataclass(frozen=True)
+class LinhaMonitor:
+    lida_em: datetime
+    asin: str
+    produto: str | None
+    ofertas: int
+    melhor_preco: Decimal | None
+    melhor_vendedor: str | None
+
+
+def historico_monitor(
+    s: Session, pagina: int, por_pagina: int = POR_PAGINA_HISTORICO
+) -> tuple[list[LinhaMonitor], int, int]:
+    """Leituras do monitor (uma por anúncio e instante), das mais recentes, com nº de ofertas e a melhor.
+    Leituras sem nenhuma oferta (anúncio indisponível) não aparecem."""
+    leituras = (
+        select(
+            OfertaAmazon.anuncio_id,
+            OfertaAmazon.lida_em,
+            func.count().label("ofertas"),
+            func.max(case((OfertaAmazon.melhor, OfertaAmazon.preco))).label("melhor_preco"),
+            func.max(case((OfertaAmazon.melhor, OfertaAmazon.vendedor_nome))).label("melhor_vendedor"),
+        )
+        .group_by(OfertaAmazon.anuncio_id, OfertaAmazon.lida_em)
+        .subquery()
+    )
+    total = s.scalar(select(func.count()).select_from(leituras)) or 0
+    pagina, paginas = _pagina(total, pagina, por_pagina)
+    consulta = (
+        select(
+            leituras.c.lida_em, AnuncioAmazon.asin, ProdutoLiga.nome, leituras.c.ofertas,
+            leituras.c.melhor_preco, leituras.c.melhor_vendedor,
+        )
+        .join(AnuncioAmazon, AnuncioAmazon.id == leituras.c.anuncio_id)
+        .outerjoin(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .order_by(leituras.c.lida_em.desc(), AnuncioAmazon.id)
+        .offset((pagina - 1) * por_pagina)
+        .limit(por_pagina)
+    )
+    return [LinhaMonitor(*linha) for linha in s.execute(consulta)], pagina, paginas

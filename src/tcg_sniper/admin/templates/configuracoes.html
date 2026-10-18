@@ -20,6 +20,12 @@
       {% endif %}
       <form method="post" action="/configuracoes/{{ secao.id }}" class="grid gap-x-6 gap-y-3 md:grid-cols-2">
         {% for campo in secao.campos %}
+        {% if secao.id == "amazon" and campo == "monitor_intervalo_min" %}
+        <div class="md:col-span-2 pt-2">
+          <h3 class="text-base font-semibold">Monitor de preço</h3>
+          <p class="text-sm text-base-content/70">Lê a lista de ofertas dos anúncios confirmados e confere o checkout das candidatas. Ligar e desligar fica em Serviços.</p>
+        </div>
+        {% endif %}
         <fieldset class="fieldset{% if campo in ('categorias', 'url_listagem', 'url_busca') %} md:col-span-2{% endif %}">
           <legend class="fieldset-legend">{{ secao.rotulos[campo] }}</legend>
           {% if campo in secao.opcoes %}

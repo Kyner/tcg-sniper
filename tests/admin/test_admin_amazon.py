@@ -83,6 +83,13 @@ def formulario_padrao(**mudancas):
         "vendedor_min_positivas_pct": "90",
         "vendedor_min_avaliacoes": "100",
         "vendedor_reavaliar_dias": "7",
+        "monitor_intervalo_min": "15",
+        "monitor_janela_inicio": "08:00",
+        "monitor_janela_fim": "22:00",
+        "monitor_max_paginas_hora": "150",
+        "margem_candidata_pp": "5",
+        "checkout_validade_h": "6",
+        "descoberta_casados_dias": "7",
     }
     campos.update({k: str(v) for k, v in mudancas.items()})
     return campos

@@ -6,7 +6,7 @@ from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import COLETOR_CASADOR, PADROES_CONFIG_IA, EstadoColetorTipo, StatusCasamento
+from tcg_sniper.db.models import COLETOR_CASADOR, PADROES_CONFIG_IA, EstadoColetorTipo, OrigemCasamento, StatusCasamento
 
 SP = ZoneInfo("America/Sao_Paulo")
 
@@ -139,3 +139,28 @@ def test_estado_do_casador_e_solicitacao(s):
     assert repo.consumir_solicitacao(s, T0) is False  # a da Liga não foi pedida
     assert repo.consumir_solicitacao(s, T0, COLETOR_CASADOR) is True
     assert repo.consumir_solicitacao(s, T0, COLETOR_CASADOR) is False
+
+
+def test_origem_da_decisao(s):
+    p = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B1", produto=p)
+    b = criar_anuncio(s, "B2", produto=p)
+    repo_ia.gravar_avaliacao(
+        s, anuncio_id=a.id, produto_id=p.id, mesmo_produto=True, confianca=95, motivo="m", modelo="gpt-5",
+        assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
+    )
+    assert repo_ia.origem_da_decisao(s, a.id, p.id) is OrigemCasamento.SUGERIDO_IA
+    assert repo_ia.origem_da_decisao(s, b.id, p.id) is OrigemCasamento.MANUAL
+    assert repo_ia.origem_da_decisao(s, a.id, None) is OrigemCasamento.MANUAL
+
+
+def test_pares_pendentes_so_descoberta_pula_os_antigos_de_produto_casado(s):
+    casado = criar_produto(s, "casado")
+    livre = criar_produto(s, "livre")
+    criar_anuncio(s, "B0", produto=casado, status=StatusCasamento.CONFIRMADO).revisado_em = T0
+    antigo = criar_anuncio(s, "B1", produto=casado, agora=T0 - timedelta(days=1))
+    da_semanal = criar_anuncio(s, "B2", produto=casado, agora=T0 + timedelta(days=7))
+    de_livre = criar_anuncio(s, "B3", produto=livre, agora=T0 - timedelta(days=1))
+    s.flush()
+    assert {p.anuncio.id for p in repo_ia.pares_pendentes(s, so_descoberta=True)} == {da_semanal.id, de_livre.id}
+    assert {p.anuncio.id for p in repo_ia.pares_pendentes(s)} == {antigo.id, da_semanal.id, de_livre.id}

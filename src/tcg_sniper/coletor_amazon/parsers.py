@@ -29,6 +29,25 @@ Perfil do vendedor (`/sp?seller=<ID>`):
 - Nome: `#seller-name`.
 - Resumo: `#seller-info-feedback-summary` (ausente → `ErroParser`), com texto como
   "5 de 5 estrelas 100% positivo total (2 avaliações)".
+
+Lista de ofertas (`/gp/product/ajax/aodAjaxMain...` ou `/dp/<ASIN>?aod=1`), conferida nas fixtures
+ofertas_importada, ofertas_amazon, ofertas_fba e painel_importada (captura de 2026-10-17):
+- Estrutura: `#aod-container` (ausente no `/dp/<ASIN>?aod=1`), `#all-offers-display`,
+  `#aod-offer-list`; nenhum deles nem bloco de oferta → `ErroParser`. Painel sem bloco → `[]`.
+- Blocos: `#aod-pinned-offer` (a destacada, posição 0) e `#aod-offer` repetido (a lista, posição
+  1.. na ordem dos blocos, mesmo quando um bloco é descartado).
+- Preço: `.apex-pricetopay-accessibility-label` ("R$ 326,17 com 16 por cento de desconto"), depois
+  `.aok-offscreen` sem o "De: R$ ..." (o preço riscado), depois `.a-price .a-offscreen` (vazio nas
+  páginas reais). Sem preço legível → a oferta é descartada.
+- Condição: `#aod-offer-heading` ("Novo", "Usado - Muito bom").
+- Vendedor: `#aod-offer-soldBy .a-col-right`; o primeiro link tem `seller=<ID>` (a Amazon Global
+  também tem link; vendida pela Amazon vira seller_id "amazon"). No mesmo bloco: "A classificação do
+  vendedor é 4.5 de 5 estrelas (29 avaliações) 86% positivas ao longo da vida".
+- Quem envia e origem: `#aod-offer-shipsFrom .a-col-right` ("Amazon Origem do envio Estados Unidos.",
+  ou só o nome do lojista no envio próprio).
+- Importada: "Compra Internacional" ou "tributos de importação" no bloco, ou origem diferente de Brasil.
+- Prime: `i.a-icon-prime`, `.a-icon-prime`, `[aria-label*="Prime"]`.
+- Cupom (só informativo): "15%  off na 1ª compra com cartão Amazon" ou "cupom de desconto XXXX".
 """
 
 import logging
@@ -38,7 +57,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
-from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, OfertaProduto, ResultadoBusca
+from tcg_sniper.coletor_amazon.modelos import (
+    SELLER_AMAZON,
+    AvaliacaoVendedor,
+    OfertaLista,
+    OfertaProduto,
+    ResultadoBusca,
+)
 from tcg_sniper.db.models import Envio
 from tcg_sniper.parsing import ErroParser, parse_preco_brl
 
@@ -94,6 +119,21 @@ def url_produto(asin: str) -> str:
 
 def url_vendedor(seller_id: str) -> str:
     return f"{BASE_AMAZON}/sp?seller={seller_id}"
+
+
+URL_CARRINHO = f"{BASE_AMAZON}/gp/cart/view.html"
+# Blocos do painel "Outras opções de compra": a oferta em destaque e as demais (id repetido).
+SELETOR_PAINEL_OFERTAS = "#aod-pinned-offer, #aod-offer"
+
+
+def url_ofertas(asin: str) -> str:
+    """Fragmento com todas as ofertas do ASIN (o painel "Outras opções de compra" carrega daqui)."""
+    return f"{BASE_AMAZON}/gp/product/ajax/aodAjaxMain/ref=dp_aod_ALL_mbc?asin={asin}&pc=dp&experienceId=aodAjaxMain"
+
+
+def url_painel_ofertas(asin: str) -> str:
+    """Página do produto com o painel de ofertas aberto (onde fica o "Adicionar ao carrinho" de cada oferta)."""
+    return f"{BASE_AMAZON}/dp/{asin}?aod=1"
 
 
 def eh_vendido_pela_amazon(texto: str) -> bool:
@@ -213,3 +253,119 @@ def parse_vendedor(html: str, seller_id: str) -> AvaliacaoVendedor:
         pct_positivas=Decimal(pct.group(1)) if pct else None,
         num_avaliacoes=int(num.group(1).replace(".", "")) if num else None,
     )
+
+
+SELETOR_OFERTA_DESTAQUE = "#aod-pinned-offer"
+SELETOR_OFERTA_LISTA = "#aod-offer"
+SELETORES_ESTRUTURA_OFERTAS = ("#aod-container", "#all-offers-display", "#aod-offer-list", "#aod-pinned-offer", "#aod-offer")
+SELETOR_CONDICAO = "#aod-offer-heading"
+SELETOR_VENDIDO_POR_OFERTA = "#aod-offer-soldBy .a-col-right"
+SELETOR_ENVIADO_POR_OFERTA = "#aod-offer-shipsFrom .a-col-right"
+SELETORES_PRECO_OFERTA = (".apex-pricetopay-accessibility-label", ".aok-offscreen", ".a-price .a-offscreen")
+SELETORES_PRIME = ("i.a-icon-prime", ".a-icon-prime", '[aria-label*="Prime"]')
+BLOCOS_OFERTAS = (SELETOR_OFERTA_DESTAQUE, "#aod-offer-list", SELETOR_OFERTA_LISTA)
+_RE_VALOR = re.compile(r"R\$\s*(\d{1,3}(?:\.\d{3})+,\d{2}|\d+,\d{2})")
+_RE_PRECO_DE = re.compile(r"De:\s*R\$\s*(\d{1,3}(?:\.\d{3})+,\d{2}|\d+,\d{2})")
+_RE_ORIGEM = re.compile(r"Origem do envio\s*:?\s*([^.]+)", re.IGNORECASE)
+# Sem atravessar quebra de linha: o cupom é procurado no texto do bloco com um nó por linha, para não
+# engolir o "Vendido por ..." que vem logo depois dele.
+_RE_CUPOM = re.compile(r"(\d{1,2}\s*%\s*off[^.\n]{0,80}|cupom de desconto \S+)", re.IGNORECASE)
+_MARCAS_IMPORTADA = ("compra internacional", "tributos de importação")
+
+
+def _preco_da_oferta(bloco: LexborNode) -> Decimal | None:
+    """O preço a pagar: o rótulo de acessibilidade ("R$ 326,17 com 16 por cento de desconto"); o
+    `.a-offscreen` visível veio vazio nas páginas reais. Textos "De: R$ ..." são o preço riscado."""
+    for seletor in SELETORES_PRECO_OFERTA:
+        for no in bloco.css(seletor):
+            texto = no.text(separator=" ", strip=True)
+            if not texto or texto.lower().startswith("de:"):
+                continue
+            achado = _RE_VALOR.search(texto)
+            if achado:
+                return parse_preco_brl(achado.group(1))
+    return None
+
+
+def _vendedor_da_oferta(bloco: LexborNode) -> tuple[str | None, str | None, str]:
+    """(nome, seller_id, texto do bloco "Vendido por" com a avaliação)."""
+    alvo = bloco.css_first(SELETOR_VENDIDO_POR_OFERTA)
+    if alvo is None:
+        return None, None, ""
+    link = alvo.css_first("a")
+    nome = (link.text(separator=" ", strip=True) if link is not None else None) or _texto(alvo, "span")
+    seller_id = None
+    if link is not None:
+        valores = parse_qs(urlsplit(link.attributes.get("href") or "").query).get("seller")
+        seller_id = valores[0] if valores else None
+    return nome, seller_id, alvo.text(separator=" ", strip=True)
+
+
+def _envio_da_oferta(bloco: LexborNode) -> tuple[str | None, str | None]:
+    """(quem envia, origem do envio) de "Amazon Origem do envio Estados Unidos."."""
+    alvo = bloco.css_first(SELETOR_ENVIADO_POR_OFERTA)
+    if alvo is None:
+        return None, None
+    texto = alvo.text(separator=" ", strip=True)
+    origem = _RE_ORIGEM.search(texto)
+    quem = _RE_ORIGEM.sub("", _texto(alvo, "span") or texto).strip(" .") or None
+    return quem, origem.group(1).strip() if origem else None
+
+
+def _condicao(bloco: LexborNode) -> str:
+    texto = (_texto(bloco, SELETOR_CONDICAO) or "").lower()
+    # "Usado - Como novo" é usado: confere "usado" antes de "novo".
+    if "usado" in texto or "used" in texto:
+        return "usado"
+    if "novo" in texto or "new" in texto:
+        return "novo"
+    return texto or "desconhecida"
+
+
+def parse_ofertas(html: str) -> list[OfertaLista]:
+    """Todas as ofertas do painel, a destacada (posição 0) primeiro. Lista vazia: o painel abriu sem
+    oferta (indisponível). Sem nenhum bloco do painel → ErroParser (layout novo ou página errada)."""
+    arvore = LexborHTMLParser(html)
+    if not any(arvore.css_first(seletor) is not None for seletor in SELETORES_ESTRUTURA_OFERTAS):
+        raise ErroParser("painel de ofertas não encontrado")
+    blocos = [(0, bloco) for bloco in arvore.css(SELETOR_OFERTA_DESTAQUE)[:1]]
+    blocos += list(enumerate(arvore.css(SELETOR_OFERTA_LISTA), start=1))
+    ofertas: list[OfertaLista] = []
+    vistas: set[tuple[str | None, Decimal, str]] = set()
+    for posicao, bloco in blocos:
+        preco = _preco_da_oferta(bloco)
+        if preco is None:
+            log.warning("oferta %d do painel sem preço legível; descartada", posicao)
+            continue
+        condicao = _condicao(bloco)
+        nome, seller_id, texto_vendedor = _vendedor_da_oferta(bloco)
+        if (nome, preco, condicao) in vistas:
+            continue  # a destacada costuma se repetir na lista
+        vistas.add((nome, preco, condicao))
+        quem_envia, origem = _envio_da_oferta(bloco)
+        envio = classificar_envio(nome, quem_envia)
+        texto = bloco.text(separator=" ", strip=True)
+        baixo = texto.lower()
+        pct = _RE_PCT_POSITIVAS.search(texto_vendedor)
+        num = _RE_NUM_AVALIACOES.search(texto_vendedor)
+        de = _RE_PRECO_DE.search(texto)
+        cupom = _RE_CUPOM.search(bloco.text(separator="\n", strip=True))
+        ofertas.append(
+            OfertaLista(
+                posicao=posicao,
+                vendedor_nome=nome,
+                seller_id=SELLER_AMAZON if envio is Envio.AMAZON else seller_id,
+                preco=preco,
+                preco_de=parse_preco_brl(de.group(1)) if de else None,
+                condicao=condicao,
+                envio=envio,
+                origem_envio=origem,
+                importada=any(marca in baixo for marca in _MARCAS_IMPORTADA)
+                or (origem is not None and origem.lower() != "brasil"),
+                prime=any(bloco.css_first(seletor) is not None for seletor in SELETORES_PRIME),
+                pct_positivas=Decimal(pct.group(1)) if pct else None,
+                num_avaliacoes=int(num.group(1).replace(".", "")) if num else None,
+                cupom=" ".join(cupom.group(1).split()) if cupom else None,
+            )
+        )
+    return ofertas

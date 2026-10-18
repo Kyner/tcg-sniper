@@ -13,6 +13,7 @@ from tcg_sniper.db.models import (
     Envio,
     FilaAmazon,
     Oportunidade,
+    OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
     PrecoAtualAmazon,
@@ -274,27 +275,6 @@ def test_casar_link_manual_sem_linha_na_fila_nao_quebra(s):
     assert s.get(FilaAmazon, produto.id).proxima_busca_em == T0 + timedelta(minutes=1)
 
 
-def test_confirmados_ausentes_mais_antigos_primeiro_e_com_limite(s):
-    produto = criar_produto(s, "ff")
-    outro = criar_produto(s, "outro")
-    sem_leitura = criar_anuncio(s, "B0SEMLEIT1", produto=produto, status=StatusCasamento.CONFIRMADO)
-    velho = criar_anuncio(s, "B0VELHO001", produto=produto, status=StatusCasamento.CONFIRMADO)
-    novo = criar_anuncio(s, "B0NOVO0001", produto=produto, status=StatusCasamento.CONFIRMADO)
-    visto = criar_anuncio(s, "B0VISTO001", produto=produto, status=StatusCasamento.CONFIRMADO)
-    criar_anuncio(s, "B0PENDENT1", produto=produto)
-    criar_anuncio(s, "B0OUTRO001", produto=outro, status=StatusCasamento.CONFIRMADO)
-    for anuncio, quando in ((velho, T0), (novo, T0 + timedelta(hours=2)), (visto, T0)):
-        repo.registrar_preco(s, anuncio.id, Decimal(10), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, quando, SP)
-
-    ausentes = repo.confirmados_ausentes(s, produto.id, {"B0VISTO001"}, limite=5)
-    assert [asin for _, asin, _ in ausentes] == ["B0SEMLEIT1", "B0VELHO001", "B0NOVO0001"]
-    assert ausentes[0] == (sem_leitura.id, "B0SEMLEIT1", sem_leitura.url)
-    assert [asin for _, asin, _ in repo.confirmados_ausentes(s, produto.id, set(), limite=2)] == [
-        "B0SEMLEIT1",
-        "B0VELHO001",
-    ]
-
-
 def test_atualizar_leitura(s):
     anuncio = criar_anuncio(s, "B0LEITURA1")
     repo.atualizar_leitura(s, anuncio.id, "Título real da página", "Collector Booster Box", T0 + timedelta(days=2))
@@ -334,3 +314,28 @@ def test_busca_so_preenche_imagem_vazia_e_produto_troca(s):
     repo.atualizar_leitura(s, a.id, "Caixa", None, T0)  # sem imagem: mantém
     s.refresh(a)
     assert a.imagem_url == "https://img/grande.jpg"
+
+
+def test_origem_do_casamento_em_cada_decisao(s):
+    produto = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B0ORIG0001", produto=produto)
+    b = criar_anuncio(s, "B0ORIG0002", produto=produto)
+    assert a.origem_casamento is None
+    repo.confirmar_casamento(s, a.id, produto.id, T0)
+    assert a.origem_casamento is OrigemCasamento.MANUAL
+    repo.ignorar_anuncio(s, b.id, T0, OrigemCasamento.SUGERIDO_IA)
+    assert b.origem_casamento is OrigemCasamento.SUGERIDO_IA
+    repo.confirmar_casamento(s, b.id, produto.id, T0, OrigemCasamento.AUTOMATICO_IA)
+    assert b.origem_casamento is OrigemCasamento.AUTOMATICO_IA
+    repo.desfazer_casamento(s, b.id, T0)
+    assert b.origem_casamento is None
+
+
+def test_link_manual_tem_origem_manual(s):
+    produto = criar_produto(s, "p1")
+    novo = repo.casar_link_manual(s, produto.id, "B0ORIG0003", T0)
+    existente = criar_anuncio(s, "B0ORIG0004", produto=produto)
+    repo.ignorar_anuncio(s, existente.id, T0, OrigemCasamento.SUGERIDO_IA)
+    repo.casar_link_manual(s, produto.id, "B0ORIG0004", T0)
+    assert novo.origem_casamento is OrigemCasamento.MANUAL
+    assert existente.origem_casamento is OrigemCasamento.MANUAL

@@ -1,6 +1,7 @@
 """Consultas das telas da Amazon no admin."""
 
 import difflib
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
@@ -10,14 +11,19 @@ from sqlalchemy.orm import Session
 
 from tcg_sniper.admin.consultas import casa_nome
 from tcg_sniper.coletor_amazon.termo import termo_busca
+from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     AvaliacaoIA,
     Coleta,
+    ConferenciaCheckout,
     ConfigAmazon,
     Envio,
+    OfertaAmazon,
     Oportunidade,
+    OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
     PrecoAtualAmazon,
@@ -28,7 +34,14 @@ from tcg_sniper.db.models import (
     TipoColeta,
     VendedorAmazon,
 )
-from tcg_sniper.oportunidades.motor import Regras, Vendedor, atinge_desconto, desconto_pct, vendedor_confiavel
+from tcg_sniper.oportunidades.motor import (
+    Regras,
+    Vendedor,
+    atinge_desconto,
+    desconto_pct,
+    preco_conferido,
+    vendedor_confiavel,
+)
 
 
 def ciclo_atual(s: Session) -> Coleta | None:
@@ -171,6 +184,8 @@ class LinhaAnuncio:
     confiavel: bool
     verificado: bool
     ia: AvaliacaoIA | None = None  # avaliação da IA para este anúncio contra este produto
+    ofertas: tuple[OfertaAmazon, ...] = ()  # da última leitura do monitor, a mais barata primeiro
+    conferencia: ConferenciaCheckout | None = None  # conferência ok válida para a melhor oferta
 
 
 @dataclass(frozen=True)
@@ -188,10 +203,50 @@ def _selo_do_vendedor(atual: PrecoAtualAmazon | None, vendedor: VendedorAmazon |
         return False, False
     info = Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes) if vendedor else None
     confiavel = atual.envio is Envio.AMAZON or (atual.envio is Envio.FBA and vendedor_confiavel(info, regras))
-    return confiavel, atual.origem is OrigemPreco.PRODUTO
+    return confiavel, atual.origem in (OrigemPreco.PRODUTO, OrigemPreco.OFERTAS)
 
 
-def detalhe_casamento(s: Session, produto_id: int, config: ConfigAmazon) -> DetalheCasamento | None:
+def _conferencias_das_melhores(
+    s: Session,
+    precos: Sequence[tuple[int, Sequence[OfertaAmazon], Decimal | None]],
+    validade_h: int,
+    agora: datetime,
+) -> dict[int, ConferenciaCheckout]:
+    """Conferência válida da melhor oferta de cada anúncio (anúncio, ofertas lidas, preço atual), numa
+    consulta só (sem uma consulta por linha)."""
+    chaves = []
+    for anuncio_id, ofertas, preco in precos:
+        melhor = next((o for o in ofertas if o.melhor), None)
+        if melhor is not None and preco is not None:
+            chaves.append((anuncio_id, melhor.vendedor_nome, preco))
+    return repo_amz.conferencias_validas(s, chaves, agora, validade_h)
+
+
+def _com_ofertas(s: Session, linhas: list[LinhaAnuncio], config: ConfigAmazon, agora: datetime) -> list[LinhaAnuncio]:
+    por_anuncio = repo_amz.ofertas_da_ultima_leitura(s, [linha.anuncio.id for linha in linhas])
+    precos = [
+        (
+            linha.anuncio.id,
+            por_anuncio.get(linha.anuncio.id, ()),
+            linha.atual.preco if linha.atual is not None and linha.atual.origem is OrigemPreco.OFERTAS else None,
+        )
+        for linha in linhas
+    ]
+    conferencias = _conferencias_das_melhores(s, precos, config.checkout_validade_h, agora)
+    return [
+        replace(
+            linha,
+            ofertas=tuple(por_anuncio.get(linha.anuncio.id, ())),
+            conferencia=conferencias.get(linha.anuncio.id),
+        )
+        for linha in linhas
+    ]
+
+
+def detalhe_casamento(
+    s: Session, produto_id: int, config: ConfigAmazon, agora: datetime | None = None
+) -> DetalheCasamento | None:
+    agora = agora or repo.agora_utc()
     produto = s.get(ProdutoLiga, produto_id)
     if produto is None or not produto.ativo:
         return None
@@ -216,7 +271,8 @@ def detalhe_casamento(s: Session, produto_id: int, config: ConfigAmazon) -> Deta
         grupos[situacao] = [replace(linha, ia=avaliacoes.get((linha.anuncio.id, produto_id))) for linha in linhas]
     pendentes = grupos[StatusCasamento.PENDENTE]
     pendentes.sort(key=lambda linha: -(linha.ia.confianca if linha.ia and linha.ia.mesmo_produto else -1))
-    return DetalheCasamento(produto, preco_liga, pendentes, grupos[StatusCasamento.CONFIRMADO], grupos[StatusCasamento.IGNORADO])
+    confirmados = _com_ofertas(s, grupos[StatusCasamento.CONFIRMADO], config, agora)
+    return DetalheCasamento(produto, preco_liga, pendentes, confirmados, grupos[StatusCasamento.IGNORADO])
 
 
 def _com_preco_liga(s: Session, ids: list[int]) -> list[tuple[ProdutoLiga, Decimal | None]]:
@@ -297,6 +353,11 @@ class LinhaOferta:
     desconto: Decimal | None
     diferenca: Decimal | None  # "À partir de" − preço da Amazon
     aberta: bool
+    origem_casamento: OrigemCasamento | None = None
+    conferencia: ConferenciaCheckout | None = None
+    importada: bool = False
+    origem_envio: str | None = None
+    prime: bool = False
 
 
 def _vendedor_aceito(vendedor: str, envio: Envio, confiavel: bool) -> bool:
@@ -335,29 +396,56 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
     )
     abertas = set(s.scalars(select(Oportunidade.produto_id).where(Oportunidade.fechada_em.is_(None))))
     regras = Regras.de(config)
-    melhores: dict[int, LinhaOferta] = {}
+    aceitas = []
     for anuncio, produto, atual, vendedor, preco_liga in s.execute(consulta):
         confiavel, verificado = _selo_do_vendedor(atual, vendedor, regras)
-        if not _vendedor_aceito(filtro.vendedor, atual.envio, confiavel):
-            continue
-        atual_melhor = melhores.get(produto.id)
-        if atual_melhor is not None and atual_melhor.preco <= atual.preco:
-            continue
-        melhores[produto.id] = LinhaOferta(
-            produto=produto,
-            preco_liga=preco_liga,
-            anuncio=anuncio,
-            preco=atual.preco,
-            envio=atual.envio,
-            vendedor=vendedor,
-            confiavel=confiavel,
-            verificado=verificado,
-            coletado_em=atual.coletado_em,
-            desconto=desconto_pct(atual.preco, preco_liga) if preco_liga else None,
-            diferenca=preco_liga - atual.preco if preco_liga is not None else None,
-            aberta=produto.id in abertas,
+        if _vendedor_aceito(filtro.vendedor, atual.envio, confiavel):
+            aceitas.append((anuncio, produto, atual, vendedor, preco_liga, confiavel, verificado))
+    agora = repo.agora_utc()
+    lidas = repo_amz.ofertas_da_ultima_leitura(s, [anuncio.id for anuncio, *_ in aceitas])
+    conferencias = _conferencias_das_melhores(
+        s, [(anuncio.id, lidas.get(anuncio.id, []), atual.preco) for anuncio, _, atual, *_ in aceitas],
+        config.checkout_validade_h, agora,
+    )
+    melhores: dict[int, tuple[Decimal, LinhaOferta]] = {}
+    for anuncio, produto, atual, vendedor, preco_liga, confiavel, verificado in aceitas:
+        conferencia = conferencias.get(anuncio.id)
+        conferido = (
+            preco_conferido(conferencia.itens, conferencia.impostos, conferencia.total, conferencia.frete)
+            if conferencia is not None
+            else None
         )
-    linhas = list(melhores.values())
+        # Desconto, diferença e a escolha da melhor oferta usam o preço que vale para o aviso: o
+        # conferido (itens + impostos, sem o frete) com conferência válida, senão o anunciado.
+        efetivo = conferido if conferido is not None else atual.preco
+        atual_melhor = melhores.get(produto.id)
+        if atual_melhor is not None and atual_melhor[0] <= efetivo:
+            continue
+        ofertas_lidas = lidas.get(anuncio.id, [])
+        melhor = next((o for o in ofertas_lidas if o.melhor), None)
+        melhores[produto.id] = (
+            efetivo,
+            LinhaOferta(
+                produto=produto,
+                preco_liga=preco_liga,
+                anuncio=anuncio,
+                preco=atual.preco,
+                envio=atual.envio,
+                vendedor=vendedor,
+                confiavel=confiavel,
+                verificado=verificado,
+                coletado_em=atual.coletado_em,
+                desconto=desconto_pct(efetivo, preco_liga) if preco_liga else None,
+                diferenca=preco_liga - efetivo if preco_liga is not None else None,
+                aberta=produto.id in abertas,
+                origem_casamento=anuncio.origem_casamento,
+                conferencia=conferencia if conferido is not None else None,
+                importada=bool(melhor and melhor.importada),
+                origem_envio=melhor.origem_envio if melhor else None,
+                prime=bool(melhor and melhor.prime),
+            ),
+        )
+    linhas = [linha for _, linha in melhores.values()]
     if filtro.desconto_min is not None:
         linhas = [l for l in linhas if l.desconto is not None and l.desconto >= filtro.desconto_min]
     if filtro.situacao == "abertas":
@@ -366,7 +454,10 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
     return linhas
 
 
-def amazon_do_produto(s: Session, produto_id: int, config: ConfigAmazon) -> list[LinhaAnuncio]:
+def amazon_do_produto(
+    s: Session, produto_id: int, config: ConfigAmazon, agora: datetime | None = None
+) -> list[LinhaAnuncio]:
+    agora = agora or repo.agora_utc()
     consulta = (
         select(AnuncioAmazon, PrecoAtualAmazon, VendedorAmazon)
         .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
@@ -375,10 +466,11 @@ def amazon_do_produto(s: Session, produto_id: int, config: ConfigAmazon) -> list
         .order_by(PrecoAtualAmazon.preco.nulls_last(), AnuncioAmazon.id)
     )
     regras = Regras.de(config)
-    return [
+    linhas = [
         LinhaAnuncio(anuncio, atual, vendedor, False, *_selo_do_vendedor(atual, vendedor, regras))
         for anuncio, atual, vendedor in s.execute(consulta)
     ]
+    return _com_ofertas(s, linhas, config, agora)
 
 
 def historico_amazon(s: Session, produto_id: int, limite: int = 90) -> list[tuple[PrecoAmazon, str]]:

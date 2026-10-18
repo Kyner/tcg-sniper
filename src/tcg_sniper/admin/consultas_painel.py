@@ -1,5 +1,6 @@
 """Visão geral do Dashboard: saúde de cada serviço, avisos, números do projeto e atividade do dia."""
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -72,6 +73,8 @@ class Aviso:
     texto: str
     link: str
     rotulo_link: str
+    acao: str | None = None  # POST de um botão ao lado do link (ex.: "Já conferi")
+    rotulo_acao: str | None = None
 
 
 @dataclass(frozen=True)
@@ -175,11 +178,32 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
     return SaudeServico("LigaMagic", "ok", texto_ok, detalhe, link_logs)
 
 
+def _resumo_monitor(s: Session, agora: datetime, cfg: Config) -> str:
+    cfg_amazon = repo_amz.obter_config(s)
+    if not cfg_amazon.monitor_ligado:
+        monitor = "monitor desligado"
+    else:
+        situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon.monitor_intervalo_min)
+        if situacao.ultima is None:
+            monitor = "monitor: nenhuma leitura ainda"
+        else:
+            monitor = f"monitor: última leitura {_quando(situacao.ultima, agora, cfg.zona)}"
+            if situacao.vencidos:
+                monitor += f", {situacao.vencidos} na fila"
+    if not cfg_amazon.checkout_ligado:
+        conferencia = "conferência desligada"
+    elif cfg_amazon.checkout_sem_login_em is not None:
+        conferencia = "conferência parada: conta sem login"
+    else:
+        conferencia = "conferência ligada"
+    return f"{monitor} · {conferencia}"
+
+
 def _saude_amazon(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
     estado = repo.obter_estado(s, agora, COLETOR_AMAZON)
     zona = cfg.zona
     lidos = _contar(s, PrecoAtualAmazon, PrecoAtualAmazon.coletado_em >= agora - timedelta(hours=24))
-    detalhe = f"{lidos} preços lidos nas últimas 24 h"
+    detalhe = f"{lidos} preços lidos nas últimas 24 h · {_resumo_monitor(s, agora, cfg)}"
     if estado.estado is EstadoColetorTipo.PAUSADO_DESAFIO:
         return SaudeServico(
             "Amazon", "pausado_desafio", f"CAPTCHA pendente: {estado.motivo or ''}".strip(),
@@ -310,6 +334,72 @@ def avisos(
             if ultima.erro:
                 texto += f" {ultima.erro}"
             lista.append(Aviso("warning", texto, f"/logs?aba={aba}", "Ver nos logs"))
+    lista += _avisos_monitor(s, agora, config_efetiva)
+    return lista
+
+
+def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
+    """Conta Amazon sem login (a conferência parou), monitor que não cabe no teto por hora e monitor
+    atrasado (leitura mais velha que dois intervalos, com a janela aberta há pelo menos dois intervalos)."""
+    cfg_amazon = repo_amz.obter_config(s)
+    lista = [
+        Aviso(
+            "error",
+            f"Confira o carrinho da Amazon: pode haver 1× {asin} de uma conferência automática "
+            f"({_quando(conferencia.em, agora, cfg.zona)}); tire à mão pelo noVNC (porta 6081) se não for seu.",
+            "/servicos",
+            "Ir para Serviços",
+            f"/amazon/carrinho/{conferencia.id}/conferido",
+            "Já conferi",
+        )
+        for conferencia, asin in repo_amz.conferencias_a_conferir_a_mao(s)
+    ]
+    if cfg_amazon.checkout_ligado and cfg_amazon.checkout_sem_login_em is not None:
+        desde = _quando(cfg_amazon.checkout_sem_login_em, agora, cfg.zona)
+        lista.append(
+            Aviso(
+                "error",
+                f"A conta Amazon está sem login desde {desde}: a conferência de checkout parou (o monitor continua). "
+                "Logue a conta no noVNC (porta 6081) e clique em Retomar conferência.",
+                "/servicos",
+                "Ir para Serviços",
+            )
+        )
+    if not cfg_amazon.monitor_ligado:
+        return lista
+    intervalo = cfg_amazon.monitor_intervalo_min
+    situacao = repo_amz.situacao_monitor(s, agora, intervalo)
+    exigido = math.ceil(situacao.confirmados * 60 / intervalo)
+    if exigido > cfg_amazon.monitor_max_paginas_hora:
+        lista.append(
+            Aviso(
+                "warning",
+                f"O monitor precisa de {exigido} páginas por hora para ler os {situacao.confirmados} anúncios "
+                f"confirmados a cada {intervalo} min, acima do teto de {cfg_amazon.monitor_max_paginas_hora}: "
+                "as leituras vão atrasar.",
+                "/configuracoes",
+                "Ajustar em Configurações",
+            )
+        )
+    local = agora.astimezone(cfg.zona)
+    abertura = local.replace(
+        hour=cfg_amazon.monitor_janela_inicio.hour, minute=cfg_amazon.monitor_janela_inicio.minute, second=0, microsecond=0
+    )
+    dois_intervalos = timedelta(minutes=2 * intervalo)
+    aberta_ha_tempo = (
+        cfg_amazon.monitor_janela_inicio <= local.time() < cfg_amazon.monitor_janela_fim and local - abertura >= dois_intervalos
+    )
+    ativo = repo.obter_estado(s, agora, COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
+    if ativo and aberta_ha_tempo and situacao.mais_antiga is not None and agora - situacao.mais_antiga >= dois_intervalos:
+        minutos = int((agora - situacao.mais_antiga).total_seconds() // 60)
+        lista.append(
+            Aviso(
+                "warning",
+                f"O monitor está atrasado: {situacao.vencidos} anúncio(s) com leitura vencida, o mais antigo lido há {minutos} min.",
+                "/logs?aba=monitor",
+                "Ver nos logs",
+            )
+        )
     return lista
 
 

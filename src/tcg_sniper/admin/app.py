@@ -45,6 +45,7 @@ from tcg_sniper.db.models import (
     TipoColeta,
 )
 from tcg_sniper.formatacao import formatar_brl
+from tcg_sniper.oportunidades import motor
 
 SENHA_PADRAO = "trocar-esta-senha"
 MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
@@ -61,6 +62,12 @@ MENSAGENS_SERVICOS = {
     "desafio_pendente": "Há um desafio pendente: resolva pelo noVNC e clique em Retomar (nada foi desligado).",
     "notificador_retomar": "Envio do WhatsApp ligado.",
     "amazon_pausar": "Busca na Amazon pausada.",
+    "monitor_ligar": "Monitor de preço ligado.",
+    "monitor_desligar": "Monitor de preço desligado. A busca de anúncios novos continua.",
+    "checkout_ligar": "Conferência de checkout ligada.",
+    "checkout_desligar": "Conferência de checkout desligada. Os alertas usam o preço anunciado.",
+    "checkout_retomar": "Conferência de checkout retomada.",
+    "carrinho_conferido": "Carrinho conferido: o aviso saiu.",
     "amazon_retomar": "Busca na Amazon retomada.",
     "casador_pausar": "Casador pausado.",
     "casador_retomar": "Casador retomado; roda em até 1 minuto.",
@@ -68,7 +75,7 @@ MENSAGENS_SERVICOS = {
 }
 
 
-ABAS_LOGS = ("liga", "amazon", "ia")
+ABAS_LOGS = ("liga", "amazon", "monitor", "checkout", "ia")
 
 MENSAGENS_CASAMENTO = {"link_salvo": "Link salvo; o anúncio será lido em alguns minutos."}
 
@@ -130,6 +137,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.globals["icone"] = icone
     templates.env.globals["versao_css"] = (estilo.hash_gravado() or "0")[:12]
     templates.env.filters["brl"] = formatar_brl
+    # Preço conferido de uma conferência (itens + impostos, SEM o frete; regra do usuário).
+    templates.env.globals["valor_conferido"] = lambda c: motor.preco_conferido(c.itens, c.impostos, c.total, c.frete)
     templates.env.filters["usd"] = lambda v: f"US$ {v:.2f}".replace(".", ",")
     templates.env.filters["usd4"] = lambda v: f"US$ {v:.4f}".replace(".", ",")
     templates.env.filters["duracao"] = duracao
@@ -178,6 +187,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         situacao: str = "todas",
         finalidade: str = "todas",
         ia_pagina: str = "1",
+        monitor_pagina: str = "1",
+        checkout_situacao: str = "todas",
+        checkout_pagina: str = "1",
     ):
         if aba not in ABAS_LOGS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
@@ -188,6 +200,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
         if finalidade not in consultas.FINALIDADES_IA:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"finalidade inválida: {finalidade}")
+        if checkout_situacao not in consultas.SITUACOES_CHECKOUT:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {checkout_situacao}")
         with sessoes() as s, s.begin():
             coletas, pagina_liga, paginas_liga = consultas.historico_coletas(
                 s, TIPOS_LIGA, liga_status, numero_pagina(liga_pagina)
@@ -198,6 +212,13 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             chamadas, pagina_ia, paginas_ia = consultas.historico_chamadas_ia(
                 s, situacao, finalidade, numero_pagina(ia_pagina)
             )
+            # A consulta do monitor (agrupa todas as ofertas lidas) só roda na própria aba.
+            leituras, pagina_monitor, paginas_monitor = None, numero_pagina(monitor_pagina), 1
+            if aba == "monitor":
+                leituras, pagina_monitor, paginas_monitor = consultas.historico_monitor(s, pagina_monitor)
+            conferencias, pagina_checkout, paginas_checkout = consultas.historico_conferencias(
+                s, checkout_situacao, numero_pagina(checkout_pagina)
+            )
             parametros = {
                 "aba": aba,
                 "liga_status": liga_status,
@@ -207,6 +228,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 "situacao": situacao,
                 "finalidade": finalidade,
                 "ia_pagina": pagina_ia,
+                "monitor_pagina": pagina_monitor,
+                "checkout_situacao": checkout_situacao,
+                "checkout_pagina": pagina_checkout,
             }
 
             def link(**mudancas) -> str:
@@ -228,6 +252,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "paginas_amazon": paginas_amazon,
                     "pagina_ia": pagina_ia,
                     "paginas_ia": paginas_ia,
+                    "leituras": leituras,
+                    "pagina_monitor": pagina_monitor,
+                    "paginas_monitor": paginas_monitor,
+                    "conferencias": conferencias,
+                    "pagina_checkout": pagina_checkout,
+                    "paginas_checkout": paginas_checkout,
+                    "checkout_situacao": checkout_situacao,
+                    "situacoes_checkout": consultas.SITUACOES_CHECKOUT,
                     "liga_status": liga_status,
                     "amazon_status": amazon_status,
                     "situacao": situacao,
@@ -255,6 +287,10 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
                     "janela": (f"{cfg_amazon.janela_inicio:%H:%M}", f"{cfg_amazon.janela_fim:%H:%M}"),
+                    "cfg_amazon": cfg_amazon,
+                    "a_conferir_a_mao": repo_amz.conferencias_a_conferir_a_mao(s),
+                    "janela_monitor": (f"{cfg_amazon.monitor_janela_inicio:%H:%M}", f"{cfg_amazon.monitor_janela_fim:%H:%M}"),
+                    "monitor": repo_amz.situacao_monitor(s, repo.agora_utc(), cfg_amazon.monitor_intervalo_min),
                     "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
                     "cfg_ia": repo_ia.obter_config_ia(s),
                     "ia_chave": bool((config.openai_api_key or "").strip()),
@@ -318,6 +354,40 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         with sessoes() as s, s.begin():
             repo.retomar(s, repo.agora_utc(), COLETOR_AMAZON)
         return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
+
+    def _ajustar_amazon(valores: dict[str, object], msg: str) -> RedirectResponse:
+        with sessoes() as s, s.begin():
+            aplicar_config(s, valores, repo.agora_utc())
+        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/amazon/monitor/ligar")
+    def ligar_monitor():
+        return _ajustar_amazon({"monitor_ligado": True}, "monitor_ligar")
+
+    @app.post("/amazon/monitor/desligar")
+    def desligar_monitor():
+        return _ajustar_amazon({"monitor_ligado": False}, "monitor_desligar")
+
+    @app.post("/amazon/checkout/ligar")
+    def ligar_checkout():
+        return _ajustar_amazon({"checkout_ligado": True}, "checkout_ligar")
+
+    @app.post("/amazon/checkout/desligar")
+    def desligar_checkout():
+        return _ajustar_amazon({"checkout_ligado": False}, "checkout_desligar")
+
+    @app.post("/amazon/checkout/retomar")
+    def retomar_checkout():
+        return _ajustar_amazon({"checkout_sem_login_em": None}, "checkout_retomar")
+
+    @app.post("/amazon/carrinho/{conferencia_id}/conferido")
+    def carrinho_conferido(conferencia_id: int):
+        """"Já conferi": o usuário viu o carrinho pelo noVNC; a conferência sai do "conferir à mão"."""
+        with sessoes() as s, s.begin():
+            resolvida = repo_amz.marcar_item_removido(s, conferencia_id)
+        if not resolvida:  # inexistente ou fora do "conferir à mão": não marca nada
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "conferência não está aguardando conferência à mão")
+        return RedirectResponse("/servicos?msg=carrinho_conferido", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/casador/pausar")
     def pausar_casador():
@@ -804,9 +874,11 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 destino_produto = s.get(ProdutoLiga, int(texto))
                 if destino_produto is None or not destino_produto.ativo:
                     raise HTTPException(status.HTTP_404_NOT_FOUND)
-                repo_amz.confirmar_casamento(s, anuncio_id, int(texto), agora)
+                origem = repo_ia.origem_da_decisao(s, anuncio_id, int(texto))
+                repo_amz.confirmar_casamento(s, anuncio_id, int(texto), agora, origem)
             elif acao == "ignorar":
-                repo_amz.ignorar_anuncio(s, anuncio_id, agora)
+                sugerido = s.get(AnuncioAmazon, anuncio_id).produto_id
+                repo_amz.ignorar_anuncio(s, anuncio_id, agora, repo_ia.origem_da_decisao(s, anuncio_id, sugerido))
             else:
                 repo_amz.desfazer_casamento(s, anuncio_id, agora)
         destino = destino_seguro(formulario.get("voltar", "/casamentos"))

@@ -27,6 +27,13 @@ CAMPOS = (
     "vendedor_min_positivas_pct",
     "vendedor_min_avaliacoes",
     "vendedor_reavaliar_dias",
+    "monitor_intervalo_min",
+    "monitor_janela_inicio",
+    "monitor_janela_fim",
+    "monitor_max_paginas_hora",
+    "margem_candidata_pp",
+    "checkout_validade_h",
+    "descoberta_casados_dias",
 )
 
 ROTULOS = {
@@ -45,6 +52,13 @@ ROTULOS = {
     "vendedor_min_positivas_pct": "Lojista FBA: mínimo de positivas (%)",
     "vendedor_min_avaliacoes": "Lojista FBA: mínimo de avaliações",
     "vendedor_reavaliar_dias": "Reavaliar lojista a cada (dias)",
+    "monitor_intervalo_min": "Ler cada anúncio confirmado a cada (min)",
+    "monitor_janela_inicio": "Início do monitor",
+    "monitor_janela_fim": "Fim do monitor",
+    "monitor_max_paginas_hora": "Máximo de páginas por hora do monitor e da conferência",
+    "margem_candidata_pp": "Conferir no checkout a partir de (pontos abaixo do desconto mínimo)",
+    "checkout_validade_h": "Conferência de checkout vale por (h)",
+    "descoberta_casados_dias": "Buscar de novo produtos já casados a cada (dias)",
 }
 
 EXPLICACOES = {
@@ -66,6 +80,19 @@ EXPLICACOES = {
     "vendedor_min_positivas_pct": "Percentual mínimo de avaliações positivas de um lojista com envio pela Amazon.",
     "vendedor_min_avaliacoes": "Número mínimo de avaliações de um lojista com envio pela Amazon.",
     "vendedor_reavaliar_dias": "De quantos em quantos dias reler o perfil de um lojista.",
+    "monitor_intervalo_min": "De quantos em quantos minutos ler a lista de ofertas de cada anúncio confirmado.",
+    "monitor_janela_inicio": "Hora (HH:MM) em que o monitor começa, com variação de até 15 minutos.",
+    "monitor_janela_fim": "Hora (HH:MM) em que o monitor para, com variação de até 15 minutos.",
+    "monitor_max_paginas_hora": (
+        "Teto de páginas por hora somando monitor, conferência de checkout e retirada de itens do carrinho. "
+        "A busca de anúncios novos tem o próprio teto."
+    ),
+    "margem_candidata_pp": (
+        "Uma oferta com desconto anunciado de pelo menos (desconto mínimo − este valor) vai ao checkout "
+        "para conferir impostos e frete."
+    ),
+    "checkout_validade_h": "Por quantas horas o total conferido vale para a mesma oferta (vendedor e preço).",
+    "descoberta_casados_dias": "Produto que já tem anúncio confirmado só volta à busca depois deste número de dias.",
 }
 
 
@@ -90,7 +117,7 @@ def validar_config(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[s
     else:
         valores["url_busca"] = url
 
-    for campo in ("janela_inicio", "janela_fim"):
+    for campo in ("janela_inicio", "janela_fim", "monitor_janela_inicio", "monitor_janela_fim"):
         hora = ler_hora((campos.get(campo) or "").strip())
         if hora is None:
             erros[campo] = "Use o formato HH:MM, por exemplo 08:00."
@@ -112,6 +139,12 @@ def validar_config(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[s
         erros["pausa_min_s"] = "A pausa mínima não pode ser maior que a máxima."
     if "janela_inicio" in valores and "janela_fim" in valores and valores["janela_inicio"] >= valores["janela_fim"]:
         erros["janela_fim"] = "O fim da janela precisa ser depois do início."
+    if (
+        "monitor_janela_inicio" in valores
+        and "monitor_janela_fim" in valores
+        and valores["monitor_janela_inicio"] >= valores["monitor_janela_fim"]
+    ):
+        erros["monitor_janela_fim"] = "O fim da janela do monitor precisa ser depois do início."
     return valores, erros
 
 

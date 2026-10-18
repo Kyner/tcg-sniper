@@ -6,9 +6,9 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select, tuple_, update
+from sqlalchemy import and_, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from tcg_sniper.db.models import (
     PADROES_CONFIG_IA,
@@ -16,6 +16,7 @@ from tcg_sniper.db.models import (
     AvaliacaoIA,
     ChamadaIA,
     ConfigIA,
+    OrigemCasamento,
     PrecoAtualAmazon,
     PrecoAtualLiga,
     ProdutoLiga,
@@ -88,9 +89,21 @@ class ParPendente:
     preco_amazon: Decimal | None
 
 
-def pares_pendentes(s: Session) -> list[ParPendente]:
+def origem_da_decisao(s: Session, anuncio_id: int, produto_id: int | None) -> OrigemCasamento:
+    """Decisão do usuário: `sugerido_ia` se a IA avaliou este par (anúncio, produto), senão `manual`."""
+    if produto_id is None:
+        return OrigemCasamento.MANUAL
+    avaliada = s.scalar(
+        select(AvaliacaoIA.id).where(AvaliacaoIA.anuncio_id == anuncio_id, AvaliacaoIA.produto_id == produto_id).limit(1)
+    )
+    return OrigemCasamento.SUGERIDO_IA if avaliada is not None else OrigemCasamento.MANUAL
+
+
+def pares_pendentes(s: Session, so_descoberta: bool = False) -> list[ParPendente]:
     """Anúncios pendentes com produto sugerido, com a avaliação desse par (se houver) e os preços atuais.
-    Produtos ativos primeiro; depois os vistos mais recentemente."""
+    Produtos ativos primeiro; depois os vistos mais recentemente. Com `so_descoberta` (o casador), pula
+    os de produto já casado, exceto os vistos pela primeira vez depois do primeiro casamento do produto
+    (os anúncios novos da busca semanal)."""
     consulta = (
         select(AnuncioAmazon, ProdutoLiga, AvaliacaoIA, PrecoAtualLiga.preco_a_partir, PrecoAtualAmazon.preco)
         .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
@@ -103,6 +116,14 @@ def pares_pendentes(s: Session) -> list[ParPendente]:
         .where(AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE)
         .order_by(ProdutoLiga.ativo.desc(), AnuncioAmazon.visto_ultimo_em.desc(), AnuncioAmazon.id)
     )
+    if so_descoberta:
+        casado = aliased(AnuncioAmazon)
+        casado_desde = (
+            select(func.min(casado.revisado_em))
+            .where(casado.produto_id == AnuncioAmazon.produto_id, casado.status_casamento == StatusCasamento.CONFIRMADO)
+            .scalar_subquery()
+        )
+        consulta = consulta.where(or_(casado_desde.is_(None), AnuncioAmazon.visto_primeiro_em > casado_desde))
     return [ParPendente(*linha) for linha in s.execute(consulta)]
 
 

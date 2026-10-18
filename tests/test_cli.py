@@ -192,3 +192,62 @@ def test_ia_avaliar_repassa_os_precos(monkeypatch, tmp_path):
     cli.main(["ia", "avaliar", "--modelo", "gpt-5-mini", "--preco-entrada", "0.25", "--preco-saida", "2"])
     esperado = {"preco_entrada": Decimal("0.25"), "preco_saida": Decimal(2)}
     assert vistos["avaliar"] == esperado and vistos["relatorio"] == esperado
+
+
+def test_amazon_capturar_recusa_com_o_coletor_rodando(monkeypatch):
+    from contextlib import contextmanager
+
+    from tcg_sniper.coletor_liga import agendador
+
+    @contextmanager
+    def lock_ocupado(_engine, _id):
+        yield False
+
+    monkeypatch.setattr(agendador, "lock_coleta", lock_ocupado)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x@y/z")
+    with pytest.raises(SystemExit, match="docker compose stop coletor-amazon"):
+        cli.main(["amazon", "capturar", "--asin", "B0DNV55QBS"])
+
+
+def test_amazon_capturar_exige_asin():
+    with pytest.raises(SystemExit):
+        cli.main(["amazon", "capturar"])
+
+
+def test_amazon_capturar_mostra_o_que_salvou_e_os_avisos_mesmo_com_erro(monkeypatch, tmp_path, capsys):
+    from contextlib import contextmanager
+
+    from tcg_sniper.coletor_amazon import captura
+    from tcg_sniper.coletor_liga import agendador
+    from tcg_sniper.navegador import chromium
+
+    @contextmanager
+    def lock_livre(_engine, _id):
+        yield True
+
+    class ChromiumFalso:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    def capturar_que_quebra(_nav, _asins, destino, *, checkout, pausar, cap):
+        cap.salvas.append(destino / "carrinho_inicial.html")
+        cap.avisos.append("o item B0DNV55QBS pode ter ficado no carrinho")
+        raise RuntimeError("quebrou")
+
+    monkeypatch.setattr(agendador, "lock_coleta", lock_livre)
+    monkeypatch.setattr(chromium, "NavegadorChromium", ChromiumFalso)
+    monkeypatch.setattr(captura, "capturar", capturar_que_quebra)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x@y/z")
+    monkeypatch.setenv("DIR_DADOS", str(tmp_path))
+    with pytest.raises(RuntimeError, match="quebrou"):
+        cli.main(["amazon", "capturar", "--asin", "B0DNV55QBS", "--checkout"])
+    saida = capsys.readouterr().out
+    assert f"capturas em {tmp_path}" in saida
+    assert "carrinho_inicial.html" in saida
+    assert "AVISO: o item B0DNV55QBS pode ter ficado no carrinho" in saida

@@ -12,6 +12,24 @@
   <noscript><button class="btn btn-xs">{{ "Desligar" if ligado else "Ligar" }}</button></noscript>
 </form>
 {% endmacro %}
+{# Conta Amazon sem login: o botão de retomar a conferência aparece também com a Amazon pausada por desafio. #}
+{% macro alerta_sem_login() %}
+{% if cfg_amazon.checkout_sem_login_em %}
+<div role="alert" class="alert alert-error alert-soft text-sm">
+  <span>Conta Amazon sem login desde {{ cfg_amazon.checkout_sem_login_em|data }}. Logue em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e retome.</span>
+  <form method="post" action="/amazon/checkout/retomar"><button class="btn btn-sm btn-primary">Retomar conferência</button></form>
+</div>
+{% endif %}
+{% endmacro %}
+{# Item de uma conferência que o coletor não tirou sozinho: o usuário confere pelo noVNC e marca "Já conferi". #}
+{% macro alerta_carrinho() %}
+{% for c, asin in a_conferir_a_mao %}
+<div role="alert" class="alert alert-error alert-soft text-sm">
+  <span>Confira o carrinho da Amazon: pode haver 1× <span class="font-mono">{{ asin }}</span> de uma conferência automática ({{ c.em|data }}). Tire à mão pelo noVNC em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> se não for seu.</span>
+  <form method="post" action="/amazon/carrinho/{{ c.id }}/conferido"><button class="btn btn-sm btn-primary">Já conferi</button></form>
+</div>
+{% endfor %}
+{% endmacro %}
 {% macro selo_ligado(ligado) %}{{ selo("ok", "ligado") if ligado else selo("pausado", "desligado") }}{% endmacro %}
 
 <div class="grid gap-3 md:grid-cols-2">
@@ -49,6 +67,8 @@
     <h2 class="card-title text-base">Amazon {{ selo("pausado_desafio", "desafio pendente") }}</h2>
     <p class="text-sm">Pausada: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}</p>
     <p class="text-sm">Resolva em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar.</p>
+    {{ alerta_sem_login() }}
+    {{ alerta_carrinho() }}
     <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-sm btn-primary">Retomar</button></form><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
   </div></div>
   {% else %}
@@ -62,6 +82,18 @@
     {% else %}
     <p class="text-sm">Desligada: {{ estado_amazon.motivo or "sem motivo" }}. Volta quando você ligar de novo.</p>
     {% endif %}
+    <div class="divider my-0"></div>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <span class="text-sm font-medium">Monitor de preço</span>
+      {{ chave("/amazon/monitor/desligar" if cfg_amazon.monitor_ligado else "/amazon/monitor/ligar", cfg_amazon.monitor_ligado, "monitor de preço") }}
+    </div>
+    <p class="text-sm">A cada {{ cfg_amazon.monitor_intervalo_min }} min, das {{ janela_monitor[0] }} às {{ janela_monitor[1] }}{% if monitor.ultima %} · última leitura {{ monitor.ultima|data }}{% endif %}{% if monitor.vencidos %} · {{ monitor.vencidos }} na fila{% endif %}.</p>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <span class="text-sm font-medium">Conferência de checkout</span>
+      {{ chave("/amazon/checkout/desligar" if cfg_amazon.checkout_ligado else "/amazon/checkout/ligar", cfg_amazon.checkout_ligado, "conferência de checkout") }}
+    </div>
+    {{ alerta_sem_login() }}
+    {{ alerta_carrinho() }}
     <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
   </div></div>
   {% endif %}

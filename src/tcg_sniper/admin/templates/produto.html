@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import selo_vendedor, cabecalho %}
+{% from "_componentes.html" import selo_vendedor, cabecalho, selo_origem, tabela_ofertas, preco_conferido %}
 {% block titulo %}{{ p.nome }} · TCG Sniper{% endblock %}
 {% block conteudo %}
 {% call cabecalho(p.nome, [p.tipo, "Monitorado" if p.ativo else "Não monitorado"]|select|join(" · "), p.nome_en) %}
@@ -24,11 +24,12 @@
     <tbody>
     {% for l in amazon %}{% set anuncio = l.anuncio %}{% set atual_amz = l.atual %}
       <tr>
-        <td><a class="link font-mono" href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<div class="text-xs text-base-content/70">{{ anuncio.variacao }}</div>{% endif %}</td>
+        <td><a class="link font-mono" href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<div class="text-xs text-base-content/70">{{ anuncio.variacao }}</div>{% endif %}<div>{{ selo_origem(anuncio.origem_casamento) }}</div></td>
         <td class="text-right tabular-nums whitespace-nowrap">{{ (atual_amz.preco if atual_amz else None)|brl }}</td>
         <td>{% if atual_amz %}{{ selo_vendedor(l.verificado, l.confiavel, atual_amz.envio, l.vendedor) }}{% else %}—{% endif %}</td>
         <td class="whitespace-nowrap">{{ (atual_amz.coletado_em if atual_amz else None)|data }}</td>
       </tr>
+      {% if l.ofertas %}<tr><td colspan="4">{{ preco_conferido(l.conferencia) }}{{ tabela_ofertas(l.ofertas) }}</td></tr>{% elif atual_amz and atual_amz.origem.value == "ofertas" %}<tr><td colspan="4"><p class="text-xs text-base-content/60">sem ofertas na última leitura</p></td></tr>{% endif %}
     {% else %}
       <tr><td colspan="4">Nenhum anúncio da Amazon confirmado.</td></tr>
     {% endfor %}

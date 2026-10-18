@@ -1,35 +1,32 @@
-"""Uma busca na Amazon para um produto da Liga: grava os resultados, confirma os candidatos na
-página do produto (e o perfil do vendedor, se preciso), roda o motor e avisa o grupo de
-oportunidades. Não conhece fila, ciclo nem janela (ver varredura.py)."""
+"""Uma busca na Amazon para um produto da Liga (descoberta): grava os resultados (ASIN novo fica
+pendente para o casamento) e o preço de origem `busca`. Não abre página de produto nem de vendedor:
+o preço dos anúncios confirmados é do monitor (monitor.py). Não conhece fila, ciclo nem janela (ver
+varredura.py). `abrir_pagina` e `ler_pagina` são usadas também pelo monitor e pela conferência."""
 
 import dataclasses
 import logging
 import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from urllib.parse import quote_plus
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
-from tcg_sniper.coletor_amazon.modelos import OfertaProduto
-from tcg_sniper.coletor_amazon.parsers import parse_busca, parse_produto_amazon, parse_vendedor, url_vendedor
+from tcg_sniper.coletor_amazon.parsers import parse_busca
 from tcg_sniper.coletor_amazon.termo import termo_busca
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio_amazon as repo
-from tcg_sniper.db.models import ConfigAmazon, Envio, OrigemPreco, ProdutoLiga, VendedorAmazon
-from tcg_sniper.navegador.base import Navegador
+from tcg_sniper.db.models import ConfigAmazon, ProdutoLiga
+from tcg_sniper.navegador.base import NavegadorInterativo
 from tcg_sniper.navegador.modelos import Pagina
 from tcg_sniper.navegador.ritmo import Dormir, com_um_retry, pausa_aleatoria, salvar_html_falha
-from tcg_sniper.notificador.base import Destino, Notificador
+from tcg_sniper.notificador.base import Notificador
 from tcg_sniper.oportunidades import motor
-from tcg_sniper.oportunidades.mensagens import mensagem_oportunidade
 from tcg_sniper.parsing import ErroParser
 
 log = logging.getLogger(__name__)
-
-MAX_CONFIRMADOS_AUSENTES = 5  # anúncios confirmados fora da busca conferidos por busca
 
 
 class DesafioAmazon(Exception):
@@ -38,12 +35,12 @@ class DesafioAmazon(Exception):
         self.url = url
 
 
-MAX_HTMLS_FALHA = 3  # por ciclo: sob bloqueio ou layout novo toda busca falha e cada página tem 1-2 MB
+MAX_HTMLS_FALHA = 3  # por ciclo: sob bloqueio ou layout novo toda página falha e cada uma tem 1-2 MB
 
 
 @dataclass
 class CotaHtmlFalha:
-    """Quantos HTMLs de falha ainda podem ser salvos; a varredura cria uma por ciclo."""
+    """Quantos HTMLs de falha ainda podem ser salvos; a varredura cria uma por ciclo (e uma por dia no monitor)."""
 
     restante: int = MAX_HTMLS_FALHA
 
@@ -57,7 +54,7 @@ class CotaHtmlFalha:
 @dataclass
 class ContextoBusca:
     sessoes: sessionmaker[Session]
-    navegador: Navegador
+    navegador: NavegadorInterativo
     notificador: Notificador
     config: Config
     cfg: ConfigAmazon
@@ -72,7 +69,7 @@ def url_busca(cfg: ConfigAmazon, nome: str) -> str:
     return cfg.url_busca.replace("{termo}", quote_plus(termo_busca(nome)))
 
 
-def _abrir(ctx: ContextoBusca, url: str) -> Pagina:
+def abrir_pagina(ctx: ContextoBusca, url: str) -> Pagina:
     """Pausa humana, abre (uma nova tentativa em erro de rede) e para no CAPTCHA."""
     pausa_aleatoria(ctx.cfg.pausa_min_s, ctx.cfg.pausa_max_s, ctx.dormir, ctx.rng)
     pagina = com_um_retry(lambda: ctx.navegador.abrir(url), url, ctx.dormir)
@@ -81,7 +78,7 @@ def _abrir(ctx: ContextoBusca, url: str) -> Pagina:
     return pagina
 
 
-def _ler[T](ctx: ContextoBusca, pagina: Pagina, sufixo: str, parser: Callable[[str], T]) -> T:
+def ler_pagina[T](ctx: ContextoBusca, pagina: Pagina, sufixo: str, parser: Callable[[str], T]) -> T:
     try:
         return parser(pagina.html)
     except ErroParser:
@@ -89,143 +86,30 @@ def _ler[T](ctx: ContextoBusca, pagina: Pagina, sufixo: str, parser: Callable[[s
             caminho = salvar_html_falha(ctx.config.dir_dados, f"{ctx.nome_falha}-{sufixo}", pagina.html)
             log.warning("parser da Amazon falhou em %s; HTML em %s", pagina.url, caminho)
         else:
-            log.warning("parser da Amazon falhou em %s; HTML não salvo (limite do ciclo atingido)", pagina.url)
+            log.warning("parser da Amazon falhou em %s; HTML não salvo (limite atingido)", pagina.url)
         raise
 
 
 @dataclasses.dataclass(frozen=True)
 class Conferencia:
-    conferidos: int  # páginas de produto lidas: candidatos da busca mais confirmados ausentes da busca
-    candidatos: int  # só os candidatos da busca (os ausentes não contam para o ritmo da fila)
+    candidatos: int  # confirmados da busca já no desconto pelo preço atual (só para o ritmo da fila)
 
 
 def processar_produto(ctx: ContextoBusca, produto: ProdutoLiga, usar_nome_en: bool = False) -> Conferencia:
-    """Busca o produto e confirma os candidatos. Devolve quantos anúncios foram conferidos na página
-    do produto e, desses, quantos eram candidatos da busca (não quantos foram confirmados).
-    Lança DesafioAmazon (CAPTCHA), ErroParser (layout; só depois de ler todos os ausentes) ou ErroRede
-    (depois de uma nova tentativa). `usar_nome_en` busca pelo nome em inglês (se o produto tiver um)."""
+    """Busca o produto e grava os resultados. Devolve quantos anúncios confirmados da busca estão no
+    desconto pelo preço atual (a fila busca mais vezes o produto que teve candidato). Lança
+    DesafioAmazon (CAPTCHA), ErroParser (layout) ou ErroRede (depois de uma nova tentativa).
+    `usar_nome_en` busca pelo nome em inglês (se o produto tiver um)."""
     nome = produto.nome_en if usar_nome_en and produto.nome_en else produto.nome
-    pagina = _abrir(ctx, url_busca(ctx.cfg, nome))
-    itens = _ler(ctx, pagina, "busca", lambda html: parse_busca(html, ctx.cfg.resultados_por_busca))
+    pagina = abrir_pagina(ctx, url_busca(ctx.cfg, nome))
+    itens = ler_pagina(ctx, pagina, "busca", lambda html: parse_busca(html, ctx.cfg.resultados_por_busca))
     with ctx.sessoes() as s, s.begin():
         anuncios = repo.gravar_busca(s, itens, produto.id, ctx.relogio(), ctx.config.zona)
-        candidatos = [
-            (linha.anuncio.id, linha.anuncio.asin, linha.anuncio.url)
+        candidatos = sum(
+            1
             for linha in repo.confirmados_com_referencia(s, [a.id for a in anuncios])
             if motor.atinge_desconto(
                 linha.atual.preco, linha.liga.preco_a_partir if linha.liga else None, ctx.cfg.desconto_min_pct
             )
-            or repo.oportunidade_aberta(s, linha.anuncio.id) is not None  # reconferir para poder fechar
-        ]
-        # Confirmados do produto que a busca não trouxe (link manual, anúncio que saiu da 1ª página).
-        ausentes = repo.confirmados_ausentes(
-            s, produto.id, {a.asin for a in anuncios}, MAX_CONFIRMADOS_AUSENTES
         )
-    for anuncio_id, asin, url in candidatos:
-        _confirmar(ctx, anuncio_id, asin, url)
-    # Um ausente ilegível não pode impedir a leitura dos demais: guarda o primeiro erro e o lança no fim.
-    primeiro_erro: ErroParser | None = None
-    for anuncio_id, asin, url in ausentes:
-        try:
-            _confirmar(ctx, anuncio_id, asin, url)
-        except ErroParser as erro:
-            primeiro_erro = primeiro_erro or erro
-    if primeiro_erro is not None:
-        raise primeiro_erro
-    return Conferencia(len(candidatos) + len(ausentes), len(candidatos))
-
-
-def _vendedor(ctx: ContextoBusca, oferta: OfertaProduto) -> VendedorAmazon | None:
-    """Vendedor da oferta. Só abre o perfil de lojista FBA sem avaliação recente."""
-    with ctx.sessoes() as s, s.begin():
-        if oferta.envio is Envio.AMAZON:
-            return repo.vendedor_da_amazon(s)
-        if oferta.seller_id is None:
-            if oferta.envio is Envio.FBA:
-                log.warning("oferta FBA sem seller_id em %s; vendedor não avaliado", oferta.asin)
-            return None
-        conhecido = repo.obter_vendedor(s, oferta.seller_id)
-    recente = conhecido is not None and conhecido.avaliado_em is not None and (
-        ctx.relogio() - conhecido.avaliado_em < timedelta(days=ctx.cfg.vendedor_reavaliar_dias)
-    )
-    if oferta.envio is not Envio.FBA or recente:
-        return conhecido
-    seller_id = oferta.seller_id
-    pagina = _abrir(ctx, url_vendedor(seller_id))
-    avaliacao = _ler(ctx, pagina, f"vendedor-{seller_id}", lambda html: parse_vendedor(html, seller_id))
-    if avaliacao.nome is None:
-        avaliacao = dataclasses.replace(avaliacao, nome=oferta.vendido_por)
-    with ctx.sessoes() as s, s.begin():
-        return repo.gravar_vendedor(s, avaliacao, ctx.relogio())
-
-
-def _confirmar(ctx: ContextoBusca, anuncio_id: int, asin: str, url: str) -> None:
-    pagina = _abrir(ctx, url)
-    oferta = _ler(ctx, pagina, f"produto-{asin}", lambda html: parse_produto_amazon(html, asin))
-    vendedor = _vendedor(ctx, oferta)
-    agora = ctx.relogio()
-    mensagem = None
-    with ctx.sessoes() as s, s.begin():
-        vendedor_id = vendedor.id if vendedor else None
-        repo.registrar_preco(
-            s, anuncio_id, oferta.preco, OrigemPreco.PRODUTO, vendedor_id, oferta.envio, agora, ctx.config.zona
-        )
-        repo.atualizar_leitura(s, anuncio_id, oferta.titulo, oferta.variacao, agora, oferta.imagem_url)
-        linhas = repo.confirmados_com_referencia(s, [anuncio_id])
-        if not linhas:  # o casamento foi desfeito no admin enquanto a página abria
-            return
-        linha = linhas[0]
-        liga = linha.liga
-        ref = motor.RefLiga(
-            preco_a_partir=liga.preco_a_partir if liga else None,
-            listagem_em=liga.listagem_em if liga else None,
-            num_lojas=liga.num_lojas if liga else None,
-            preco_medio=liga.preco_medio if liga else None,
-        )
-        leitura = motor.Leitura(
-            oferta.preco,
-            oferta.envio,
-            motor.Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes) if vendedor else None,
-        )
-        aberta = repo.oportunidade_aberta(s, anuncio_id)
-        acao = motor.decidir(
-            leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta.preco_alertado if aberta else None
-        )
-        if acao is motor.Acao.ABRIR:
-            repo.abrir_oportunidade(
-                s,
-                anuncio_id=anuncio_id,
-                produto_id=linha.produto.id,
-                preco_amazon=oferta.preco,
-                preco_liga=ref.preco_a_partir,
-                desconto_pct=motor.desconto_pct(oferta.preco, ref.preco_a_partir),
-                vendedor_id=vendedor_id,
-                envio=oferta.envio,
-                agora=agora,
-            )
-        elif acao in (motor.Acao.REALERTAR, motor.Acao.ATUALIZAR):
-            repo.atualizar_oportunidade(
-                s,
-                aberta,
-                preco_amazon=oferta.preco,
-                preco_liga=ref.preco_a_partir,
-                desconto_pct=motor.desconto_pct(oferta.preco, ref.preco_a_partir),
-                vendedor_id=vendedor_id,
-                envio=oferta.envio,
-                alertou=acao is motor.Acao.REALERTAR,
-                agora=agora,
-            )
-        elif acao is motor.Acao.FECHAR:
-            repo.fechar_oportunidade(s, aberta, agora)
-        if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
-            mensagem = mensagem_oportunidade(
-                nome_produto=linha.produto.nome,
-                variacao=oferta.variacao,
-                leitura=leitura,
-                ref=ref,
-                url_amazon=linha.anuncio.url,
-                host=ctx.config.host_publico,
-                produto_id=linha.produto.id,
-            )
-    if mensagem is not None:
-        ctx.notificador.enviar(Destino.OPORTUNIDADES, mensagem)
+    return Conferencia(candidatos)

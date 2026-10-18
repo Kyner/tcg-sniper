@@ -79,3 +79,44 @@
 <span class="badge badge-sm whitespace-nowrap badge-warning">IA: {{ "mesmo produto" if av.mesmo_produto else "outro produto" }} {{ av.confianca }}%</span>
 {%- endif -%}
 {%- endmacro %}
+
+{% macro selo_origem(origem) -%}
+{%- if origem -%}
+{%- set rotulos = {"manual": "manual", "sugerido_ia": "sugerido pela IA", "automatico_ia": "automático pela IA"} -%}
+{%- set cores = {"manual": "badge-ghost", "sugerido_ia": "badge-info badge-outline", "automatico_ia": "badge-primary badge-outline"} -%}
+<span class="badge badge-sm whitespace-nowrap {{ cores[origem.value] }}">{{ rotulos[origem.value] }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro preco_conferido(conferencia) -%}
+{%- if conferencia -%}
+{%- set detalhes = [] -%}
+{%- if conferencia.impostos is not none %}{% set _ = detalhes.append("impostos " ~ conferencia.impostos|brl ~ " inclusos") %}{% endif -%}
+{%- if conferencia.frete is not none %}{% set _ = detalhes.append("frete " ~ conferencia.frete|brl ~ " à parte") %}{% endif -%}
+<div class="text-xs text-base-content/70 tabular-nums">conferido no checkout: {{ valor_conferido(conferencia)|brl }}{% if detalhes %} ({{ detalhes|join("; ") }}){% endif %}</div>
+{%- else -%}
+<div class="text-xs text-base-content/60">não conferido</div>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro selos_oferta(importada, origem_envio, prime) -%}
+{%- if importada %}<span class="badge badge-sm badge-warning badge-outline whitespace-nowrap">importado{% if origem_envio %} ({{ {"Estados Unidos": "EUA"}.get(origem_envio, origem_envio) }}){% endif %}</span>{% endif -%}
+{%- if prime %} <span class="badge badge-sm badge-info badge-outline whitespace-nowrap">Prime</span>{% endif -%}
+{%- endmacro %}
+
+{% macro tabela_ofertas(ofertas) -%}
+<div class="overflow-x-auto"><table class="table table-xs">
+  <thead><tr><th>Vendedor</th><th class="text-right">Preço</th><th>Envio</th><th>Selos</th><th>Elegível</th></tr></thead>
+  <tbody>
+  {% for o in ofertas %}
+    <tr>
+      <td>{{ o.vendedor_nome or "—" }}{% if o.melhor %} {{ selo("ok", "melhor") }}{% endif %}{% if o.condicao != "novo" %} <span class="text-xs text-base-content/60">({{ o.condicao }})</span>{% endif %}</td>
+      <td class="text-right tabular-nums whitespace-nowrap">{{ o.preco|brl }}</td>
+      <td>{{ {"amazon": "Amazon", "fba": "lojista, enviado pela Amazon", "proprio": "lojista", "desconhecido": "—"}[o.envio.value] }}</td>
+      <td>{{ selos_oferta(o.importada, o.origem_envio, o.prime) }}</td>
+      <td>{{ "sim" if o.elegivel else "não" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{%- endmacro %}

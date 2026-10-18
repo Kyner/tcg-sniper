@@ -12,7 +12,16 @@ from sqlalchemy import select, update
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app, destino_seguro
 from tcg_sniper.db import repositorio_amazon as repo_amz
-from tcg_sniper.db.models import AnuncioAmazon, Envio, FilaAmazon, OrigemPreco, PrecoAtualLiga, StatusCasamento
+from tcg_sniper.db import repositorio_ia as repo_ia
+from tcg_sniper.db.models import (
+    AnuncioAmazon,
+    Envio,
+    FilaAmazon,
+    OrigemCasamento,
+    OrigemPreco,
+    PrecoAtualLiga,
+    StatusCasamento,
+)
 
 SP = ZoneInfo("America/Sao_Paulo")
 
@@ -302,3 +311,21 @@ def test_sugestoes_acham_pelo_nome_em_ingles(s):
     anuncio.titulo = "Zorblax Wombat Collector Draft Box"
     s.flush()
     assert consultas_amazon.sugestoes_para(s, anuncio)[0][0].id == alvo.id
+
+
+def test_decisao_no_admin_grava_sugerido_ia_ou_manual(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1", nome="Caixa Alfa")
+        avaliado = criar_anuncio(s, "B0AVALIADO", produto=p)
+        sem_ia = criar_anuncio(s, "B0SEMIA001", produto=p)
+        repo_ia.gravar_avaliacao(
+            s, anuncio_id=avaliado.id, produto_id=p.id, mesmo_produto=True, confianca=80, motivo="m",
+            modelo="gpt-5", assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
+        )
+        ids = (p.id, avaliado.id, sem_ia.id)
+    produto_id, avaliado_id, sem_ia_id = ids
+    cliente.post(f"/casamentos/{avaliado_id}", data={"acao": "confirmar", "produto_id": str(produto_id)})
+    cliente.post(f"/casamentos/{sem_ia_id}", data={"acao": "ignorar"})
+    with sessoes() as s:
+        assert s.get(AnuncioAmazon, avaliado_id).origem_casamento is OrigemCasamento.SUGERIDO_IA
+        assert s.get(AnuncioAmazon, sem_ia_id).origem_casamento is OrigemCasamento.MANUAL

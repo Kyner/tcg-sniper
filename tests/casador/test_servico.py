@@ -16,6 +16,7 @@ from tcg_sniper.db.models import (
     AvaliacaoIA,
     ChamadaIA,
     EstadoColetorTipo,
+    OrigemCasamento,
     ProdutoLiga,
     StatusCasamento,
 )
@@ -409,3 +410,22 @@ def test_erro_no_ciclo_nao_repete_no_passo_seguinte(sessoes, config):
     sv.ciclo = ciclo
     sv.rodar()
     assert len(passos) == 3 and len(tentativas) == 1  # o relógio não andou 10 min: não tenta de novo
+
+
+def test_automatico_grava_a_origem_automatico_ia(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90)
+    _, [a] = pares(sessoes)
+    sv, _, _ = servico(sessoes, config, [veredito(True, 95)])
+    sv.ciclo()
+    with sessoes() as s:
+        assert s.get(AnuncioAmazon, a).origem_casamento is OrigemCasamento.AUTOMATICO_IA
+
+
+def test_nao_avalia_pendente_antigo_de_produto_ja_casado(sessoes, config):
+    configurar(sessoes)
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1", nome="Caixa Alfa")
+        criar_anuncio(s, "B0CASADO", produto=p, status=StatusCasamento.CONFIRMADO).revisado_em = T0
+        criar_anuncio(s, "B1ANTIGO", produto=p, agora=T0 - timedelta(days=1))
+    sv, t, _ = servico(sessoes, config, [])
+    assert sv.ciclo() == 0 and t.pedidos == []

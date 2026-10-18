@@ -53,6 +53,20 @@ class StatusCasamento(enum.StrEnum):
 class OrigemPreco(enum.StrEnum):
     BUSCA = "busca"  # cartão do resultado de busca
     PRODUTO = "produto"  # oferta principal da página do produto
+    OFERTAS = "ofertas"  # melhor oferta elegível da lista de ofertas (monitor)
+
+
+class OrigemCasamento(enum.StrEnum):
+    MANUAL = "manual"  # o usuário decidiu sem avaliação da IA para o par, ou colou o link
+    SUGERIDO_IA = "sugerido_ia"  # o usuário decidiu um par que a IA tinha avaliado
+    AUTOMATICO_IA = "automatico_ia"  # o automático do casador decidiu
+
+
+class SituacaoCheckout(enum.StrEnum):
+    OK = "ok"
+    FALHA = "falha"
+    CARRINHO_OCUPADO = "carrinho_ocupado"  # havia item no carrinho ativo: nada foi clicado
+    SEM_LOGIN = "sem_login"  # a Amazon pediu login: a conferência fica desligada até "Retomar"
 
 
 class Envio(enum.StrEnum):
@@ -201,6 +215,8 @@ class AnuncioAmazon(Base):
     produto_id: Mapped[int | None] = mapped_column(ForeignKey("produto_liga.id"))
     status_casamento: Mapped[StatusCasamento] = mapped_column(_enum(StatusCasamento, "status_casamento"))
     revisado_em: Mapped[datetime | None] = mapped_column(DATA)
+    # Quem decidiu o casamento (confirmado ou ignorado); nula enquanto pendente.
+    origem_casamento: Mapped[OrigemCasamento | None] = mapped_column(_enum(OrigemCasamento, "origem_casamento"))
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
 
@@ -240,7 +256,7 @@ class PrecoAmazon(Base):
 
 
 class PrecoAtualAmazon(Base):
-    """Última leitura de cada anúncio. Vendedor e envio só mudam numa leitura de origem `produto`."""
+    """Última leitura de cada anúncio. Vendedor e envio só mudam numa leitura de origem `produto` ou `ofertas`."""
 
     __tablename__ = "preco_atual_amazon"
 
@@ -288,6 +304,55 @@ class Oportunidade(Base):
     fechada_em: Mapped[datetime | None] = mapped_column(DATA)
 
 
+class OfertaAmazon(Base):
+    """Todas as ofertas de cada leitura do monitor (lista de ofertas do ASIN). `melhor` marca a que
+    virou o preço atual do anúncio. Leituras com mais de 30 dias são apagadas pelo coletor."""
+
+    __tablename__ = "oferta_amazon"
+    __table_args__ = (Index("ix_oferta_amazon_leitura", "anuncio_id", "lida_em"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anuncio_id: Mapped[int] = mapped_column(ForeignKey("anuncio_amazon.id"))
+    lida_em: Mapped[datetime] = mapped_column(DATA)
+    vendedor_id: Mapped[int | None] = mapped_column(ForeignKey("vendedor_amazon.id"))
+    vendedor_nome: Mapped[str | None] = mapped_column(Text)
+    preco: Mapped[Decimal] = mapped_column(DINHEIRO)
+    preco_de: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    condicao: Mapped[str] = mapped_column(Text)  # "novo" | "usado" | o texto do painel
+    envio: Mapped[Envio] = mapped_column(_enum(Envio, "envio_amazon"))
+    origem_envio: Mapped[str | None] = mapped_column(Text)  # "Estados Unidos"
+    importada: Mapped[bool] = mapped_column(Boolean)
+    prime: Mapped[bool] = mapped_column(Boolean)
+    elegivel: Mapped[bool] = mapped_column(Boolean)
+    melhor: Mapped[bool] = mapped_column(Boolean)
+
+
+class ConferenciaCheckout(Base):
+    """Cada conferência de checkout de uma oferta candidata. `item_removido` False: o item pode ter
+    ficado no carrinho e o coletor tenta tirar de novo (no máximo 3 vezes, só com o carrinho exatamente
+    como a conferência o deixou). `conferir_a_mao_em` preenchida: o coletor desistiu de tirar sozinho
+    (avisou o grupo admin uma vez); o usuário confere o carrinho e clica em "Já conferi" no admin."""
+
+    __tablename__ = "conferencia_checkout"
+    __table_args__ = (Index("ix_conferencia_checkout_anuncio", "anuncio_id", "em"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    em: Mapped[datetime] = mapped_column(DATA)
+    anuncio_id: Mapped[int] = mapped_column(ForeignKey("anuncio_amazon.id"))
+    vendedor_nome: Mapped[str | None] = mapped_column(Text)
+    preco_anunciado: Mapped[Decimal] = mapped_column(DINHEIRO)
+    itens: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    frete: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    impostos: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    total: Mapped[Decimal | None] = mapped_column(DINHEIRO)
+    situacao: Mapped[SituacaoCheckout] = mapped_column(_enum(SituacaoCheckout, "situacao_checkout"))
+    motivo: Mapped[str | None] = mapped_column(Text)
+    item_removido: Mapped[bool] = mapped_column(Boolean)
+    retiradas_tentadas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    retirada_tentada_em: Mapped[datetime | None] = mapped_column(DATA)
+    conferir_a_mao_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
 # Limites (inclusivos) dos campos inteiros de config_amazon: os CHECKs do banco, a migração e a
 # validação do formulário do admin (coletor_amazon/config.py) usam os mesmos valores.
 LIMITES_CONFIG_AMAZON: dict[str, tuple[int, int]] = {
@@ -303,6 +368,11 @@ LIMITES_CONFIG_AMAZON: dict[str, tuple[int, int]] = {
     "vendedor_min_positivas_pct": (0, 100),
     "vendedor_min_avaliacoes": (0, 100_000),
     "vendedor_reavaliar_dias": (1, 90),
+    "monitor_intervalo_min": (5, 1440),
+    "monitor_max_paginas_hora": (1, 1000),
+    "margem_candidata_pp": (0, 50),
+    "checkout_validade_h": (1, 72),
+    "descoberta_casados_dias": (1, 60),
 }
 
 PADROES_CONFIG_AMAZON: dict[str, object] = {
@@ -321,6 +391,13 @@ PADROES_CONFIG_AMAZON: dict[str, object] = {
     "vendedor_min_positivas_pct": 90,
     "vendedor_min_avaliacoes": 100,
     "vendedor_reavaliar_dias": 7,
+    "monitor_intervalo_min": 15,
+    "monitor_janela_inicio": time(8, 0),
+    "monitor_janela_fim": time(22, 0),
+    "monitor_max_paginas_hora": 150,
+    "margem_candidata_pp": 5,
+    "checkout_validade_h": 6,
+    "descoberta_casados_dias": 7,
 }
 
 
@@ -332,6 +409,7 @@ class ConfigAmazon(Base):
         CheckConstraint("id = 1", name="ck_config_amazon_linha_unica"),
         CheckConstraint("position('{termo}' in url_busca) > 0", name="ck_config_amazon_url"),
         CheckConstraint("janela_inicio < janela_fim", name="ck_config_amazon_janela"),
+        CheckConstraint("monitor_janela_inicio < monitor_janela_fim", name="ck_config_amazon_monitor_janela"),
         CheckConstraint("pausa_min_s <= pausa_max_s", name="ck_config_amazon_pausas"),
         *(
             CheckConstraint(f"{campo} BETWEEN {minimo} AND {maximo}", name=f"ck_config_amazon_{campo}")
@@ -355,6 +433,18 @@ class ConfigAmazon(Base):
     vendedor_min_positivas_pct: Mapped[int] = mapped_column(Integer)
     vendedor_min_avaliacoes: Mapped[int] = mapped_column(Integer)
     vendedor_reavaliar_dias: Mapped[int] = mapped_column(Integer)
+    monitor_janela_inicio: Mapped[time] = mapped_column(Time)
+    monitor_janela_fim: Mapped[time] = mapped_column(Time)
+    monitor_intervalo_min: Mapped[int] = mapped_column(Integer)
+    monitor_max_paginas_hora: Mapped[int] = mapped_column(Integer)
+    margem_candidata_pp: Mapped[int] = mapped_column(Integer)
+    checkout_validade_h: Mapped[int] = mapped_column(Integer)
+    descoberta_casados_dias: Mapped[int] = mapped_column(Integer)
+    # Ligados e desligados em Serviços (fora do formulário de Configurações).
+    monitor_ligado: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    checkout_ligado: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    # Preenchida quando o checkout pediu login: a conferência não roda até "Retomar conferência".
+    checkout_sem_login_em: Mapped[datetime | None] = mapped_column(DATA)
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
 
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_componentes.html" import selo, selo_vendedor, selo_ia, cabecalho, aviso %}
+{% from "_componentes.html" import selo, selo_vendedor, selo_ia, cabecalho, aviso, selo_origem, tabela_ofertas, preco_conferido %}
 {% block titulo %}{{ d.produto.nome }} · Casamentos · TCG Sniper{% endblock %}
 {% block conteudo %}
 <a class="link text-sm" href="{{ voltar }}">← Voltar</a>
@@ -58,14 +58,13 @@
     {% for l in d.confirmados %}
     <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
       {{ titulo_anuncio(l) }}
-      {% if l.ia and l.ia.aplicada_em and l.ia.aplicada_em == l.anuncio.revisado_em %}
-      <div class="flex flex-wrap items-center gap-2"><span class="badge badge-sm badge-outline whitespace-nowrap">pela IA</span><span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span></div>
-      {% endif %}
+      <div class="flex flex-wrap items-center gap-2">{{ selo_origem(l.anuncio.origem_casamento) }}{% if l.anuncio.origem_casamento and l.anuncio.origem_casamento.value == "automatico_ia" and l.ia %}<span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span>{% endif %}</div>
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>
         {% if l.atual %}{{ selo_vendedor(l.verificado, l.confiavel, l.atual.envio, l.vendedor) }}{% else %}{{ selo("nao_verificado", "sem leitura") }}{% endif %}
         <span class="text-base-content/60">{{ (l.atual.coletado_em if l.atual else None)|data }}</span>
       </div>
+      {% if l.ofertas %}{{ preco_conferido(l.conferencia) }}{{ tabela_ofertas(l.ofertas) }}{% elif l.atual and l.atual.origem.value == "ofertas" %}<p class="text-xs text-base-content/60">sem ofertas na última leitura</p>{% endif %}
       <div class="card-actions">{{ botao(l.anuncio, "desfazer", "Desfazer", "btn-sm btn-outline") }}</div>
     </div></div>
     {% else %}
@@ -77,9 +76,7 @@
     {% for l in d.ignorados %}
     <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
       {{ titulo_anuncio(l) }}
-      {% if l.ia and l.ia.aplicada_em and l.ia.aplicada_em == l.anuncio.revisado_em %}
-      <div class="flex flex-wrap items-center gap-2"><span class="badge badge-sm badge-outline whitespace-nowrap">pela IA</span><span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span></div>
-      {% endif %}
+      <div class="flex flex-wrap items-center gap-2">{{ selo_origem(l.anuncio.origem_casamento) }}{% if l.anuncio.origem_casamento and l.anuncio.origem_casamento.value == "automatico_ia" and l.ia %}<span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span>{% endif %}</div>
       <div class="card-actions">{{ botao(l.anuncio, "desfazer", "Desfazer", "btn-sm btn-outline") }}</div>
     </div></div>
     {% else %}

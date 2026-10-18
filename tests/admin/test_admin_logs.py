@@ -12,7 +12,7 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import StatusColeta, TipoColeta
 
-ABAS = ("LigaMagic", "Amazon", "IA")
+ABAS = ("LigaMagic", "Amazon", "Monitor", "Checkout", "IA")
 
 
 def basic(usuario, senha):
@@ -64,7 +64,7 @@ def test_menu_tem_logs_entre_mensagens_e_configuracoes(cliente):
     assert "menu-active" in trecho
 
 
-def test_tres_abas_e_a_liga_abre_por_padrao(cliente):
+def test_abas_e_a_liga_abre_por_padrao(cliente):
     texto = cliente.get("/logs").text
     for rotulo in ABAS:
         assert f'aria-label="{rotulo}"' in texto

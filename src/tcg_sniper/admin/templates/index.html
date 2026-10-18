@@ -6,7 +6,7 @@
 {% endcall %}
 
 {% for a in avisos %}
-  {% call aviso(a.tipo, a.texto) %}<a class="link" href="{{ a.link }}">{{ a.rotulo_link }}</a>{% endcall %}
+  {% call aviso(a.tipo, a.texto) %}<a class="link" href="{{ a.link }}">{{ a.rotulo_link }}</a>{% if a.acao %} <form method="post" action="{{ a.acao }}" class="inline"><button class="btn btn-xs btn-primary">{{ a.rotulo_acao }}</button></form>{% endif %}{% endcall %}
 {% endfor %}
 
 <div>

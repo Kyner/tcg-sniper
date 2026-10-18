@@ -40,7 +40,7 @@ flowchart LR
     amazon[(amazon.com.br)]
     subgraph pc[Seu PC - Docker Compose]
         coletor[coletor-liga<br/>Chromium + agendador]
-        coletor_amz[coletor-amazon<br/>Chromium + fila de buscas]
+        coletor_amz[coletor-amazon<br/>Chromium: monitor de preço,<br/>conferência de checkout e busca]
         admin[admin<br/>página web :8000]
         db[(Postgres)]
         evo[Evolution API]
@@ -53,7 +53,7 @@ flowchart LR
     coletor --> db
     admin --> db
     coletor --> evo --> whats
-    coletor_amz -- uma busca por vez --> amazon
+    coletor_amz -- uma página por vez --> amazon
     coletor_amz --> db
     coletor_amz --> evo
     vnc -. tela do Chromium .- coletor
@@ -67,7 +67,7 @@ Todo dia, por volta das 10:00:
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
 4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços.
 
-**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Quando a LigaMagic mostra o nome do produto em inglês, a busca alterna entre o nome em português e o nome em inglês a cada passada. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Tudo isso se ajusta em **Configurações** no admin (seções Geral, LigaMagic e Amazon; os valores ficam no banco, não no `.env`).
+**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Quando a LigaMagic mostra o nome do produto em inglês, a busca alterna entre o nome em português e o nome em inglês a cada passada. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica pelo menos 25% abaixo do "À partir de" da Liga, o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Os anúncios confirmados têm o preço lido pelo **monitor de preço** a cada 15 min, e as melhores ofertas passam pela **conferência de checkout** (ver [Monitor de preço e conferência de checkout](#10-monitor-de-preço-e-conferência-de-checkout)). Tudo isso se ajusta em **Configurações** no admin (seções Geral, LigaMagic e Amazon; os valores ficam no banco, não no `.env`).
 
 O `notificador` envia as mensagens da tabela de saída pela Evolution a cada 5 s; se a Evolution ou o WhatsApp estiverem fora, tenta de novo (1, 2, 4… até 30 min). Oportunidades que não saírem em até a validade de Configurações → Geral (padrão 6 h) ficam como expiradas; avisos do admin saem sempre.
 
@@ -201,6 +201,34 @@ O `casador` avalia com a IA (OpenAI) os anúncios da Amazon que ainda estão pen
 
 Se a OpenAI recusar a chave, o `casador` pausa e avisa no WhatsApp. Ao atingir o teto do dia (ou do mês), a IA para até o próximo dia (ou mês) e os anúncios seguem pendentes para você decidir.
 
+### 10. Monitor de preço e conferência de checkout
+
+O `coletor-amazon` tem três trabalhos num navegador só, nesta ordem de prioridade:
+
+1. **Conferência de checkout** das candidatas (melhor oferta com desconto anunciado a até 5 pontos do mínimo): põe a oferta no carrinho, vai até o resumo do pedido, lê itens, frete, impostos de importação e total, e tira o item do carrinho. **Nunca confirma pedido** e nunca usa "Comprar agora". Só roda com o carrinho ativo **vazio**: com qualquer item seu no carrinho, não clica em nada e espera 1 hora para tentar de novo (itens em "Salvo para depois" não contam e nunca são tocados).
+2. **Monitor de preço**: lê a lista de ofertas de cada anúncio confirmado a cada 15 min, só dentro da janela do monitor (08:00–22:00), e usa a melhor oferta elegível.
+3. **Descoberta**: a busca de anúncios novos, só para produtos sem anúncio confirmado (e uma vez por semana para os casados), dentro da janela da busca.
+
+A conferência e o monitor dividem um teto de páginas por hora (padrão 150; a retirada de item do carrinho também conta). Ao chegar no teto, o monitor espera e a descoberta segue no próprio teto de buscas por hora; se o monitor não cabe no intervalo, o Dashboard avisa (aumente o intervalo ou o teto).
+
+**Preço conferido = itens + impostos, sem o frete.** O alerta e o admin mostram esse valor, com os impostos inclusos e o frete à parte ("frete R$ X à parte"). Com a conferência ligada, o aviso de uma oferta que vai ao checkout espera a conferência e sai com o preço conferido; uma conferência vencida também não fecha nem realerta a oportunidade aberta antes da nova conferência. Só quando não há conferência possível (desligada, conta sem login, seu carrinho com itens ou a conferência dessa oferta falhou) o alerta sai com "preço anunciado, não conferido" e o motivo. O resumo do checkout precisa fechar no centavo (itens + frete + impostos = total); se não fechar, a conferência falha. Cupons e descontos de cartão aparecem só como informação.
+
+O item adicionado sai do carrinho na própria conferência, também depois de um erro no meio. Antes de adicionar, o coletor grava a conferência como "em andamento"; se ele cair no meio (ou a exclusão falhar), tenta tirar o item nas voltas seguintes, mesmo fora da janela, com 15 min entre tentativas. Essa retirada automática **só clica em Excluir com o carrinho exatamente como a conferência o deixou**: só aquele item no carrinho ativo, quantidade 1, subtotal igual ao preço anunciado e conferência de até 30 min. Em qualquer outro caso (por exemplo, você pôs o mesmo produto no carrinho) ou depois de 3 tentativas que falharam, o coletor não clica: o grupo admin recebe uma vez "Confira o carrinho da Amazon: pode haver 1× <ASIN>…", e o Dashboard e Serviços mostram o alerta até você conferir o carrinho pelo noVNC (porta 6081), tirar o item se não for seu e clicar em **Já conferi**. Com a Amazon pausada (CAPTCHA, erros seguidos ou desligada em Serviços), a retirada automática também para; ela volta quando você retomar. Em Logs → Checkout, "item no carrinho" mostra esses casos.
+
+Tudo em Configurações → Amazon → Monitor de preço; liga e desliga em Serviços.
+
+**Login da conta Amazon.** A conferência precisa da conta Amazon logada no Chromium do coletor: entre no noVNC em `http://<IP deste PC>:6081/vnc.html` e faça login. Se a Amazon pedir login (situação `sem_login`), a conferência para (o monitor continua), o item é retirado, o grupo admin recebe um aviso uma vez e, depois de logar de novo pelo noVNC na porta 6081, clique em **Retomar conferência** em Serviços (o botão aparece também com a Amazon pausada por CAPTCHA).
+
+Para capturar páginas reais para os testes (só quando o layout da Amazon mudar):
+
+```
+docker compose stop coletor-amazon
+docker compose run --rm --service-ports coletor-amazon tcg-sniper amazon capturar --asin <ASIN> --checkout --login
+docker compose start coletor-amazon
+```
+
+As páginas ficam em `dados/capturas/` (fora do git) e só entram em `tests/fixtures/amazon` depois de `scripts/anonimizar_fixture.py`.
+
 ## Atualizar uma instalação existente
 
 ```bash
@@ -213,6 +241,26 @@ docker compose up -d --build
 - Voltar a migração (downgrade) apaga a tabela `mensagem_saida`, com as mensagens pendentes e o histórico. Faça backup do banco antes de qualquer rollback.
 - Nunca reconstrua um serviço só (`docker compose up -d --build coletor-amazon`, por exemplo) depois de uma atualização que muda o banco: os outros continuam com o código antigo contra o banco novo e podem parar de funcionar.
 
+### Implantar o monitor de preço e a conferência de checkout
+
+1. Backup do banco antes de tudo:
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-monitor-<data>.dump
+   ```
+
+2. Atualize e recrie todos os serviços de uma vez (o `migrate` atualiza o banco antes), como na regra acima:
+
+   ```bash
+   git pull
+   docker compose up -d --build
+   ```
+
+3. Confira: em Configurações → Amazon, a seção "Monitor de preço" com os padrões (15 min, 08:00–22:00, 150 páginas por hora, margem 5, validade 6 h, descoberta dos casados a cada 7 dias); em Serviços, os interruptores do monitor e da conferência ligados.
+4. Faça login na conta Amazon pelo noVNC (`http://<IP deste PC>:6081/vnc.html`). Sem login, a primeira conferência fica `sem_login`, o grupo admin é avisado e o monitor segue.
+5. Na primeira hora: Logs → Monitor com leituras chegando; Dashboard sem o aviso de "monitor não cabe no intervalo"; Logs → Checkout com as primeiras conferências e nenhuma marcada "item no carrinho".
+
 ## Uso no dia a dia
 
 ### Página de admin
@@ -222,7 +270,7 @@ O menu fica na lateral (recolhe para ícones no computador; botão de menu no ce
 | Tela | Para que serve |
 | --- | --- |
 | **Dashboard** (`/`) | Estado e histórico dos serviços (só leitura); avisa quando algum está pausado. |
-| **Serviços** (`/servicos`) | Rodar agora e Retomar (LigaMagic), Pausar e Retomar (Amazon). |
+| **Serviços** (`/servicos`) | Rodar agora e Retomar (LigaMagic), Pausar e Retomar (Amazon), ligar e desligar o monitor de preço e a conferência de checkout, Retomar conferência. |
 | **Catálogo** (`/catalogo`) | Todos os produtos, 100 por página. Busca por nome; filtros por situação (todos, ativos, inativos, novos nos últimos 7 dias), por categoria e "só com preço". Ativa ou desativa um produto ou todos os do filtro. |
 | **Produto** (`/produto/<id>`) | Preço "À partir de" atual, resumo de venda (mínimo, médio, máximo), número de lojas e o histórico de cada coleta. |
 | **Casamentos** | Produtos ativos da Liga com os anúncios da Amazon encontrados; confirmar, ignorar, trocar ou colar o link da Amazon à mão; filtros por situação, categoria e nome. |
@@ -240,6 +288,8 @@ Preço que a página não mostra aparece como "—", nunca como zero.
 | **N produtos novos no catálogo** | Quando a listagem encontra produtos que ainda não estavam no catálogo. | Se quiser acompanhá-los, ative-os pelo link (filtro "novos"). |
 | **Oportunidade:** | No grupo de oportunidades, quando uma oferta confirmada da Amazon fica pelo menos 25% abaixo do "À partir de" da Liga. | Conferir o anúncio pelo link e decidir a compra. |
 | **CAPTCHA na Amazon** | No grupo admin, quando a Amazon pede uma verificação. A fila da Amazon fica pausada. | Resolver pelo noVNC na porta 6081 e clicar em **Retomar (Amazon)** em Serviços. |
+| **Conta Amazon sem login** | No grupo admin, uma vez, quando a conferência de checkout cai no login. A conferência para; o monitor continua. | Logar a conta pelo noVNC na porta 6081 e clicar em **Retomar conferência** em Serviços. |
+| **Confira o carrinho da Amazon** | No grupo admin, uma vez por conferência, quando o coletor não pôde tirar sozinho o item de uma conferência (carrinho diferente do que ela deixou, ou 3 tentativas falharam). | Conferir o carrinho pelo noVNC na 6081, tirar o item se não for seu e clicar em **Já conferi** no Dashboard ou em Serviços. |
 | **Varredura da Amazon pausada** | No grupo admin, quando a fila da Amazon parou por erros seguidos. | Resolver pelo noVNC na 6081 e clicar em **Retomar (Amazon)** em Serviços, ou ver `docker compose logs coletor-amazon`. |
 | **Desafio Cloudflare na LigaMagic** | Quando aparece uma verificação. A coleta fica pausada. | Resolver pelo noVNC e clicar em **Retomar** em Serviços (ver abaixo). |
 | **... falhou em X de Y** | Quando mais da metade das categorias ou dos produtos falhou. Em geral, a LigaMagic mudou o layout. | Ver os HTMLs salvos em `/data/falhas` e abrir uma issue. |
@@ -323,7 +373,7 @@ src/tcg_sniper/
   cli.py              comandos migrate, admin, coletor-liga, coletor-amazon, notificador, casador e ia
   config.py           leitura do .env
   coletor_liga/       agendador, navegador (Playwright), parsers e as duas etapas da coleta
-  coletor_amazon/     fila de buscas, parsers da Amazon, casamento e motor de oportunidades
+  coletor_amazon/     monitor de preço, conferência de checkout, fila de buscas, parsers da Amazon e cliques permitidos
   casador/            casamento com IA: pergunta, serviço e avaliação
   ia/                 transporte OpenAI, modelos e custos
   admin/              página de admin (FastAPI + Jinja2 + HTMX)

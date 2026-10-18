@@ -1,31 +1,39 @@
 """Operações de banco do coletor da Amazon, do casamento e das oportunidades."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, literal, select, update
+from sqlalchemy import and_, case, delete, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, ResultadoBusca
+from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, OfertaLista, ResultadoBusca
 from tcg_sniper.db.models import (
     DATA,
     AnuncioAmazon,
+    ConferenciaCheckout,
     ConfigAmazon,
     Envio,
     FilaAmazon,
+    OfertaAmazon,
     Oportunidade,
+    OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
     PrecoAtualAmazon,
     PrecoAtualLiga,
     ProdutoLiga,
+    SituacaoCheckout,
     StatusCasamento,
     VendedorAmazon,
 )
+from tcg_sniper.oportunidades import motor
+
+TITULO_MANUAL = "Informado manualmente"  # título provisório do anúncio colado à mão
+ESPERA_CARRINHO_OCUPADO = timedelta(hours=1)  # carrinho com item do usuário: não confere por 1 h
 
 
 @dataclass(frozen=True)
@@ -59,16 +67,32 @@ def sincronizar_fila(s: Session, agora: datetime) -> None:
     s.flush()
 
 
-def ids_na_fila(s: Session) -> set[int]:
-    return set(s.scalars(select(FilaAmazon.produto_id)))
+def _descoberta_liberada(agora: datetime | None, casados_dias: int | None):
+    """Sem casamento confirmado: sempre (no ritmo da fila). Casado: só se nunca buscado ou se a
+    última busca tem `casados_dias` dias ou mais (busca semanal)."""
+    if agora is None or casados_dias is None:
+        return literal(True)
+    casados = select(AnuncioAmazon.produto_id).where(
+        AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, AnuncioAmazon.produto_id.is_not(None)
+    )
+    return or_(
+        FilaAmazon.produto_id.not_in(casados),
+        FilaAmazon.ultima_busca_em.is_(None),
+        FilaAmazon.ultima_busca_em <= agora - timedelta(days=casados_dias),
+    )
 
 
-def proximo_da_fila(s: Session, agora: datetime) -> FilaAmazon | None:
-    """O vencido há mais tempo; no empate, o de maior "À partir de" na Liga."""
+def ids_na_fila(s: Session, agora: datetime | None = None, casados_dias: int | None = None) -> set[int]:
+    return set(s.scalars(select(FilaAmazon.produto_id).where(_descoberta_liberada(agora, casados_dias))))
+
+
+def proximo_da_fila(s: Session, agora: datetime, casados_dias: int | None = None) -> FilaAmazon | None:
+    """O vencido há mais tempo; no empate, o de maior "À partir de" na Liga. Com `casados_dias`, os
+    produtos já casados só entram na busca semanal."""
     consulta = (
         select(FilaAmazon)
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == FilaAmazon.produto_id)
-        .where(FilaAmazon.proxima_busca_em <= agora)
+        .where(FilaAmazon.proxima_busca_em <= agora, _descoberta_liberada(agora, casados_dias))
         .order_by(
             FilaAmazon.proxima_busca_em,
             PrecoAtualLiga.preco_a_partir.desc().nulls_last(),
@@ -139,6 +163,11 @@ def gravar_busca(
     return [por_asin[asin] for asin in unicos]
 
 
+def _validade_da_leitura(intervalo_min: int) -> timedelta:
+    """Uma leitura do monitor vale por dois intervalos (uma volta perdida não a derruba)."""
+    return timedelta(minutes=2 * intervalo_min)
+
+
 def registrar_preco(
     s: Session,
     anuncio_id: int,
@@ -149,9 +178,15 @@ def registrar_preco(
     agora: datetime,
     zona: ZoneInfo,
 ) -> bool:
-    """Atualiza o preço atual e acrescenta ao histórico se o preço (ou, na página do produto,
+    """Atualiza o preço atual e acrescenta ao histórico se o preço (ou, numa leitura completa,
     vendedor/envio) mudou desde a última leitura do anúncio na mesma origem, ou se é a primeira
-    leitura do dia. Devolve True se gravou no histórico."""
+    leitura do dia. Vendedor/envio só mudam numa leitura de origem `produto` ou `ofertas`; a busca
+    não troca o preço atual lido nas ofertas enquanto essa leitura tem até 2 × `monitor_intervalo_min`
+    (depois disso troca, para o preço não congelar com o monitor desligado ou fora do anúncio).
+
+    Contrato com o monitor: a leitura das ofertas chama `gravar_ofertas(lida_em=agora)` e esta função
+    com o mesmo `agora`; `PrecoAtualAmazon.coletado_em` aponta a leitura atual das ofertas
+    (`ofertas_da_ultima_leitura`, `candidatas_ao_checkout`). Devolve True se gravou no histórico."""
     ultimo = s.scalar(
         select(PrecoAmazon)
         .where(PrecoAmazon.anuncio_id == anuncio_id, PrecoAmazon.origem == origem)
@@ -159,11 +194,12 @@ def registrar_preco(
         .limit(1)
     )
     inicio_do_dia = datetime.combine(agora.astimezone(zona).date(), time(0), tzinfo=zona)
+    leitura_completa = origem in (OrigemPreco.PRODUTO, OrigemPreco.OFERTAS)
     gravar = (
         ultimo is None
         or ultimo.coletado_em < inicio_do_dia
         or ultimo.preco != preco
-        or (origem is OrigemPreco.PRODUTO and (ultimo.vendedor_id, ultimo.envio) != (vendedor_id, envio))
+        or (leitura_completa and (ultimo.vendedor_id, ultimo.envio) != (vendedor_id, envio))
     )
     if gravar:
         s.add(
@@ -172,8 +208,17 @@ def registrar_preco(
                 vendedor_id=vendedor_id, envio=envio,
             )
         )
+    if origem is OrigemPreco.BUSCA:
+        leitura_atual = s.execute(
+            select(PrecoAtualAmazon.origem, PrecoAtualAmazon.coletado_em).where(PrecoAtualAmazon.anuncio_id == anuncio_id)
+        ).first()
+        if leitura_atual is not None and leitura_atual.origem is OrigemPreco.OFERTAS:
+            intervalo = s.scalar(select(ConfigAmazon.monitor_intervalo_min).where(ConfigAmazon.id == 1))
+            if leitura_atual.coletado_em >= agora - _validade_da_leitura(intervalo):
+                s.flush()  # o monitor manda no preço atual: a busca só entra no histórico
+                return gravar
     atual: dict[str, object] = {"preco": preco, "origem": origem, "coletado_em": agora}
-    if origem is OrigemPreco.PRODUTO:
+    if leitura_completa:
         atual |= {"vendedor_id": vendedor_id, "envio": envio}
     s.execute(
         pg_insert(PrecoAtualAmazon)
@@ -310,7 +355,9 @@ def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 2
 # --- casamento ------------------------------------------------------------------------------
 
 
-def confirmar_casamento(s: Session, anuncio_id: int, produto_id: int, agora: datetime) -> bool:
+def confirmar_casamento(
+    s: Session, anuncio_id: int, produto_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
+) -> bool:
     """Confirma (ou troca) o produto da Liga do anúncio. Trocar fecha as oportunidades abertas."""
     anuncio = s.get(AnuncioAmazon, anuncio_id)
     if anuncio is None:
@@ -320,17 +367,21 @@ def confirmar_casamento(s: Session, anuncio_id: int, produto_id: int, agora: dat
     anuncio.produto_id = produto_id
     anuncio.status_casamento = StatusCasamento.CONFIRMADO
     anuncio.revisado_em = agora
+    anuncio.origem_casamento = origem
     s.flush()
     return True
 
 
-def ignorar_anuncio(s: Session, anuncio_id: int, agora: datetime) -> bool:
+def ignorar_anuncio(
+    s: Session, anuncio_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
+) -> bool:
     anuncio = s.get(AnuncioAmazon, anuncio_id)
     if anuncio is None:
         return False
     fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
     anuncio.status_casamento = StatusCasamento.IGNORADO
     anuncio.revisado_em = agora
+    anuncio.origem_casamento = origem
     s.flush()
     return True
 
@@ -342,11 +393,12 @@ def desfazer_casamento(s: Session, anuncio_id: int, agora: datetime) -> bool:
     fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
     anuncio.status_casamento = StatusCasamento.PENDENTE
     anuncio.revisado_em = None
+    anuncio.origem_casamento = None
     s.flush()
     return True
 
 
-# --- link manual e anúncios confirmados fora da busca ----------------------------------------
+# --- link manual ----------------------------------------------------------------------------
 
 
 def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> None:
@@ -365,43 +417,23 @@ def casar_link_manual(s: Session, produto_id: int, asin: str, agora: datetime) -
     if anuncio is None:
         anuncio = AnuncioAmazon(
             asin=asin,
-            titulo="Informado manualmente",
+            titulo=TITULO_MANUAL,
             url=f"https://www.amazon.com.br/dp/{asin}",
             produto_id=produto_id,
             status_casamento=StatusCasamento.CONFIRMADO,
             revisado_em=agora,
+            origem_casamento=OrigemCasamento.MANUAL,
             visto_primeiro_em=agora,
             visto_ultimo_em=agora,
         )
         s.add(anuncio)
         s.flush()
     else:
-        confirmar_casamento(s, anuncio.id, produto_id, agora)
+        confirmar_casamento(s, anuncio.id, produto_id, agora, OrigemCasamento.MANUAL)
         anuncio.visto_ultimo_em = agora
         s.flush()
     priorizar_na_fila(s, produto_id, agora)
     return anuncio
-
-
-def confirmados_ausentes(
-    s: Session, produto_id: int, asins_vistos: set[str], limite: int
-) -> list[tuple[int, str, str]]:
-    """Anúncios confirmados do produto que não estão em `asins_vistos`, os de leitura mais antiga
-    primeiro (sem leitura primeiro). Devolve (id, asin, url)."""
-    condicoes = [
-        AnuncioAmazon.produto_id == produto_id,
-        AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO,
-    ]
-    if asins_vistos:
-        condicoes.append(AnuncioAmazon.asin.not_in(asins_vistos))
-    consulta = (
-        select(AnuncioAmazon.id, AnuncioAmazon.asin, AnuncioAmazon.url)
-        .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
-        .where(*condicoes)
-        .order_by(PrecoAtualAmazon.coletado_em.asc().nulls_first(), AnuncioAmazon.id)
-        .limit(limite)
-    )
-    return [(anuncio_id, asin, url) for anuncio_id, asin, url in s.execute(consulta)]
 
 
 def atualizar_leitura(
@@ -419,3 +451,387 @@ def atualizar_leitura(
         valores["imagem_url"] = imagem_url
     s.execute(update(AnuncioAmazon).where(AnuncioAmazon.id == anuncio_id).values(**valores))
     s.flush()
+
+
+# --- monitor de preço -----------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OfertaAvaliada:
+    oferta: OfertaLista
+    vendedor_id: int | None
+    elegivel: bool
+    melhor: bool
+
+
+def gravar_ofertas(s: Session, anuncio_id: int, lida_em: datetime, ofertas: Sequence[OfertaAvaliada]) -> None:
+    for avaliada in ofertas:
+        o = avaliada.oferta
+        s.add(
+            OfertaAmazon(
+                anuncio_id=anuncio_id, lida_em=lida_em, vendedor_id=avaliada.vendedor_id, vendedor_nome=o.vendedor_nome,
+                preco=o.preco, preco_de=o.preco_de, condicao=o.condicao, envio=o.envio, origem_envio=o.origem_envio,
+                importada=o.importada, prime=o.prime, elegivel=avaliada.elegivel, melhor=avaliada.melhor,
+            )
+        )
+    s.flush()
+
+
+def ofertas_da_ultima_leitura(s: Session, anuncio_ids: Sequence[int]) -> dict[int, list[OfertaAmazon]]:
+    """As ofertas da leitura atual de cada anúncio, a mais barata primeiro. A leitura atual é a do
+    preço atual: `PrecoAtualAmazon` de origem `ofertas` com `coletado_em` igual ao `lida_em` das
+    ofertas (o monitor passa o mesmo `agora` a `gravar_ofertas` e `registrar_preco`). Leitura vazia
+    (preço nulo, nenhuma oferta) ou preço atual vindo de outra origem: o anúncio fica fora."""
+    if not anuncio_ids:
+        return {}
+    consulta = (
+        select(OfertaAmazon)
+        .join(PrecoAtualAmazon, _leitura_atual_das_ofertas())
+        .where(OfertaAmazon.anuncio_id.in_(anuncio_ids))
+        .order_by(OfertaAmazon.anuncio_id, OfertaAmazon.preco, OfertaAmazon.id)
+    )
+    resultado: dict[int, list[OfertaAmazon]] = {}
+    for oferta in s.scalars(consulta):
+        resultado.setdefault(oferta.anuncio_id, []).append(oferta)
+    return resultado
+
+
+def _leitura_atual_das_ofertas():
+    """Liga `OfertaAmazon` à leitura do preço atual (contrato: mesmo `agora` nas duas gravações)."""
+    return and_(
+        PrecoAtualAmazon.anuncio_id == OfertaAmazon.anuncio_id,
+        PrecoAtualAmazon.origem == OrigemPreco.OFERTAS,
+        PrecoAtualAmazon.coletado_em == OfertaAmazon.lida_em,
+    )
+
+
+def limpar_ofertas_antigas(s: Session, agora: datetime, dias: int = 30) -> int:
+    resultado = s.execute(delete(OfertaAmazon).where(OfertaAmazon.lida_em < agora - timedelta(days=dias)))
+    s.flush()
+    return resultado.rowcount
+
+
+def marcar_visto(s: Session, anuncio_id: int, agora: datetime) -> None:
+    """A leitura do monitor conta como "visto" (fechar_oportunidades_sem_leitura usa)."""
+    s.execute(update(AnuncioAmazon).where(AnuncioAmazon.id == anuncio_id).values(visto_ultimo_em=agora))
+    s.flush()
+
+
+def _leitura_do_monitor():
+    """Quando o monitor leu o anúncio pela última vez (NULL se a última leitura não foi das ofertas)."""
+    return case((PrecoAtualAmazon.origem == OrigemPreco.OFERTAS, PrecoAtualAmazon.coletado_em), else_=None)
+
+
+def _confirmados_ativos(consulta):
+    return (
+        consulta.join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
+        .where(AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
+    )
+
+
+def proximo_do_monitor(
+    s: Session, agora: datetime, intervalo_min: int, excluir: Collection[int] = ()
+) -> tuple[int, str] | None:
+    """O anúncio confirmado (de produto ativo) com a leitura de ofertas mais antiga já vencida; os
+    nunca lidos primeiro. `excluir`: anúncios que falharam há pouco (a varredura guarda)."""
+    leitura = _leitura_do_monitor()
+    consulta = _confirmados_ativos(select(AnuncioAmazon.id, AnuncioAmazon.asin)).where(
+        or_(leitura.is_(None), leitura <= agora - timedelta(minutes=intervalo_min))
+    )
+    if excluir:
+        consulta = consulta.where(AnuncioAmazon.id.not_in(list(excluir)))
+    linha = s.execute(consulta.order_by(leitura.asc().nulls_first(), AnuncioAmazon.id).limit(1)).first()
+    return (linha.id, linha.asin) if linha else None
+
+
+@dataclass(frozen=True)
+class SituacaoMonitor:
+    confirmados: int
+    nunca_lidos: int
+    vencidos: int  # leitura mais velha que o intervalo (ou nunca lidos)
+    mais_antiga: datetime | None  # leitura de ofertas mais antiga entre os já lidos
+    ultima: datetime | None
+
+
+def situacao_monitor(s: Session, agora: datetime, intervalo_min: int) -> SituacaoMonitor:
+    leitura = _leitura_do_monitor()
+    vencido = or_(leitura.is_(None), leitura <= agora - timedelta(minutes=intervalo_min))
+    consulta = _confirmados_ativos(
+        select(func.count(), func.count(leitura), func.count().filter(vencido), func.min(leitura), func.max(leitura))
+        .select_from(AnuncioAmazon)
+    )
+    total, lidos, vencidos, mais_antiga, ultima = s.execute(consulta).one()
+    return SituacaoMonitor(total, total - lidos, vencidos, mais_antiga, ultima)
+
+
+# --- conferência de checkout ----------------------------------------------------------------
+
+
+def registrar_conferencia(
+    s: Session,
+    *,
+    em: datetime,
+    anuncio_id: int,
+    vendedor_nome: str | None,
+    preco_anunciado: Decimal,
+    itens: Decimal | None,
+    frete: Decimal | None,
+    impostos: Decimal | None,
+    total: Decimal | None,
+    situacao: SituacaoCheckout,
+    motivo: str | None,
+    item_removido: bool,
+) -> ConferenciaCheckout:
+    conferencia = ConferenciaCheckout(
+        em=em, anuncio_id=anuncio_id, vendedor_nome=vendedor_nome, preco_anunciado=preco_anunciado, itens=itens,
+        frete=frete, impostos=impostos, total=total, situacao=situacao, motivo=motivo, item_removido=item_removido,
+    )
+    s.add(conferencia)
+    s.flush()
+    return conferencia
+
+
+def concluir_conferencia(
+    s: Session,
+    conferencia_id: int,
+    *,
+    em: datetime,
+    itens: Decimal | None,
+    frete: Decimal | None,
+    impostos: Decimal | None,
+    total: Decimal | None,
+    situacao: SituacaoCheckout,
+    motivo: str | None,
+    item_removido: bool,
+) -> ConferenciaCheckout:
+    """Grava o resultado na conferência aberta como "em andamento" antes do clique em adicionar."""
+    conferencia = s.get_one(ConferenciaCheckout, conferencia_id)
+    conferencia.em, conferencia.itens, conferencia.frete = em, itens, frete
+    conferencia.impostos, conferencia.total, conferencia.situacao = impostos, total, situacao
+    conferencia.motivo, conferencia.item_removido = motivo, item_removido
+    s.flush()
+    return conferencia
+
+
+def _mesma_oferta(anuncio_id: int, vendedor_nome: str | None, preco_anunciado: Decimal):
+    return and_(
+        ConferenciaCheckout.anuncio_id == anuncio_id,
+        ConferenciaCheckout.vendedor_nome.is_not_distinct_from(vendedor_nome),
+        ConferenciaCheckout.preco_anunciado == preco_anunciado,
+    )
+
+
+def conferencia_valida(
+    s: Session, anuncio_id: int, vendedor_nome: str | None, preco_anunciado: Decimal, agora: datetime, validade_h: int
+) -> ConferenciaCheckout | None:
+    """A conferência ok mais recente da mesma oferta (ASIN + vendedor + preço) dentro da validade."""
+    return s.scalar(
+        select(ConferenciaCheckout)
+        .where(
+            _mesma_oferta(anuncio_id, vendedor_nome, preco_anunciado),
+            ConferenciaCheckout.situacao == SituacaoCheckout.OK,
+            ConferenciaCheckout.total.is_not(None),
+            ConferenciaCheckout.em >= agora - timedelta(hours=validade_h),
+        )
+        .order_by(ConferenciaCheckout.em.desc(), ConferenciaCheckout.id.desc())
+        .limit(1)
+    )
+
+
+def conferencias_validas(
+    s: Session, ofertas: Sequence[tuple[int, str | None, Decimal]], agora: datetime, validade_h: int
+) -> dict[int, ConferenciaCheckout]:
+    """`conferencia_valida` de várias ofertas (anúncio, vendedor, preço) numa consulta só: por anúncio,
+    a conferência ok mais recente da mesma oferta dentro da validade (telas com muitas linhas)."""
+    chaves = {anuncio_id: (vendedor, preco) for anuncio_id, vendedor, preco in ofertas if preco is not None}
+    if not chaves:
+        return {}
+    consulta = (
+        select(ConferenciaCheckout)
+        .where(
+            ConferenciaCheckout.anuncio_id.in_(list(chaves)),
+            ConferenciaCheckout.situacao == SituacaoCheckout.OK,
+            ConferenciaCheckout.total.is_not(None),
+            ConferenciaCheckout.em >= agora - timedelta(hours=validade_h),
+        )
+        .order_by(ConferenciaCheckout.em.desc(), ConferenciaCheckout.id.desc())
+    )
+    resultado: dict[int, ConferenciaCheckout] = {}
+    for conferencia in s.scalars(consulta):
+        if conferencia.anuncio_id in resultado:
+            continue
+        if (conferencia.vendedor_nome, conferencia.preco_anunciado) == chaves[conferencia.anuncio_id]:
+            resultado[conferencia.anuncio_id] = conferencia
+    return resultado
+
+
+def ultima_conferencia(s: Session, anuncio_id: int | None = None) -> ConferenciaCheckout | None:
+    consulta = select(ConferenciaCheckout).order_by(ConferenciaCheckout.em.desc(), ConferenciaCheckout.id.desc()).limit(1)
+    if anuncio_id is not None:
+        consulta = consulta.where(ConferenciaCheckout.anuncio_id == anuncio_id)
+    return s.scalar(consulta)
+
+
+def carrinho_ocupado_ha_pouco(s: Session, agora: datetime) -> bool:
+    """A última conferência (de qualquer anúncio) achou item do usuário no carrinho há menos de
+    `ESPERA_CARRINHO_OCUPADO`: nenhuma conferência roda até lá."""
+    ultima = ultima_conferencia(s)
+    return (
+        ultima is not None
+        and ultima.situacao is SituacaoCheckout.CARRINHO_OCUPADO
+        and agora - ultima.em < ESPERA_CARRINHO_OCUPADO
+    )
+
+
+@dataclass(frozen=True)
+class ItemNoCarrinho:
+    conferencia_id: int
+    asin: str
+    preco_anunciado: Decimal
+    em: datetime
+    tentativas: int
+
+
+def _item_no_carrinho_pendente():
+    """Item que pode ter ficado no carrinho e que o coletor ainda tenta tirar (não está "à mão")."""
+    return and_(ConferenciaCheckout.item_removido.is_(False), ConferenciaCheckout.conferir_a_mao_em.is_(None))
+
+
+def conferencias_com_item_no_carrinho(
+    s: Session, agora: datetime | None = None, espera: timedelta | None = None
+) -> list[ItemNoCarrinho]:
+    """Conferências cujo item pode ter ficado no carrinho e que a retirada automática ainda tenta (as
+    "conferir à mão" ficam de fora). Com `agora` e `espera`, só as sem tentativa há menos de `espera`.
+    Em rodízio: as nunca tentadas primeiro, depois a tentativa mais antiga (um ASIN não prende os outros)."""
+    consulta = (
+        select(
+            ConferenciaCheckout.id, AnuncioAmazon.asin, ConferenciaCheckout.preco_anunciado, ConferenciaCheckout.em,
+            ConferenciaCheckout.retiradas_tentadas,
+        )
+        .join(AnuncioAmazon, AnuncioAmazon.id == ConferenciaCheckout.anuncio_id)
+        .where(_item_no_carrinho_pendente())
+        .order_by(
+            ConferenciaCheckout.retirada_tentada_em.asc().nulls_first(), ConferenciaCheckout.em, ConferenciaCheckout.id
+        )
+    )
+    if agora is not None and espera is not None:
+        consulta = consulta.where(
+            or_(ConferenciaCheckout.retirada_tentada_em.is_(None), ConferenciaCheckout.retirada_tentada_em <= agora - espera)
+        )
+    return [ItemNoCarrinho(*linha) for linha in s.execute(consulta)]
+
+
+def marcar_item_removido(s: Session, conferencia_id: int) -> bool:
+    """"Já conferi" no admin: resolve só uma conferência no estado "conferir à mão" (item ainda não
+    removido). Devolve False se nenhuma linha casou (id inexistente, pendente da retirada automática
+    ou já resolvida): nada muda."""
+    resultado = s.execute(
+        update(ConferenciaCheckout)
+        .where(
+            ConferenciaCheckout.id == conferencia_id,
+            ConferenciaCheckout.conferir_a_mao_em.is_not(None),
+            ConferenciaCheckout.item_removido.is_(False),
+        )
+        .values(item_removido=True, conferir_a_mao_em=None)
+        .execution_options(synchronize_session="fetch")
+    )
+    s.flush()
+    return resultado.rowcount > 0
+
+
+def marcar_asin_removido(s: Session, asin: str) -> None:
+    """Carrinho ativo conferido sem o ASIN: resolve as conferências pendentes dele (não as "à mão")."""
+    ids = select(ConferenciaCheckout.id).join(AnuncioAmazon, AnuncioAmazon.id == ConferenciaCheckout.anuncio_id).where(
+        AnuncioAmazon.asin == asin, _item_no_carrinho_pendente()
+    )
+    s.execute(update(ConferenciaCheckout).where(ConferenciaCheckout.id.in_(ids)).values(item_removido=True))
+    s.flush()
+
+
+def registrar_tentativa_retirada(s: Session, conferencia_id: int, agora: datetime, contar: bool = True) -> int:
+    """Grava a hora da tentativa (e soma uma, com `contar`). Devolve quantas tentativas falharam."""
+    conferencia = s.get_one(ConferenciaCheckout, conferencia_id)
+    conferencia.retirada_tentada_em = agora
+    if contar:
+        conferencia.retiradas_tentadas += 1
+    s.flush()
+    return conferencia.retiradas_tentadas
+
+
+def marcar_conferir_a_mao(s: Session, conferencia_id: int, agora: datetime, razao: str) -> bool:
+    """Passa para "conferir à mão" (o coletor não clica mais). Devolve False se já estava (sem novo aviso)."""
+    conferencia = s.get_one(ConferenciaCheckout, conferencia_id)
+    if conferencia.conferir_a_mao_em is not None or conferencia.item_removido:
+        return False
+    conferencia.conferir_a_mao_em = agora
+    conferencia.motivo = f"{conferencia.motivo}; conferir à mão: {razao}" if conferencia.motivo else f"conferir à mão: {razao}"
+    s.flush()
+    return True
+
+
+def conferencias_a_conferir_a_mao(s: Session) -> list[tuple[ConferenciaCheckout, str]]:
+    """(conferência, ASIN) que esperam o usuário conferir o carrinho, das mais antigas."""
+    consulta = (
+        select(ConferenciaCheckout, AnuncioAmazon.asin)
+        .join(AnuncioAmazon, AnuncioAmazon.id == ConferenciaCheckout.anuncio_id)
+        .where(ConferenciaCheckout.item_removido.is_(False), ConferenciaCheckout.conferir_a_mao_em.is_not(None))
+        .order_by(ConferenciaCheckout.conferir_a_mao_em, ConferenciaCheckout.id)
+    )
+    return [(conferencia, asin) for conferencia, asin in s.execute(consulta)]
+
+
+@dataclass(frozen=True)
+class CandidataCheckout:
+    anuncio_id: int
+    asin: str
+    vendedor_nome: str | None
+    preco_anunciado: Decimal
+
+
+def candidatas_ao_checkout(
+    s: Session, agora: datetime, cfg: ConfigAmazon, anuncio_id: int | None = None
+) -> list[CandidataCheckout]:
+    """A melhor oferta elegível da leitura atual de cada confirmado (produto ativo, preço da Liga em
+    dia) com desconto anunciado de pelo menos `desconto_min_pct − margem_candidata_pp`, sem conferência
+    ok ou falha da mesma oferta nas últimas `checkout_validade_h` horas. Maior desconto primeiro.
+
+    A leitura atual é a do preço atual (`PrecoAtualAmazon` de origem `ofertas`, `coletado_em` igual
+    ao `lida_em` das ofertas: o monitor grava as duas com o mesmo `agora`) e precisa ter até
+    2 × `monitor_intervalo_min`; leitura vazia ou velha não vai ao checkout. Com `anuncio_id`, só
+    a desse anúncio (o monitor pergunta se a oferta que acabou de ler vai ao checkout)."""
+    consulta = (
+        select(AnuncioAmazon.id, AnuncioAmazon.asin, OfertaAmazon.vendedor_nome, OfertaAmazon.preco, PrecoAtualLiga.preco_a_partir)
+        .join(OfertaAmazon, OfertaAmazon.anuncio_id == AnuncioAmazon.id)
+        .join(PrecoAtualAmazon, _leitura_atual_das_ofertas())
+        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .join(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+        .where(
+            AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO,
+            ProdutoLiga.ativo.is_(True),
+            OfertaAmazon.melhor.is_(True),
+            OfertaAmazon.elegivel.is_(True),
+            PrecoAtualAmazon.coletado_em >= agora - _validade_da_leitura(cfg.monitor_intervalo_min),
+            PrecoAtualLiga.listagem_em >= agora - timedelta(hours=cfg.liga_preco_max_idade_h),
+        )
+    )
+    if anuncio_id is not None:
+        consulta = consulta.where(AnuncioAmazon.id == anuncio_id)
+    minimo = max(0, cfg.desconto_min_pct - cfg.margem_candidata_pp)
+    candidatas: list[tuple[Decimal, CandidataCheckout]] = []
+    for id_anuncio, asin, vendedor, preco, liga in s.execute(consulta):
+        if not motor.atinge_desconto(preco, liga, minimo):
+            continue
+        conferida = s.scalar(
+            select(ConferenciaCheckout.id)
+            .where(
+                _mesma_oferta(id_anuncio, vendedor, preco),
+                ConferenciaCheckout.situacao.in_([SituacaoCheckout.OK, SituacaoCheckout.FALHA]),
+                ConferenciaCheckout.em >= agora - timedelta(hours=cfg.checkout_validade_h),
+            )
+            .limit(1)
+        )
+        if conferida is None:
+            candidatas.append((preco / liga, CandidataCheckout(id_anuncio, asin, vendedor, preco)))
+    candidatas.sort(key=lambda par: (par[0], par[1].anuncio_id))
+    return [candidata for _, candidata in candidatas]

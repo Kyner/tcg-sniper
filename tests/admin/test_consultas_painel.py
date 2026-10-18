@@ -89,7 +89,7 @@ def test_liga_rotulos(s, config):
 def test_amazon(s, config):
     amazon = saude(s, config)["Amazon"]
     assert amazon.situacao == "ok" and amazon.texto == "Nenhum ciclo ainda"
-    assert amazon.detalhe == "0 preços lidos nas últimas 24 h"
+    assert amazon.detalhe.startswith("0 preços lidos nas últimas 24 h · ")
     noite = saude(s, config, agora=datetime(2026, 10, 17, 2, 0, tzinfo=UTC))["Amazon"]  # 23:00 em SP
     assert noite.situacao == "ok" and "fora do horário (08:00–22:00)" in noite.texto
     coleta(s, TipoColeta.AMAZON, AGORA - timedelta(hours=3))
@@ -110,7 +110,7 @@ def test_amazon_conta_precos_lidos_nas_ultimas_24h(s, config):
         repo_amz.registrar_preco(
             s, anuncio.id, Decimal(10), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, quando, config.zona
         )
-    assert saude(s, config)["Amazon"].detalhe == "1 preços lidos nas últimas 24 h"
+    assert saude(s, config)["Amazon"].detalhe.startswith("1 preços lidos nas últimas 24 h · ")
 
 
 def test_casador(s, config):
