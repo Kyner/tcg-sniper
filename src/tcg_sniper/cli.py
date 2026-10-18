@@ -4,6 +4,7 @@ import signal
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
+from tcg_sniper.avisos.vigia import Batimento
 from tcg_sniper.config import Config
 from tcg_sniper.db.session import criar_engine, criar_sessoes, migrar
 
@@ -74,6 +75,7 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
         from tcg_sniper.notificador import criar_notificador
 
+        Batimento(sessoes, "liga").iniciar()
         instalar_sigterm()
         Agendador(
             engine,
@@ -88,6 +90,7 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.navegador.chromium import NavegadorChromium
         from tcg_sniper.notificador import criar_notificador
 
+        Batimento(sessoes, "amazon").iniciar()
         instalar_sigterm()
         VarreduraAmazon(
             engine,
@@ -113,6 +116,7 @@ def main(argv: list[str] | None = None) -> None:
         transporte = TransporteOpenAI(chave, timeout_s=30, max_retries=2) if chave else None
         casador = ServicoCasador(sessoes, transporte, config, criar_avisador(sessoes))
         signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
+        Batimento(sessoes, "casador").iniciar()
         casador.rodar()
     elif args.comando == "manutencao":
         from tcg_sniper.avisos.servico import criar_avisador
