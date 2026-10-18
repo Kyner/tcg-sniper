@@ -67,6 +67,7 @@ class ArquivosBackup:
     diario: Path
     semanal: Path | None
     tamanho: int
+    erro_semanal: str | None = None  # a cópia semanal falhou; o diário ficou
 
 
 def nome_diario(dia: date) -> str:
@@ -150,19 +151,23 @@ def _copiar_atomico(origem: Path, destino: Path) -> None:
 
 
 def fazer_backup(pasta: Path, dia: date, conexao: Conexao, executar: Executar = executar_comando) -> ArquivosBackup:
-    """Grava o backup diário de `dia` (e, no domingo, a cópia semanal). Erro vira `ErroBackup`."""
+    """Grava o backup diário de `dia` (e, no domingo, a cópia semanal). Erro no diário vira `ErroBackup`;
+    erro só na cópia semanal não perde o diário: volta em `erro_semanal`."""
     try:
         pasta.mkdir(parents=True, exist_ok=True)
         _apagar_temporarios(pasta)
         diario = _dump(pasta, dia, conexao, executar)
-        semanal = None
-        nome = nome_semanal(dia)
-        if nome is not None:
-            semanal = pasta / nome
-            _copiar_atomico(diario, semanal)
-        return ArquivosBackup(diario, semanal, diario.stat().st_size)
+        tamanho = diario.stat().st_size
     except OSError as erro:
         raise ErroBackup(f"erro de disco no backup: {erro.strerror or erro}") from None
+    nome = nome_semanal(dia)
+    if nome is None:
+        return ArquivosBackup(diario, None, tamanho)
+    try:
+        _copiar_atomico(diario, pasta / nome)
+    except OSError as erro:
+        return ArquivosBackup(diario, None, tamanho, f"cópia semanal falhou: {erro.strerror or erro}")
+    return ArquivosBackup(diario, pasta / nome, tamanho)
 
 
 def rodiziar(pasta: Path, manter_diarios: int = MANTER_DIARIOS, manter_semanais: int = MANTER_SEMANAIS) -> list[str]:

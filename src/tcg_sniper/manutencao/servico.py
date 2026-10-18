@@ -110,6 +110,8 @@ class ServicoManutencao:
         try:
             arquivos = backup.fazer_backup(pasta, dia, self._conexao, self._executar)
             log.info("backup gravado: %s (%d bytes)", arquivos.diario.name, arquivos.tamanho)
+            if arquivos.erro_semanal is not None:
+                erros.append(arquivos.erro_semanal)
         except backup.ErroBackup as erro:
             erros.append(str(erro))
         except Exception as erro:

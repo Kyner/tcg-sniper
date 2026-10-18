@@ -144,3 +144,15 @@ def test_integracao_pg_dump_e_pg_restore_de_verdade(tmp_path, engine):
     url = engine.url.render_as_string(hide_password=False)
     arquivos = backup.fazer_backup(tmp_path, DOMINGO, backup.conexao_do_banco(url), backup.executar_comando)
     assert arquivos.tamanho > 0 and arquivos.semanal is not None
+
+
+def test_falha_na_copia_semanal_nao_perde_o_diario(tmp_path, monkeypatch):
+    def disco_cheio(origem, destino):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(backup, "_copiar_atomico", disco_cheio)
+    arquivos = backup.fazer_backup(tmp_path, DOMINGO, CONEXAO, ExecutorFake())
+    assert arquivos.diario == tmp_path / "tcg-diario-2026-10-18.dump" and arquivos.diario.exists()
+    assert arquivos.semanal is None
+    assert "cópia semanal" in arquivos.erro_semanal and "No space left on device" in arquivos.erro_semanal
+    assert backup.fazer_backup(tmp_path, QUARTA, CONEXAO, ExecutorFake()).erro_semanal is None

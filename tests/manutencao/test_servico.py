@@ -272,3 +272,21 @@ def test_rodar_para_quando_pedem(sessoes, config):
     srv.parar()
     srv.rodar()
     assert len(execucoes(sessoes)) <= 1
+
+
+def test_falha_na_copia_semanal_mantem_o_diario_envia_e_limpa(sessoes, config, pasta, monkeypatch):
+    from tcg_sniper.manutencao import backup
+
+    def disco_cheio(origem, destino):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(backup, "_copiar_atomico", disco_cheio)
+    enviador, notificador = EnviadorFake(), NotificadorFake()
+    servico(sessoes, config, DOMINGO_4H, enviador=enviador, notificador=notificador).executar(DOMINGO_4H)
+    (e,) = execucoes(sessoes)
+    assert e.status is StatusManutencao.ERRO and "cópia semanal" in e.erro
+    assert e.arquivo == "tcg-diario-2026-10-18.dump" and (pasta / e.arquivo).exists()
+    assert enviador.enviados == ["diario/tcg-2026-10-18.dump"] and e.enviado_r2
+    assert e.apagados is not None
+    (_, texto), = notificador.mensagens
+    assert "O backup local ficou salvo" in texto and "nenhum backup novo" not in texto.lower()
