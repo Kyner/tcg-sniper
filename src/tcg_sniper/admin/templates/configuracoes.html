@@ -46,6 +46,40 @@
     </div></div>
   </div>
 {% endfor %}
+  <input type="radio" name="secao" class="tab" aria-label="Avisos"{% if secao_ativa == "avisos" %} checked{% endif %}>
+  <div class="tab-content pt-4" id="avisos">
+    <div class="card bg-base-100 shadow-sm"><div class="card-body">
+      <p class="text-sm text-base-content/70">Cada tipo de mensagem do WhatsApp, com um exemplo. Desligado, o tipo não manda nada (os problemas continuam sendo contados e, ao religar, o próximo lembrete sai). Problemas repetidos saem uma vez, lembram a cada 2 h e fecham com "resolvido".</p>
+      <ul class="list">
+        {% for a in avisos %}
+        <li class="list-row items-start" id="aviso-{{ a.tipo }}">
+          <div class="text-xl" aria-hidden="true">{{ a.emoji }}</div>
+          <div class="list-col-grow min-w-0 flex flex-col gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-semibold">{{ a.titulo }}</span>
+              {% if a.severidade == "falha" %}<span class="badge badge-error badge-sm">Falha</span>
+              {% elif a.severidade == "atencao" %}<span class="badge badge-warning badge-sm">Atenção</span>
+              {% elif a.severidade == "concluido" %}<span class="badge badge-success badge-sm">Concluído</span>
+              {% else %}<span class="badge badge-info badge-sm">Oportunidade</span>{% endif %}
+              <span class="badge badge-ghost badge-sm">grupo {{ a.grupo }}</span>
+              {% if a.agrupa %}<span class="badge badge-outline badge-sm">agrupa</span>{% endif %}
+            </div>
+            <p class="text-sm text-base-content/70">{{ a.descricao }}</p>
+            <div class="chat chat-start">
+              <div class="chat-bubble text-sm whitespace-pre-line break-words max-w-full">{{ a.exemplo }}</div>
+            </div>
+          </div>
+          <form method="post" action="/configuracoes/avisos" class="flex items-center gap-2">
+            <input type="hidden" name="tipo" value="{{ a.tipo }}">
+            <input type="hidden" name="ligado" value="{{ '0' if a.ligado else '1' }}">
+            <input type="checkbox" class="toggle toggle-success" aria-label="{{ a.titulo }}: {{ 'ligado' if a.ligado else 'desligado' }}"{% if a.ligado %} checked{% endif %} onchange="this.form.requestSubmit()">
+            <noscript><button class="btn btn-xs">{{ "Desligar" if a.ligado else "Ligar" }}</button></noscript>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div></div>
+  </div>
 </div>
 <p class="text-xs text-base-content/70">Senhas, banco e chave da Evolution ficam no .env: ADMIN_SENHA, VNC_SENHA, EVOLUTION_API_KEY, DATABASE_URL, DIR_DADOS, EVOLUTION_URL, OPENAI_API_KEY.</p>
 {% endblock %}
