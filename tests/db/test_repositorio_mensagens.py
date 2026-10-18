@@ -124,3 +124,15 @@ def test_acao_confere_a_situacao_atual_e_nao_a_do_cache_da_sessao(engine):
     finally:
         with Session(engine) as s, s.begin():
             s.execute(delete(MensagemSaida).where(MensagemSaida.id == mid))
+
+
+def test_falhas_recentes_so_as_falhas_da_janela_das_mais_novas(s):
+    agora = datetime(2026, 10, 18, 12, 0, tzinfo=UTC)
+    antiga = repo_msg.enfileirar(s, "admin", "a", agora - timedelta(hours=3))
+    nova = repo_msg.enfileirar(s, "oportunidades", "b", agora)
+    pendente = repo_msg.enfileirar(s, "admin", "c", agora)
+    for m, quando in ((antiga, agora - timedelta(hours=2)), (nova, agora - timedelta(minutes=5))):
+        m.status, m.atualizado_em = StatusMensagem.FALHA, quando
+    s.flush()
+    assert repo_msg.falhas_recentes(s, agora - timedelta(hours=1)) == [nova]
+    assert pendente.status is StatusMensagem.PENDENTE

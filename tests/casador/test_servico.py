@@ -2,9 +2,10 @@ import json
 from datetime import timedelta
 
 import httpx
-from fakes import T0, NotificadorFake, TransporteFake, criar_anuncio, criar_produto
+from fakes import T0, AvisadorFake, TransporteFake, criar_anuncio, criar_produto
 from sqlalchemy import select
 
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.casador.pergunta import assinatura
 from tcg_sniper.casador.servico import ServicoCasador
 from tcg_sniper.db import repositorio as repo
@@ -45,7 +46,7 @@ def sem_rede():
 
 def servico(sessoes, config, respostas, **kw):
     t = TransporteFake(respostas)
-    n = NotificadorFake()
+    n = AvisadorFake()
     cfg = config.model_copy(update={"openai_api_key": "sk-teste"})
     agora = kw.pop("agora", T0)
     relogio = kw.pop("relogio", lambda: agora)
@@ -83,7 +84,7 @@ def test_desligada_nao_chama(sessoes, config):
 def test_sem_chave_nao_chama(sessoes, config):
     configurar(sessoes)
     pares(sessoes)
-    sv = ServicoCasador(sessoes, None, config, NotificadorFake(), cliente_http=sem_rede(), relogio=lambda: T0)
+    sv = ServicoCasador(sessoes, None, config, AvisadorFake(), cliente_http=sem_rede(), relogio=lambda: T0)
     assert sv.ciclo() == 0
 
 
@@ -149,7 +150,7 @@ def test_decisao_humana_durante_a_chamada_vence(sessoes, config):
             return super().enviar(pedido)
 
     t = TransporteQueDecide([veredito(False, 99)])
-    sv = ServicoCasador(sessoes, t, config.model_copy(update={"openai_api_key": "k"}), NotificadorFake(),
+    sv = ServicoCasador(sessoes, t, config.model_copy(update={"openai_api_key": "k"}), AvisadorFake(),
                         cliente_http=sem_rede(), relogio=lambda: T0)
     sv.ciclo()
     with sessoes() as s:
@@ -217,33 +218,40 @@ def test_resposta_fora_do_formato_nao_grava_e_volta(sessoes, config):
 def test_tres_erros_seguidos_encerram_o_ciclo(sessoes, config):
     configurar(sessoes)
     pares(sessoes, 5)
-    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500")] * 3)
+    sv, t, av = servico(sessoes, config, [ErroIA("OpenAI 500")] * 3)
     assert sv.ciclo() == 0 and len(t.pedidos) == 3
+    [dados] = av.dados(TipoAviso.IA_FALHAS_SEGUIDAS)
+    assert dados.linhas == ("3 chamadas seguidas falharam; a rodada parou", "Última: OpenAI 500")
+    assert TipoAviso.IA_RODADA_CONCLUIDA not in av.tipos()
 
 
 def test_chave_invalida_pausa_e_avisa(sessoes, config):
     configurar(sessoes)
     pares(sessoes, 2)
-    sv, t, n = servico(sessoes, config, [ChaveInvalida("chave recusada pela OpenAI (401)")])
+    sv, t, av = servico(sessoes, config, [ChaveInvalida("chave recusada pela OpenAI (401)")])
     sv.ciclo()
     with sessoes() as s:
         estado = repo.obter_estado(s, coletor=COLETOR_CASADOR)
     assert estado.estado is EstadoColetorTipo.PAUSADO and "401" in estado.motivo
-    assert len(t.pedidos) == 1 and n.mensagens[0][0] is Destino.ADMIN and "401" in n.mensagens[0][1]
+    assert len(t.pedidos) == 1
+    assert av.dados(TipoAviso.IA_PAUSADA)[0].linhas == ("Motivo: chave recusada pela OpenAI (401)",)
+    assert av.mensagens[0][0] is Destino.ADMIN
 
 
-def test_sem_orcamento_para_e_avisa_uma_vez_por_dia(sessoes, config):
+def test_sem_orcamento_avisa_com_a_chave_do_periodo(sessoes, config):
     configurar(sessoes, max_chamadas_dia=1)
     pares(sessoes, 3)
-    sv, t, n = servico(sessoes, config, [veredito()])
+    sv, t, av = servico(sessoes, config, [veredito()])
     assert sv.ciclo() == 1 and len(t.pedidos) == 1
     sv.ciclo()
-    assert len(n.mensagens) == 1 and "chamadas" in n.mensagens[0][1]
-    # dia seguinte: libera e avisa de novo só se estourar de novo
-    sv2, t2, n2 = servico(sessoes, config, [veredito()], agora=T0 + timedelta(days=1))
-    sv2._avisos_orcamento = sv._avisos_orcamento
+    orcamento = [(c, d) for tipo, c, d in av.avisos if tipo is TipoAviso.IA_SEM_ORCAMENTO]
+    assert [c for c, _ in orcamento] == ["dia 13/10", "dia 13/10"]  # o agrupamento é do serviço de avisos
+    assert orcamento[0][1].titulo_extra == "dia 13/10" and "chamadas" in orcamento[0][1].linhas[0]
+    # dia seguinte: a chamada ok fecha os períodos abertos; estourar de novo abre o dia novo
+    sv2, t2, av2 = servico(sessoes, config, [veredito()], agora=T0 + timedelta(days=1))
     assert sv2.ciclo() == 1 and len(t2.pedidos) == 1
-    assert len(n2.mensagens) == 1  # estourou de novo no dia novo: um aviso novo
+    assert (TipoAviso.IA_SEM_ORCAMENTO, "*") in av2.resolvidos
+    assert [c for tipo, c, _ in av2.avisos if tipo is TipoAviso.IA_SEM_ORCAMENTO] == ["dia 14/10"]
 
 
 def test_imagens_vao_na_pergunta(sessoes, config):
@@ -286,12 +294,58 @@ def test_configuracao_invalida_pausa_e_avisa(sessoes, config):
     configurar(sessoes)
     pares(sessoes, 2)
     motivo = "modelo ou esforço inválido em Configurações → IA: model_not_found (model)"
-    sv, t, n = servico(sessoes, config, [ConfiguracaoInvalida(motivo)])
+    sv, t, av = servico(sessoes, config, [ConfiguracaoInvalida(motivo)])
     sv.ciclo()
     with sessoes() as s:
         estado = repo.obter_estado(s, coletor=COLETOR_CASADOR)
     assert estado.estado is EstadoColetorTipo.PAUSADO and "model_not_found" in estado.motivo
-    assert len(t.pedidos) == 1 and n.mensagens[0][0] is Destino.ADMIN and "model_not_found" in n.mensagens[0][1]
+    assert len(t.pedidos) == 1 and "model_not_found" in av.dados(TipoAviso.IA_PAUSADA)[0].linhas[0]
+
+
+def test_rodada_com_avaliacao_avisa_conclusao_com_as_contas(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=85)
+    pares(sessoes, 3)
+    sv, _, av = servico(sessoes, config, [veredito(True, 95), veredito(False, 90), veredito(True, 50)])
+    assert sv.ciclo() == 3
+    [dados] = av.dados(TipoAviso.IA_RODADA_CONCLUIDA)
+    assert dados.linhas == (
+        "Avaliados: 3", "Confirmados pelo automático: 1", "Ignorados pelo automático: 1", "Esperando você: 1",
+    )
+    assert dados.acao == "Revise os pendentes em Admin → Casamentos."
+
+
+def test_rodada_sem_ninguem_esperando_nao_tem_acao(sessoes, config):
+    configurar(sessoes, automatico=True)
+    pares(sessoes, 1)
+    sv, _, av = servico(sessoes, config, [veredito(True, 99)])
+    sv.ciclo()
+    assert av.dados(TipoAviso.IA_RODADA_CONCLUIDA)[0].acao is None
+
+
+def test_rodada_sem_avaliacao_nao_avisa(sessoes, config):
+    configurar(sessoes)
+    sv, _, av = servico(sessoes, config, [])
+    assert sv.ciclo() == 0 and av.avisos == []
+
+
+def test_chamada_ok_resolve_falhas_e_orcamento_e_ciclo_ativo_resolve_a_pausa(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes, 1)
+    sv, _, av = servico(sessoes, config, [veredito()])
+    sv.ciclo()
+    assert av.resolvidos[0] == (TipoAviso.IA_PAUSADA, CHAVE_GERAL)
+    assert (TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL) in av.resolvidos
+    assert (TipoAviso.IA_SEM_ORCAMENTO, "*") in av.resolvidos
+
+
+def test_pausado_nao_resolve_a_pausa(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", T0, COLETOR_CASADOR)
+    sv, _, av = servico(sessoes, config, [])
+    sv.ciclo()
+    assert av.resolvidos == []
 
 
 def test_pares_que_falham_nao_travam_a_fila(sessoes, config):
