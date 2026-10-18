@@ -73,6 +73,11 @@ class ServicoManutencao:
             interrompidas = repo_man.marcar_interrompidas(s, self._relogio())
         if interrompidas:
             log.warning("%d execução(ões) da manutenção interrompida(s) no meio; o dia roda de novo", interrompidas)
+            self._notificador.enviar(
+                Destino.ADMIN,
+                f"⚠️ Backup do banco: {interrompidas} execução(ões) interrompida(s) no meio (o serviço de manutenção "
+                "reiniciou). O backup do dia roda de novo; veja Logs → Manutenção no admin.",
+            )
 
     def tick(self) -> bool:
         """Registra que está vivo e roda a execução do dia se for a hora. Devolve se rodou."""

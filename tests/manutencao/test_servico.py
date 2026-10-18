@@ -314,3 +314,14 @@ def test_recuperacao_ok_na_madrugada_nao_repete_as_4h(sessoes, config):
     assert srv.tick() is True
     srv._relogio.agora = QUARTA_4H
     assert srv.tick() is False
+
+
+def test_interrompida_ao_subir_avisa_o_admin_uma_vez(sessoes, config):
+    gravar_execucao(sessoes, QUARTA_4H, StatusManutencao.RODANDO)
+    notificador = NotificadorFake()
+    servico(sessoes, config, QUARTA_4H + timedelta(minutes=10), notificador=notificador).inicializar()
+    (destino, texto), = notificador.mensagens
+    assert destino is Destino.ADMIN and "interrompid" in texto and "Traceback" not in texto
+    outro = NotificadorFake()
+    servico(sessoes, config, QUARTA_4H + timedelta(minutes=20), notificador=outro).inicializar()
+    assert outro.mensagens == []
