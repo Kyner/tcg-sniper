@@ -30,7 +30,7 @@ def test_modelo_do_spec():
     assert texto(dados) == (
         "💰 *Oportunidade · 18% abaixo da Liga*\n"
         "*Final Fantasy - Caixa de Booster de Jogo*\n"
-        "• Amazon: *R$ 1.299,90* (conferido, com impostos; frete à parte)\n"
+        "• Amazon: *R$ 1.299,90* (conferido; frete à parte)\n"
         "• Vendido por: Amazon · Prime\n"
         "• Liga: a partir de R$ 1.589,00 · 12 lojas · média R$ 1.640,00\n"
         "https://www.amazon.com.br/dp/B0TESTE123\n"
@@ -95,7 +95,7 @@ def test_frete_zero_e_frete_gratis():
         nome_produto=NOME, leitura=Leitura(Decimal("599.90"), Envio.AMAZON, None), ref=RefLiga(Decimal("889.00"), AGORA),
         url_amazon=URL, detalhes=Detalhes(preco_conferido=Decimal("599.90"), frete=Decimal("0.00")),
     )
-    assert dados.linhas[0][2] == " (conferido, com impostos; frete grátis)"
+    assert dados.linhas[0][2] == " (conferido; frete grátis)"
 
 
 def test_nome_com_marcador_e_escapado_no_texto():

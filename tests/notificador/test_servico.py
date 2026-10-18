@@ -355,3 +355,25 @@ def test_falha_definitiva_avisa_o_admin_e_a_falha_do_aviso_nao_gera_outro(sessoe
     assert aviso.destino == "admin" and aviso.status is StatusMensagem.FALHA
     assert aviso.texto.startswith("🔴 *WhatsApp · mensagem não enviada*\n")
     assert f"• #{mid} para oportunidades: HTTP 400: grupo não encontrado" in aviso.texto
+
+
+@respx.mock
+def test_linha_antiga_com_endereco_interno_sai_sem_o_endereco(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    with sessoes() as s, s.begin():
+        repo.salvar_config_geral(s, {"host_publico": "192.168.0.10"}, AGORA)
+    nova(sessoes, "admin", "veja http://192.168.0.10:6081/vnc.html e http://192.168.0.10:8000/x e http://192.168.0.10:6080")
+    assert servico(sessoes, env).ciclo() == 1
+    corpo = rota.calls.last.request.read().decode()
+    assert "[endereço removido]" in corpo
+    assert "192.168.0.10" not in corpo and ":8000" not in corpo and ":6081" not in corpo and ":6080" not in corpo
+
+
+@respx.mock
+def test_linha_limpa_sai_inalterada(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    nova(sessoes, "admin", "https://www.amazon.com.br/dp/B0TESTE123 ok")
+    servico(sessoes, env).ciclo()
+    corpo = rota.calls.last.request.read().decode()
+    assert "https://www.amazon.com.br/dp/B0TESTE123 ok" in corpo
+    assert "[endereço removido]" not in corpo

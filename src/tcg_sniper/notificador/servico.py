@@ -132,8 +132,10 @@ class ServicoNotificador:
             m.ultimo_erro = falta
             m.proxima_tentativa_em = agora + ESPERA_SEM_DESTINO
             return None
+        # linhas antigas da fila e "reenviar" saem como estão gravadas: a guarda de URL vale aqui também
+        texto = formato.conferir_urls(m.texto, avisos.zona_e_host(s)[1], estrito=False)
         resultado, erro = enviar_uma_vez(
-            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, m.texto
+            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, texto
         )
         if resultado is Resultado.OK:
             m.status = StatusMensagem.ENVIADA

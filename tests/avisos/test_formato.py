@@ -237,7 +237,7 @@ ESPERADOS = {
     TipoAviso.OPORTUNIDADE: (
         "💰 *Oportunidade · 18% abaixo da Liga*\n"
         "*Final Fantasy - Caixa de Booster de Jogo*\n"
-        "• Amazon: *R$ 1.299,90* (conferido, com impostos; frete à parte)\n"
+        "• Amazon: *R$ 1.299,90* (conferido; frete à parte)\n"
         "• Vendido por: Amazon · Prime\n"
         "• Liga: a partir de R$ 1.589,00 · 12 lojas · média R$ 1.640,00\n"
         "https://www.amazon.com.br/dp/B0TESTE123\n"

@@ -311,7 +311,7 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
             titulo_extra="18% abaixo da Liga",
             destaque="Final Fantasy - Caixa de Booster de Jogo",
             linhas=(
-                ("Amazon: ", Negrito("R$ 1.299,90"), " (conferido, com impostos; frete à parte)"),
+                ("Amazon: ", Negrito("R$ 1.299,90"), " (conferido; frete à parte)"),
                 "Vendido por: Amazon · Prime",
                 "Liga: a partir de R$ 1.589,00 · 12 lojas · média R$ 1.640,00",
             ),

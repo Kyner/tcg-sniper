@@ -272,7 +272,7 @@ def test_conferencia_que_baixa_o_preco_abre_e_avisa_conferido(sessoes, config, a
     assert avisador.mensagens == []
     aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "760.00", "770.00", itens="740.00", frete="30.00"))
     [(_, texto)] = avisador.mensagens
-    assert "Amazon: *R$ 740,00* (conferido, com impostos; frete R$ 30,00 à parte)" in texto
+    assert "Amazon: *R$ 740,00* (conferido; frete R$ 30,00 à parte)" in texto
     assert avisador.dados(TipoAviso.OPORTUNIDADE)[0].titulo_extra == "26% abaixo da Liga"
     with sessoes() as s:
         assert s.scalar(select(Oportunidade)).preco_amazon == Decimal("740.00")

@@ -45,14 +45,14 @@ def _linha_amazon(leitura: Leitura, detalhes: Detalhes | None, variacao: str | N
     if detalhes is None:
         return (rotulo, Negrito(formatar_brl(leitura.preco)))
     if detalhes.preco_conferido is not None:
-        impostos = f" de {formatar_brl(detalhes.impostos)}" if detalhes.impostos is not None else ""
+        base = f"conferido, com impostos de {formatar_brl(detalhes.impostos)}" if detalhes.impostos is not None else "conferido"
         if detalhes.frete is None:
             frete = "frete à parte"
         elif detalhes.frete == 0:
             frete = "frete grátis"
         else:
             frete = f"frete {formatar_brl(detalhes.frete)} à parte"
-        return (rotulo, Negrito(formatar_brl(detalhes.preco_conferido)), f" (conferido, com impostos{impostos}; {frete})")
+        return (rotulo, Negrito(formatar_brl(detalhes.preco_conferido)), f" ({base}; {frete})")
     motivo = detalhes.motivo_nao_conferido or "aguardando conferência"
     return (rotulo, Negrito(formatar_brl(leitura.preco)), f" (anunciado, sem impostos; não conferido: {motivo})")
 

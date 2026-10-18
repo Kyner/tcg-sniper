@@ -154,7 +154,7 @@ def test_conferencia_antes_do_monitor_antes_da_descoberta(engine, sessoes, confi
     with sessoes() as s:
         assert s.scalar(select(Oportunidade)).preco_amazon == Decimal("700.00")
     [(_, texto)] = [m for m in avisador.mensagens if m[0] is Destino.OPORTUNIDADES]
-    assert "(conferido, com impostos" in texto
+    assert "(conferido; frete" in texto
 
 
 def test_janela_propria_do_monitor(engine, sessoes, config):
