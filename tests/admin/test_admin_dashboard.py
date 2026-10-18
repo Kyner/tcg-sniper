@@ -53,7 +53,9 @@ def test_dashboard_sem_atalho_de_configuracoes_no_bloco_da_amazon(cliente):
     assert "/configuracoes" not in card(cliente.get("/").text, "Amazon")
 
 
-def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes):
+def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes, monkeypatch):
+    # relógio fixo dentro da janela da Amazon (08:00–22:00): fora dela o card mostra "fora do horário"
+    monkeypatch.setattr(modulo_app.repo, "agora_utc", lambda: datetime(2026, 10, 13, 12, 0, tzinfo=SP))
     with sessoes() as s, s.begin():
         c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
         repo.finalizar_coleta(s, c.id, StatusColeta.OK, 5, 0, T0)
