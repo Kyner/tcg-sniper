@@ -601,14 +601,31 @@ def test_carrinho_de_visitante_nao_resolve_a_retirada(engine, sessoes, config):
 
 def test_conferencia_que_falha_avisa_na_hora_com_o_preco_anunciado(engine, sessoes, config):
     confirmado(sessoes, "cand", "B0CAND0001", "700.00")  # lida agora: 30% abaixo, à espera da conferência
-    paginas = {URL_CARRINHO: [carrinho()], url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 720,00")}
+    sem_contador = pagina_html(
+        html_ofertas(bloco_oferta("R$ 700,00", "Amazon.com.br", seller_id=None, envia=None, destaque=True)),
+        url=url_painel_ofertas("B0CAND0001"),
+    )
+    paginas = {URL_CARRINHO: [carrinho()], url_painel_ofertas("B0CAND0001"): sem_contador}
     v, navegador, notificador, _ = varredura(engine, sessoes, config, paginas)
-    v.passo()  # a oferta mudou no painel: falha sem clicar
+    v.passo()  # contador do carrinho ilegível no painel: falha sem clicar
     assert conferencias(sessoes)[0].situacao is SituacaoCheckout.FALHA and navegador.cliques == []
     [texto] = [t for d, t in notificador.mensagens if d is Destino.OPORTUNIDADES]
-    assert "Amazon: R$ 700,00, preço anunciado, não conferido (a conferência falhou: a oferta não está mais no painel" in texto
+    assert "Amazon: R$ 700,00, preço anunciado, não conferido (a conferência falhou: contador do carrinho ilegível" in texto
     with sessoes() as s:
         assert s.scalar(select(Oportunidade)).preco_alertado == Decimal("700.00")
+
+
+def test_oferta_que_sumiu_do_painel_nao_avisa_com_o_anunciado(engine, sessoes, config):
+    confirmado(sessoes, "cand", "B0CAND0001", "700.00")  # lida agora: 30% abaixo, à espera da conferência
+    paginas = {URL_CARRINHO: [carrinho()], url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 720,00")}
+    v, navegador, notificador, _ = varredura(engine, sessoes, config, paginas)
+    v.passo()  # a oferta mudou no painel: falha sem clicar; a próxima leitura decide
+    [conf] = conferencias(sessoes)
+    assert conf.situacao is SituacaoCheckout.FALHA and conf.motivo.startswith("a oferta não está mais no painel")
+    assert navegador.cliques == []
+    assert [t for d, t in notificador.mensagens if d is Destino.OPORTUNIDADES] == []
+    with sessoes() as s:
+        assert s.scalar(select(Oportunidade)) is None
 
 
 def test_captcha_na_retirada_avisa_qual_item_pode_ter_ficado(engine, sessoes, config):

@@ -301,6 +301,8 @@ class Oportunidade(Base):
     aberta_em: Mapped[datetime] = mapped_column(DATA)
     alertada_em: Mapped[datetime] = mapped_column(DATA)
     preco_alertado: Mapped[Decimal] = mapped_column(DINHEIRO)
+    # O último aviso saiu com o preço conferido no checkout: o anunciado (sem os impostos) não realerta.
+    alerta_conferido: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     fechada_em: Mapped[datetime | None] = mapped_column(DATA)
 
 

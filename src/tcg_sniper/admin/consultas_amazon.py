@@ -4,7 +4,7 @@ import difflib
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
@@ -35,10 +35,10 @@ from tcg_sniper.db.models import (
     VendedorAmazon,
 )
 from tcg_sniper.oportunidades.motor import (
+    CEM,
     Regras,
     Vendedor,
     atinge_desconto,
-    desconto_pct,
     preco_conferido,
     vendedor_confiavel,
 )
@@ -370,6 +370,12 @@ def _vendedor_aceito(vendedor: str, envio: Envio, confiavel: bool) -> bool:
     return True
 
 
+def _desconto_exibido(preco: Decimal, preco_liga: Decimal) -> Decimal:
+    """Desconto da tela de ofertas, arredondado para baixo em 2 casas: nunca mostra mais que o exato
+    (24,996% vira 24,99%, não 25,00%), e o selo "≥ mínimo" bate com o filtro, que compara o exato."""
+    return ((1 - preco / preco_liga) * CEM).quantize(Decimal("0.01"), ROUND_FLOOR)
+
+
 _ORDENS = {
     "desconto": lambda l: (l.desconto is None, -(l.desconto or 0), l.produto.nome, l.produto.id),
     "diferenca": lambda l: (l.diferenca is None, -(l.diferenca or 0), l.produto.nome, l.produto.id),
@@ -435,7 +441,7 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
                 confiavel=confiavel,
                 verificado=verificado,
                 coletado_em=atual.coletado_em,
-                desconto=desconto_pct(efetivo, preco_liga) if preco_liga else None,
+                desconto=_desconto_exibido(efetivo, preco_liga) if preco_liga else None,
                 diferenca=preco_liga - efetivo if preco_liga is not None else None,
                 aberta=produto.id in abertas,
                 origem_casamento=anuncio.origem_casamento,
@@ -445,9 +451,10 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
                 prime=bool(melhor and melhor.prime),
             ),
         )
-    linhas = [linha for _, linha in melhores.values()]
-    if filtro.desconto_min is not None:
-        linhas = [l for l in linhas if l.desconto is not None and l.desconto >= filtro.desconto_min]
+    if filtro.desconto_min is not None:  # o desconto exato do preço efetivo, sem arredondar
+        linhas = [l for e, l in melhores.values() if atinge_desconto(e, l.preco_liga, filtro.desconto_min)]
+    else:
+        linhas = [linha for _, linha in melhores.values()]
     if filtro.situacao == "abertas":
         linhas = [l for l in linhas if l.aberta]
     linhas.sort(key=_ORDENS[filtro.ordem])

@@ -388,3 +388,21 @@ def test_carrinho_relido_no_painel_logo_antes_de_adicionar(contador, situacao):
     assert resultado.situacao is situacao and "nada foi clicado" in resultado.motivo
     assert nav.cliques == [] and chamadas == [] and resultado.item_removido
     assert (nav.visitadas, resultado.paginas) == ([URL_CARRINHO, url_painel_ofertas(ASIN)], 2)
+
+
+def test_clique_recusado_pela_guarda_nao_conta_pagina():
+    um_item = carrinho(ASIN, subtotal="R$ 275,91")
+    armadilha = checkout_endereco(botao='<input data-testid="Address_selectShipToThisAddress" type="submit" value="Confirmar pedido">')
+    resultado, nav = conferir_com(
+        {URL_CARRINHO: [carrinho(), um_item, um_item, carrinho()], url_painel_ofertas(ASIN): PAINEL},
+        [um_item, armadilha, carrinho()],
+    )
+    assert "proibido" in resultado.motivo
+    # só as páginas carregadas: as abertas e os cliques feitos (o recusado não carregou nada)
+    assert resultado.paginas == len(nav.visitadas) + len(nav.cliques) == 8
+
+
+def test_carrinho_ocupado_com_contador_zero_conta_os_itens_ativos():
+    resultado, _ = conferir_com({URL_CARRINHO: carrinho("B0OUTRO001", "B0OUTRO002", contador=0)}, [])
+    assert resultado.situacao is SituacaoCheckout.CARRINHO_OCUPADO
+    assert resultado.motivo == "2 item(ns) no carrinho; nada foi clicado"

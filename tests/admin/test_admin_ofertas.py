@@ -166,3 +166,21 @@ def test_selo_do_vendedor_na_pagina_do_produto(cliente, sessoes, cenario):
     caixa = cliente.get(f"/produto/{_produto_id(sessoes, 'Caixa 100% Colecionador')}").text
     assert "badge-success" in caixa[caixa.index("B0CAIXAAMZ"):].split("</tr>")[0]
     assert "badge-success" not in caixa[caixa.index("B0CAIXAFBA"):].split("</tr>")[0]
+
+
+def test_filtro_de_desconto_compara_o_desconto_exato(sessoes, cliente):
+    # R$ 750,04 contra R$ 1.000,00 é 24,996%: arredondado daria 25,00% e passaria no "≥ 25%".
+    with sessoes() as s, s.begin():
+        quase = criar_produto(s, "quase", nome="Quase Lá")
+        exato = criar_produto(s, "exato", nome="Exato")
+        criar_preco_liga(s, quase, "1000.00")
+        criar_preco_liga(s, exato, "1000.00")
+        oferta(s, "B0QUASE001", quase, "750.04", Envio.AMAZON)
+        oferta(s, "B0EXATO001", exato, "750.00", Envio.AMAZON)
+    with sessoes() as s:
+        assert asins(s, desconto_min=25) == ["B0EXATO001"]
+        config = repo_amz.obter_config(s)
+        quase_linha = next(l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.anuncio.asin == "B0QUASE001")
+    assert quase_linha.desconto == Decimal("24.99")  # a tela nunca mostra 25,00% para 24,996%
+    texto = cliente.get("/ofertas").text
+    assert "24,99%" in texto and "25,00%" in texto

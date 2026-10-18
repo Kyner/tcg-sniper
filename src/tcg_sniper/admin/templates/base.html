@@ -8,7 +8,7 @@
     try { var t = localStorage.getItem("tema"); if (t === "winter" || t === "night") document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
   <link rel="stylesheet" href="/static/admin.css?v={{ versao_css }}">
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
 <body class="min-h-screen bg-base-200">
 {%- set menu = request.state.menu %}

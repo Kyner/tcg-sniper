@@ -1,6 +1,8 @@
 import base64
+import importlib.util
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fakes import T0
@@ -158,3 +160,26 @@ def test_aba_ia_paginada(cliente, sessoes):
 def test_vazio(cliente):
     texto = cliente.get("/logs").text
     assert "Nenhuma coleta ainda." in texto and "Nenhum ciclo ainda." in texto and "Nenhuma chamada" in texto
+
+
+def test_paginar_a_liga_com_filtro_nao_reabre_a_amazon(cliente, sessoes):
+    # Guarda do bug antigo: paginar o histórico da LigaMagic com filtro reabria a aba da Amazon.
+    for i in range(POR_PAGINA_HISTORICO + 5):
+        coleta(sessoes, TipoColeta.LISTAGEM, T0 + timedelta(minutes=i), StatusColeta.FALHA, ok=0, falha=1)
+        coleta(sessoes, TipoColeta.AMAZON, T0 + timedelta(minutes=i))
+    pagina1 = cliente.get("/logs", params={"aba": "liga", "liga_status": "falha"}).text
+    liga = aba(pagina1, "LigaMagic")
+    link = liga[liga.index("liga_pagina=2") - 200:liga.index("liga_pagina=2") + 200]
+    assert "aba=liga" in link and "liga_status=falha" in link
+    pagina2 = cliente.get("/logs", params={"aba": "liga", "liga_status": "falha", "liga_pagina": "2"}).text
+    assert aba_marcada(pagina2, "LigaMagic") and not aba_marcada(pagina2, "Amazon")
+    assert linhas(aba(pagina2, "LigaMagic"), "listagem") == 5
+
+
+def test_verificar_layout_confere_as_abas_dos_logs():
+    caminho = Path(__file__).parents[2] / "scripts" / "verificar_layout.py"
+    spec = importlib.util.spec_from_file_location("verificar_layout", caminho)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    for tela in ("/logs", "/logs?aba=amazon", "/logs?aba=ia", "/logs?aba=checkout", "/logs?aba=monitor"):
+        assert tela in modulo.FIXAS

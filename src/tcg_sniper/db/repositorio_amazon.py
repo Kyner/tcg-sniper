@@ -294,11 +294,13 @@ def abrir_oportunidade(
     vendedor_id: int | None,
     envio: Envio,
     agora: datetime,
+    conferido: bool = False,
 ) -> Oportunidade:
+    """`conferido`: o aviso sai com o preço conferido no checkout."""
     op = Oportunidade(
         anuncio_id=anuncio_id, produto_id=produto_id, preco_amazon=preco_amazon, preco_liga=preco_liga,
         desconto_pct=desconto_pct, vendedor_id=vendedor_id, envio=envio, aberta_em=agora,
-        alertada_em=agora, preco_alertado=preco_amazon,
+        alertada_em=agora, preco_alertado=preco_amazon, alerta_conferido=conferido,
     )
     s.add(op)
     s.flush()
@@ -316,11 +318,13 @@ def atualizar_oportunidade(
     envio: Envio,
     alertou: bool,
     agora: datetime,
+    conferido: bool = False,
 ) -> None:
+    """`conferido` (só com `alertou`): o novo aviso sai com o preço conferido no checkout."""
     op.preco_amazon, op.preco_liga, op.desconto_pct = preco_amazon, preco_liga, desconto_pct
     op.vendedor_id, op.envio = vendedor_id, envio
     if alertou:
-        op.alertada_em, op.preco_alertado = agora, preco_amazon
+        op.alertada_em, op.preco_alertado, op.alerta_conferido = agora, preco_amazon, conferido
     s.flush()
 
 

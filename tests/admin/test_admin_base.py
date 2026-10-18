@@ -82,3 +82,11 @@ def test_classes_dinamicas_dos_componentes_existem_no_css():
         "badge-success", "badge-warning", "badge-error", "badge-info", "badge-ghost",
     ):
         assert f".{classe}" in css, f"{classe} ausente do admin.css"
+
+
+def test_htmx_da_cdn_tem_sri(cliente):
+    texto = cliente.get("/").text
+    inicio = texto.index('<script src="https://unpkg.com/htmx.org@1.9.12"')
+    tag = texto[inicio:texto.index(">", inicio)]
+    assert 'integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"' in tag
+    assert 'crossorigin="anonymous"' in tag

@@ -9,7 +9,7 @@ espera e a oferta é candidata ao checkout, sem falha nem ok da mesma oferta na 
 decide pelo preço anunciado: não abre, não avisa, não fecha nem realerta. Quem decide é
 `aplicar_conferencia`, com o preço conferido, logo depois da conferência. O aviso com o preço anunciado
 ("não conferido (<motivo>)") só sai quando não há conferência possível; se ela falha, `redecidir` avisa
-na hora com o anunciado."""
+na hora com o anunciado (menos quando a oferta saiu do painel: aí a próxima leitura decide)."""
 
 import dataclasses
 import logging
@@ -20,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from tcg_sniper.coletor_amazon.busca import ContextoBusca, DesafioAmazon, abrir_pagina, ler_pagina
+from tcg_sniper.coletor_amazon.checkout import MOTIVO_OFERTA_SUMIU
 from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
 from tcg_sniper.coletor_amazon.modelos import AvaliacaoVendedor, OfertaLista
 from tcg_sniper.coletor_amazon.parsers import (
@@ -188,19 +189,19 @@ def _motivo_nao_conferido(s: Session, cfg: ConfigAmazon, anuncio_id: int, agora:
     return "aguardando conferência"
 
 
-def _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora) -> None:
-    """Grava a decisão do motor."""
+def _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora, conferido: bool) -> None:
+    """Grava a decisão do motor. `conferido`: o preço da leitura é o conferido no checkout."""
     if acao is motor.Acao.ABRIR:
         repo.abrir_oportunidade(
             s, anuncio_id=linha.anuncio.id, produto_id=linha.produto.id, preco_amazon=leitura.preco,
             preco_liga=ref.preco_a_partir, desconto_pct=motor.desconto_pct(leitura.preco, ref.preco_a_partir),
-            vendedor_id=vendedor_id, envio=leitura.envio, agora=agora,
+            vendedor_id=vendedor_id, envio=leitura.envio, agora=agora, conferido=conferido,
         )
     elif acao in (motor.Acao.REALERTAR, motor.Acao.ATUALIZAR):
         repo.atualizar_oportunidade(
             s, aberta, preco_amazon=leitura.preco, preco_liga=ref.preco_a_partir,
             desconto_pct=motor.desconto_pct(leitura.preco, ref.preco_a_partir), vendedor_id=vendedor_id,
-            envio=leitura.envio, alertou=acao is motor.Acao.REALERTAR, agora=agora,
+            envio=leitura.envio, alertou=acao is motor.Acao.REALERTAR, agora=agora, conferido=conferido,
         )
     elif acao is motor.Acao.FECHAR:
         repo.fechar_oportunidade(s, aberta, agora)
@@ -240,8 +241,12 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
         leitura = motor.Leitura(preco, oferta.envio if oferta else Envio.DESCONHECIDO, _info(melhor.vendedor) if melhor else None)
         aberta = repo.oportunidade_aberta(s, anuncio_id)
         acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta.preco_alertado if aberta else None)
+        if acao is motor.Acao.REALERTAR and conferido is None and aberta.alerta_conferido:
+            # O último aviso foi com o conferido; o anunciado não tem os impostos e parece mais barato:
+            # só atualiza, sem aviso, até haver um novo preço conferido.
+            acao = motor.Acao.ATUALIZAR
         vendedor_id = melhor.vendedor.id if melhor and melhor.vendedor else None
-        _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora)
+        _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora, conferido is not None)
         if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
             selos = Detalhes(
                 importada=oferta.importada, origem_envio=oferta.origem_envio, prime=oferta.prime,
@@ -300,8 +305,13 @@ def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMoni
 def redecidir(ctx: ContextoBusca, anuncio_id: int) -> None:
     """Conferência que não deu ok (falha, carrinho ocupado, sem login): refaz na hora a decisão da
     leitura atual, que agora não espera mais conferência e usa o preço anunciado ("não conferido
-    (<motivo>)"). Sem leitura atual de ofertas não faz nada (a próxima leitura decide)."""
+    (<motivo>)"). Sem leitura atual de ofertas, ou quando a conferência falhou porque a oferta não está
+    mais no painel (o anunciado da leitura já não vale), não faz nada: a próxima leitura decide."""
     with ctx.sessoes() as s:
+        ultima = repo.ultima_conferencia(s, anuncio_id)
+        if ultima is not None and ultima.situacao is SituacaoCheckout.FALHA and ultima.motivo == MOTIVO_OFERTA_SUMIU:
+            log.info("anúncio %s: a oferta saiu do painel; a próxima leitura decide", anuncio_id)
+            return
         cfg = repo.obter_config(s)  # a conferência pode ter acabado de marcar a conta sem login
         lidas = repo.ofertas_da_ultima_leitura(s, [anuncio_id]).get(anuncio_id, [])
         melhor = next((o for o in lidas if o.melhor), None)
@@ -346,7 +356,7 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
         leitura = motor.Leitura(conferido, linha.atual.envio, _info(vendedor))
         aberta = repo.oportunidade_aberta(s, anuncio_id)
         acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta.preco_alertado if aberta else None)
-        _aplicar(s, acao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora)
+        _aplicar(s, acao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora, True)
         if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
             detalhes = Detalhes(
                 preco_conferido=conferido, impostos=conferencia.impostos, frete=conferencia.frete,

@@ -52,6 +52,8 @@ log = logging.getLogger(__name__)
 
 ERROS_DO_PASSO = (CliqueProibido, SeletorAusente, ErroParser, ErroRede)
 MAX_ITENS_SOBRE_ANUNCIADO = Decimal("1.5")  # itens do resumo acima disso × o anunciado: mais de uma unidade
+# A oferta da leitura não está mais no painel: o preço anunciado dela já não vale (o monitor não avisa por ele).
+MOTIVO_OFERTA_SUMIU = "a oferta não está mais no painel (preço ou vendedor mudou)"
 
 
 @dataclass(frozen=True)
@@ -138,8 +140,15 @@ def conferir(
     def clicar(acao: Acao, pagina: Pagina, escopo: str = "", bloco: int = 0) -> Pagina:
         nonlocal paginas
         pausar()
+        try:
+            resultado = clicar_permitido(nav, acao, pagina, escopo, bloco)
+        except (CliqueProibido, SeletorAusente):
+            raise  # recusado antes do clique: nenhuma página carregou, não conta no teto
+        except Exception:
+            paginas += 1  # o clique pode ter carregado uma página antes do erro
+            raise
         paginas += 1
-        return clicar_permitido(nav, acao, pagina, escopo, bloco)
+        return resultado
 
     try:
         carrinho = abrir_contando(URL_CARRINHO)
@@ -152,7 +161,8 @@ def conferir(
         if estado.contador is None:
             raise _Parada(SituacaoCheckout.FALHA, "contador do carrinho ilegível; nada foi clicado")
         if estado.contador or estado.asins_ativos:
-            raise _Parada(SituacaoCheckout.CARRINHO_OCUPADO, f"{estado.contador} item(ns) no carrinho; nada foi clicado")
+            itens = estado.contador or len(estado.asins_ativos)  # contador zerado com itens ativos: conta os itens
+            raise _Parada(SituacaoCheckout.CARRINHO_OCUPADO, f"{itens} item(ns) no carrinho; nada foi clicado")
         url = url_painel_ofertas(alvo.asin)
         pausar()
         paginas += 1
@@ -161,7 +171,7 @@ def conferir(
             raise DesafioAmazon(url)
         oferta = _achar(parse_ofertas(painel.html), alvo)
         if oferta is None:
-            raise _Parada(SituacaoCheckout.FALHA, "a oferta não está mais no painel (preço ou vendedor mudou)")
+            raise _Parada(SituacaoCheckout.FALHA, MOTIVO_OFERTA_SUMIU)
         # Relê o carrinho logo antes do clique, na própria página do painel (a que precisa estar na tela
         # para o clique): o usuário pode ter posto algo no carrinho depois da primeira leitura.
         contador = contador_do_carrinho(painel.html)

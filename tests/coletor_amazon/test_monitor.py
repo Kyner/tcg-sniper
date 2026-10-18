@@ -435,3 +435,48 @@ def test_amazon_global_em_destaque_e_envio_amazon_e_elegivel(sessoes, config, an
     with sessoes() as s:
         destaque = s.scalar(select(OfertaAmazon).where(OfertaAmazon.vendedor_nome == "Amazon Global"))
     assert (destaque.envio, destaque.elegivel) == (Envio.AMAZON, True)
+
+
+# --- realerta pelo anunciado depois de um aviso conferido ----------------------------------------
+
+
+def test_aviso_conferido_nao_realerta_pelo_anunciado(sessoes, config, anuncio):
+    # O anunciado não tem os impostos de importação: parece mais barato que o conferido. Sem nova
+    # conferência, a queda só atualiza a aberta em silêncio.
+    relogio = Relogio(AGORA)
+    conferencia(sessoes, anuncio.id, "700.00", "740.00", impostos="40.00", quando=AGORA - timedelta(minutes=10))
+    paginas = {url_ofertas(ASIN): [painel(amazon("R$ 700,00")), painel(amazon("R$ 600,00"))]}
+    ctx, _, notificador = contexto(sessoes, config, paginas, checkout=False, relogio=relogio)
+    ler_anuncio(ctx, anuncio.id, ASIN)  # abre e avisa com o conferido (740)
+    assert len(notificador.mensagens) == 1
+    relogio.agora = AGORA + timedelta(hours=7)  # a conferência venceu
+    ler_anuncio(ctx, anuncio.id, ASIN)  # 600 anunciado: 19% abaixo do alertado, mas não conferido
+    assert len(notificador.mensagens) == 1
+    with sessoes() as s:
+        op = s.scalar(select(Oportunidade))
+    assert (op.fechada_em, op.preco_alertado, op.preco_amazon, op.alerta_conferido) == (
+        None, Decimal("740.00"), Decimal("600.00"), True,
+    )
+
+
+def test_aviso_anunciado_realerta_pelo_anunciado(sessoes, config, anuncio):
+    paginas = {url_ofertas(ASIN): [painel(amazon("R$ 700,00")), painel(amazon("R$ 600,00"))]}
+    ctx, _, notificador = contexto(sessoes, config, paginas, checkout=False)
+    ler_anuncio(ctx, anuncio.id, ASIN)  # abre e avisa com o anunciado (700)
+    with sessoes() as s:
+        assert s.scalar(select(Oportunidade)).alerta_conferido is False
+    ler_anuncio(ctx, anuncio.id, ASIN)  # 600: caiu 14% sobre o alertado
+    assert len(notificador.mensagens) == 2 and "Amazon: R$ 600,00, preço anunciado" in notificador.mensagens[1][1]
+    with sessoes() as s:
+        op = s.scalar(select(Oportunidade))
+    assert (op.preco_alertado, op.alerta_conferido) == (Decimal("600.00"), False)
+
+
+def test_realerta_conferido_marca_o_aviso_como_conferido(sessoes, config, anuncio):
+    ctx, _, notificador = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ler_anuncio(ctx, anuncio.id, ASIN)  # abre com o anunciado 700
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "700.00", "650.00", itens="650.00"))
+    assert len(notificador.mensagens) == 2
+    with sessoes() as s:
+        op = s.scalar(select(Oportunidade))
+    assert (op.preco_alertado, op.alerta_conferido) == (Decimal("650.00"), True)
