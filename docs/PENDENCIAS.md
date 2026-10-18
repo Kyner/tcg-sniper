@@ -10,25 +10,14 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 - [ ] Frequência de CAPTCHA da Amazon com o monitor ligado (até 150 páginas/h).
 - [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare.
 
-## 2. Pacote B: proteção e operação (próximo a fazer)
-
-- [ ] **Backup automático do banco**: `pg_dump` diário, com rodízio (7 diários + 4 semanais) e cópia fora do PC (o R2 da Cloudflare serve). Hoje só há backups manuais antes de cada deploy (`dados/backups/`).
-- [ ] **Limpeza de histórico**: já existe limpeza de 30 dias para `oferta_amazon` e `mensagem_saida`. Ainda crescem sem limite. Prazos propostos, **aguardando ok**:
-  - `preco_amazon`: 1 ano;
-  - `resumo_preco`/preços da Liga: 90 dias;
-  - `chamada_ia`: 90 dias;
-  - `conferencia_checkout`: 180 dias;
-  - `coleta`: definir junto (sugestão: 180 dias).
-- [ ] Bancos de teste (`tcg_test*`) ficam no mesmo Postgres de produção: separar num container próprio.
-
-## 3. Pequenas (sem pressa, juntar num pacote)
+## 2. Pequenas (sem pressa, juntar num pacote)
 
 - [ ] Retirada do carrinho: quando o clique de excluir falha, a página aberta não entra no teto por hora (`cliques.remover_do_carrinho`).
 - [ ] `abrir_oportunidade`/`atualizar_oportunidade`: tornar `conferido` obrigatório (hoje padrão False) para um chamador futuro não registrar alerta conferido como anunciado.
 - [ ] Trava de cliques: varredura AST não pega `eval_on_selector`/`evaluate_all`/`submit()`/`getattr`; caracteres Unicode parecidos (ex.: "о" cirílico). Defesa extra, sem falha conhecida.
 - [ ] Anonimizador: número de rua sozinho em `proibidos.txt` troca dígitos dentro de preços/ASIN; preço sem centavos depois de "final" vira "cartão"; CPF/CNPJ e telefone fixo sem parênteses não são pegos. (Só importa numa nova captura.)
 
-## 4. Próximas funcionalidades (decisão do grupo)
+## 3. Próximas funcionalidades (decisão do grupo)
 
 - [ ] **Margem líquida real** por oportunidade: comissão de lojista da LigaMagic, frete de envio, imposto, cupons e cartões. Precisa dos valores/regras do grupo.
 - [ ] **Coletor do Mercado Livre** pelo navegador (sem API).
@@ -37,19 +26,29 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 - [ ] **Migrar para servidor** (a LigaMagic continua sendo coletada em casa).
 - [ ] Imagens no R2 da Cloudflare: só se for preciso mostrar fotos no admin ou guardar histórico de imagem (hoje a IA baixa direto da loja).
 
-## 5. Riscos conhecidos (decisão, não código)
+## 4. Riscos conhecidos (decisão, não código)
 
 - [ ] O PC é ponto único de falha (ver "Migrar para servidor").
 - [ ] O número do WhatsApp pode ser banido: usar chip secundário.
 
 ## Ordem sugerida
 
-1. Seção 1 (acompanhar) nos próximos dias.
-2. Pacote B (seção 2): backup automático primeiro; retenção depois do ok nos prazos.
-3. Seção 3 quando houver outra mexida no coletor da Amazon.
-4. Margem líquida (seção 4), quando o grupo tiver os valores.
+1. Seção 1 (acompanhar) nos próximos dias, junto com a primeira semana do backup (card Backup no Dashboard).
+2. Seção 2 quando houver outra mexida no coletor da Amazon.
+3. Margem líquida (seção 3), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### Pacote B (2026-10-18)
+
+- [x] **Backup automático do banco**: serviço `manutencao` (compose), todo dia às 04:00 no fuso de Configurações → Geral, com recuperação ao subir se o último ok tem mais de 24 h. `pg_dump -Fc` validado com `pg_restore --list`, rodízio de 7 diários + 4 semanais em `dados/backups/` (os `tcg-antes-*.dump` manuais nunca são tocados) e cópia no R2 (`diario/`, `semanal/`; o bucket expira sozinho). Card Backup no Dashboard, liga/desliga em Serviços, Logs → Manutenção; falha avisa o grupo admin uma vez (`ef4c008`, `e79560f`, `1011a75`, `7ab2ed4`). Falta a primeira cópia real no R2 com as credenciais.
+- [x] **Limpeza de histórico** (`db/retencao.py`, na mesma execução diária, só depois de um backup local ok) (`c006baa`):
+  - preços (`preco_amazon`, `resumo_preco`, `preco_listagem`, `preco_atual_*`), `avaliacao_ia` e `oportunidade`: nunca apagados;
+  - `chamada_ia`: 90 dias; antes de apagar, `avaliacao_ia.chamada_id` vira NULL (a avaliação fica; nenhuma tela junta a chamada pela avaliação);
+  - `conferencia_checkout`: 180 dias, só com `item_removido` (as que ainda podem ter item no carrinho ficam);
+  - `coleta`: 180 dias, só as que nenhum preço referencia (`resumo_preco`, `preco_listagem`, `preco_atual_liga`): rodadas que falharam ou vieram vazias e os ciclos da Amazon. Nunca uma `rodando`;
+  - `oferta_amazon` e `mensagem_saida` continuam com a limpeza de 30 dias de antes (coletor-amazon e notificador).
+- [x] Bancos de teste no container `postgres-teste` (porta 5433, dados em memória); os testes recusam a porta 5432 e bancos fora de `tcg_test*` (`2727316`).
 
 ### Pacote A (2026-10-18)
 

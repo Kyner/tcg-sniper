@@ -33,18 +33,21 @@ from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
+from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_CASADOR,
     COLETOR_LIGA,
+    COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
     AnuncioAmazon,
     EstadoColetorTipo,
     ProdutoLiga,
     TipoColeta,
 )
-from tcg_sniper.formatacao import formatar_brl
+from tcg_sniper.formatacao import formatar_brl, formatar_bytes
+from tcg_sniper.manutencao.servico import HORA_BACKUP
 from tcg_sniper.oportunidades import motor
 
 SENHA_PADRAO = "trocar-esta-senha"
@@ -72,10 +75,12 @@ MENSAGENS_SERVICOS = {
     "casador_pausar": "Casador pausado.",
     "casador_retomar": "Casador retomado; roda em até 1 minuto.",
     "casador_rodar": "Rodada do casador solicitada; começa em até 1 minuto.",
+    "manutencao_pausar": "Backup e limpeza desligados. Ligue de novo para não ficar sem backup.",
+    "manutencao_retomar": "Backup e limpeza ligados; se o de hoje ainda não rodou, roda em até 1 minuto.",
 }
 
 
-ABAS_LOGS = ("liga", "amazon", "monitor", "checkout", "ia")
+ABAS_LOGS = ("liga", "amazon", "monitor", "checkout", "ia", "manutencao")
 
 MENSAGENS_CASAMENTO = {"link_salvo": "Link salvo; o anúncio será lido em alguns minutos."}
 
@@ -142,6 +147,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     templates.env.filters["usd"] = lambda v: f"US$ {v:.2f}".replace(".", ",")
     templates.env.filters["usd4"] = lambda v: f"US$ {v:.4f}".replace(".", ",")
     templates.env.filters["duracao"] = duracao
+    templates.env.filters["tamanho"] = formatar_bytes
     templates.env.filters["milhar"] = lambda n: f"{n:,}".replace(",", ".")
     templates.env.filters["envio"] = lambda envio, vendedor=None: {
         "amazon": "vendido pela Amazon",
@@ -164,12 +170,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             pausado = repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado is not EstadoColetorTipo.ATIVO
             resumo = consultas_mensagens.resumo(s, agora, notificador_pausado=pausado)
             servicos_ = consultas_painel.saude_servicos(s, agora, efetiva, chave_ia, resumo)
+            backup = consultas_painel.saude_backup(s, agora, efetiva)
             return templates.TemplateResponse(
                 request,
                 "index.html",
                 {
-                    "avisos": consultas_painel.avisos(s, agora, efetiva, servicos_, resumo),
-                    "servicos": servicos_,
+                    "avisos": consultas_painel.avisos(s, agora, efetiva, servicos_, resumo)
+                    + consultas_painel.avisos_backup(backup),
+                    "servicos": [*servicos_, backup],
                     "n": consultas_painel.numeros(s, agora, efetiva),
                     "atividade": consultas_painel.atividade_hoje(s, agora, efetiva),
                     "atualizado": agora.astimezone(efetiva.zona).strftime("%H:%M"),
@@ -190,6 +198,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         monitor_pagina: str = "1",
         checkout_situacao: str = "todas",
         checkout_pagina: str = "1",
+        manutencao_pagina: str = "1",
     ):
         if aba not in ABAS_LOGS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
@@ -219,6 +228,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             conferencias, pagina_checkout, paginas_checkout = consultas.historico_conferencias(
                 s, checkout_situacao, numero_pagina(checkout_pagina)
             )
+            execucoes, pagina_manutencao, paginas_manutencao = consultas.historico_manutencao(
+                s, numero_pagina(manutencao_pagina)
+            )
             parametros = {
                 "aba": aba,
                 "liga_status": liga_status,
@@ -231,6 +243,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 "monitor_pagina": pagina_monitor,
                 "checkout_situacao": checkout_situacao,
                 "checkout_pagina": pagina_checkout,
+                "manutencao_pagina": pagina_manutencao,
             }
 
             def link(**mudancas) -> str:
@@ -258,6 +271,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "conferencias": conferencias,
                     "pagina_checkout": pagina_checkout,
                     "paginas_checkout": paginas_checkout,
+                    "execucoes": execucoes,
+                    "pagina_manutencao": pagina_manutencao,
+                    "paginas_manutencao": paginas_manutencao,
                     "checkout_situacao": checkout_situacao,
                     "situacoes_checkout": consultas.SITUACOES_CHECKOUT,
                     "liga_status": liga_status,
@@ -298,6 +314,12 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "mensagem": MENSAGENS_SERVICOS.get(msg),
                     "estado_notificador": repo.obter_estado(s, coletor=COLETOR_NOTIFICADOR),
                     "notificador": consultas_mensagens.estado_notificador(s, repo.agora_utc()),
+                    "estado_manutencao": repo.obter_estado(s, coletor=COLETOR_MANUTENCAO),
+                    "processo_manutencao": consultas_painel.processo_manutencao(s, repo.agora_utc()),
+                    "backup_ok": repo_man.ultima_ok(s),
+                    "backup_ultima": repo_man.ultima(s),
+                    "hora_backup": f"{HORA_BACKUP:%H:%M}",
+                    "r2": config.r2_configurado,
                 },
             )
 
@@ -342,6 +364,16 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         with sessoes() as s, s.begin():
             repo.retomar(s, repo.agora_utc(), COLETOR_NOTIFICADOR, solicitar=False)
         return RedirectResponse("/servicos?msg=notificador_retomar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/manutencao/pausar")
+    def pausar_manutencao():
+        return _desligar(COLETOR_MANUTENCAO, "manutencao_pausar")
+
+    @app.post("/manutencao/retomar")
+    def retomar_manutencao():
+        with sessoes() as s, s.begin():
+            repo.retomar(s, repo.agora_utc(), COLETOR_MANUTENCAO, solicitar=False)
+        return RedirectResponse("/servicos?msg=manutencao_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/amazon/pausar")
     def pausar_amazon():

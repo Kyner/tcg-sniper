@@ -10,8 +10,9 @@ from tcg_sniper.admin import app as modulo_app
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.admin.consultas import paginar
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import COLETOR_AMAZON, StatusColeta, TipoColeta
+from tcg_sniper.db.models import COLETOR_AMAZON, StatusColeta, StatusManutencao, TipoColeta
 
 SP = ZoneInfo("America/Sao_Paulo")
 
@@ -85,7 +86,7 @@ def test_dashboard_nao_tem_mais_o_historico(cliente, sessoes):
 
 def test_dashboard_tem_servicos_numeros_e_atividade(cliente):
     texto = cliente.get("/").text
-    for nome in ("LigaMagic", "Amazon", "Casador (IA)", "WhatsApp"):
+    for nome in ("LigaMagic", "Amazon", "Casador (IA)", "WhatsApp", "Backup"):
         assert f'data-servico="{nome}"' in texto
     for rotulo in ("Casamentos", "Confirmados", "Produtos ativos com par na Amazon", "Avaliados", "Esperando você",
                    "Gasto do mês", "Oportunidades", "Alertas na semana", "Atividade de hoje", "Mensagens do WhatsApp"):
@@ -93,15 +94,28 @@ def test_dashboard_tem_servicos_numeros_e_atividade(cliente):
     assert 'class="stats' in texto and 'class="progress' in texto and 'class="list"' in texto
 
 
+def backup_em_dia(s):
+    """Serviço de manutenção vivo e com um backup ok recente (sem aviso de backup)."""
+    agora = repo.agora_utc()
+    repo_man.registrar_ciclo(s, agora)
+    e = repo_man.iniciar(s, agora - timedelta(hours=1))
+    repo_man.finalizar(
+        s, e.id, agora, StatusManutencao.SO_LOCAL, arquivo="tcg-diario.dump", tamanho_bytes=1, enviado_r2=False,
+        apagados={}, erro=None,
+    )
+
+
 def test_sem_problemas_sem_aviso(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo_msg.registrar_ciclo(s, repo.agora_utc())
+        backup_em_dia(s)
     assert 'role="alert"' not in cliente.get("/").text
 
 
 def test_um_aviso_por_problema_com_link(cliente, sessoes):
     with sessoes() as s, s.begin():
         repo_msg.registrar_ciclo(s, repo.agora_utc())
+        backup_em_dia(s)
         repo.pausar(s, "pausado no admin", T0, COLETOR_AMAZON)
         c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
         repo.finalizar_coleta(s, c.id, StatusColeta.FALHA, 0, 9, T0, erro="interrompida")

@@ -11,6 +11,7 @@ from tcg_sniper.db.models import (
     ChamadaIA,
     Coleta,
     ConferenciaCheckout,
+    ExecucaoManutencao,
     OfertaAmazon,
     PrecoAtualLiga,
     PrecoListagem,
@@ -305,3 +306,18 @@ def historico_monitor(
         .limit(por_pagina)
     )
     return [LinhaMonitor(*linha) for linha in s.execute(consulta)], pagina, paginas
+
+
+def historico_manutencao(
+    s: Session, pagina: int, por_pagina: int = POR_PAGINA_HISTORICO
+) -> tuple[list[ExecucaoManutencao], int, int]:
+    """Execuções do serviço de manutenção (backup + limpeza), das mais recentes."""
+    total = s.scalar(select(func.count()).select_from(ExecucaoManutencao)) or 0
+    pagina, paginas = _pagina(total, pagina, por_pagina)
+    consulta = (
+        select(ExecucaoManutencao)
+        .order_by(ExecucaoManutencao.inicio.desc(), ExecucaoManutencao.id.desc())
+        .offset((pagina - 1) * por_pagina)
+        .limit(por_pagina)
+    )
+    return list(s.scalars(consulta)), pagina, paginas

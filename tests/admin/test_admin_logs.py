@@ -14,7 +14,7 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import StatusColeta, TipoColeta
 
-ABAS = ("LigaMagic", "Amazon", "Monitor", "Checkout", "IA")
+ABAS = ("LigaMagic", "Amazon", "Monitor", "Checkout", "IA", "Manutenção")
 
 
 def basic(usuario, senha):

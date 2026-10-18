@@ -113,10 +113,10 @@ O IP deste PC, a instância e os grupos do WhatsApp não ficam no `.env`: você 
 O coletor fica para o passo 6: ao subir, ele já acessa a LigaMagic.
 
 ```bash
-docker compose up -d --build postgres evolution migrate admin notificador
+docker compose up -d --build postgres evolution migrate admin notificador manutencao
 ```
 
-**Deu certo se** `docker compose ps -a` mostrar `postgres`, `evolution`, `admin` e `notificador` em `Up` e `migrate` em `Exited (0)`, e **Serviços** no admin mostrar o Notificador "rodando". Enquanto o WhatsApp não estiver configurado (passos 4 e 5), as mensagens esperam em **Mensagens**, com o motivo em "Último erro".
+**Deu certo se** `docker compose ps -a` mostrar `postgres`, `evolution`, `admin`, `notificador` e `manutencao` em `Up` e `migrate` em `Exited (0)`, e **Serviços** no admin mostrar o Notificador "rodando". Enquanto o WhatsApp não estiver configurado (passos 4 e 5), as mensagens esperam em **Mensagens**, com o motivo em "Último erro".
 
 ### 4. Conecte o WhatsApp
 
@@ -269,8 +269,8 @@ O menu fica na lateral (recolhe para ícones no computador; botão de menu no ce
 
 | Tela | Para que serve |
 | --- | --- |
-| **Dashboard** (`/`) | Estado e histórico dos serviços (só leitura); avisa quando algum está pausado. |
-| **Serviços** (`/servicos`) | Rodar agora e Retomar (LigaMagic), Pausar e Retomar (Amazon), ligar e desligar o monitor de preço e a conferência de checkout, Retomar conferência. |
+| **Dashboard** (`/`) | Estado e histórico dos serviços (só leitura), incluindo o último backup; avisa quando algum está pausado ou o backup está atrasado. |
+| **Serviços** (`/servicos`) | Rodar agora e Retomar (LigaMagic), Pausar e Retomar (Amazon), ligar e desligar o monitor de preço e a conferência de checkout, Retomar conferência, ligar e desligar o backup e a limpeza. |
 | **Catálogo** (`/catalogo`) | Todos os produtos, 100 por página. Busca por nome; filtros por situação (todos, ativos, inativos, novos nos últimos 7 dias), por categoria e "só com preço". Ativa ou desativa um produto ou todos os do filtro. |
 | **Produto** (`/produto/<id>`) | Preço "À partir de" atual, resumo de venda (mínimo, médio, máximo), número de lojas e o histórico de cada coleta. |
 | **Casamentos** | Produtos ativos da Liga com os anúncios da Amazon encontrados; confirmar, ignorar, trocar ou colar o link da Amazon à mão; filtros por situação, categoria e nome. |
@@ -293,6 +293,7 @@ Preço que a página não mostra aparece como "—", nunca como zero.
 | **Varredura da Amazon pausada** | No grupo admin, quando a fila da Amazon parou por erros seguidos. | Resolver pelo noVNC na 6081 e clicar em **Retomar (Amazon)** em Serviços, ou ver `docker compose logs coletor-amazon`. |
 | **Desafio Cloudflare na LigaMagic** | Quando aparece uma verificação. A coleta fica pausada. | Resolver pelo noVNC e clicar em **Retomar** em Serviços (ver abaixo). |
 | **... falhou em X de Y** | Quando mais da metade das categorias ou dos produtos falhou. Em geral, a LigaMagic mudou o layout. | Ver os HTMLs salvos em `/data/falhas` e abrir uma issue. |
+| **Backup do banco com erro** | No grupo admin, uma vez por execução, quando o backup diário, a cópia no R2 ou a limpeza falhou. | Ver Logs → Manutenção e `docker compose logs manutencao`. Tenta de novo no dia seguinte. |
 | **Erro inesperado** / **coleta(s) interrompida(s)** | Erro no meio da coleta, ou o coletor reiniciou no meio de uma. | Ver `docker compose logs coletor-liga` e clicar em **Rodar agora** em Serviços. |
 
 ### Quando chegar um aviso de desafio
@@ -307,6 +308,23 @@ O coletor nunca tenta de novo sozinho. Se a janela do Chromium for fechada, a pr
 
 O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as portas 8000, 6080 e 6081 para a internet. A Evolution API (8080) e o Postgres (5432) só escutam em `127.0.0.1`.
 
+### Backup do banco
+
+O serviço `manutencao` faz, todo dia às 04:00 (fuso de Configurações → Geral), um `pg_dump` do banco e depois apaga o histórico antigo. Se o PC estava desligado às 04:00, ao subir ele roda na hora quando o último backup ok tem mais de 24 h. Reiniciar não repete o backup do dia.
+
+- **Onde ficam:** em `dados/backups/` neste PC. Diários `tcg-diario-AAAA-MM-DD.dump` (os 7 mais novos) e, aos domingos, semanais `tcg-semanal-AAAA-Wss.dump` (os 4 mais novos). Cada arquivo é conferido com `pg_restore --list` antes de entrar no lugar. Os backups manuais (`tcg-antes-*.dump`) e qualquer outro arquivo da pasta nunca são apagados.
+- **Cópia fora do PC:** com as variáveis `R2_*` preenchidas no `.env` (passo a passo no [`.env.example`](.env.example)), cada backup vai também para o bucket do Cloudflare R2: `diario/tcg-AAAA-MM-DD.dump` e `semanal/tcg-AAAA-Wss.dump`. O serviço nunca apaga nada no bucket; as regras de ciclo de vida do bucket apagam `diario/` depois de 7 dias e `semanal/` depois de 35. Sem as variáveis, o backup fica só no PC ("só local") e não há alerta.
+- **Acompanhar:** card **Backup** no Dashboard (último ok, tamanho, cópia no R2), **Serviços** para ligar e desligar e **Logs → Manutenção** com cada execução. Falha avisa o grupo admin uma vez e tenta de novo no dia seguinte.
+- **Limpeza do histórico** (só depois de um backup local ok): chamadas da IA com mais de 90 dias (a avaliação da IA fica, sem o vínculo com a chamada), conferências de checkout com mais de 180 dias (menos as que podem ter deixado item no carrinho) e coletas com mais de 180 dias que nenhum preço usa. Preços, avaliações da IA e oportunidades nunca são apagados.
+
+Para restaurar um backup (apaga e recria o conteúdo do banco `tcg`): primeiro pare os serviços do app, que escrevem no banco; depois restaure; por fim suba tudo de novo:
+
+```bash
+docker compose stop coletor-liga coletor-amazon casador notificador manutencao admin
+docker compose exec -T postgres pg_restore -U tcg -d tcg --clean --if-exists < dados/backups/tcg-diario-AAAA-MM-DD.dump
+docker compose up -d
+```
+
 ## Configuração
 
 Os ajustes de operação ficam na página **Configurações** do admin, em quatro seções que salvam separadamente e valem a partir da próxima coleta ou ciclo, sem reiniciar:
@@ -316,7 +334,7 @@ Os ajustes de operação ficam na página **Configurações** do admin, em quatr
 - **Amazon**: desconto mínimo, teto de buscas por hora, horário e demais ajustes do motor de oportunidades.
 - **IA**: liga a IA do casamento, modelo, preços, tetos de gasto e de chamadas e o modo automático (ver [passo 9](#9-casamento-com-ia-opcional)).
 
-No `.env` ficam só as senhas e a infraestrutura: `ADMIN_SENHA`, `VNC_SENHA`, `EVOLUTION_API_KEY`, `DATABASE_URL`, `DIR_DADOS` e `EVOLUTION_URL`, explicadas no [`.env.example`](.env.example). Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
+No `.env` ficam só as senhas e a infraestrutura: `ADMIN_SENHA`, `VNC_SENHA`, `EVOLUTION_API_KEY`, `OPENAI_API_KEY`, as `R2_*` do backup, `DATABASE_URL`, `DIR_DADOS` e `EVOLUTION_URL`, explicadas no [`.env.example`](.env.example). Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
 
 Quem já tinha os antigos `HOST_PUBLICO`, `FUSO`, `COLETA_*`, `PAUSA_*`, `LIGA_*` etc. no `.env`: na primeira subida o sistema copia esses valores para a tela; depois disso eles são ignorados e podem ser apagados.
 
@@ -347,12 +365,14 @@ Quem já tinha os antigos `HOST_PUBLICO`, `FUSO`, `COLETA_*`, `PAUSA_*`, `LIGA_*
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres     # o banco de testes (tcg_test) é criado junto
+docker compose up -d postgres postgres-teste   # postgres-teste: banco só de testes (porta 5433, em memória)
 uv sync
 uv run playwright install chromium
-uv run pytest
+uv run pytest -q
 uv run ruff check
 ```
+
+Os testes usam `tcg_test` no `postgres-teste` (`127.0.0.1:5433`), nunca o Postgres de produção: a suíte recusa rodar em banco que não comece com `tcg_test` ou na porta 5432. Para outro banco (por exemplo um por trabalho paralelo), crie-o com `docker compose exec -T postgres-teste createdb -U tcg tcg_test_<nome>` e aponte `DATABASE_URL_TESTE` para ele. O `postgres-teste` guarda os dados em memória (tmpfs): ao reiniciar o container ou o Docker, tudo some. O `tcg_test` padrão volta sozinho (o container o cria e as migrações recriam as tabelas no próximo `pytest`), mas os bancos extras (`tcg_test_<nome>`) precisam ser criados de novo com o `createdb` acima.
 
 Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
 
@@ -370,7 +390,7 @@ O admin usa DaisyUI 5 sobre Tailwind CSS 4, com os temas winter (claro) e night 
 
 ```
 src/tcg_sniper/
-  cli.py              comandos migrate, admin, coletor-liga, coletor-amazon, notificador, casador e ia
+  cli.py              comandos migrate, admin, coletor-liga, coletor-amazon, notificador, casador, manutencao e ia
   config.py           leitura do .env
   coletor_liga/       agendador, navegador (Playwright), parsers e as duas etapas da coleta
   coletor_amazon/     monitor de preço, conferência de checkout, fila de buscas, parsers da Amazon e cliques permitidos
@@ -379,6 +399,7 @@ src/tcg_sniper/
   admin/              página de admin (FastAPI + Jinja2 + HTMX)
   db/                 modelos, repositório e migrações (SQLAlchemy + Alembic)
   notificador/        tabela de saída do WhatsApp e o serviço que envia pela Evolution API
+  manutencao/         backup diário do banco (pg_dump, rodízio, cópia no R2) e o serviço que também limpa o histórico
 docker/               entrypoint do coletor (Xvfb, VNC, noVNC) e script inicial do Postgres
 scripts/              captura de páginas reais para as fixtures
 tests/                testes (pytest)

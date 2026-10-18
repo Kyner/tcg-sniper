@@ -11,7 +11,7 @@
 
 <div>
   <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-base-content/60">Serviços</h2>
-  <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+  <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
     {% for x in servicos %}
     <div class="card bg-base-100 shadow-sm" data-servico="{{ x.nome }}"><div class="card-body gap-1 p-4">
       <div class="flex items-center justify-between gap-2"><h3 class="font-semibold"><a class="link link-hover" href="{{ x.link }}">{{ x.nome }}</a></h3>{{ selo(x.situacao, x.rotulo) }}</div>

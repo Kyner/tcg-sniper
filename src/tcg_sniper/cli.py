@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("coletor-amazon", help="inicia a fila contínua de buscas na Amazon")
     sub.add_parser("notificador", help="envia a tabela de saída do WhatsApp pela Evolution API")
     sub.add_parser("casador", help="avalia com a IA os anúncios pendentes da Amazon")
+    sub.add_parser("manutencao", help="backup diário do banco (com cópia no R2) e limpeza do histórico antigo")
     ia = sub.add_parser("ia", help="ferramentas da IA")
     ia_sub = ia.add_subparsers(dest="acao_ia", required=True)
     avaliar_p = ia_sub.add_parser("avaliar", help="mede a IA nos casamentos já decididos (não muda nada)")
@@ -113,6 +114,15 @@ def main(argv: list[str] | None = None) -> None:
         casador = ServicoCasador(sessoes, transporte, config, criar_notificador(config, sessoes))
         signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
         casador.rodar()
+    elif args.comando == "manutencao":
+        from tcg_sniper.manutencao.r2 import criar_enviador
+        from tcg_sniper.manutencao.servico import ServicoManutencao
+        from tcg_sniper.notificador import criar_notificador
+
+        manutencao = ServicoManutencao(sessoes, config, criar_notificador(config, sessoes), criar_enviador(config))
+        # SIGTERM pede parada limpa: o backup em andamento termina (stop_grace_period no compose).
+        signal.signal(signal.SIGTERM, lambda _signum, _frame: manutencao.parar())
+        manutencao.rodar()
     elif args.comando == "ia":
         import httpx
 

@@ -2,7 +2,7 @@ from datetime import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Categorias de selados de Magic na LigaMagic (levantamento de 2026-10-13).
@@ -41,6 +41,12 @@ class Config(BaseSettings):
     whatsapp_grupo_admin: str | None = None
     whatsapp_grupo_oportunidades: str | None = None
     openai_api_key: str | None = None
+    # Backup diário (serviço `manutencao`): pasta local e cópia fora do PC no Cloudflare R2.
+    dir_backups: Path | None = None  # vazio: <DIR_DADOS>/backups
+    r2_account_id: str | None = None
+    r2_access_key_id: SecretStr | None = None
+    r2_secret_access_key: SecretStr | None = None
+    r2_bucket: str | None = None
 
     @field_validator("liga_categorias")
     @classmethod
@@ -49,6 +55,11 @@ class Config(BaseSettings):
         if not ids or not all(i.isascii() and i.isdigit() for i in ids):
             raise ValueError(f"LIGA_CATEGORIAS inválida: {valor!r}; use IDs numéricos separados por vírgula")
         return ",".join(dict.fromkeys(ids))
+
+    @field_validator("dir_backups", mode="before")
+    @classmethod
+    def _vazio_e_padrao(cls, valor):
+        return None if isinstance(valor, str) and not valor.strip() else valor
 
     @field_validator("liga_url_listagem")
     @classmethod
@@ -69,6 +80,17 @@ class Config(BaseSettings):
 
     def url_listagem(self, categ: str) -> str:
         return self.liga_url_listagem.replace("{categ}", categ)
+
+    @property
+    def pasta_backups(self) -> Path:
+        return self.dir_backups or self.dir_dados / "backups"
+
+    @property
+    def r2_configurado(self) -> bool:
+        """As quatro variáveis R2_* preenchidas; sem elas o backup fica só no PC."""
+        segredos = (self.r2_access_key_id, self.r2_secret_access_key)
+        textos = (self.r2_account_id, self.r2_bucket, *(s.get_secret_value() if s else None for s in segredos))
+        return all((texto or "").strip() for texto in textos)
 
     @property
     def zona(self) -> ZoneInfo:
