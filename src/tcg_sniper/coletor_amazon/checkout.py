@@ -140,8 +140,15 @@ def conferir(
     def clicar(acao: Acao, pagina: Pagina, escopo: str = "", bloco: int = 0) -> Pagina:
         nonlocal paginas
         pausar()
+        try:
+            resultado = clicar_permitido(nav, acao, pagina, escopo, bloco)
+        except (CliqueProibido, SeletorAusente):
+            raise  # recusado antes do clique: nenhuma página carregou, não conta no teto
+        except Exception:
+            paginas += 1  # o clique pode ter carregado uma página antes do erro
+            raise
         paginas += 1
-        return clicar_permitido(nav, acao, pagina, escopo, bloco)
+        return resultado
 
     try:
         carrinho = abrir_contando(URL_CARRINHO)
@@ -154,7 +161,8 @@ def conferir(
         if estado.contador is None:
             raise _Parada(SituacaoCheckout.FALHA, "contador do carrinho ilegível; nada foi clicado")
         if estado.contador or estado.asins_ativos:
-            raise _Parada(SituacaoCheckout.CARRINHO_OCUPADO, f"{estado.contador} item(ns) no carrinho; nada foi clicado")
+            itens = estado.contador or len(estado.asins_ativos)  # contador zerado com itens ativos: conta os itens
+            raise _Parada(SituacaoCheckout.CARRINHO_OCUPADO, f"{itens} item(ns) no carrinho; nada foi clicado")
         url = url_painel_ofertas(alvo.asin)
         pausar()
         paginas += 1
