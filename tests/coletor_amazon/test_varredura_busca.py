@@ -1,74 +1,35 @@
-import random
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, time, timedelta
+from decimal import Decimal
 
 import pytest
-from fakes import (
-    AvisadorFake,
-    NavegadorFake,
-    cartao_busca,
-    criar_preco_liga,
-    criar_produto,
-    html_busca,
-    pagina_html,
-)
+from fakes import AvisadorFake, cartao_busca, criar_preco_liga, criar_produto, html_busca, pagina_html
+from fakes_checkout import carrinho
+from fakes_varredura import CAPTCHA, MEIO_DIA, SP, Relogio, confirmado, criar_laco, livre, vazia
 from sqlalchemy import select
 
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.coletor_amazon.busca import url_busca
 from tcg_sniper.coletor_amazon.config import aplicar_config
-from tcg_sniper.coletor_amazon.varredura import (
-    ESPERA_ERRO_S,
-    ESPERA_OCIOSA_S,
-    MAX_FALHAS_SEGUIDAS,
-    VarreduraAmazon,
-)
+from tcg_sniper.coletor_amazon.parsers import URL_CARRINHO, url_ofertas
+from tcg_sniper.coletor_amazon.varredura_base import ESPERA_ERRO_S, ESPERA_OCIOSA_S, MAX_FALHAS_SEGUIDAS
+from tcg_sniper.coletor_amazon.varredura_busca import VarreduraBusca
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_termos as repo_termos
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
     AnuncioAmazon,
     Coleta,
+    ConferenciaCheckout,
     EstadoColetorTipo,
     FilaAmazon,
     ProdutoLiga,
+    SituacaoCheckout,
     StatusColeta,
     TipoColeta,
 )
 from tcg_sniper.notificador.base import Destino
-
-SP = ZoneInfo("America/Sao_Paulo")
-MEIO_DIA = datetime(2026, 10, 15, 12, 0, tzinfo=SP)
-CAPTCHA = '<html><body><form action="/errors/validateCaptcha"></form></body></html>'
-
-
-class Relogio:
-    def __init__(self, agora):
-        self.agora = agora
-
-    def __call__(self):
-        return self.agora
-
-
-class FabricaFake:
-    def __init__(self, navegador):
-        self.navegador = navegador
-        self.abertos = 0
-        self.fechados = 0
-
-    def __call__(self):
-        fabrica = self
-
-        class Contexto:
-            def __enter__(self):
-                fabrica.abertos += 1
-                return fabrica.navegador
-
-            def __exit__(self, *_exc):
-                fabrica.fechados += 1
-
-        return Contexto()
 
 
 def produtos(sessoes, *nomes):
@@ -83,29 +44,13 @@ def produtos(sessoes, *nomes):
 
 
 def varredura(engine, sessoes, config, paginas, relogio=None):
-    navegador = NavegadorFake(paginas)
-    fabrica = FabricaFake(navegador)
-    avisador = AvisadorFake()
-    v = VarreduraAmazon(
-        engine,
-        sessoes,
-        fabrica,
-        avisador,
-        config,
-        relogio=relogio or Relogio(MEIO_DIA),
-        rng=random.Random(1),
-        dormir=lambda _: None,
-    )
+    v, navegador, fabrica, avisador, _ = criar_laco(VarreduraBusca, engine, sessoes, config, paginas, relogio=relogio)
     return v, navegador, fabrica, avisador
 
 
 def ciclos(sessoes):
     with sessoes() as s:
         return list(s.scalars(select(Coleta).where(Coleta.tipo == TipoColeta.AMAZON).order_by(Coleta.id)))
-
-
-def vazia(url):
-    return pagina_html(html_busca(), url=url)
 
 
 def test_passo_busca_reagenda_e_fecha_o_ciclo(engine, sessoes, config):
@@ -146,28 +91,52 @@ def test_fuso_salvo_na_tela_muda_a_janela_do_dia(engine, sessoes, config):
 def test_pausado_nao_busca(engine, sessoes, config):
     _, urls = produtos(sessoes, "a")
     with sessoes() as s, s.begin():
-        repo.pausar(s, "manual", MEIO_DIA, COLETOR_AMAZON)
+        repo.pausar(s, "manual", MEIO_DIA, COLETOR_AMAZON_BUSCA)
     v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()})
     assert v.passo() == ESPERA_OCIOSA_S
     assert navegador.visitadas == []
 
 
-def test_captcha_pausa_avisa_e_mantem_o_navegador(engine, sessoes, config):
+def test_captcha_pausa_so_a_busca_avisa_e_mantem_o_navegador(engine, sessoes, config):
     _, urls = produtos(sessoes, "a")
     [url] = urls.values()
     v, _, fabrica, avisador = varredura(engine, sessoes, config, {url: pagina_html(CAPTCHA, url=url)})
     assert v.passo() == ESPERA_OCIOSA_S
     with sessoes() as s:
-        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
     [ciclo] = ciclos(sessoes)
     assert ciclo.status is StatusColeta.PAUSADA_DESAFIO
-    [(destino, _)] = avisador.mensagens
+    [(destino, texto)] = avisador.mensagens
     assert destino is Destino.ADMIN
     [(tipo, chave, dados)] = avisador.avisos
-    assert (tipo, chave) == (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL)
-    assert dados.linhas[1] == "Busca, monitor e conferência pausados até você retomar"
-    assert "porta 6081" in avisador.mensagens[0][1]
+    assert (tipo, chave) == (TipoAviso.AMAZON_BUSCA_CAPTCHA, CHAVE_GERAL)
+    assert dados.linhas[1] == "A busca fica pausada até você retomar; o monitor e a conferência seguem"
+    assert "Amazon (busca) · CAPTCHA" in texto and "noVNC da busca (porta 6082)" in texto
     assert fabrica.fechados == 0
+
+
+def test_falha_ao_gravar_a_pausa_por_captcha_nao_esquece_o_ciclo(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_amazon import varredura_busca as modulo
+
+    _, urls = produtos(sessoes, "a", "b")
+    url_a, url_b = urls.values()
+    v, _, _, avisador = varredura(
+        engine, sessoes, config, {url_a: vazia(url_a), url_b: [pagina_html(CAPTCHA, url=url_b), vazia(url_b)]}
+    )
+    assert v.passo() == 0  # a primeira busca abre o ciclo e sobra uma pendente
+    assert v._ciclo is not None and v._pendentes
+    ciclo_aberto, pendentes = v._ciclo, set(v._pendentes)
+
+    def quebra(*_args, **_kwargs):
+        raise RuntimeError("banco fora")
+
+    monkeypatch.setattr(modulo.repo, "pausar_por_desafio", quebra)
+    with pytest.raises(RuntimeError):
+        v.passo()
+    assert v._ciclo == ciclo_aberto and v._pendentes == pendentes  # nada de estado esquecido sem commit
+    assert [c.status for c in ciclos(sessoes)] == [StatusColeta.RODANDO]
+    assert avisador.avisos == []
 
 
 def test_retomar_continua_no_mesmo_navegador(engine, sessoes, config):
@@ -175,13 +144,13 @@ def test_retomar_continua_no_mesmo_navegador(engine, sessoes, config):
     [url] = urls.values()
     v, navegador, fabrica, avisador = varredura(engine, sessoes, config, {url: [pagina_html(CAPTCHA, url=url), vazia(url)]})
     v.passo()
-    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) not in avisador.resolvidos
+    assert (TipoAviso.AMAZON_BUSCA_CAPTCHA, CHAVE_GERAL) not in avisador.resolvidos
     with sessoes() as s, s.begin():
-        repo.retomar(s, MEIO_DIA, COLETOR_AMAZON)
+        repo.retomar(s, MEIO_DIA, COLETOR_AMAZON_BUSCA)
     assert v.passo() == 0
     assert navegador.visitadas == [url, url]
     assert fabrica.abertos == 1
-    assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
+    assert (TipoAviso.AMAZON_BUSCA_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
 
 
 def test_falha_de_layout_conta_falha_e_ciclo_falho_avisa(engine, sessoes, config):
@@ -237,7 +206,7 @@ def test_produto_desativado_no_meio_do_ciclo_sai_e_o_ciclo_fecha(engine, sessoes
 
 
 def test_erros_inesperados_seguidos_pausam(engine, sessoes, config, monkeypatch):
-    from tcg_sniper.coletor_amazon import varredura as modulo
+    from tcg_sniper.coletor_amazon import varredura_busca as modulo
 
     def quebrar(*_a, **_k):
         raise RuntimeError("banco caiu")
@@ -255,10 +224,10 @@ def test_erros_inesperados_seguidos_pausam(engine, sessoes, config, monkeypatch)
         relogio.agora += timedelta(hours=2)  # o produto que quebra é reagendado para daqui a 60 min
     assert esperas == [ESPERA_ERRO_S, ESPERA_ERRO_S, ESPERA_OCIOSA_S]
     with sessoes() as s:
-        estado = repo.obter_estado(s, coletor=COLETOR_AMAZON)
+        estado = repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA)
     assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO, "erros seguidos")
-    seguidos = [t for t in avisador.tipos() if t in (TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_PAUSADA)]
-    assert seguidos == [TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_PAUSADA]
+    seguidos = [t for t in avisador.tipos() if t in (TipoAviso.AMAZON_BUSCA_ERRO, TipoAviso.AMAZON_BUSCA_PAUSADA)]
+    assert seguidos == [TipoAviso.AMAZON_BUSCA_ERRO, TipoAviso.AMAZON_BUSCA_ERRO, TipoAviso.AMAZON_BUSCA_PAUSADA]
     assert fabrica.fechados == 3
 
 
@@ -272,6 +241,8 @@ def test_inicializar_so_marca_os_ciclos_da_amazon(engine, sessoes, config):
         assert s.get(Coleta, liga.id).status is StatusColeta.RODANDO
         assert s.get(Coleta, amazon.id).status is StatusColeta.FALHA
     assert avisador.tipos() == [TipoAviso.AMAZON_INTERROMPIDA]
+    [dados] = avisador.dados(TipoAviso.AMAZON_INTERROMPIDA)
+    assert dados.linhas == ("1 ciclo(s) marcado(s) como falha: o serviço de busca reiniciou",)
 
 
 @pytest.mark.parametrize("hora", [7, 22])
@@ -284,7 +255,7 @@ def test_janela_nas_bordas(engine, sessoes, config, hora):
 
 
 def test_produto_que_quebra_nao_trava_a_fila(engine, sessoes, config, monkeypatch):
-    from tcg_sniper.coletor_amazon import varredura as modulo
+    from tcg_sniper.coletor_amazon import varredura_busca as modulo
 
     (a, b), urls = produtos(sessoes, "a", "b")
     real = modulo.processar_produto
@@ -308,7 +279,7 @@ def test_produto_que_quebra_nao_trava_a_fila(engine, sessoes, config, monkeypatc
 
 
 def test_ciclo_de_um_produto_que_quebra_nao_fecha_como_ok(engine, sessoes, config, monkeypatch):
-    from tcg_sniper.coletor_amazon import varredura as modulo
+    from tcg_sniper.coletor_amazon import varredura_busca as modulo
 
     def quebrar(*_a, **_k):
         raise RuntimeError("bug")
@@ -324,7 +295,7 @@ def test_ciclo_de_um_produto_que_quebra_nao_fecha_como_ok(engine, sessoes, confi
 
 
 def test_tratar_erro_nunca_levanta_se_a_pausa_falhar(engine, sessoes, config, monkeypatch):
-    from tcg_sniper.coletor_amazon import varredura as modulo
+    from tcg_sniper.coletor_amazon import varredura_busca as modulo
 
     def quebrar(*_a, **_k):
         raise RuntimeError("banco fora")
@@ -333,8 +304,8 @@ def test_tratar_erro_nunca_levanta_se_a_pausa_falhar(engine, sessoes, config, mo
     v, _, _, avisador = varredura(engine, sessoes, config, {})
     esperas = [v.tratar_erro(RuntimeError("x")) for _ in range(3)]
     assert esperas == [ESPERA_ERRO_S] * 3
-    assert avisador.tipos() == [TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_PAUSADA]
-    assert avisador.dados(TipoAviso.AMAZON_PAUSADA)[0].linhas[1] == (
+    assert avisador.tipos() == [TipoAviso.AMAZON_BUSCA_ERRO, TipoAviso.AMAZON_BUSCA_ERRO, TipoAviso.AMAZON_BUSCA_PAUSADA]
+    assert avisador.dados(TipoAviso.AMAZON_BUSCA_PAUSADA)[0].linhas[1] == (
         "Não consegui registrar a pausa no banco: nova tentativa em 15 min"
     )
 
@@ -353,13 +324,13 @@ def test_falhas_seguidas_pausam_a_busca(engine, sessoes, config):
     for _ in range(MAX_FALHAS_SEGUIDAS):
         v.passo()
     with sessoes() as s:
-        estado = repo.obter_estado(s, coletor=COLETOR_AMAZON)
+        estado = repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA)
     assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO, "falhas seguidas")
-    [pausa] = avisador.dados(TipoAviso.AMAZON_PAUSADA)
+    [pausa] = avisador.dados(TipoAviso.AMAZON_BUSCA_PAUSADA)
     assert pausa.linhas[0] == f"Motivo: {MAX_FALHAS_SEGUIDAS} páginas seguidas com falha (bloqueio ou layout novo?)"
-    assert "Admin → Serviços → Amazon (monitor e checkout) → Retomar" in avisador.mensagens[-1][1]
+    assert "Admin → Serviços → Amazon (busca) → Retomar" in avisador.mensagens[-1][1]
     # o ciclo terminou pela pausa: só o aviso da pausa, sem "busca falhou" nem conclusão
-    assert avisador.tipos() == [TipoAviso.AMAZON_PAUSADA]
+    assert avisador.tipos() == [TipoAviso.AMAZON_BUSCA_PAUSADA]
     [ciclo] = ciclos(sessoes)
     assert (ciclo.status, ciclo.produtos_falha) == (StatusColeta.FALHA, MAX_FALHAS_SEGUIDAS)
     assert v.passo() == ESPERA_OCIOSA_S
@@ -375,8 +346,8 @@ def test_busca_com_sucesso_zera_as_falhas_seguidas(engine, sessoes, config):
         v.passo()
     assert navegador.visitadas[MAX_FALHAS_SEGUIDAS - 1] == urls[meio]
     with sessoes() as s:
-        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
-    assert TipoAviso.AMAZON_PAUSADA not in avisador.tipos()
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.ATIVO
+    assert TipoAviso.AMAZON_BUSCA_PAUSADA not in avisador.tipos()
 
 
 def test_no_maximo_tres_htmls_de_falha_por_ciclo(engine, sessoes, config):
@@ -400,7 +371,7 @@ def test_mensagem_do_captcha_nunca_leva_o_host_salvo(engine, sessoes, config):
     v._avisador = avisador
     v.passo()
     [(_, texto)] = avisador.mensagens
-    assert "porta 6081" in texto and "10.9.8.7" not in texto
+    assert "porta 6082" in texto and "10.9.8.7" not in texto
 
 
 def test_busca_alterna_portugues_e_ingles_quando_ha_nome_en(engine, sessoes, config):
@@ -520,19 +491,19 @@ def test_ciclo_que_termina_com_a_pausa_so_avisa_a_pausa(engine, sessoes, config)
         v.passo()
     [ciclo] = ciclos(sessoes)
     assert ciclo.status is StatusColeta.FALHA
-    assert avisador.tipos() == [TipoAviso.AMAZON_PAUSADA]
+    assert avisador.tipos() == [TipoAviso.AMAZON_BUSCA_PAUSADA]
 
 
 def test_passo_com_a_amazon_ativa_resolve_a_pausa(engine, sessoes, config):
     v, _, _, avisador = varredura(engine, sessoes, config, {})
     with sessoes() as s, s.begin():
-        repo.pausar(s, "erros seguidos", MEIO_DIA, COLETOR_AMAZON)
+        repo.pausar(s, "erros seguidos", MEIO_DIA, COLETOR_AMAZON_BUSCA)
     v.passo()
-    assert (TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL) not in avisador.resolvidos
+    assert (TipoAviso.AMAZON_BUSCA_PAUSADA, CHAVE_GERAL) not in avisador.resolvidos
     with sessoes() as s, s.begin():
-        repo.retomar(s, MEIO_DIA, COLETOR_AMAZON)
+        repo.retomar(s, MEIO_DIA, COLETOR_AMAZON_BUSCA)
     v.passo()
-    assert (TipoAviso.AMAZON_PAUSADA, CHAVE_GERAL) in avisador.resolvidos
+    assert (TipoAviso.AMAZON_BUSCA_PAUSADA, CHAVE_GERAL) in avisador.resolvidos
 
 
 def test_executar_passo_avisa_erro_e_o_passo_ok_seguinte_resolve(engine, sessoes, config, monkeypatch):
@@ -544,11 +515,11 @@ def test_executar_passo_avisa_erro_e_o_passo_ok_seguinte_resolve(engine, sessoes
     monkeypatch.setattr(v, "passo", quebrar)
     assert v.executar_passo() == ESPERA_ERRO_S
     [(tipo, _, dados)] = avisador.avisos
-    assert tipo is TipoAviso.AMAZON_ERRO and dados.linhas == ("Erro: RuntimeError('navegador fechou')",)
-    assert (TipoAviso.AMAZON_ERRO, CHAVE_GERAL) not in avisador.resolvidos
+    assert tipo is TipoAviso.AMAZON_BUSCA_ERRO and dados.linhas == ("Erro: RuntimeError('navegador fechou')",)
+    assert (TipoAviso.AMAZON_BUSCA_ERRO, CHAVE_GERAL) not in avisador.resolvidos
     monkeypatch.setattr(v, "passo", lambda: 0)
     assert v.executar_passo() == 0
-    assert (TipoAviso.AMAZON_ERRO, CHAVE_GERAL) in avisador.resolvidos
+    assert (TipoAviso.AMAZON_BUSCA_ERRO, CHAVE_GERAL) in avisador.resolvidos
 
 
 def _em_seca(sessoes, produto_id, termos, nome_en=None):
@@ -620,3 +591,64 @@ def test_indice_maior_que_a_sequencia_nao_quebra(engine, sessoes, config):
     assert v.passo() == 0 and navegador.visitadas == [url]
     with sessoes() as s:
         assert s.get(FilaAmazon, a.id).indice_termo == 0
+
+
+def test_descoberta_so_de_nao_casados_e_casados_com_7_dias(engine, sessoes, config):
+    url_livre = livre(sessoes, "livre")
+    confirmado(sessoes, "recente", "B0RECE0001", "990.00")
+    velho_id, _ = confirmado(sessoes, "velho", "B0VELH0001", "990.00")
+    with sessoes() as s, s.begin():
+        repo_amz.reagendar(s, velho_id, MEIO_DIA - timedelta(days=8), MEIO_DIA - timedelta(days=1), False)
+        url_velho = url_busca(repo_amz.obter_config(s), "velho")
+    paginas = {u: pagina_html(html_busca(), url=u) for u in (url_livre, url_velho)}
+    v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
+    v.passo()
+    v.passo()
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert sorted(navegador.visitadas) == sorted([url_livre, url_velho])
+
+
+def test_busca_nunca_le_ofertas_nem_abre_o_carrinho(engine, sessoes, config):
+    """Anúncio vencido no monitor, candidata ao checkout e item preso no carrinho: a busca ignora tudo."""
+    _, anuncio_id = confirmado(sessoes, "cand", "B0CAND0001", "700.00")
+    confirmado(sessoes, "venc", "B0VENC0001")  # nunca lido: vencido
+    with sessoes() as s, s.begin():
+        repo_amz.registrar_conferencia(
+            s, em=MEIO_DIA - timedelta(minutes=5), anuncio_id=anuncio_id, vendedor_nome="Amazon.com.br",
+            preco_anunciado=Decimal("700.00"), itens=None, frete=None, impostos=None, total=None,
+            situacao=SituacaoCheckout.FALHA, motivo="em andamento", item_removido=False,
+        )
+    url = livre(sessoes, "livre")
+    paginas = {url: vazia(url), URL_CARRINHO: carrinho(), url_ofertas("B0VENC0001"): vazia(url_ofertas("B0VENC0001"))}
+    v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert navegador.visitadas == [url] and navegador.cliques == []
+    with sessoes() as s:
+        assert [c.item_removido for c in s.scalars(select(ConferenciaCheckout))] == [False]
+
+
+def test_busca_segue_a_propria_janela_e_nao_a_do_monitor(engine, sessoes, config):
+    url = livre(sessoes, "livre")
+    with sessoes() as s, s.begin():
+        aplicar_config(s, {"monitor_janela_inicio": time(14, 0)}, MEIO_DIA)  # monitor fechado ao meio-dia
+    v, navegador, _, _ = varredura(engine, sessoes, config, {url: vazia(url)})
+    assert v.passo() == 0 and navegador.visitadas == [url]
+    url2 = livre(sessoes, "livre2")  # vencido: só a janela da busca o segura
+    with sessoes() as s, s.begin():
+        aplicar_config(s, {"monitor_janela_inicio": time(8, 0), "janela_inicio": time(14, 0)}, MEIO_DIA)
+    v2, navegador2, _, _ = varredura(engine, sessoes, config, {url2: vazia(url2)})
+    assert v2.passo() == ESPERA_OCIOSA_S and navegador2.visitadas == []
+
+
+def test_busca_segue_o_proprio_teto_e_nao_o_do_monitor(engine, sessoes, config):
+    _, urls = produtos(sessoes, "a", "b")
+    with sessoes() as s, s.begin():
+        aplicar_config(s, {"max_buscas_hora": 1, "monitor_max_paginas_hora": 1000}, MEIO_DIA)
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio)
+    assert v.passo() == 0
+    assert v.passo() == ESPERA_OCIOSA_S
+    relogio.agora += timedelta(minutes=61)
+    assert v.passo() == 0
+    assert len(navegador.visitadas) == 2
