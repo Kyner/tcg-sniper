@@ -2,10 +2,18 @@ from datetime import timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto, oferta_lista
+from fakes import T0, criar_anuncio, criar_par, criar_preco_liga, criar_produto, oferta_lista
 
 from tcg_sniper.db import repositorio_amazon as repo
-from tcg_sniper.db.models import Envio, OfertaAmazon, OrigemPreco, PrecoAtualAmazon, SituacaoCheckout, StatusCasamento
+from tcg_sniper.db.models import (
+    Envio,
+    OfertaAmazon,
+    OrigemCasamento,
+    OrigemPreco,
+    PrecoAtualAmazon,
+    SituacaoCheckout,
+    StatusCasamento,
+)
 
 SP = ZoneInfo("America/Sao_Paulo")
 
@@ -250,3 +258,26 @@ def test_carrinho_ocupado_e_sem_login_nao_tiram_a_oferta_das_candidatas(s):
     conferencia(s, a, T0 - timedelta(minutes=10), SituacaoCheckout.CARRINHO_OCUPADO, preco="700.00", total=None)
     conferencia(s, a, T0 - timedelta(minutes=5), SituacaoCheckout.SEM_LOGIN, preco="700.00", total=None)
     assert [c.asin for c in repo.candidatas_ao_checkout(s, T0, cfg)] == ["B0CAN00001"]
+
+
+def test_monitor_e_checkout_usam_so_o_par_confirmado(s):
+    cfg = repo.obter_config(s)
+    anuncio = confirmado(s, "B0PAR00001")  # confirmado para p-B0PAR00001 (Liga R$ 1.000)
+    barato = criar_produto(s, "barato-par")
+    criar_preco_liga(s, barato, "100.00", listagem_em=T0)
+    criar_par(s, anuncio, barato, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.OUTRO_CONFIRMADO, revisado_em=T0)
+    so_pendente = criar_anuncio(s, "B0PAR00002", produto=barato)  # só pendente: fora do monitor e do checkout
+    ler(s, anuncio, T0, oferta_lista("700.00"))
+    ler(s, so_pendente, T0, oferta_lista("50.00"))
+    assert repo.situacao_monitor(s, T0, 15).confirmados == 1
+    assert repo.proximo_do_monitor(s, T0, 15) is None  # o único confirmado acabou de ser lido
+    [linha] = repo.confirmados_com_referencia(s, [anuncio.id, so_pendente.id])
+    assert linha.produto.liga_id == "p-B0PAR00001" and linha.liga.preco_a_partir == Decimal("1000.00")
+    assert [c.asin for c in repo.candidatas_ao_checkout(s, T0, cfg)] == ["B0PAR00001"]  # 30% abaixo de 1.000
+
+
+def test_confirmado_de_produto_inativo_sai_do_monitor_mesmo_com_par_pendente_ativo(s):
+    anuncio = confirmado(s, "B0PAR00003", ativo=False)
+    criar_par(s, anuncio, criar_produto(s, "ativo-par"))  # corrida: pendente para um produto ativo
+    assert repo.situacao_monitor(s, T0, 15).confirmados == 0
+    assert repo.proximo_do_monitor(s, T0, 15) is None
