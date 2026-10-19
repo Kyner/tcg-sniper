@@ -145,3 +145,57 @@ def test_falhas_seguidas_na_avaliacao_pulam_a_etapa_dos_termos(sessoes, config):
     with sessoes() as s:
         fila = s.get(FilaAmazon, p)
         assert (fila.termos_pedidos_em, fila.termos_tentados_em) == (T0, None)  # o pedido fica para o próximo
+
+
+def test_erro_da_ia_nos_termos_espera_antes_de_tentar_o_produto_de_novo(sessoes, config, monkeypatch):
+    """Falha da chamada (rede, 5xx) nos termos: o produto espera (1 h na primeira) e não ocupa a vaga do
+    próximo ciclo; o pedido do admin e a marca de tentativa ficam como estavam."""
+    monkeypatch.setattr("tcg_sniper.casador.servico.TERMOS_POR_CICLO", 1)
+    configurar(sessoes)
+    p1, p2 = na_fila(sessoes, "alfa", "beta")
+    relogio = [T0 + 7 * DIA]
+    t = TransporteFake([ErroIA("OpenAI 500"), termos(("beta booster box", "en")), termos(("alfa booster box", "en"))])
+    cfg = config.model_copy(update={"openai_api_key": "sk-teste"})
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    sv = ServicoCasador(sessoes, t, cfg, AvisadorFake(), cliente_http=http, relogio=lambda: relogio[0])
+    sv.ciclo()
+    assert len(t.pedidos) == 1 and guardados(sessoes, p1) == []
+    with sessoes() as s:
+        assert s.get(FilaAmazon, p1).termos_tentados_em is None
+    sv.ciclo()  # mesmo instante: o alfa espera e a vaga vai para o beta
+    assert len(t.pedidos) == 2 and guardados(sessoes, p2) == [("beta booster box", "en")]
+    relogio[0] += timedelta(minutes=59)
+    sv.ciclo()
+    assert len(t.pedidos) == 2
+    relogio[0] += timedelta(minutes=1)
+    sv.ciclo()
+    assert len(t.pedidos) == 3 and guardados(sessoes, p1) == [("alfa booster box", "en")]
+
+
+def test_falhas_seguidas_nos_termos_encerram_a_etapa_e_avisam(sessoes, config):
+    configurar(sessoes)
+    ids = na_fila(sessoes, "p0", "p1", "p2", "p3")
+    falhas = [ErroIA("OpenAI 500")] * FALHAS_SEGUIDAS_MAX
+    sv, t, avisador = servico(sessoes, config, [*falhas, termos(("p3 booster box", "en"))], T0 + 7 * DIA)
+    sv.ciclo()
+    assert len(t.pedidos) == FALHAS_SEGUIDAS_MAX
+    assert TipoAviso.IA_FALHAS_SEGUIDAS in avisador.tipos()
+    assert all(guardados(sessoes, p) == [] for p in ids)
+
+
+def test_erro_ao_gravar_os_termos_de_um_produto_nao_derruba_o_ciclo(sessoes, config, monkeypatch):
+    configurar(sessoes)
+    p1, p2 = na_fila(sessoes, "alfa", "beta")
+    original = repo_termos.guardar_termos
+
+    def guardar(s, produto_id, novos, agora):
+        if produto_id == p1:
+            raise RuntimeError("banco recusou")
+        return original(s, produto_id, novos, agora)
+
+    monkeypatch.setattr(repo_termos, "guardar_termos", guardar)
+    respostas = [termos(("alfa booster box", "en")), termos(("beta booster box", "en"))]
+    sv, t, _ = servico(sessoes, config, respostas, T0 + 7 * DIA)
+    sv.ciclo()
+    assert len(t.pedidos) == 2
+    assert guardados(sessoes, p1) == [] and guardados(sessoes, p2) == [("beta booster box", "en")]

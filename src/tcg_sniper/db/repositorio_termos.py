@@ -3,7 +3,7 @@
 Um produto ativo da fila está "em seca" quando não tem par confirmado e nenhuma busca dele criou par
 pendente novo há `SECA` (sem nunca ter criado: desde que entrou na fila)."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime, timedelta
 
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -87,10 +87,15 @@ def pedir_termos(s: Session, produto_id: int, agora: datetime) -> bool:
     return resultado.rowcount > 0
 
 
-def produtos_para_gerar_termos(s: Session, agora: datetime, limite: int) -> list[ProdutoLiga]:
+def produtos_para_gerar_termos(
+    s: Session, agora: datetime, limite: int, excluir: Collection[int] = ()
+) -> list[ProdutoLiga]:
     """Até `limite` produtos ativos: primeiro os pedidos no admin (mais antigos primeiro, mesmo com termos
-    guardados), depois os em seca sem termos e sem tentativa nos últimos 7 dias (os mais secos primeiro)."""
+    guardados), depois os em seca sem termos e sem tentativa nos últimos 7 dias (os mais secos primeiro).
+    `excluir`: produtos que ficam de fora (o casador põe os que esperam depois de uma falha)."""
     base = select(ProdutoLiga).join(FilaAmazon, FilaAmazon.produto_id == ProdutoLiga.id).where(ProdutoLiga.ativo.is_(True))
+    if excluir:
+        base = base.where(ProdutoLiga.id.not_in(list(excluir)))
     pedidos = list(
         s.scalars(
             base.where(FilaAmazon.termos_pedidos_em.is_not(None))

@@ -59,6 +59,9 @@ class ServicoCasador:
         self._parar = threading.Event()
         # (anúncio, produto) -> (assinatura, falhas seguidas, espera até): o par que falhou não trava a fila
         self._falhas: dict[tuple[int, int], tuple[str, int, datetime]] = {}
+        # produto -> (falhas seguidas, espera até): termos que falharam (rede, 5xx, erro inesperado) esperam
+        # como os pares (1 h, 6 h, 24 h) e não ocupam a vaga do próximo ciclo
+        self._falhas_termos: dict[int, tuple[int, datetime]] = {}
 
     def parar(self) -> None:
         self._parar.set()
@@ -234,41 +237,65 @@ class ServicoCasador:
     def _gerar_termos(self, zona: ZoneInfo) -> int:
         """Busca alternativa: gera os termos dos produtos pedidos no admin e dos em seca sem termos, no máximo
         `TERMOS_POR_CICLO`. Para no primeiro SemOrcamento (o pedido fica para o próximo período, com o aviso de
-        teto de sempre). Sem termo válido ou resposta fora do formato: marca a tentativa (7 dias)."""
+        teto de sempre). Sem termo válido ou resposta fora do formato: marca a tentativa (7 dias). Falha da
+        chamada ou erro inesperado (também ao gravar): o produto espera (1 h, 6 h, 24 h, só em memória) sem
+        marcar a tentativa; `FALHAS_SEGUIDAS_MAX` falhas seguidas da chamada encerram a etapa com o aviso."""
+        agora = self._relogio()
+        em_espera = {produto_id for produto_id, (_, ate) in self._falhas_termos.items() if agora < ate}
         with self._sessoes() as s, s.begin():
-            produtos = repo_termos.produtos_para_gerar_termos(s, self._relogio(), TERMOS_POR_CICLO)
+            produtos = repo_termos.produtos_para_gerar_termos(s, agora, TERMOS_POR_CICLO, excluir=em_espera)
             for produto in produtos:
                 s.expunge(produto)
-        gerados = 0
+        gerados = falhas = 0
         for produto in produtos:
             if self._parar.is_set():
                 break
             try:
-                termos = gerar_termos(self._sessoes, self._transporte, produto, zona=zona, relogio=self._relogio)
+                try:
+                    termos = gerar_termos(self._sessoes, self._transporte, produto, zona=zona, relogio=self._relogio)
+                except RespostaForaDoFormato as erro:  # a chamada funcionou: conta como tentativa sem termo
+                    log.warning("termos do produto %s fora do formato: %s", produto.id, erro)
+                    termos = []
+                with self._sessoes() as s, s.begin():
+                    if termos:
+                        repo_termos.guardar_termos(s, produto.id, termos, self._relogio())
+                    else:
+                        repo_termos.marcar_tentativa(s, produto.id, self._relogio())
             except SemOrcamento as erro:
                 self._avisar_orcamento(str(erro), zona)
                 break
             except (ChaveInvalida, ConfiguracaoInvalida) as erro:
                 self._pausar_por_configuracao(erro)
                 break
-            except RespostaForaDoFormato as erro:
-                log.warning("termos do produto %s fora do formato: %s", produto.id, erro)
-                termos = []
             except ErroIA as erro:
+                falhas += 1
+                self._marcar_falha_termos(produto.id)
                 log.warning("IA falhou ao gerar termos do produto %s: %s", produto.id, erro)
+                if falhas >= FALHAS_SEGUIDAS_MAX:
+                    dados = Dados(
+                        linhas=(
+                            f"{FALHAS_SEGUIDAS_MAX} chamadas seguidas falharam; a geração de termos parou",
+                            f"Última: {erro}",
+                        )
+                    )
+                    self._avisador.avisar(TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL, dados)
+                    break
                 continue
             except Exception:
+                self._marcar_falha_termos(produto.id)
                 log.exception("erro inesperado ao gerar termos do produto %s; segue para o próximo", produto.id)
                 continue
-            with self._sessoes() as s, s.begin():
-                if termos:
-                    repo_termos.guardar_termos(s, produto.id, termos, self._relogio())
-                    gerados += 1
-                else:
-                    repo_termos.marcar_tentativa(s, produto.id, self._relogio())
+            falhas = 0
+            self._falhas_termos.pop(produto.id, None)
+            gerados += bool(termos)
         if gerados:
             log.info("busca alternativa: termos gerados para %d produto(s)", gerados)
         return gerados
+
+    def _marcar_falha_termos(self, produto_id: int) -> None:
+        anterior = self._falhas_termos.get(produto_id)
+        n = anterior[0] + 1 if anterior is not None else 1
+        self._falhas_termos[produto_id] = (n, self._relogio() + ESPERAS_FALHA[min(n, len(ESPERAS_FALHA)) - 1])
 
     def _avisar_orcamento(self, motivo: str, zona) -> None:
         local = self._relogio().astimezone(zona)
