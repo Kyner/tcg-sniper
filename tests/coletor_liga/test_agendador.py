@@ -3,7 +3,7 @@ from contextlib import nullcontext
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from fakes import AvisadorFake, NavegadorFake, fixture_liga, pagina_html
+from fakes import AvisadorFake, NavegadorFake, criar_produto, fixture_liga, pagina_html
 from sqlalchemy import func, select, text
 
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
@@ -232,7 +232,7 @@ def test_solicitacao_sem_listagem_ok_hoje_roda_job_completo(engine, sessoes, con
     coleta(sessoes, TipoColeta.LISTAGEM, local(TERCA, 10, 5), StatusColeta.PAUSADA_DESAFIO)
     with sessoes() as s, s.begin():
         repo.retomar(s, local(TERCA, 14))
-    relogio = Relogio(local(TERCA, 14, 1))
+    relogio = Relogio(local(TERCA, 14, 30))  # depois de esfriar 30 min contados da retomada
     chamadas = []
     a, _ = agendador(engine, sessoes, config, relogio, chamadas)
     a.inicializar()
@@ -540,11 +540,13 @@ def test_erro_no_job_fecha_o_navegador(engine, sessoes, config, monkeypatch):
 
 def test_retomar_roda_no_mesmo_dia_reaproveitando_o_navegador(engine, sessoes, config):
     """Desafio na listagem → pausa com o navegador aberto → humano resolve e clica em Retomar →
-    o próximo tick roda o job completo (listagens + produtos) no mesmo navegador e o fecha."""
+    o próximo tick depois do esfriamento roda o job completo (listagens + produtos) no mesmo navegador e
+    o fecha."""
     c, url = config_uma_categoria(config)
     navegador = NavegadorFake({url: [DESAFIO, pagina_html(fixture_liga("catalogo_pagina_1"), url=url)]})
     fabrica = FabricaFake(navegador)
-    a = agendador_com_fabrica(engine, sessoes, c, fabrica)
+    relogio = Relogio(datetime.now(UTC))
+    a = agendador_com_fabrica(engine, sessoes, c, fabrica, relogio)
     a.executar_job(incluir_listagens=True)
     with sessoes() as s, s.begin():
         assert repo.obter_estado(s).estado.value == "pausado_desafio"
@@ -552,6 +554,8 @@ def test_retomar_roda_no_mesmo_dia_reaproveitando_o_navegador(engine, sessoes, c
 
     with sessoes() as s, s.begin():
         repo.retomar(s, repo.agora_utc())
+    assert a.tick() is None  # esfriando: 30 min contados da retomada
+    relogio.agora = datetime.now(UTC) + timedelta(minutes=31)
     assert a.tick() == "solicitado"
     assert fabrica.entregues == [navegador]  # o mesmo, sem abrir outro
     assert fabrica.fechados == [navegador]
@@ -570,12 +574,14 @@ def test_navegador_mantido_morto_e_trocado_uma_vez(engine, sessoes, config):
     morto = NavegadorFake({url: DESAFIO})
     novo = NavegadorFake({url: pagina_html(fixture_liga("catalogo_pagina_1"), url=url)})
     fabrica = FabricaFake(morto, novo)
-    a = agendador_com_fabrica(engine, sessoes, c, fabrica)
+    relogio = Relogio(datetime.now(UTC))
+    a = agendador_com_fabrica(engine, sessoes, c, fabrica, relogio)
     a.executar_job(incluir_listagens=True)
     assert fabrica.fechados == []
     morto.morto = True  # o usuário fechou a janela do Chromium pelo noVNC
     with sessoes() as s, s.begin():
         repo.retomar(s, repo.agora_utc())
+    relogio.agora = datetime.now(UTC) + timedelta(minutes=31)
     assert a.tick() == "solicitado"
     assert fabrica.entregues == [morto, novo]
     assert fabrica.fechados == [morto, novo]
@@ -820,3 +826,148 @@ def test_lista_do_dia_usa_o_relogio_do_agendador(engine, sessoes, config, monkey
     a, _ = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
     a.executar_job(incluir_listagens=False)
     assert vistos == [local(TERCA, 10, 40)]
+
+
+def desafio(sessoes, quando):
+    coleta(sessoes, TipoColeta.PRODUTOS, quando, status=StatusColeta.PAUSADA_DESAFIO)
+
+
+def retomar_em(sessoes, quando, solicitar=True):
+    with sessoes() as s, s.begin():
+        repo.retomar(s, quando, solicitar=solicitar)
+
+
+def primeiro_desafio_retomado_as_11(sessoes):
+    """Job de hoje com listagens ok às 10:05, desafio nos produtos às 10:30 e Retomar às 11:00."""
+    job_ok(sessoes, ONTEM, 14)
+    coleta(sessoes, TipoColeta.LISTAGEM, local(TERCA, 10, 5))
+    desafio(sessoes, local(TERCA, 10, 30))
+    retomar_em(sessoes, local(TERCA, 11, 0))
+
+
+def test_primeiro_desafio_so_roda_depois_de_esfriar_contado_da_retomada(engine, sessoes, config):
+    primeiro_desafio_retomado_as_11(sessoes)
+    relogio = Relogio(local(TERCA, 11, 0))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    for minuto in (0, 15, 29):
+        relogio.agora = local(TERCA, 11, minuto)
+        assert a.tick() is None
+    relogio.agora = local(TERCA, 11, 30)
+    assert a.tick() == "solicitado"
+    assert chamadas == [False]  # listagens já ok hoje: só os produtos
+
+
+def test_rodar_agora_no_esfriamento_nao_estende_a_espera(engine, sessoes, config):
+    primeiro_desafio_retomado_as_11(sessoes)
+    relogio = Relogio(local(TERCA, 11, 10))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    with sessoes() as s, s.begin():
+        repo.solicitar_execucao(s, local(TERCA, 11, 10))
+    assert a.tick() is None
+    relogio.agora = local(TERCA, 11, 29)
+    assert a.tick() is None
+    relogio.agora = local(TERCA, 11, 30)
+    assert a.tick() == "solicitado"
+
+
+def test_reinicio_no_meio_do_esfriamento_mantem_a_espera(engine, sessoes, config):
+    primeiro_desafio_retomado_as_11(sessoes)
+    antes, _ = agendador(engine, sessoes, config, Relogio(local(TERCA, 11, 5)), [])
+    assert antes.tick() is None
+    relogio = Relogio(local(TERCA, 11, 15))  # o serviço reiniciou
+    chamadas = []
+    depois, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    depois.inicializar()
+    assert depois.tick() is None
+    relogio.agora = local(TERCA, 11, 30)
+    assert depois.tick() == "solicitado"
+    assert chamadas == [False]
+
+
+def test_horario_do_dia_durante_o_esfriamento_espera_o_fim(engine, sessoes, config):
+    job_ok(sessoes, ONTEM, 14)
+    desafio(sessoes, local(ONTEM, 23, 0))
+    retomar_em(sessoes, local(TERCA, 9, 50), solicitar=False)  # "Ligar" sem pedir execução
+    salvar_liga(sessoes, config, coleta_hora=time(10, 0), coleta_jitter_min=0)
+    relogio = Relogio(local(TERCA, 10, 5))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() is None  # passou das 10:00, mas esfria até 10:20
+    relogio.agora = local(TERCA, 10, 20)
+    assert a.tick() == "agendado"
+    assert chamadas == [True]
+
+
+def test_segundo_desafio_nada_roda_ate_amanha_nem_com_rodar_agora(engine, sessoes, config):
+    job_ok(sessoes, TERCA - timedelta(days=2), 10)  # > 24 h: inicializar arma uma execução atrasada
+    coleta(sessoes, TipoColeta.LISTAGEM, local(TERCA, 10, 5))
+    desafio(sessoes, local(TERCA, 10, 30))
+    desafio(sessoes, local(TERCA, 12, 0))
+    retomar_em(sessoes, local(TERCA, 12, 10))  # Retomar pede execução
+    relogio = Relogio(local(TERCA, 12, 41))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    assert a.tick() is None
+    with sessoes() as s, s.begin():
+        assert repo.obter_estado(s).execucao_solicitada is False  # o pedido foi descartado
+        repo.solicitar_execucao(s, local(TERCA, 13, 0))  # "Rodar agora"
+    relogio.agora = local(TERCA, 13, 1)
+    assert a.tick() is None
+    relogio.agora = local(TERCA + timedelta(days=1), 0, 30)
+    assert a.tick() is None  # nem o pedido nem a atrasada rodam à meia-noite
+    relogio.agora = local(TERCA + timedelta(days=1), 10, 31)
+    assert a.tick() == "agendado"
+    assert chamadas == [True]
+
+
+HTML_PRODUTO = fixture_liga("produto_varios_vendedores")
+
+
+def pausas_do_job(engine, sessoes, config, agora):
+    """Roda um job só de produtos (dois produtos novos) e devolve as pausas entre eles."""
+    with sessoes() as s, s.begin():
+        urls = [criar_produto(s, nome).url for nome in ("a", "b")]
+    navegador = NavegadorFake({u: pagina_html(HTML_PRODUTO, url=u) for u in urls})
+    pausas = []
+    c = config.model_copy(update={"pausa_min_s": 10, "pausa_max_s": 10})
+    a = Agendador(
+        engine, sessoes, lambda: nullcontext(navegador), AvisadorFake(), c,
+        relogio=Relogio(agora), rng=random.Random(1), dormir=pausas.append,
+    )
+    a.executar_job(incluir_listagens=False)
+    return pausas
+
+
+def test_pausas_dobradas_no_resto_do_dia_depois_do_primeiro_desafio(engine, sessoes, config):
+    desafio(sessoes, local(TERCA, 9, 0))
+    retomar_em(sessoes, local(TERCA, 9, 10))
+    assert pausas_do_job(engine, sessoes, config, local(TERCA, 10, 40)) == [20.0]
+
+
+def test_no_dia_seguinte_as_pausas_voltam_ao_normal(engine, sessoes, config):
+    desafio(sessoes, local(ONTEM, 9, 0))
+    desafio(sessoes, local(ONTEM, 12, 0))
+    retomar_em(sessoes, local(ONTEM, 12, 10))
+    assert pausas_do_job(engine, sessoes, config, local(TERCA, 10, 40)) == [10.0]
+
+
+def test_atrasada_que_vence_no_esfriamento_nao_passa_da_meia_noite(engine, sessoes, config):
+    job_ok(sessoes, TERCA - timedelta(days=3), 10)  # > 24 h: inicializar arma uma execução atrasada
+    desafio(sessoes, local(ONTEM, 23, 30))
+    retomar_em(sessoes, local(ONTEM, 23, 50), solicitar=False)
+    salvar_liga(sessoes, config, coleta_hora=time(10, 0), coleta_jitter_min=0)
+    relogio = Relogio(local(ONTEM, 23, 50))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    a.inicializar()
+    for agora in (local(ONTEM, 23, 55), local(TERCA, 0, 10), local(TERCA, 0, 21), local(TERCA, 9, 59)):
+        relogio.agora = agora
+        assert a.tick() is None  # esfriando até 00:20; a atrasada de ontem não vira job de madrugada
+    relogio.agora = local(TERCA, 10, 0)
+    assert a.tick() == "agendado"
+    assert chamadas == [True]

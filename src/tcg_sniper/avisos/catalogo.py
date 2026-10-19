@@ -156,9 +156,17 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
         Dados(linhas=("Etapa: Coleta dos produtos ativos", "Falhas: 300 de 412 produtos")),
     ),
     TipoAviso.LIGA_DESAFIO: _problema(
-        F, "Liga · desafio do Cloudflare", LIGA, "A LigaMagic pediu verificação; a coleta fica pausada.",
+        F, "Liga · desafio do Cloudflare", LIGA,
+        "A LigaMagic pediu verificação; a coleta fica pausada. Depois do 1º do dia volta mais devagar, após "
+        "esfriar; depois do 2º, só no dia seguinte.",
         "Resolva no noVNC da Liga (porta 6080) e depois Admin → Serviços → LigaMagic → Retomar.",
-        Dados(linhas=("Página: /?view=cards/search&card=categ%3D10", "A coleta fica pausada até você retomar")),
+        Dados(
+            linhas=(
+                "Página: /?view=cards/search&card=categ%3D10",
+                "A coleta fica pausada até você retomar",
+                "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia",
+            )
+        ),
     ),
     TipoAviso.LIGA_PRODUTOS_NOVOS: _evento(
         A, "Liga · produtos novos no catálogo", LIGA, "As listagens trouxeram produtos que não estavam no catálogo.",

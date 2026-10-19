@@ -65,7 +65,7 @@ def coletar_produtos(
             try:
                 pagina = abrir_pagina(navegador, url, dormir)
             except DesafioDetectado:
-                registrar_desafio(sessoes, avisador, coleta_id, url, ok, falha)
+                registrar_desafio(sessoes, avisador, config, coleta_id, url, ok, falha)
                 return ResultadoColeta(coleta_id, StatusColeta.PAUSADA_DESAFIO, ok, falha, grupos=grupos)
             except ErroRede as erro:
                 log.warning("produto %s falhou por rede: %s", produto_id, erro)

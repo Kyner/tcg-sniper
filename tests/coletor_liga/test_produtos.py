@@ -254,3 +254,32 @@ def test_teto_de_novos_vem_da_configuracao(sessoes, config):
     c = config.model_copy(update={"produtos_novos_dia": 2})
     _, navegador, _ = coletar(sessoes, c, paginas)
     assert navegador.visitadas == [novos[2].url, novos[1].url]
+
+
+def test_aviso_do_primeiro_desafio_do_dia_diz_que_volta_depois_de_esfriar(sessoes, config):
+    urls = preparar(sessoes, "a")
+    _, _, avisador = coletar(sessoes, config, {urls["a"]: DESAFIO})
+    [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
+    assert dados.linhas[1:] == (
+        "A coleta fica pausada até você retomar",
+        "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia",
+    )
+
+
+def test_aviso_sem_esfriar_diz_que_volta_logo(sessoes, config):
+    urls = preparar(sessoes, "a")
+    c = config.model_copy(update={"esfriar_desafio_min": 0})
+    _, _, avisador = coletar(sessoes, c, {urls["a"]: DESAFIO})
+    [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
+    assert dados.linhas[2] == "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro até o fim do dia"
+
+
+def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):
+    urls = preparar(sessoes, "a")
+    with sessoes() as s, s.begin():
+        antes = repo.agora_utc() - timedelta(seconds=1)
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, antes)
+        repo.finalizar_coleta(s, c.id, StatusColeta.PAUSADA_DESAFIO, 0, 0, antes, erro="desafio em /x")
+    _, _, avisador = coletar(sessoes, config, {urls["a"]: DESAFIO})
+    [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
+    assert dados.linhas[2] == "2º desafio de hoje: depois de retomar, a coleta só volta amanhã, no horário de sempre"
