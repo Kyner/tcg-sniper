@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.db.models import AnuncioAmazon, ProdutoLiga
+from tcg_sniper.db.models import IDIOMAS_ANUNCIO, AnuncioAmazon, ProdutoLiga
 from tcg_sniper.db.repositorio import agora_utc
 from tcg_sniper.formatacao import formatar_brl
 from tcg_sniper.ia.cliente import perguntar
@@ -23,9 +23,10 @@ MOTIVO_MAX = 200
 
 INSTRUCOES = """Você compara um produto selado de Magic: The Gathering vendido na LigaMagic com um anúncio da Amazon Brasil.
 Responda se o anúncio é exatamente o mesmo item lacrado do produto da LigaMagic.
-É o mesmo produto só se coincidirem: o jogo, a edição/coleção, o tipo (booster avulso, caixa de boosters, bundle, deck, kit, colecionador etc.), a versão do booster (draft, set, play, collector), o idioma quando informado e a quantidade.
+É o mesmo produto só se coincidirem: o jogo, a edição/coleção, o tipo (booster avulso, caixa de boosters, bundle, deck, kit, colecionador etc.), a versão do booster (draft, set, play, collector), a quantidade e o idioma pela regra abaixo.
 É outro produto: carta avulsa, acessório (sleeve, deck box, playmat), outra edição, outro tipo, outra quantidade ou lote com vários itens.
-Idioma diferente = outro produto: português, inglês e japonês não se casam entre si.
+Idioma: A edição em português é a preferida para o produto da LigaMagic. Anúncio em inglês também é o mesmo produto quando o produto da LigaMagic não tem anúncio em português confirmado (nas coleções antigas a LigaMagic junta português e inglês num produto só). Se já tem anúncio em português confirmado (ou não se sabe), julgue o anúncio em inglês pelo resto, como se o inglês valesse, e diga no motivo que é a edição em inglês: quem decide é o usuário. Japonês e qualquer outro idioma são sempre outro produto.
+Em idioma_anuncio informe a edição de idioma do anúncio: "pt", "en", "ja", "outro" ou "indefinido" (o anúncio não deixa claro).
 Use as imagens, quando houver, para conferir embalagem, edição e tipo. Preço muito abaixo do esperado é pista de item diferente, não prova.
 A confiança é um inteiro de 0 a 100 sobre a sua resposta. O motivo é uma frase curta em português (até 200 caracteres) com o que decidiu."""
 
@@ -35,10 +36,13 @@ FORMATO = {
         "mesmo_produto": {"type": "boolean"},
         "confianca": {"type": "integer"},
         "motivo": {"type": "string"},
+        "idioma_anuncio": {"type": "string", "enum": list(IDIOMAS_ANUNCIO)},
     },
-    "required": ["mesmo_produto", "confianca", "motivo"],
+    "required": ["mesmo_produto", "confianca", "motivo", "idioma_anuncio"],
     "additionalProperties": False,
 }
+
+PORTUGUES_CONFIRMADO = {True: "sim", False: "não", None: "não se sabe (há anúncio confirmado de idioma não registrado)"}
 
 
 @dataclass(frozen=True)
@@ -46,13 +50,20 @@ class Veredito:
     mesmo_produto: bool
     confianca: int
     motivo: str
+    idioma_anuncio: str | None = None  # None: resposta sem o campo (o formato estrito sempre o traz)
 
 
 def _preco(valor: Decimal | None) -> str:
     return formatar_brl(valor) if valor is not None else "sem preço"
 
 
-def texto_pergunta(anuncio: AnuncioAmazon, produto: ProdutoLiga, preco_liga: Decimal | None, preco_amazon: Decimal | None) -> str:
+def texto_pergunta(
+    anuncio: AnuncioAmazon,
+    produto: ProdutoLiga,
+    preco_liga: Decimal | None,
+    preco_amazon: Decimal | None,
+    portugues_confirmado: bool | None = False,
+) -> str:
     linhas = [
         "Produto da LigaMagic:",
         f"- nome: {produto.nome}",
@@ -61,6 +72,7 @@ def texto_pergunta(anuncio: AnuncioAmazon, produto: ProdutoLiga, preco_liga: Dec
         f"- tipo: {produto.tipo or '(não informado)'}",
         f"- idioma: {produto.idioma or '(não informado)'}",
         f"- menor preço na LigaMagic: {_preco(preco_liga)}",
+        f"- já tem anúncio em português confirmado: {PORTUGUES_CONFIRMADO[portugues_confirmado]}",
         "",
         "Anúncio da Amazon:",
         f"- título: {anuncio.titulo}",
@@ -73,7 +85,9 @@ def texto_pergunta(anuncio: AnuncioAmazon, produto: ProdutoLiga, preco_liga: Dec
 
 
 def assinatura(anuncio: AnuncioAmazon, produto: ProdutoLiga) -> str:
-    """Hash dos dados que decidem a resposta: mudou, o par é reavaliado."""
+    """Hash dos dados que decidem a resposta: mudou, o par é reavaliado. O "português confirmado" fica de
+    fora de propósito (confirmar um anúncio não reavalia os outros pares do produto); o automático confere
+    o estado atual na hora de aplicar."""
     dados = [anuncio.titulo, anuncio.variacao, anuncio.imagem_url, produto.nome, produto.nome_en,
              produto.edicao, produto.tipo, produto.idioma, produto.imagem_url]
     return hashlib.sha256(json.dumps(dados, ensure_ascii=False).encode()).hexdigest()
@@ -87,7 +101,10 @@ def ler_veredito(dados: dict) -> Veredito:
         raise RespostaForaDoFormato("confiança fora de 0 a 100")
     if not isinstance(motivo, str) or not motivo.strip():
         raise RespostaForaDoFormato("resposta sem motivo")
-    return Veredito(mesmo, confianca, motivo.strip()[:MOTIVO_MAX])
+    idioma = dados.get("idioma_anuncio")
+    if idioma is not None and idioma not in IDIOMAS_ANUNCIO:
+        raise RespostaForaDoFormato("idioma do anúncio desconhecido")
+    return Veredito(mesmo, confianca, motivo.strip()[:MOTIVO_MAX], idioma)
 
 
 def avaliar_par(
@@ -100,6 +117,7 @@ def avaliar_par(
     preco_amazon: Decimal | None,
     *,
     finalidade: str,
+    portugues_confirmado: bool | None = False,
     zona: ZoneInfo,
     modelo: str | None = None,
     preco_entrada: Decimal | None = None,
@@ -111,7 +129,7 @@ def avaliar_par(
     prontas = [i for i in imagens if i is not None]
     resposta = perguntar(
         sessoes, transporte, finalidade=finalidade, instrucoes=INSTRUCOES,
-        texto=texto_pergunta(anuncio, produto, preco_liga, preco_amazon), imagens=prontas,
+        texto=texto_pergunta(anuncio, produto, preco_liga, preco_amazon, portugues_confirmado), imagens=prontas,
         nome_formato=NOME_FORMATO, formato=FORMATO, zona=zona, modelo=modelo, preco_entrada=preco_entrada,
         preco_saida=preco_saida, relogio=relogio,
     )

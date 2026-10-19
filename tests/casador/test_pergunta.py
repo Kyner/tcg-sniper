@@ -1,9 +1,10 @@
+import inspect
 from decimal import Decimal
 
 import pytest
 from fakes import criar_anuncio, criar_produto
 
-from tcg_sniper.casador.pergunta import FORMATO, assinatura, ler_veredito, texto_pergunta
+from tcg_sniper.casador.pergunta import FORMATO, INSTRUCOES, assinatura, ler_veredito, texto_pergunta
 from tcg_sniper.ia.modelos import ErroIA
 
 
@@ -32,7 +33,48 @@ def test_assinatura_muda_com_os_dados(s):
 
 
 def test_formato_estrito():
-    assert FORMATO["required"] == ["mesmo_produto", "confianca", "motivo"] and FORMATO["additionalProperties"] is False
+    assert FORMATO["required"] == ["mesmo_produto", "confianca", "motivo", "idioma_anuncio"]
+    assert FORMATO["additionalProperties"] is False
+    assert FORMATO["properties"]["idioma_anuncio"]["enum"] == ["pt", "en", "ja", "outro", "indefinido"]
+
+
+def test_instrucoes_tem_a_regra_de_idioma_condicional():
+    assert "Idioma diferente = outro produto" not in INSTRUCOES
+    assert "A edição em português é a preferida" in INSTRUCOES
+    assert "Anúncio em inglês também é o mesmo produto quando o produto da LigaMagic não tem anúncio em português confirmado" in INSTRUCOES
+    assert "Japonês e qualquer outro idioma são sempre outro produto" in INSTRUCOES
+    assert "idioma_anuncio" in INSTRUCOES
+
+
+@pytest.mark.parametrize(("valor", "trecho"), [
+    (True, "- já tem anúncio em português confirmado: sim"),
+    (False, "- já tem anúncio em português confirmado: não"),
+    (None, "- já tem anúncio em português confirmado: não se sabe"),
+])
+def test_texto_diz_se_ja_tem_portugues_confirmado(s, valor, trecho):
+    p = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B1", produto=p)
+    assert trecho in texto_pergunta(a, p, None, None, portugues_confirmado=valor)
+
+
+def test_assinatura_nao_depende_do_portugues_confirmado():
+    """O português confirmado vai na pergunta mas não na assinatura: confirmar um anúncio não reavalia tudo."""
+    assert list(inspect.signature(assinatura).parameters) == ["anuncio", "produto"]
+
+
+@pytest.mark.parametrize("idioma", ["pt", "en", "ja", "outro", "indefinido"])
+def test_ler_veredito_com_idioma(idioma):
+    v = ler_veredito({"mesmo_produto": True, "confianca": 93, "motivo": "x", "idioma_anuncio": idioma})
+    assert v.idioma_anuncio == idioma
+
+
+def test_ler_veredito_sem_idioma_fica_vazio():
+    assert ler_veredito({"mesmo_produto": True, "confianca": 93, "motivo": "x"}).idioma_anuncio is None
+
+
+def test_ler_veredito_idioma_desconhecido_e_fora_do_formato():
+    with pytest.raises(ErroIA):
+        ler_veredito({"mesmo_produto": True, "confianca": 93, "motivo": "x", "idioma_anuncio": "fr"})
 
 
 def test_ler_veredito_valido():
