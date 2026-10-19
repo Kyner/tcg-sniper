@@ -5,7 +5,9 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 Última revisão: 2026-10-19 (casamento por par pronto no código, falta implantar; antes: auditoria conversa × lista e respostas do usuário do mesmo dia).
 
-## 0. Crítico (em andamento)
+## 0. Crítico
+
+Nada aberto (2026-10-19).
 
 - [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
 
@@ -83,10 +85,11 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Decisões pendentes
 
-- [ ] Alerta que **espera a conferência de checkout** antes de sair (decidido pelo assistente em 2026-10-18 e descrito no README): falta a confirmação do usuário.
+Nenhuma no momento.
 
 ## Decisões registradas
 
+- **Alerta espera a conferência de checkout (confirmado pelo usuário em 2026-10-19):** o primeiro alerta de uma oportunidade só sai depois da conferência no checkout (preço = itens + impostos, sem frete); se a conferência não puder rodar, vale o comportamento descrito no README.
 - **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário. Após o deploy: `tcg-sniper casamento reabrir-ingles` (simulação) e `--aplicar` para devolver à IA os ignorados pelo automático por serem em inglês.
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
 - 2026-10-19: teto do monitor da Amazon em produção é 1000 páginas/h; baixar para ~220 só se os CAPTCHAs aumentarem.
