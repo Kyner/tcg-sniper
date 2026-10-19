@@ -23,9 +23,13 @@
 {% endif %}
 {% endmacro %}
 {% macro texto(m) %}
+{% if m.destino == "individual" %}
+<div class="text-sm opacity-70">mensagem individual — texto oculto</div>
+{% else %}
 {% set partes = m.texto.split("\n") %}
 <div class="whitespace-pre-line break-words">{{ partes[:2]|join("\n") }}</div>
 {% if partes|length > 2 %}<details class="collapse collapse-arrow bg-base-200"><summary class="collapse-title min-h-0 py-1 text-xs">mais</summary><pre class="collapse-content text-xs whitespace-pre-wrap break-words">{{ m.texto }}</pre></details>{% endif %}
+{% endif %}
 {% endmacro %}
 <div class="card hidden bg-base-100 shadow-sm md:block"><div class="overflow-x-auto">
   <table class="table">

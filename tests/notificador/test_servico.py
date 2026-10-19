@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -377,3 +378,86 @@ def test_linha_limpa_sai_inalterada(sessoes, env, configurado):
     corpo = rota.calls.last.request.read().decode()
     assert "https://www.amazon.com.br/dp/B0TESTE123 ok" in corpo
     assert "[endereço removido]" not in corpo
+
+
+NUMERO = "+5511900000001"
+
+
+def nova_individual(sessoes, criada=AGORA, validade=timedelta(minutes=5)):
+    with sessoes() as s, s.begin():
+        return repo_msg.enfileirar(
+            s, "individual", "🔑 *Código de acesso*\n*123456*", criada, numero=NUMERO, expira_em=criada + validade
+        ).id
+
+
+@respx.mock
+def test_individual_vai_para_o_numero_e_o_texto_some_depois(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    mid = nova_individual(sessoes)
+    assert servico(sessoes, env).ciclo() == 1
+    corpo = json.loads(rota.calls.last.request.read())
+    assert corpo["number"] == "5511900000001" and "*123456*" in corpo["text"]
+    m = ler(sessoes, mid)
+    assert (m.status, m.texto) == (StatusMensagem.ENVIADA, repo_msg.TEXTO_APAGADO)
+
+
+@respx.mock
+def test_codigo_vencido_na_fila_nao_sai_nem_e_reenviado(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    mid = nova_individual(sessoes, criada=AGORA - timedelta(minutes=5))
+    servico(sessoes, env).ciclo()
+    m = ler(sessoes, mid)
+    assert (m.status, m.texto) == (StatusMensagem.EXPIRADA, repo_msg.TEXTO_APAGADO)
+    assert not rota.called
+    with sessoes() as s, s.begin(), pytest.raises(repo_msg.AcaoInvalida):
+        repo_msg.reenviar(s, mid, AGORA)
+
+
+@respx.mock
+def test_validade_individual_vale_mesmo_com_ignorar_validade(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    mid = nova_individual(sessoes, criada=AGORA - timedelta(minutes=6))
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, mid).ignorar_validade = True
+    servico(sessoes, env).ciclo()
+    assert ler(sessoes, mid).status is StatusMensagem.EXPIRADA and not rota.called
+
+
+@respx.mock
+def test_erro_que_repete_o_numero_e_mascarado(sessoes, env, configurado, caplog):
+    def evolution(request):
+        # só o envio para a pessoa repete o número no erro; o aviso para o grupo admin sai normalmente
+        if json.loads(request.read())["number"] == "5511900000001":
+            return httpx.Response(400, text='{"message":"5511900000001 não está no WhatsApp"}')
+        return httpx.Response(201)
+
+    respx.post(ROTA).mock(side_effect=evolution)
+    mid = nova_individual(sessoes, validade=timedelta(hours=2))
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    for _ in range(5):
+        svc.ciclo()
+        relogio.agora = ler(sessoes, mid).proxima_tentativa_em
+    m = ler(sessoes, mid)
+    assert m.status is StatusMensagem.FALHA and m.texto == repo_msg.TEXTO_APAGADO
+    assert "5511900000001" not in m.ultimo_erro and "+55 11 9****-**01" in m.ultimo_erro
+    with sessoes() as s:
+        avisos_admin = [x.texto for x in s.scalars(select(MensagemSaida).where(MensagemSaida.destino == "admin"))]
+    assert avisos_admin and all("900000001" not in texto for texto in avisos_admin)
+    assert "900000001" not in caplog.text
+
+
+@respx.mock
+def test_pausado_expira_individual_vencida_e_apaga_o_codigo(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    vencida = nova_individual(sessoes, criada=AGORA - timedelta(minutes=5))
+    valida = nova_individual(sessoes, criada=AGORA)
+    grupo = nova(sessoes, "admin", "aviso do grupo", criada=AGORA - timedelta(hours=1))
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", AGORA, COLETOR_NOTIFICADOR)
+    assert servico(sessoes, env).ciclo() == 0
+    assert not rota.called
+    m = ler(sessoes, vencida)
+    assert (m.status, m.texto) == (StatusMensagem.EXPIRADA, repo_msg.TEXTO_APAGADO)
+    assert ler(sessoes, valida).status is StatusMensagem.PENDENTE and "*123456*" in ler(sessoes, valida).texto
+    assert (ler(sessoes, grupo).status, ler(sessoes, grupo).texto) == (StatusMensagem.PENDENTE, "aviso do grupo")

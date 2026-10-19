@@ -91,3 +91,10 @@ def test_desligar_com_desafio_pendente_nao_avisa(cliente, sessoes):
 def test_explicacao_do_host_nao_fala_mais_em_mensagens(cliente):
     texto = cliente.get("/configuracoes").text
     assert "As mensagens do WhatsApp nunca levam este endereço." in texto
+
+
+def test_aba_avisos_mostra_destino_e_severidade_de_acesso(cliente):
+    texto = cliente.get("/configuracoes").text
+    assert 'badge-ghost badge-sm">só para a pessoa</span>' in texto
+    assert 'badge-ghost badge-sm">grupo admin</span>' in texto
+    assert 'badge-neutral badge-sm">Acesso</span>' in texto

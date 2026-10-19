@@ -216,3 +216,37 @@ def test_avisador_banco_com_banco_fora_nao_propaga(caplog):
 
     servico.AvisadorBanco(sessoes, relogio=lambda: T).avisar(CAPTCHA, CHAVE_GERAL, CATALOGO[CAPTCHA].exemplo)
     assert "aviso amazon_captcha não registrado" in caplog.text
+
+
+NUMERO = "+5511900000001"
+CODIGO = TipoAviso.CODIGO_ACESSO
+
+
+def test_avisar_individual_enfileira_so_para_o_numero_com_validade(sessoes):
+    with sessoes() as s, s.begin():
+        dados = Dados(destaque="123456", linhas=("Vale por 5 minutos.",))
+        assert servico.avisar_individual(s, CODIGO, NUMERO, dados, T) is True
+    [m] = saidas(sessoes)
+    assert (m.destino, m.numero, m.expira_em, m.criada_em) == ("individual", NUMERO, T + timedelta(minutes=5), T)
+    assert m.texto.startswith("🔑 *Código de acesso*\n*123456*\n")
+
+
+def test_avisar_individual_respeita_a_validade_pedida(sessoes):
+    with sessoes() as s, s.begin():
+        servico.avisar_individual(s, CODIGO, NUMERO, CATALOGO[CODIGO].exemplo, T, timedelta(minutes=1))
+    assert saidas(sessoes)[0].expira_em == T + timedelta(minutes=1)
+
+
+def test_avisar_individual_desligado_nao_enfileira(sessoes):
+    desligar(sessoes, CODIGO)
+    with sessoes() as s, s.begin():
+        assert servico.avisar_individual(s, CODIGO, NUMERO, CATALOGO[CODIGO].exemplo, T) is False
+    assert saidas(sessoes) == []
+
+
+def test_tipo_de_grupo_nao_vai_para_numero_e_individual_nao_vai_para_grupo(sessoes, caplog):
+    with sessoes() as s, s.begin():
+        assert servico.avisar_individual(s, CAPTCHA, NUMERO, CATALOGO[CAPTCHA].exemplo, T) is False
+        servico.avisar(s, CODIGO, CHAVE_GERAL, CATALOGO[CODIGO].exemplo, T)
+    assert saidas(sessoes) == []
+    assert "900000001" not in caplog.text

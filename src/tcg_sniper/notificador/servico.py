@@ -16,7 +16,9 @@ from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import COLETOR_NOTIFICADOR, EstadoColetorTipo, MensagemSaida, StatusMensagem
+from tcg_sniper.formatacao import ocultar_numero
 from tcg_sniper.notificador import CHAVE_PADRAO
+from tcg_sniper.notificador.base import Destino
 from tcg_sniper.notificador.evolution import Resultado, enviar_uma_vez
 
 log = logging.getLogger(__name__)
@@ -70,6 +72,11 @@ class ServicoNotificador:
         Pausado no admin, só registra que está vivo: as mensagens ficam pendentes até retomar.
         Devolve quantas mensagens processou."""
         agora = inicio = self._relogio()
+        try:  # antes da pausa: o código vencido não pode ficar no banco com o notificador parado
+            with self._sessoes() as s, s.begin():
+                repo_msg.expirar_individuais_vencidas(s, agora)
+        except Exception:
+            log.exception("não consegui expirar os códigos vencidos")
         with self._sessoes() as s, s.begin():
             if repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado != EstadoColetorTipo.ATIVO:
                 repo_msg.registrar_ciclo(s, agora)
@@ -116,18 +123,27 @@ class ServicoNotificador:
     def _processar(self, s: Session, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
         """Devolve o resultado do envio, ou `None` se a mensagem nem chegou a ser enviada."""
         m.atualizado_em = agora
+        if m.expira_em is not None and agora >= m.expira_em:
+            # validade própria (código de acesso: 5 min) vale até para "reenviar"
+            m.status = StatusMensagem.EXPIRADA
+            repo_msg.apagar_texto_individual(m)
+            return None
         validade = timedelta(hours=geral.validade_oportunidade_h)
         if m.destino == "oportunidades" and not m.ignorar_validade and agora - m.criada_em > validade:
             m.status = StatusMensagem.EXPIRADA
             return None
-        grupo = geral.whatsapp_grupo_admin if m.destino == "admin" else geral.whatsapp_grupo_oportunidades
+        individual = m.destino == Destino.INDIVIDUAL.value
+        if individual:
+            alvo = (m.numero or "").removeprefix("+")  # a Evolution quer só os dígitos
+        else:
+            alvo = geral.whatsapp_grupo_admin if m.destino == "admin" else geral.whatsapp_grupo_oportunidades
         falta = None
         if self._chave is None:
             falta = "EVOLUTION_URL ou EVOLUTION_API_KEY ausente (ou com o valor padrão) no .env"
         elif not geral.evolution_instancia:
             falta = "sem instância da Evolution em Configurações → Geral"
-        elif not grupo:
-            falta = f"sem grupo de {m.destino} em Configurações → Geral"
+        elif not alvo:
+            falta = "sem número na mensagem individual" if individual else f"sem grupo de {m.destino} em Configurações → Geral"
         if falta is not None:
             m.ultimo_erro = falta
             m.proxima_tentativa_em = agora + ESPERA_SEM_DESTINO
@@ -135,17 +151,21 @@ class ServicoNotificador:
         # linhas antigas da fila e "reenviar" saem como estão gravadas: a guarda de URL vale aqui também
         texto = formato.conferir_urls(m.texto, avisos.zona_e_host(s)[1], estrito=False)
         resultado, erro = enviar_uma_vez(
-            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, texto
+            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, alvo, texto
         )
+        if individual and erro and m.numero:
+            erro = ocultar_numero(erro, m.numero)  # a Evolution pode repetir o número no erro
         if resultado is Resultado.OK:
             m.status = StatusMensagem.ENVIADA
             m.enviada_em = agora
             m.ultimo_erro = None
+            repo_msg.apagar_texto_individual(m)
             return resultado
         m.tentativas += 1
         m.ultimo_erro = erro
         if resultado is Resultado.DEFINITIVO and m.tentativas >= MAX_TENTATIVAS_DEFINITIVAS:
             m.status = StatusMensagem.FALHA
+            repo_msg.apagar_texto_individual(m)
             log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
             if not formato.eh_do_tipo(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
                 self._avisar_falha(s, agora)
