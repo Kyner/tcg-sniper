@@ -315,7 +315,7 @@ def test_rodada_com_avaliacao_avisa_conclusao_com_as_contas(sessoes, config):
     assert sv.ciclo() == 3
     [dados] = av.dados(TipoAviso.IA_RODADA_CONCLUIDA)
     assert dados.linhas == (
-        "Avaliados: 3", "Confirmados pelo automático: 1", "Ignorados pelo automático: 1", "Esperando você: 1",
+        "Avaliados: 3 anúncios em 1 produto", "Confirmados pelo automático: 1", "Ignorados pelo automático: 1", "Esperando você: 1",
     )
     assert dados.acao == "Revise os pendentes em Admin → Casamentos."
 
