@@ -16,10 +16,12 @@ Em qualquer outro caso (ou depois de `MAX_TENTATIVAS_RETIRADA` falhas) não clic
 "conferir à mão", o grupo admin recebe um aviso (`AMAZON_CARRINHO`, um por ASIN) e o admin mostra o alerta
 com "Já conferi". Com o monitor pausado, a retirada também para.
 
-Rodada do monitor (`AMAZON_MONITOR_CONCLUIDO`) = uma volta: começa no primeiro trabalho com os anúncios
-vencidos naquele momento e termina quando todos eles foram lidos (ou postos de lado por falha, ou saíram do
-monitor), mesmo que outros já tenham vencido de novo; a volta seguinte começa em seguida. A janela que fecha
-no meio descarta a volta sem aviso."""
+Rodada do monitor (`AMAZON_MONITOR_CONCLUIDO`) = uma volta inteira: começa no primeiro trabalho com a
+foto de todos os anúncios que o monitor acompanha (confirmados, de produto ativo) e termina quando cada um
+deles foi lido uma vez desde então (ou posto de lado por falha, ou saiu do monitor: desconfirmado ou produto
+desativado), mesmo que outros já tenham vencido de novo; a volta seguinte começa no próximo trabalho. Nunca
+fecha "a cada brecha" (uma volta de só os poucos vencidos naquele instante). A janela que fecha no meio
+descarta a volta sem aviso."""
 
 import dataclasses
 import logging
@@ -76,7 +78,7 @@ DADOS_SEM_LOGIN = Dados(linhas=("A conferência de checkout parou; o monitor de 
 
 @dataclass
 class _Rodada:
-    """Uma volta do monitor: os anúncios vencidos quando ela começou (`faltam`) até todos saírem."""
+    """Uma volta do monitor: os anúncios acompanhados quando ela começou (`faltam`) até todos saírem."""
 
     inicio: datetime
     faltam: set[int] = field(default_factory=set)
@@ -176,11 +178,11 @@ class VarreduraMonitor(VarreduraBase):
             self._rodada = _Rodada(self._relogio())
         return self._rodada
 
-    def _talvez_fechar_rodada(self, vencidos: set[int]) -> None:
+    def _talvez_fechar_rodada(self, acompanhados: set[int]) -> None:
         """Tira da volta o que saiu do monitor sem ser lido; com a volta vazia, fecha (e avisa)."""
         if self._rodada is None:
             return
-        self._rodada.faltam &= vencidos
+        self._rodada.faltam &= acompanhados
         if not self._rodada.faltam:
             self._fechar_rodada()
 
@@ -215,15 +217,15 @@ class VarreduraMonitor(VarreduraBase):
             if cfg.checkout_ligado and cfg.checkout_sem_login_em is None and not repo_amz.carrinho_ocupado_ha_pouco(s, agora):
                 candidatas = repo_amz.candidatas_ao_checkout(s, agora, cfg)
             proximo = None
-            vencidos: set[int] = set()
+            acompanhados: set[int] = set()
             if cfg.monitor_ligado:
-                vencidos = repo_amz.ids_vencidos_do_monitor(s, agora, cfg.monitor_intervalo_min) - de_lado
+                acompanhados = repo_amz.ids_do_monitor(s)
                 proximo = repo_amz.proximo_do_monitor(s, agora, cfg.monitor_intervalo_min, de_lado)
-        self._talvez_fechar_rodada(vencidos)
+        self._talvez_fechar_rodada(acompanhados)
         if not candidatas and proximo is None:
             return None
-        if self._rodada is None:
-            self._rodada = _Rodada(self._relogio(), faltam=set(vencidos))
+        if self._rodada is None:  # foto da volta: todos os acompanhados, não só os vencidos agora
+            self._rodada = _Rodada(self._relogio(), faltam=set(acompanhados))
         if candidatas:
             return self._conferir(candidatas[0], cfg)
         return self._monitorar(*proximo, cfg)
@@ -383,7 +385,6 @@ class VarreduraMonitor(VarreduraBase):
         return 0
 
     def _monitorar(self, anuncio_id: int, asin: str, cfg: ConfigAmazon) -> float:
-        rodada = self._rodada_atual()
         ctx = self._contexto(cfg, f"amazon-monitor-{asin}", self._cota_falhas)
         contado = _NavegadorContado(ctx.navegador)
         ctx = dataclasses.replace(ctx, navegador=contado)
@@ -406,6 +407,7 @@ class VarreduraMonitor(VarreduraBase):
         self._registrar_paginas(resultado.paginas)
         self._falhas_seguidas = 0
         self._erros_seguidos = 0
+        rodada = self._rodada_atual()  # aberta em `_passo_monitor`
         rodada.faltam.discard(anuncio_id)
         rodada.lidos += 1
         rodada.quedas += resultado.caiu

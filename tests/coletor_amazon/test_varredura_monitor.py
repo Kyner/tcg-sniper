@@ -19,6 +19,7 @@ from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_AMAZON_BUSCA,
+    Casamento,
     Coleta,
     ConferenciaCheckout,
     Envio,
@@ -29,6 +30,7 @@ from tcg_sniper.db.models import (
     OrigemPreco,
     ProdutoLiga,
     SituacaoCheckout,
+    StatusCasamento,
 )
 from tcg_sniper.navegador.modelos import ErroRede
 from tcg_sniper.notificador.base import Destino
@@ -766,3 +768,46 @@ def test_janela_do_monitor_fechada_fecha_o_navegador(engine, sessoes, config):
     assert v.passo() == 0 and fabrica.abertos == 1
     relogio.agora = MEIO_DIA.replace(hour=23)
     assert v.passo() == ESPERA_OCIOSA_S and fabrica.fechados == 1
+
+
+@pytest.mark.parametrize(
+    ("quantos", "intervalo_min"),
+    [(10, 15), (20, 5)],  # 10 x 20 s cabem em 15 min; 20 x 20 s = 400 s > 5 min: o monitor sempre atrasado
+)
+def test_rodada_com_relogio_real_avisa_uma_vez_por_volta_inteira(engine, sessoes, config, quantos, intervalo_min):
+    """Uma leitura a cada 20 s, como em produção: cada aviso conta a volta inteira, nunca só os poucos
+    anúncios que venceram durante a volta anterior."""
+    asins = [f"B0RODA{i:04d}" for i in range(quantos)]
+    for asin in asins:
+        confirmado(sessoes, asin, asin)  # nunca lidos
+    with sessoes() as s, s.begin():
+        aplicar_config(s, {"monitor_intervalo_min": intervalo_min, "monitor_max_paginas_hora": 1000}, MEIO_DIA)
+    v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas(a): ofertas(a, "R$ 990,00") for a in asins})
+    leituras = 0
+    for _ in range(40 * 3):  # 40 min, um passo a cada 20 s
+        leituras += v.passo() == 0
+        relogio.agora += timedelta(seconds=20)
+    contagens = [d.linhas[0] for d in avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)]
+    assert len(contagens) >= 3 and leituras >= 3 * quantos
+    assert set(contagens) == {f"Anúncios lidos: {quantos}"}  # nunca uma "volta" pequena depois da primeira
+
+
+def test_anuncio_desconfirmado_no_meio_da_volta_sai_e_a_volta_fecha(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    um_min = MEIO_DIA - timedelta(minutes=1)
+    confirmado(sessoes, "b", "B0BBBB0001", "990.00", lido_em=um_min)  # lido há 1 min: em dia, mas na volta
+    _, c_id = confirmado(sessoes, "c", "B0CCCC0001", "990.00", lido_em=um_min)
+    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001", "B0CCCC0001")}
+    v, navegador, avisador, relogio = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and navegador.visitadas == [url_ofertas("B0AAAA0001")]
+    assert v.passo() == ESPERA_OCIOSA_S  # b e c em dia: a volta espera por eles
+    assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
+    with sessoes() as s, s.begin():
+        s.get(Casamento, (c_id, s.scalar(select(Casamento.produto_id).where(Casamento.anuncio_id == c_id)))).status = (
+            StatusCasamento.IGNORADO
+        )
+    relogio.agora += timedelta(minutes=16)
+    assert v.passo() == 0  # b venceu e é lido; c saiu do monitor
+    assert v.passo() == 0  # a fecha a volta (só a, b) e abre a seguinte lendo a de novo
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[0] == "Anúncios lidos: 2"
