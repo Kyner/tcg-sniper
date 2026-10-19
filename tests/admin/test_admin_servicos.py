@@ -210,6 +210,15 @@ def test_desligar_a_busca_nao_apaga_um_desafio_pendente(cliente, sessoes):
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.PAUSADO_DESAFIO
 
 
+def test_pausar_o_monitor_nao_apaga_um_desafio_pendente(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo.pausar_por_desafio(s, "desafio em /gp/cart", T0, COLETOR_AMAZON)
+    r = cliente.post("/amazon/pausar", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=desafio_pendente"
+    with sessoes() as s:
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+
+
 def test_pausar_a_busca_avisa_com_o_nome_do_servico(cliente, sessoes):
     from sqlalchemy import select
 

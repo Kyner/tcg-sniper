@@ -475,11 +475,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/amazon/pausar")
     def pausar_amazon():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.pausar(s, "pausado no admin", agora, COLETOR_AMAZON)
-            _avisar_mudanca(s, COLETOR_AMAZON, "pausado", agora)
-        return RedirectResponse("/servicos?msg=amazon_pausar", status_code=status.HTTP_303_SEE_OTHER)
+        return _desligar(COLETOR_AMAZON, "amazon_pausar")
 
     @app.post("/amazon/retomar")
     def retomar_amazon():
