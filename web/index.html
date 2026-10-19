@@ -4,10 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TCG Sniper</title>
-    <script>
-      // Tema salvo, antes de pintar a página (mesma chave "tema" do admin antigo).
-      try { var t = localStorage.getItem("tema"); if (t === "winter" || t === "night") document.documentElement.dataset.theme = t; } catch (e) {}
-    </script>
+    <!-- Tema salvo, antes de pintar a página (arquivo em public/: a CSP do Caddy proíbe script inline). -->
+    <script src="/tema-inicial.js"></script>
   </head>
   <body>
     <div id="raiz"></div>
