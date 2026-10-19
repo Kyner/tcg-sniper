@@ -30,7 +30,7 @@ MAX_DESTAQUE = 200
 DOMINIOS_PERMITIDOS = ("amazon.com.br", "ligamagic.com.br")
 REMOVIDO = "[endereço removido]"
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
-_PORTAS = re.compile(r":(?:8000|6080|6081)(?!\d)")
+_PORTAS = re.compile(r":(?:8000|6080|6081|6082)(?!\d)")
 _ESCAPES = str.maketrans({"*": "∗", "_": "ˍ", "~": "˜", "`": "ˋ"})
 
 
@@ -175,7 +175,7 @@ def _permitida(url: str) -> bool:
 
 
 def conferir_urls(texto: str, host_publico: str | None = None, *, estrito: bool | None = None) -> str:
-    """Regra de URL do spec: só links da Amazon e da LigaMagic; nada de `:8000`, `:6080`, `:6081` nem do
+    """Regra de URL do spec: só links da Amazon e da LigaMagic; nada de `:8000`, `:6080`, `:6081`, `:6082` nem do
     `host_publico`. Estrito (testes): levanta `UrlProibida`. Senão troca por "[endereço removido]" e loga."""
     estrito = ESTRITO if estrito is None else estrito
     achados: list[str] = []

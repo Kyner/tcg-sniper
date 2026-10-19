@@ -166,7 +166,7 @@ def test_captcha_pausa_avisa_e_mantem_o_navegador(engine, sessoes, config):
     [(tipo, chave, dados)] = avisador.avisos
     assert (tipo, chave) == (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL)
     assert dados.linhas[1] == "Busca, monitor e conferência pausados até você retomar"
-    assert "noVNC da Amazon (porta 6081)" in avisador.mensagens[0][1]
+    assert "porta 6081" in avisador.mensagens[0][1]
     assert fabrica.fechados == 0
 
 
@@ -357,7 +357,7 @@ def test_falhas_seguidas_pausam_a_busca(engine, sessoes, config):
     assert (estado.estado, estado.motivo) == (EstadoColetorTipo.PAUSADO, "falhas seguidas")
     [pausa] = avisador.dados(TipoAviso.AMAZON_PAUSADA)
     assert pausa.linhas[0] == f"Motivo: {MAX_FALHAS_SEGUIDAS} páginas seguidas com falha (bloqueio ou layout novo?)"
-    assert "Admin → Serviços → Amazon → Retomar" in avisador.mensagens[-1][1]
+    assert "Admin → Serviços → Amazon (monitor e checkout) → Retomar" in avisador.mensagens[-1][1]
     # o ciclo terminou pela pausa: só o aviso da pausa, sem "busca falhou" nem conclusão
     assert avisador.tipos() == [TipoAviso.AMAZON_PAUSADA]
     [ciclo] = ciclos(sessoes)

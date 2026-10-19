@@ -12,7 +12,7 @@ from tcg_sniper.avisos.formato import aviso_de, formatar, formatar_lembrete, for
 RAIZ = Path(__file__).resolve().parents[2] / "src" / "tcg_sniper"
 QUANDO = datetime(2026, 10, 18, 13, 42, tzinfo=UTC)
 SP = ZoneInfo("America/Sao_Paulo")
-PROIBIDO = re.compile(r":(?:8000|6080|6081)(?!\d)|192\.168\.0\.10")
+PROIBIDO = re.compile(r":(?:8000|6080|6081|6082)(?!\d)|192\.168\.0\.10")
 
 
 def arquivos(*, fora_de: tuple[str, ...] = ()) -> list[Path]:

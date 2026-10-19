@@ -442,7 +442,7 @@ def assert_a_mao_sem_clique(sessoes, conferencia_id, navegador, avisador, v):
     [aviso] = avisos_a_mao(avisador)
     assert aviso.titulo_extra == "B0CAND0001"
     assert aviso.linhas[0] == "Pode haver 1× B0CAND0001 de uma conferência automática no carrinho"
-    assert "noVNC da Amazon (porta 6081)" in avisador.mensagens[-1][1]
+    assert "porta 6081" in avisador.mensagens[-1][1]
     visitadas = len(navegador.visitadas)
     assert v.passo() == ESPERA_OCIOSA_S  # estado persistente: não volta ao carrinho, não avisa de novo
     assert len(navegador.visitadas) == visitadas and len(avisos_a_mao(avisador)) == 1
