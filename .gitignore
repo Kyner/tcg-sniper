@@ -15,3 +15,8 @@ Monitor de arbitragem de selados de Magic.md
 .fixtures-brutas/
 .perfil-dev-amazon/
 .ferramentas/
+
+# Front (web/): dependências e build locais.
+web/node_modules/
+web/dist/
+.npm-cache/
