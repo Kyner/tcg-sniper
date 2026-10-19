@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico (em andamento)
 
-- [ ] **Implantar o casamento por par** (com ok do usuário), seguindo o README → "Implantar o casamento por par": backup em `dados/backups/`, conferir antes que `SELECT count(*) FROM anuncio_amazon WHERE produto_id IS NULL` dá 0 e anotar as contagens por situação (`SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL GROUP BY 1`), `docker compose up -d --build` (todos os serviços) e comparar com `SELECT status, count(*) FROM casamento GROUP BY 1`: têm de bater com as contagens tiradas logo antes (não com números antigos: conferir as contagens do dia).
+- [ ] **Reabrir os ignorados por inglês** (casamento por par implantado em 2026-10-19, merge `cb16fbb`): `docker compose exec casador tcg-sniper casamento reabrir-ingles` (simulação) achou **19** pares; aplicar com `--aplicar` depois do ok do usuário.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -104,7 +104,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Ordem sugerida
 
-0. Seção 0: implantar o casamento por par (código pronto) e acompanhar a primeira semana (seção 3).
+0. Seção 0: reabrir os 19 ignorados por inglês (ok do usuário) e acompanhar a primeira semana do casamento por par (seção 3).
 1. Site novo, fase 2 (área de negócio).
 2. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
 3. Seção 1 (segurança do login), antes de publicar na internet.
@@ -114,7 +114,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Concluídas
 
-### Casamento por par e busca alternativa (2026-10-19; hashes a preencher no merge)
+### Casamento por par e busca alternativa (merge `cb16fbb`, em produção desde 2026-10-19 11:51; contagens antes = depois: 51 confirmados, 1269 ignorados, 5 pendentes, 1325 pares)
 
 Spec `docs/superpowers/specs/2026-10-19-casamento-por-par-design.md`, plano `docs/superpowers/plans/2026-10-19-casamento-por-par.md`. Resolve o anúncio da Amazon preso ao primeiro produto da Liga para o qual foi sugerido (ignorado para o produto errado nunca voltava para o certo).
 
