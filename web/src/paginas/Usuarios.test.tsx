@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { apiFalsa, EU_ADMIN, EU_OPERADOR, EU_SUPERADMIN, ok, renderizarEm } from "../teste/apoio";
@@ -146,5 +146,41 @@ describe("Gestão → Usuários", () => {
     apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR) });
     renderizarEm("/gestao/usuarios");
     expect(await screen.findByRole("heading", { name: "Sem acesso" })).toBeInTheDocument();
+  });
+  it("renomear a si mesmo atualiza o nome no menu do topo", async () => {
+    const chamadas = apiFalsa({
+      "GET /api/auth/eu": [ok(EU_SUPERADMIN), ok({ ...EU_SUPERADMIN, nome: "Dono" })],
+      "GET /api/usuarios": [ok({ usuarios: [SUPER, GRUPO] }), ok({ usuarios: [{ ...SUPER, nome: "Dono" }, GRUPO] })],
+      "PATCH /api/usuarios/10": ok({ ...SUPER, nome: "Dono" }),
+    });
+    const usuario = userEvent.setup();
+    renderizarEm("/gestao/usuarios");
+    const linha = await linhaDe("Pessoa Superadmin");
+    await usuario.click(within(linha).getByRole("button", { name: "Editar" }));
+    const nome = within(screen.getByRole("dialog")).getByLabelText("Nome");
+    await usuario.clear(nome);
+    await usuario.type(nome, "Dono");
+    await usuario.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(await screen.findByText("Alterações salvas.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("Dono")).toHaveLength(2)); // menu do topo e tabela
+    expect(screen.queryByText("Pessoa Superadmin")).not.toBeInTheDocument();
+    expect(chamadas.filter((c) => c.caminho === "/api/auth/eu")).toHaveLength(2);
+  });
+
+  it("Escape fecha os modais de edição e de sessões", async () => {
+    apiFalsa({
+      "GET /api/auth/eu": ok(EU_ADMIN),
+      "GET /api/usuarios": ok({ usuarios: [ADMIN, GRUPO] }),
+      "GET /api/usuarios/2/sessoes": ok({ sessoes: [] }),
+    });
+    const usuario = userEvent.setup();
+    renderizarEm("/gestao/usuarios");
+    const linha = await linhaDe("Pessoa Grupo");
+    for (const botao of ["Editar", "Sessões"]) {
+      await usuario.click(within(linha).getByRole("button", { name: botao }));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      await usuario.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    }
   });
 });

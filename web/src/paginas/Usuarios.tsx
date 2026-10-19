@@ -3,6 +3,7 @@
 // superadmin (na linha dele, só ele mesmo edita o nome e vê as sessões). A API recusa do mesmo jeito.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { chamarApi } from "../api";
+import { Modal } from "../componentes/Modal";
 import { ROTULO_PAPEL } from "../permissoes";
 import { useSessao } from "../sessao";
 import type { Papel, SessaoAparelho, Usuario } from "../tipos";
@@ -12,7 +13,7 @@ function dataHora(iso: string): string {
 }
 
 export function Usuarios() {
-  const { sessao, tratarErro } = useSessao();
+  const { sessao, tratarErro, recarregar } = useSessao();
   const eu = sessao.estado === "logado" ? sessao.eu : null;
   const souSuperadmin = eu?.superadmin === true;
   const papeis: Papel[] = souSuperadmin ? ["grupo", "operador", "admin"] : ["grupo", "operador"];
@@ -39,11 +40,12 @@ export function Usuarios() {
     void carregar();
   }, [carregar]);
 
-  async function aposSalvar(texto: string) {
+  async function aposSalvar(texto: string, usuarioId?: number) {
     setMensagem(texto);
     setErro(null);
     setEditando(null);
-    await carregar();
+    // Mudou a si mesmo (ex.: o nome): o menu do topo lê o nome do /api/auth/eu.
+    await Promise.all([carregar(), usuarioId === eu?.id ? recarregar() : Promise.resolve()]);
   }
 
   function mostrarErro(texto: string | null) {
@@ -120,7 +122,7 @@ export function Usuarios() {
           usuario={editando}
           papeis={papeis}
           aoFechar={() => setEditando(null)}
-          aoSalvar={() => void aposSalvar("Alterações salvas.")}
+          aoSalvar={() => void aposSalvar("Alterações salvas.", editando.id)}
         />
       )}
       {sessoesDe && (
@@ -258,7 +260,7 @@ function EditarUsuario({
   }
 
   return (
-    <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="titulo-editar">
+    <Modal tituloId="titulo-editar" aoFechar={aoFechar}>
       <form className="modal-box space-y-2" onSubmit={salvar}>
         <h2 id="titulo-editar" className="text-lg font-bold">
           Editar {usuario.nome}
@@ -320,7 +322,7 @@ function EditarUsuario({
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -352,7 +354,7 @@ function SessoesDoUsuario({ usuario, aoFechar }: { usuario: Usuario; aoFechar: (
   }
 
   return (
-    <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="titulo-sessoes">
+    <Modal tituloId="titulo-sessoes" aoFechar={aoFechar}>
       <div className="modal-box space-y-2">
         <h2 id="titulo-sessoes" className="text-lg font-bold">
           Sessões de {usuario.nome}
@@ -390,6 +392,6 @@ function SessoesDoUsuario({ usuario, aoFechar }: { usuario: Usuario; aoFechar: (
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
