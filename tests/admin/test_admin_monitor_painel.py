@@ -136,8 +136,14 @@ def test_card_da_amazon_com_o_monitor_desligado_diz_desligado(s, config):
         return {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon (monitor e checkout)"]
 
     assert "Até" in card().texto
-    aplicar_config(s, {"monitor_ligado": False}, AGORA)
+    aplicar_config(s, {"monitor_ligado": False, "checkout_ligado": False}, AGORA)
     assert card().texto == "Monitor desligado" and card().situacao == "inativo" and "Até" not in card().texto
+
+
+def test_card_da_amazon_com_o_monitor_desligado_e_checkout_ligado_segue_ok(s, config):
+    aplicar_config(s, {"monitor_ligado": False, "checkout_ligado": True}, AGORA)
+    card = {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon (monitor e checkout)"]
+    assert card.texto == "Monitor desligado · checkout ligado" and card.situacao == "ok"
 
 
 def test_dashboard_avisa_conta_sem_login(s, config):

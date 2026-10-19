@@ -262,6 +262,8 @@ def _saude_amazon_monitor(s: Session, agora: datetime, cfg: Config) -> SaudeServ
         return SaudeServico(NOME_MONITOR, "pausado", f"Pausado: {estado.motivo or 'sem motivo'}", detalhe, "/servicos")
     config_amazon = repo_amz.obter_config(s)
     if not config_amazon.monitor_ligado:
+        if config_amazon.checkout_ligado:
+            return SaudeServico(NOME_MONITOR, "ok", "Monitor desligado · checkout ligado", detalhe, "/servicos")
         return SaudeServico(NOME_MONITOR, "inativo", "Monitor desligado", detalhe, "/servicos")
     local = agora.astimezone(cfg.zona).time()
     if not (config_amazon.monitor_janela_inicio <= local < config_amazon.monitor_janela_fim):
