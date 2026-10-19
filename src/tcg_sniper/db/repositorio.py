@@ -233,9 +233,10 @@ def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA, solicitar:
 
 
 def solicitar_execucao(s: Session, agora: datetime, coletor: str = COLETOR_LIGA) -> None:
+    """Pede uma execução já. Não mexe em `atualizado_em`: na Liga ela marca a retomada, de onde conta o
+    esfriamento depois de um desafio (um "Rodar agora" não pode estender a espera)."""
     estado = obter_estado(s, agora, coletor)
     estado.execucao_solicitada = True
-    estado.atualizado_em = agora
     s.flush()
 
 
@@ -243,8 +244,7 @@ def consumir_solicitacao(s: Session, agora: datetime, coletor: str = COLETOR_LIG
     estado = obter_estado(s, agora, coletor)
     if estado.estado != EstadoColetorTipo.ATIVO or not estado.execucao_solicitada:
         return False
-    estado.execucao_solicitada = False
-    estado.atualizado_em = agora
+    estado.execucao_solicitada = False  # sem mexer em `atualizado_em`: o esfriamento conta da retomada
     s.flush()
     return True
 
