@@ -9,7 +9,7 @@ from fakes import T0
 from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas import POR_PAGINA_HISTORICO
+from tcg_sniper.admin.consultas import FINALIDADES_IA, POR_PAGINA_HISTORICO
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import StatusColeta, TipoColeta
@@ -145,6 +145,15 @@ def test_aba_ia_filtros(cliente, sessoes):
     assert "OpenAI 500" not in casamento and 'badge-success">ok</span>' in casamento
     assert cliente.get("/logs?situacao=xyz").status_code == 400
     assert cliente.get("/logs?finalidade=xyz").status_code == 400
+
+
+def test_aba_ia_filtra_as_chamadas_dos_termos_de_busca(cliente, sessoes):
+    chamada(sessoes, T0)
+    chamada(sessoes, T0, finalidade="termos", ok=False, erro="OpenAI 503")
+    assert "termos" in FINALIDADES_IA
+    so_termos = aba(cliente.get("/logs?aba=ia&finalidade=termos").text, "IA")
+    assert "OpenAI 503" in so_termos and 'badge-success">ok</span>' not in so_termos
+    assert 'value="termos" selected' in so_termos
 
 
 def test_aba_ia_paginada(cliente, sessoes):

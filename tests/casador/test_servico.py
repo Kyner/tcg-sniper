@@ -9,12 +9,13 @@ from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.casador.pergunta import assinatura
 from tcg_sniper.casador.servico import ServicoCasador
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import (
     COLETOR_CASADOR,
     AnuncioAmazon,
     AvaliacaoIA,
+    Casamento,
     ChamadaIA,
     EstadoColetorTipo,
     OrigemCasamento,
@@ -70,9 +71,13 @@ def avaliacoes(sessoes):
         return list(s.scalars(select(AvaliacaoIA).order_by(AvaliacaoIA.id)))
 
 
-def status_de(sessoes, anuncio_id):
+def status_de(sessoes, anuncio_id, produto_id=None):
     with sessoes() as s:
-        return s.get(AnuncioAmazon, anuncio_id).status_casamento
+        pares_do_anuncio = list(s.scalars(select(Casamento).where(Casamento.anuncio_id == anuncio_id)))
+    if produto_id is not None:
+        pares_do_anuncio = [par for par in pares_do_anuncio if par.produto_id == produto_id]
+    [par] = pares_do_anuncio
+    return par.status
 
 
 def test_desligada_nao_chama(sessoes, config):
@@ -133,7 +138,7 @@ def test_automatico_respeita_os_limites(sessoes, config):
         assert status_de(sessoes, anuncio_id) is situacao
         assert (por_anuncio[anuncio_id].aplicada_em is not None) == (situacao is not StatusCasamento.PENDENTE)
         with sessoes() as s:
-            revisado = s.get(AnuncioAmazon, anuncio_id).revisado_em
+            revisado = s.scalar(select(Casamento.revisado_em).where(Casamento.anuncio_id == anuncio_id))
         assert por_anuncio[anuncio_id].aplicada_em == revisado  # mesmo instante: o selo "pela IA" depende disso
 
 
@@ -146,31 +151,32 @@ def test_decisao_humana_durante_a_chamada_vence(sessoes, config):
     class TransporteQueDecide(TransporteFake):
         def enviar(self, pedido):
             with sessoes() as s, s.begin():
-                repo_amz.confirmar_casamento(s, a, outro_id, T0)  # usuário troca o produto no meio
+                repo_casamento.trocar(s, a, outro_id, T0)  # usuário troca o produto no meio
             return super().enviar(pedido)
 
     t = TransporteQueDecide([veredito(False, 99)])
     sv = ServicoCasador(sessoes, t, config.model_copy(update={"openai_api_key": "k"}), AvisadorFake(),
                         cliente_http=sem_rede(), relogio=lambda: T0)
     sv.ciclo()
-    with sessoes() as s:
-        anuncio = s.get(AnuncioAmazon, a)
-        assert anuncio.status_casamento is StatusCasamento.CONFIRMADO and anuncio.produto_id == outro_id
+    assert status_de(sessoes, a, outro_id) is StatusCasamento.CONFIRMADO
+    assert status_de(sessoes, a, p_id) is StatusCasamento.IGNORADO
     [av] = avaliacoes(sessoes)
     assert av.produto_id == p_id and av.aplicada_em is None
 
 
-def test_desfeito_pelo_usuario_nao_e_reaplicado(sessoes, config):
+def test_desfazer_faz_a_ia_reavaliar_mesmo_sem_mudar_os_dados(sessoes, config):
     configurar(sessoes, automatico=True)
-    _, [a] = pares(sessoes)
-    sv, _, _ = servico(sessoes, config, [veredito(True, 99), veredito(True, 99)])
+    p_id, [a] = pares(sessoes)
+    sv, t, _ = servico(sessoes, config, [veredito(True, 99), veredito(True, 70)])
     sv.ciclo()
     assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO
     with sessoes() as s, s.begin():
-        repo_amz.desfazer_casamento(s, a, T0)
-        s.get(AnuncioAmazon, a).titulo = "Título novo"  # força reavaliação
-    assert sv.ciclo() == 1
-    assert status_de(sessoes, a) is StatusCasamento.PENDENTE
+        repo_casamento.desfazer(s, a, p_id, T0)  # sem mudar título, imagem nem produto
+    assert sv.ciclo() == 1 and len(t.pedidos) == 2  # reavaliou com a assinatura igual
+    assert status_de(sessoes, a) is StatusCasamento.PENDENTE  # 70 < 90: espera você
+    with sessoes() as s:
+        assert s.get(Casamento, (a, p_id)).reavaliar is False
+    assert sv.ciclo() == 0 and len(t.pedidos) == 2  # não repete
 
 
 def test_ligar_o_automatico_aplica_avaliacoes_ja_feitas_sem_nova_chamada(sessoes, config):
@@ -187,17 +193,17 @@ def test_ligar_o_automatico_aplica_avaliacoes_ja_feitas_sem_nova_chamada(sessoes
     assert status_de(sessoes, c) is StatusCasamento.PENDENTE and por_anuncio[c].aplicada_em is None  # abaixo do limite
 
 
-def test_avaliacao_antiga_nao_e_aplicada_se_desfeita_ou_decidida_pelo_usuario(sessoes, config):
+def test_desfeito_volta_para_a_ia_e_o_automatico_decide_de_novo(sessoes, config):
     configurar(sessoes, automatico=True)
-    _, [a, b] = pares(sessoes, 2)
-    sv, _, _ = servico(sessoes, config, [veredito(True, 99), veredito(False, 99)])
+    p_id, [a, b] = pares(sessoes, 2)
+    respostas = [veredito(True, 99), veredito(False, 99), veredito(True, 99), veredito(False, 99)]
+    sv, _, _ = servico(sessoes, config, respostas)
     sv.ciclo()
     with sessoes() as s, s.begin():
-        repo_amz.desfazer_casamento(s, a, T0)  # o usuário desfez a decisão da IA
-        repo_amz.desfazer_casamento(s, b, T0)
-    sv.ciclo()
-    assert status_de(sessoes, a) is StatusCasamento.PENDENTE
-    assert status_de(sessoes, b) is StatusCasamento.PENDENTE
+        repo_casamento.desfazer(s, a, p_id, T0)
+        repo_casamento.desfazer(s, b, p_id, T0)
+    assert sv.ciclo() == 2
+    assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO and status_de(sessoes, b) is StatusCasamento.IGNORADO
 
 
 def test_resposta_fora_do_formato_nao_grava_e_volta(sessoes, config):
@@ -472,14 +478,80 @@ def test_automatico_grava_a_origem_automatico_ia(sessoes, config):
     sv, _, _ = servico(sessoes, config, [veredito(True, 95)])
     sv.ciclo()
     with sessoes() as s:
-        assert s.get(AnuncioAmazon, a).origem_casamento is OrigemCasamento.AUTOMATICO_IA
+        assert s.scalar(select(Casamento.origem).where(Casamento.anuncio_id == a)) is OrigemCasamento.AUTOMATICO_IA
 
 
 def test_nao_avalia_pendente_antigo_de_produto_ja_casado(sessoes, config):
     configurar(sessoes)
     with sessoes() as s, s.begin():
         p = criar_produto(s, "p1", nome="Caixa Alfa")
-        criar_anuncio(s, "B0CASADO", produto=p, status=StatusCasamento.CONFIRMADO).revisado_em = T0
+        casado = criar_anuncio(s, "B0CASADO", produto=p, status=StatusCasamento.CONFIRMADO)
+        s.get(Casamento, (casado.id, p.id)).revisado_em = T0
         criar_anuncio(s, "B1ANTIGO", produto=p, agora=T0 - timedelta(days=1))
     sv, t, _ = servico(sessoes, config, [])
     assert sv.ciclo() == 0 and t.pedidos == []
+
+
+def test_anuncio_ignorado_em_a_e_achado_na_busca_de_b_e_avaliado_para_b(sessoes, config):
+    configurar(sessoes)
+    with sessoes() as s, s.begin():
+        colecionador = criar_produto(s, "a", nome="Caixa Colecionador")
+        jogo = criar_produto(s, "b", nome="Caixa de Jogo")
+        anuncio = criar_anuncio(
+            s, "B0JOGO0001", produto=colecionador, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.AUTOMATICO_IA
+        )
+        repo_casamento.registrar_visto(s, anuncio.id, jogo.id, T0)
+        esperado = (anuncio.id, jogo.id)
+    sv, _, _ = servico(sessoes, config, [veredito(True, 95)])
+    assert sv.ciclo() == 1
+    [av] = avaliacoes(sessoes)
+    assert (av.anuncio_id, av.produto_id) == esperado
+
+
+def test_par_outro_confirmado_fica_fora_da_ia(sessoes, config):
+    configurar(sessoes)
+    with sessoes() as s, s.begin():
+        p, q = criar_produto(s, "p"), criar_produto(s, "q")
+        anuncio = criar_anuncio(s, "B0Q0000001", produto=q, status=StatusCasamento.CONFIRMADO)
+        repo_casamento.registrar_visto(s, anuncio.id, p.id, T0)
+    sv, t, _ = servico(sessoes, config, [])
+    assert sv.ciclo() == 0 and t.pedidos == []
+
+
+def test_automatico_nao_confirma_anuncio_que_ficou_confirmado_em_outro_produto(sessoes, config):
+    configurar(sessoes, automatico=True)
+    p_id, [a] = pares(sessoes)
+    with sessoes() as s, s.begin():
+        q_id = criar_produto(s, "q").id
+
+    class TransporteQueConfirmaOutro(TransporteFake):
+        def enviar(self, pedido):
+            with sessoes() as s, s.begin():
+                repo_casamento.confirmar(s, a, q_id, T0)  # você confirma para q enquanto a IA responde
+                par = s.get(Casamento, (a, p_id))  # e uma busca atrasada deixou o par de p pendente (corrida)
+                par.status, par.origem, par.revisado_em = StatusCasamento.PENDENTE, None, None
+            return super().enviar(pedido)
+
+    t = TransporteQueConfirmaOutro([veredito(True, 99)])
+    sv = ServicoCasador(sessoes, t, config.model_copy(update={"openai_api_key": "k"}), AvisadorFake(),
+                        cliente_http=sem_rede(), relogio=lambda: T0)
+    sv.ciclo()
+    assert status_de(sessoes, a, q_id) is StatusCasamento.CONFIRMADO
+    assert status_de(sessoes, a, p_id) is StatusCasamento.PENDENTE
+    [av] = avaliacoes(sessoes)
+    assert av.aplicada_em is None
+
+
+def test_reavaliar_produto_casado_reavalia_tambem_os_pares_antigos(sessoes, config):
+    configurar(sessoes)
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1", nome="Caixa Alfa")
+        casado = criar_anuncio(s, "B0CASADO", produto=p, status=StatusCasamento.CONFIRMADO)
+        s.get(Casamento, (casado.id, p.id)).revisado_em = T0
+        criar_anuncio(s, "B1ANTIGO", produto=p, agora=T0 - timedelta(days=1))
+        p_id = p.id
+    sv, t, _ = servico(sessoes, config, [veredito(False, 95)])
+    assert sv.ciclo() == 0  # so_descoberta: o antigo de produto casado fica de fora
+    with sessoes() as s, s.begin():
+        assert repo_casamento.reavaliar_produto(s, p_id, T0) == 1
+    assert sv.ciclo() == 1 and len(t.pedidos) == 1

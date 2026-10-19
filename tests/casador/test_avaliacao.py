@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from tcg_sniper.casador.avaliacao import avaliar, relatorio_markdown
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import AnuncioAmazon, AvaliacaoIA, ChamadaIA, StatusCasamento
+from tcg_sniper.db.models import AvaliacaoIA, Casamento, ChamadaIA, StatusCasamento
 from tcg_sniper.ia.modelos import Bruta, ErroIA
 
 SP = ZoneInfo("America/Sao_Paulo")
@@ -38,7 +38,7 @@ def test_relatorio_conta_acertos_erros_e_faixas(sessoes):
     assert "gpt-5" in md and "2 de 3" in md and "Falsos \"sim\": 1" in md and "B3" in md and "m60" in md
     with sessoes() as s:
         assert s.scalars(select(AvaliacaoIA)).all() == []
-        assert {a.status_casamento for a in s.scalars(select(AnuncioAmazon))} == {StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO}
+        assert {c.status for c in s.scalars(select(Casamento))} == {StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO}
         assert {c.finalidade for c in s.scalars(select(ChamadaIA))} == {"avaliacao"}
 
 
