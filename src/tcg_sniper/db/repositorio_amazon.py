@@ -514,6 +514,12 @@ def proximo_do_monitor(
     return (linha.id, linha.asin) if linha else None
 
 
+def ids_do_monitor(s: Session) -> set[int]:
+    """Todos os anúncios que o monitor acompanha (confirmados, de produto ativo), lidos ou não: a foto da
+    volta do monitor que começa agora (ver `varredura_monitor._Rodada`)."""
+    return set(s.scalars(_confirmados_ativos(select(AnuncioAmazon.id))))
+
+
 @dataclass(frozen=True)
 class SituacaoMonitor:
     confirmados: int
