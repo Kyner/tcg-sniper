@@ -104,6 +104,8 @@ def _zerar_aplicada(s: Session, anuncio_id: int, produto_id: int) -> None:
 
 
 def _reabrir_outro_confirmado(s: Session, anuncio_id: int) -> None:
+    """O anúncio deixou de ser confirmado: os pares `outro_confirmado` voltam a pendente, marcados para a
+    IA reavaliar (sem a marca, a etapa só de descoberta do casador não os veria)."""
     s.execute(
         update(Casamento)
         .where(
@@ -111,7 +113,7 @@ def _reabrir_outro_confirmado(s: Session, anuncio_id: int) -> None:
             Casamento.status == IGNORADO,
             Casamento.origem == OrigemCasamento.OUTRO_CONFIRMADO,
         )
-        .values(status=PENDENTE, origem=None, revisado_em=None)
+        .values(status=PENDENTE, origem=None, revisado_em=None, reavaliar=True)
         .execution_options(synchronize_session="fetch")
     )
 

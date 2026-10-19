@@ -176,6 +176,8 @@ def test_ignorar_o_confirmado_reabre_os_outro_confirmado(s):
     par = repo_casamento.ignorar(s, anuncio.id, p.id, T0, MANUAL)
     assert (par.status, par.origem, par.revisado_em, par.reavaliar) == (IGNORADO, MANUAL, T0, False)
     assert situacao(s, anuncio, q) == (PENDENTE, None)
+    # reaberto marcado para reavaliar: senão a etapa só de descoberta do casador não o vê
+    assert repo_casamento.obter_par(s, anuncio.id, q.id).reavaliar is True
     assert repo_casamento.ignorar(s, anuncio.id, criar_produto(s, "sem-par").id, T0) is None
 
 
