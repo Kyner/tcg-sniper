@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from tcg_sniper.api import avisos_acesso
 from tcg_sniper.api.dependencias import Contexto, exige
 from tcg_sniper.api.erros import ErroApi
 from tcg_sniper.api.permissoes import DEFINICOES, ROTULOS_PAPEL, Permissao, calcular_grade
@@ -83,7 +84,8 @@ def salvar(request: Request, entrada: MudancasEntrada, contexto: GerirAcessos) -
         raise ErroApi(422, "papel_travado", "O admin tem sempre todas as permissões.")
     estado = request.app.state
     with estado.sessoes() as s, s.begin():
-        feitas = aplicar_mudancas(s, calcular_grade(repo_acesso.grade_salva(s)), entrada.mudancas)
-        del feitas  # Task 5: aviso SEGURANCA_USUARIO de cada mudança feita, nesta mesma transação
+        agora = estado.relogio()
+        for m in aplicar_mudancas(s, calcular_grade(repo_acesso.grade_salva(s)), entrada.mudancas):
+            avisos_acesso.permissao_alterada(s, m.papel, m.permissao, m.permitido, contexto.nome, agora)
     estado.grade.invalidar()
     return montar_grade(estado.grade.grade())
