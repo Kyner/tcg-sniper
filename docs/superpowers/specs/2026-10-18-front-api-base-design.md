@@ -23,7 +23,7 @@ Fora do escopo agora: publicar na internet, pipelines de deploy por serviço, ou
 - Tudo no PC, em containers (Docker Compose), até validar.
 - Front: **React + Vite + TypeScript + DaisyUI** (mesma regra visual do admin: só componentes DaisyUI/utilitários Tailwind, temas winter e night). O front é mantido pelo Claude; código simples e documentado.
 - Monorepo: API como módulo do pacote atual; front na pasta `web/`.
-- Papéis: **grupo** (só vê), **operador** (vê e faz ações operacionais, ex.: revisar casamentos), **admin** (tudo, inclusive configurações e usuários). Grupo pequeno (< 20 pessoas).
+- Papéis fixos: **grupo**, **operador**, **admin**; **o que cada papel pode fazer é configurável** numa grade papel × permissão (Gestão → Acessos). O admin tem sempre todas as permissões (travado). Grupo pequeno (< 20 pessoas). Permissões finas desde já porque o projeto deve crescer para venda; papéis livres e permissão extra por pessoa ficam para depois (o modelo não pode impedir isso).
 - Login por **código no WhatsApp** (o número será aquecido aos poucos).
 
 ## Arquitetura
@@ -34,10 +34,25 @@ Fora do escopo agora: publicar na internet, pipelines de deploy por serviço, ou
 - CLI `tcg-sniper api`; serviço `api` no `docker-compose.yml`, porta `127.0.0.1:8100`.
 - Rotas da fase 1:
   - `POST /api/auth/pedir-codigo` `{numero}`; `POST /api/auth/entrar` `{numero, codigo}`; `POST /api/auth/sair`; `GET /api/auth/eu` (nome, papel).
-  - `GET/POST/PATCH /api/usuarios` (admin): listar, criar, editar papel/nome/ativo; `GET /api/usuarios/{id}/sessoes` e `POST /api/sessoes/{id}/encerrar` (admin).
+  - `GET/POST/PATCH /api/usuarios` (`gerir_usuarios`): listar, criar, editar papel/nome/ativo; `GET /api/usuarios/{id}/sessoes` e `POST /api/sessoes/{id}/encerrar` (`gerir_usuarios`).
+  - `GET/PUT /api/acessos` (`gerir_acessos`).
   - `GET /api/saude` (sem login): `{ok: true}` se o banco responde.
-  - `/api/docs` (OpenAPI) só para admin.
-- Cada rota declara o papel mínimo (dependência FastAPI); o back sempre confere. Ordem: grupo < operador < admin.
+  - `/api/docs` (OpenAPI) com `ver_documentacao_api`.
+- Cada rota declara a **permissão** que exige (dependência FastAPI `exige("<permissao>")`); o back sempre confere, lendo a grade do banco (cache curto, invalidado ao salvar).
+
+### Permissões
+
+- Lista fechada definida no código (`api/permissoes.py`, enum `Permissao` com rótulo e descrição para a tela); cada fase acrescenta as suas. Fase 1:
+  - `ver_area_negocio` — entrar na área de negócio;
+  - `ver_area_gestao` — entrar na área administrativa;
+  - `gerir_usuarios` — listar/criar/editar/desativar usuários e encerrar sessões;
+  - `gerir_acessos` — editar a grade papel × permissão;
+  - `ver_documentacao_api` — abrir `/api/docs`.
+  - Previstas para as próximas fases (entram com as telas): `ver_oportunidades`, `ver_resultados`, `revisar_casamentos`, `ver_catalogo`, `editar_catalogo`, `ver_servicos`, `pausar_servicos`, `ver_logs`, `ver_mensagens`, `reenviar_mensagens`, `ver_configuracoes`, `editar_configuracoes`.
+- Tabela `permissao_papel` (`papel`, `permissao`, `permitido`; PK `papel, permissao`). Linha ausente = padrão do código.
+- Padrões: **grupo** = `ver_area_negocio`; **operador** = `ver_area_negocio`, `ver_area_gestao`; **admin** = todas, sempre (não editável; a API ignora linhas do admin).
+- `GET /api/acessos` (grade com rótulos) e `PUT /api/acessos` (exige `gerir_acessos`). Toda mudança gera aviso `SEGURANCA_USUARIO` no grupo admin (quem mudou, papel, permissão, novo valor).
+- `GET /api/auth/eu` devolve também a lista de permissões efetivas; o front usa para montar menu e rotas.
 - Erros em JSON padronizado `{erro: "<código>", mensagem: "<texto em português>"}`; 401 sem sessão, 403 papel insuficiente, 404, 422 validação, 429 limite.
 
 ### Login pelo WhatsApp
@@ -60,7 +75,7 @@ Limites: até 3 códigos por número a cada 15 min; até 20 pedidos por hora no 
 
 Acesso de emergência: `tcg-sniper codigo-acesso <numero>` (só no PC/containers) gera e mostra no terminal um código válido para aquele usuário; `tcg-sniper criar-admin <nome> <numero>` cria o primeiro admin (falha se já houver admin, salvo `--forcar`).
 
-Avisos novos no catálogo (desligáveis na aba Avisos): `CODIGO_ACESSO` (individual, não agrupa), `SEGURANCA_USUARIO` (usuário criado, papel alterado, desativado; grupo admin), `SEGURANCA_LIMITE` (limite de pedidos atingido; agrupa por número).
+Avisos novos no catálogo (desligáveis na aba Avisos): `CODIGO_ACESSO` (individual, não agrupa), `SEGURANCA_USUARIO` (usuário criado, papel alterado, desativado, permissão alterada; grupo admin), `SEGURANCA_LIMITE` (limite de pedidos atingido; agrupa por número).
 
 Dados pessoais: números ficam só no banco; nunca em log (mascarados: `+55 11 9****-**34`), nunca no repositório, nunca no grupo. Código e token nunca em log, banco (só hash) ou mensagem de grupo.
 
@@ -70,9 +85,9 @@ Dados pessoais: números ficam só no banco; nunca em log (mascarados: `+55 11 9
 - Rotas:
   - `/entrar`: número → código → entrar.
   - `/`: área de negócio (fase 1: esqueleto com menu e link para o admin antigo).
-  - `/gestao/...`: área administrativa, só operador/admin; fase 1: `/gestao/usuarios` (admin) e links para o admin antigo nas telas ainda não migradas.
+  - `/gestao/...`: área administrativa (`ver_area_gestao`); fase 1: `/gestao/usuarios` (`gerir_usuarios`), `/gestao/acessos` (`gerir_acessos`: grade papel × permissão com toggles DaisyUI; coluna do admin travada) e links para o admin antigo nas telas ainda não migradas.
   - `/sem-acesso` (403) e tela "sistema indisponível" (API fora).
-- O front esconde o que o papel não pode usar, mas a autorização é sempre da API.
+- O front esconde o que as permissões da pessoa não permitem (lista vinda de `/api/auth/eu`), mas a autorização é sempre da API.
 - Container: build do Vite + Caddy servindo os estáticos e repassando `/api` para `api:8100`; porta `127.0.0.1:8090`. Desenvolvimento: `npm run dev` (Vite) com proxy para a API local.
 - Mesma origem para front e API (via Caddy): sem CORS na fase 1.
 
@@ -86,20 +101,21 @@ Coletores, casador, notificador (exceto aceitar destino individual), manutençã
 - WhatsApp fora/notificador pausado: a tela de login avisa que o código pode demorar; acesso de emergência pelo terminal.
 - Código vencido na fila: não é enviado.
 - Sessão vencida/encerrada: 401; front volta para `/entrar`.
-- Papel insuficiente: 403; front mostra `/sem-acesso`.
+- Sem a permissão: 403; front mostra `/sem-acesso`.
+- Mudança na grade vale na próxima requisição de quem já está logado (sem precisar sair e entrar).
 - API fora: front mostra "sistema indisponível".
 - Usuário desativado: todas as sessões dele são encerradas na hora.
 
 ## Testes
 
-- API (pytest, Postgres de teste na porta 5433): fluxo de login completo; limites; código vencido/errado/usado; sessão vencida/encerrada; cada papel em cada rota; mesma resposta para número inexistente; emergência; desativar encerra sessões; nada de número/código/token em log.
+- API (pytest, Postgres de teste na porta 5433): fluxo de login completo; limites; código vencido/errado/usado; sessão vencida/encerrada; cada permissão em cada rota (com a grade padrão e com a grade alterada); admin não perde permissão mesmo com linhas no banco; mesma resposta para número inexistente; emergência; desativar encerra sessões; nada de número/código/token em log.
 - Front (Vitest + Testing Library): login, proteção de rotas por papel, telas de sem acesso e indisponível.
-- Ponta a ponta (Playwright): sobe `api` + `web` contra o banco de teste; usuário pede código, o teste lê o código da fila, entra; papel grupo não acessa `/gestao`.
+- Ponta a ponta (Playwright): sobe `api` + `web` contra o banco de teste; usuário pede código, o teste lê o código da fila, entra; papel grupo não acessa `/gestao`; depois de liberar `ver_area_gestao` para grupo na grade, passa a acessar.
 - Layout: telas novas no `scripts/verificar_layout.py`.
 
 ## Critério de pronto da fase 1
 
 1. `docker compose up -d` sobe `api` e `web`; admin antigo continua em `:8000`.
 2. O usuário cria o próprio admin pelo comando, entra pelo código no WhatsApp e cadastra um usuário grupo e um operador.
-3. Cada papel vê só o que pode (conferido também direto na API).
+3. Cada papel vê só o que suas permissões permitem (conferido também direto na API), e mudar a grade em Gestão → Acessos muda isso na hora.
 4. Área de negócio: esqueleto com menu e link para o admin antigo.
