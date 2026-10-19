@@ -17,6 +17,8 @@ Fases (cada uma com spec, plano e deploy próprios):
 
 Fora do escopo agora: publicar na internet, pipelines de deploy por serviço, outros fronts.
 
+Direção futura (não faz parte desta fase): **vender acesso às oportunidades** — assinantes entram na área de negócio deste mesmo sistema (não é multi-cliente). Por isso: permissões finas por rota, nada que limite o número de usuários, e área de negócio sem nenhum dado de gestão. Assinatura/pagamento e planos ficam para um projeto próprio.
+
 ## Decisões do usuário
 
 - Separação em back (API) e front (área de negócio + área administrativa); motivo: organização e evolução, com publicação na internet depois de muitos testes locais.
