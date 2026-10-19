@@ -279,6 +279,30 @@ def test_automatico_nao_troca_confirmado_por_voce(s):
     assert situacao(s, anuncio, q) is None
 
 
+SUGERIDO = OrigemCasamento.SUGERIDO_IA
+
+
+def test_automatico_nao_muda_par_que_voce_decidiu_pela_sugestao_da_ia(s):
+    """`sugerido_ia` também é decisão sua (no admin, com o selo da IA): o automático não passa por cima."""
+    p, q = criar_produto(s, "p"), criar_produto(s, "q")
+    ignorado = criar_anuncio(s, "B0SUGE0001", produto=p, status=IGNORADO, origem=SUGERIDO)
+    par = repo_casamento.confirmar(s, ignorado.id, p.id, T0 + timedelta(hours=1), AUTO)
+    assert (par.status, par.origem) == (IGNORADO, SUGERIDO)
+    assert repo_casamento.confirmado_do_anuncio(s, ignorado.id) is None
+
+    confirmado = criar_anuncio(s, "B0SUGE0002", produto=p, status=CONFIRMADO, origem=SUGERIDO)
+    par = repo_casamento.ignorar(s, confirmado.id, p.id, T0 + timedelta(hours=1), AUTO)
+    assert (par.status, par.origem) == (CONFIRMADO, SUGERIDO)
+    par = repo_casamento.trocar(s, confirmado.id, q.id, T0 + timedelta(hours=1), AUTO)
+    assert (par.produto_id, par.status, par.origem) == (p.id, CONFIRMADO, SUGERIDO)
+    assert situacao(s, confirmado, q) is None
+
+    criar_par(s, ignorado, q, status=IGNORADO, origem=SUGERIDO, revisado_em=T0)
+    par = repo_casamento.trocar(s, ignorado.id, q.id, T0 + timedelta(hours=1), AUTO)
+    assert (par.status, par.origem) == (IGNORADO, SUGERIDO)
+    assert repo_casamento.decidido_por_voce(repo_casamento.obter_par(s, ignorado.id, q.id))
+
+
 def test_voce_decide_por_cima_do_automatico(s):
     p = criar_produto(s, "p")
     anuncio = criar_anuncio(s, "B0MANU0004", produto=p, status=IGNORADO, origem=AUTO)

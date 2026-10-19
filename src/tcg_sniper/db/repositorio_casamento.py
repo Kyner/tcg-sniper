@@ -6,8 +6,9 @@ Regras (spec 2026-10-19-casamento-por-par-design.md):
 - confirmar um par ignora os outros pendentes do anúncio (origem `outro_confirmado`);
 - tirar a confirmação (desfazer ou ignorar o confirmado) reabre esses `outro_confirmado`;
 - desfazer e "Reavaliar com a IA" marcam o par para a IA reavaliar mesmo com os dados iguais;
-- o automático da IA (origem `automatico_ia`) nunca passa por cima de uma decisão sua (`manual`): confirmar,
-  ignorar e trocar devolvem o par como está, sem mudar nada (`decidido_por_voce` diz se foi o caso).
+- o automático da IA (origem `automatico_ia`) nunca passa por cima de uma decisão sua (`manual` ou
+  `sugerido_ia`): confirmar, ignorar e trocar devolvem o par como está, sem mudar nada (`decidido_por_voce`
+  diz se foi o caso).
 
 - nunca fica par pendente num anúncio confirmado para outro produto: desfazer e reavaliar o deixam
   ignorado com origem `outro_confirmado`.
@@ -33,9 +34,14 @@ PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFI
 ORIGENS_REAVALIAVEIS = (OrigemCasamento.AUTOMATICO_IA, OrigemCasamento.OUTRO_CONFIRMADO)
 
 
+# Origens de uma decisão sua no admin: `manual` e `sugerido_ia` (você decidiu vendo o selo da IA).
+ORIGENS_SUAS = (OrigemCasamento.MANUAL, OrigemCasamento.SUGERIDO_IA)
+
+
 def decidido_por_voce(par: Casamento | None) -> bool:
-    """O par tem uma decisão sua (confirmado ou ignorado com origem `manual`): o automático não muda."""
-    return par is not None and par.status is not PENDENTE and par.origem is OrigemCasamento.MANUAL
+    """O par tem uma decisão sua (confirmado ou ignorado com origem `manual` ou `sugerido_ia`): o automático
+    não muda."""
+    return par is not None and par.status is not PENDENTE and par.origem in ORIGENS_SUAS
 
 
 def _automatico_barrado(par: Casamento | None, origem: OrigemCasamento) -> bool:
@@ -150,7 +156,7 @@ def confirmar(
     """Confirma o par (criando-o se não existe), ignora os outros pendentes do anúncio (`outro_confirmado`) e
     fecha as oportunidades abertas do anúncio para outros produtos. Lança JaConfirmado (nada muda) se o
     anúncio já é confirmado de outro produto; o mesmo par já confirmado volta como está. Origem
-    `automatico_ia` num par que você decidiu (`manual`): devolve o par como está."""
+    `automatico_ia` num par que você decidiu (`decidido_por_voce`): devolve o par como está."""
     travar_anuncio(s, anuncio_id)
     atual = confirmado_do_anuncio(s, anuncio_id)
     if atual is not None:
@@ -185,8 +191,8 @@ def ignorar(
     s: Session, anuncio_id: int, produto_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
 ) -> Casamento | None:
     """Ignora o par (só ele). Se era o confirmado: fecha as oportunidades do anúncio e reabre os
-    `outro_confirmado`. Sem o par: None. Origem `automatico_ia` num par que você decidiu (`manual`): devolve
-    o par como está."""
+    `outro_confirmado`. Sem o par: None. Origem `automatico_ia` num par que você decidiu
+    (`decidido_por_voce`): devolve o par como está."""
     if obter_par(s, anuncio_id, produto_id) is None:
         return None
     travar_anuncio(s, anuncio_id)
