@@ -75,7 +75,9 @@ def test_migracao_copia_um_par_por_anuncio_e_prepara_a_fila(banco):
             ),
             {"p1": p1, "p2": p2, "t": T},
         )
+    antes = datetime.now(UTC)
     command.upgrade(cfg, "head")
+    depois = datetime.now(UTC)
     with proprio.connect() as c:
         pares = {
             tuple(linha)
@@ -99,7 +101,12 @@ def test_migracao_copia_um_par_por_anuncio_e_prepara_a_fila(banco):
         (pend, p2, "pendente", None, None, T - 2 * DIA, T, False),
     }
     # p1: última busca em português, há busca anterior -> o próximo é o inglês (1); p2 nunca buscado -> 0
-    assert fila == {p1: (1, T - 5 * DIA, None), p2: (0, T - 2 * DIA, None)}
+    assert {p: (indice, tentados) for p, (indice, _, tentados) in fila.items()} == {p1: (1, None), p2: (0, None)}
+    # A seca começa a contar na implantação: par antigo não prova seca (antes, a busca não criava par
+    # para anúncio já conhecido), senão o catálogo inteiro pediria termos à IA no dia do deploy.
+    folga = timedelta(seconds=5)
+    for _, ultimo_par_novo_em, _ in fila.values():
+        assert antes - folga <= ultimo_par_novo_em <= depois + folga
 
 
 def test_downgrade_refaz_as_colunas_pelo_confirmado_ou_pelo_par_mais_antigo(banco):

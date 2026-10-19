@@ -116,10 +116,11 @@ def upgrade() -> None:
         "UPDATE fila_amazon SET indice_termo = "
         "CASE WHEN ultima_busca_em IS NOT NULL AND NOT ultimo_termo_en THEN 1 ELSE 0 END"
     )
-    op.execute(
-        "UPDATE fila_amazon f SET ultimo_par_novo_em = "
-        "(SELECT max(c.visto_primeiro_em) FROM casamento c WHERE c.produto_id = f.produto_id)"
-    )
+    # A seca da busca alternativa começa a contar na implantação. Par antigo não prova seca: antes,
+    # a busca nunca criava par para anúncio já conhecido. Contar dos pares antigos poria o catálogo
+    # inteiro na seca no dia do deploy e gastaria chamadas de IA pedindo termos de uma vez.
+    # (`greatest(max(visto_primeiro_em), now())` daria sempre `now()`: os pares antigos são do passado.)
+    op.execute("UPDATE fila_amazon SET ultimo_par_novo_em = now()")
 
     # A fonte do casamento é a tabela `casamento`: saem as colunas antigas (CHECKs e FK saem junto).
     for coluna in ("origem_casamento", "revisado_em", "status_casamento", "produto_id"):
