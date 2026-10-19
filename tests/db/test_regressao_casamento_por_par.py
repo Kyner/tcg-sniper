@@ -137,8 +137,9 @@ def test_numeros_iguais_aos_de_antes_nos_dados_migrados(migrado, config):
     fabrica, ids, _ = migrado
     with fabrica() as s:
         cfg = repo_amz.obter_config(s)
-        n = painel.numeros(s, AGORA, config)
-        assert (n.confirmados, n.pendentes, n.ignorados, n.produtos_com_par) == (3, 2, 2, 2)
+        # o Dashboard agora conta por produto ativo: reg-1 e reg-2 casados, reg-3 só ignorados, reg-4 sem candidato
+        c = painel.numeros(s, AGORA, config).catalogo
+        assert (c.casado, c.esperando_decisao, c.so_ignorados, c.sem_candidato) == (2, 0, 1, 1)
         menu = consultas_menu.contadores_menu(s, AGORA)
         assert (menu.casamentos, menu.ofertas) == (2, 1)
         linhas = {

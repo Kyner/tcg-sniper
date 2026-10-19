@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.admin.consultas import casa_nome
+from tcg_sniper.admin.consultas_catalogo import classificar
 from tcg_sniper.coletor_amazon.termo import termo_busca
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
@@ -99,6 +100,16 @@ class LinhaProdutoCasamento:
     def sem_par(self) -> bool:
         return self.pendentes == 0 and self.confirmados == 0
 
+    @property
+    def sugestoes(self) -> int:
+        """Pares deste produto, em qualquer situação (anúncios sugeridos para ele)."""
+        return self.pendentes + self.confirmados + self.ignorados + self.em_outro
+
+    @property
+    def situacao_produto(self) -> str:
+        """Situação do produto no catálogo (`consultas_catalogo.SITUACOES_PRODUTO`)."""
+        return classificar(self.confirmados, self.pendentes, self.sugestoes)
+
 
 _FILTROS_SITUACAO = {
     "pendentes": lambda linha: linha.pendentes > 0,
@@ -110,10 +121,18 @@ _FILTROS_SITUACAO = {
 
 
 def produtos_para_casar(
-    s: Session, *, busca: str, categoria: str | None, situacao: str, com_preco: bool, desconto_min_pct: int
+    s: Session,
+    *,
+    busca: str,
+    categoria: str | None,
+    situacao: str,
+    com_preco: bool,
+    desconto_min_pct: int,
+    situacao_produto: str | None = None,
 ) -> list[LinhaProdutoCasamento]:
     """Produtos ativos da Liga com as contagens de pares (anúncio da Amazon × produto), filtrados e ordenados:
-    com pendente que seria oportunidade, depois com pendentes, depois os demais; por nome."""
+    com pendente que seria oportunidade, depois com pendentes, depois os demais; por nome. `situacao_produto`
+    filtra também pela situação do produto no catálogo (casado, esperando decisão, só ignorados, sem candidato)."""
     condicoes = [ProdutoLiga.ativo.is_(True)]
     if busca.strip():
         condicoes.append(casa_nome(busca))
@@ -176,6 +195,8 @@ def produtos_para_casar(
         for produto, preco in produtos
     ]
     linhas = [linha for linha in linhas if _FILTROS_SITUACAO[situacao](linha)]
+    if situacao_produto:
+        linhas = [linha for linha in linhas if linha.situacao_produto == situacao_produto]
     linhas.sort(key=lambda linha: (not linha.oportunidade, linha.pendentes == 0, linha.produto.nome, linha.produto.id))
     return linhas
 

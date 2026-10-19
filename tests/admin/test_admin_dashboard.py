@@ -88,7 +88,7 @@ def test_dashboard_tem_servicos_numeros_e_atividade(cliente):
     texto = cliente.get("/").text
     for nome in ("LigaMagic", "Amazon", "Casador (IA)", "WhatsApp", "Backup"):
         assert f'data-servico="{nome}"' in texto
-    for rotulo in ("Casamentos", "Confirmados", "Produtos ativos com par na Amazon", "Avaliados", "Esperando você",
+    for rotulo in ("Casamentos", "Casados", "Sem candidato", "Produtos avaliados", "Esperando a IA",
                    "Gasto do mês", "Oportunidades", "Alertas na semana", "Atividade de hoje", "Mensagens do WhatsApp"):
         assert rotulo in texto
     assert 'class="stats' in texto and 'class="progress' in texto and 'class="list"' in texto

@@ -56,6 +56,15 @@ class SituacaoCatalogo:
         return round(100 * getattr(self, situacao) / self.produtos_ativos) if self.produtos_ativos else 0
 
 
+def produtos_avaliados_desde(s: Session, inicio: datetime) -> int:
+    """Produtos ativos distintos com avaliação da IA feita a partir de `inicio`."""
+    return s.scalar(
+        select(func.count(func.distinct(AvaliacaoIA.produto_id)))
+        .join(ProdutoLiga, ProdutoLiga.id == AvaliacaoIA.produto_id)
+        .where(ProdutoLiga.ativo.is_(True), AvaliacaoIA.avaliado_em >= inicio)
+    ) or 0
+
+
 def situacao_catalogo(s: Session, agora: datetime, zona: ZoneInfo) -> SituacaoCatalogo:
     ativo = ProdutoLiga.ativo.is_(True)
     pares = (
@@ -93,11 +102,7 @@ def situacao_catalogo(s: Session, agora: datetime, zona: ZoneInfo) -> SituacaoCa
     produtos_avaliados, avaliacoes_total = s.execute(
         avaliacoes_ativas.with_only_columns(func.count(func.distinct(AvaliacaoIA.produto_id)), func.count())
     ).one()
-    avaliados_hoje = s.scalar(
-        avaliacoes_ativas.with_only_columns(func.count(func.distinct(AvaliacaoIA.produto_id))).where(
-            AvaliacaoIA.avaliado_em >= inicio_do_dia(agora, zona)
-        )
-    ) or 0
+    avaliados_hoje = produtos_avaliados_desde(s, inicio_do_dia(agora, zona))
 
     # O que o casador ainda vai avaliar: pendente sem avaliação (ou marcado para reavaliar) de produto sem
     # confirmado, cujo anúncio não é confirmado de outro produto (esses o casador pula).
