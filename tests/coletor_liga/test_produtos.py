@@ -135,7 +135,7 @@ def test_mais_da_metade_falhando_avisa_layout(sessoes, config):
     resultado, _, avisador = coletar(sessoes, config, paginas)
     assert resultado.status is StatusColeta.FALHA
     [falhou] = avisador.dados(TipoAviso.LIGA_COLETA_FALHOU)
-    assert falhou.linhas == ("Etapa: Coleta dos produtos ativos", "Falhas: 2 de 3 produtos")
+    assert falhou.linhas == ("Etapa: Coleta dos produtos da lista do dia", "Falhas: 2 de 3 produtos")
 
 
 def test_erro_de_rede_tenta_de_novo_uma_vez(sessoes, config):

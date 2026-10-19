@@ -36,7 +36,7 @@ from tcg_sniper.db.models import StatusColeta, TipoColeta
 
 log = logging.getLogger(__name__)
 
-DESCRICAO = "Coleta dos produtos ativos"
+DESCRICAO = "Coleta dos produtos da lista do dia"
 
 
 def coletar_produtos(

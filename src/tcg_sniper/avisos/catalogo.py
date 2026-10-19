@@ -153,7 +153,7 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
     TipoAviso.LIGA_COLETA_FALHOU: _problema(
         F, "Liga · coleta falhou", LIGA, "Uma etapa da coleta falhou em mais páginas que o limite.",
         "O layout da LigaMagic pode ter mudado: veja Admin → Logs → LigaMagic e os HTMLs na pasta falhas.",
-        Dados(linhas=("Etapa: Coleta dos produtos ativos", "Falhas: 300 de 412 produtos")),
+        Dados(linhas=("Etapa: Coleta dos produtos da lista do dia", "Falhas: 300 de 412 produtos")),
     ),
     TipoAviso.LIGA_DESAFIO: _problema(
         F, "Liga · desafio do Cloudflare", LIGA,
@@ -181,7 +181,7 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
     TipoAviso.LIGA_ERRO: _problema(
         F, "Liga · erro inesperado", LIGA, "Erro inesperado no job ou no meio de uma etapa da coleta.",
         "Veja os logs do coletor (docker compose logs coletor-liga); a próxima coleta tenta de novo.",
-        Dados(linhas=("Onde: Coleta dos produtos ativos 41", "Erro: TimeoutError('página não carregou')")),
+        Dados(linhas=("Onde: Coleta dos produtos da lista do dia 41", "Erro: TimeoutError('página não carregou')")),
     ),
     TipoAviso.AMAZON_BUSCA_CONCLUIDA: _evento(
         C, "Amazon · busca concluída", BUSCA, "Fim de um ciclo da busca de anúncios novos sem falha.", None,

@@ -43,7 +43,7 @@ ESPERADOS = {
     ),
     TipoAviso.LIGA_COLETA_FALHOU: (
         "🔴 *Liga · coleta falhou*\n"
-        "• Etapa: Coleta dos produtos ativos\n"
+        "• Etapa: Coleta dos produtos da lista do dia\n"
         "• Falhas: 300 de 412 produtos\n"
         "\n"
         "*O que fazer:* O layout da LigaMagic pode ter mudado: veja Admin → Logs → LigaMagic e os HTMLs na pasta falhas.\n"
@@ -74,7 +74,7 @@ ESPERADOS = {
     ),
     TipoAviso.LIGA_ERRO: (
         "🔴 *Liga · erro inesperado*\n"
-        "• Onde: Coleta dos produtos ativos 41\n"
+        "• Onde: Coleta dos produtos da lista do dia 41\n"
         "• Erro: TimeoutError('página não carregou')\n"
         "\n"
         "*O que fazer:* Veja os logs do coletor (docker compose logs coletor-liga); a próxima coleta tenta de novo.\n"

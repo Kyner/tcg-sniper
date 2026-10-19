@@ -135,3 +135,13 @@ def test_teto_de_novos_vale_para_o_dia_inteiro_e_renova_amanha(s):
     amanha = montar_lista(s, QUARTA + timedelta(days=1), SP, 4, fixo)
     assert amanha.novos == 3  # n3..n5: o teto de amanhã está cheio de novo
     assert len(set(ids(segunda)) | set(ids(primeira)[:3])) <= 4
+
+
+def test_casado_ou_candidato_lido_hoje_nao_reduz_o_teto_de_novos(s):
+    casado = produto(s, "casado", lido_em=QUARTA)
+    par(s, casado, StatusCasamento.CONFIRMADO)
+    candidato = produto(s, "candidato", lido_em=QUARTA)
+    par(s, candidato, StatusCasamento.PENDENTE)
+    novos = [produto(s, f"n{i}") for i in range(3)]
+    lista = montar_lista(s, QUARTA + timedelta(hours=1), SP, 2, fixo)
+    assert ids(lista) == [n.id for n in novos[:2]]
