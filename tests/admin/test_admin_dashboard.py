@@ -143,8 +143,8 @@ def test_servicos_mostra_os_botoes_por_estado(cliente, sessoes):
     [
         ("/rodar-agora", "rodar", "Execução da LigaMagic solicitada"),
         ("/retomar", "retomar", "Coleta da LigaMagic retomada"),
-        ("/amazon/pausar", "amazon_pausar", "Busca na Amazon pausada"),
-        ("/amazon/retomar", "amazon_retomar", "Busca na Amazon retomada"),
+        ("/amazon/pausar", "amazon_pausar", "Monitor e checkout da Amazon pausados"),
+        ("/amazon/retomar", "amazon_retomar", "Monitor e checkout da Amazon retomados"),
     ],
 )
 def test_acoes_voltam_para_servicos_com_mensagem(cliente, rota, codigo, mensagem):

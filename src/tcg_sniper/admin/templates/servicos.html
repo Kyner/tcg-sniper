@@ -60,27 +60,52 @@
   </div></div>
   {% endif %}
 
-  {# Amazon #}
+  {# Amazon (busca): navegador próprio, sem login #}
+  {% set busca = estado_amazon_busca.estado.value %}
+  {% if busca == "pausado_desafio" %}
+  <div data-servico="amazon_busca" class="card border border-error bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <h2 class="card-title text-base">Amazon (busca) {{ selo("pausado_desafio", "desafio pendente") }}</h2>
+    <p class="text-sm">Pausada: CAPTCHA pendente. {{ estado_amazon_busca.motivo or "" }}</p>
+    <p class="text-sm">Resolva em <a class="link" href="http://{{ host }}:6082/vnc.html">http://{{ host }}:6082/vnc.html</a> e clique em Retomar. O monitor e o checkout seguem.</p>
+    <div class="card-actions"><form method="post" action="/amazon/busca/retomar"><button class="btn btn-sm btn-primary">Retomar</button></form><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
+  </div></div>
+  {% else %}
+  <div data-servico="amazon_busca" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="card-title text-base">Amazon (busca) {{ selo_ligado(busca == "ativo") }}{% if ciclo_amazon %} {{ selo("rodando", "ciclo em andamento") }}{% endif %}</h2>
+      {{ chave("/amazon/busca/pausar" if busca == "ativo" else "/amazon/busca/retomar", busca == "ativo", "busca na Amazon") }}
+    </div>
+    {% if busca == "ativo" %}
+    <p class="text-sm">Fila contínua de buscas, das {{ janela[0] }} às {{ janela[1] }}, até {{ cfg_amazon.max_buscas_hora }} por hora.{% if ciclo_amazon %} Ciclo em andamento desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
+    {% else %}
+    <p class="text-sm">Desligada: {{ estado_amazon_busca.motivo or "sem motivo" }}. Volta quando você ligar de novo; o monitor e o checkout seguem.</p>
+    {% endif %}
+    <p class="text-sm text-base-content/70">Navegador próprio, sem login: <a class="link" href="http://{{ host }}:6082/vnc.html">http://{{ host }}:6082/vnc.html</a>.</p>
+    <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
+  </div></div>
+  {% endif %}
+
+  {# Amazon (monitor e checkout): navegador logado #}
   {% set amazon = estado_amazon.estado.value %}
   {% if amazon == "pausado_desafio" %}
   <div data-servico="amazon" class="card border border-error bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
-    <h2 class="card-title text-base">Amazon {{ selo("pausado_desafio", "desafio pendente") }}</h2>
-    <p class="text-sm">Pausada: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}</p>
-    <p class="text-sm">Resolva em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar.</p>
+    <h2 class="card-title text-base">Amazon (monitor e checkout) {{ selo("pausado_desafio", "desafio pendente") }}</h2>
+    <p class="text-sm">Pausado: CAPTCHA pendente. {{ estado_amazon.motivo or "" }}</p>
+    <p class="text-sm">Resolva em <a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a> e clique em Retomar. A busca segue.</p>
     {{ alerta_sem_login() }}
     {{ alerta_carrinho() }}
-    <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-sm btn-primary">Retomar</button></form><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
+    <div class="card-actions"><form method="post" action="/amazon/retomar"><button class="btn btn-sm btn-primary">Retomar</button></form><a class="btn btn-sm btn-ghost" href="/logs?aba=monitor">Ver histórico</a></div>
   </div></div>
   {% else %}
   <div data-servico="amazon" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 class="card-title text-base">Amazon {{ selo_ligado(amazon == "ativo") }}{% if ciclo_amazon %} {{ selo("rodando", "ciclo em andamento") }}{% endif %}</h2>
-      {{ chave("/amazon/pausar" if amazon == "ativo" else "/amazon/retomar", amazon == "ativo", "Amazon") }}
+      <h2 class="card-title text-base">Amazon (monitor e checkout) {{ selo_ligado(amazon == "ativo") }}</h2>
+      {{ chave("/amazon/pausar" if amazon == "ativo" else "/amazon/retomar", amazon == "ativo", "monitor e checkout da Amazon") }}
     </div>
     {% if amazon == "ativo" %}
-    <p class="text-sm">Fila contínua de buscas, das {{ janela[0] }} às {{ janela[1] }}.{% if ciclo_amazon %} Ciclo em andamento desde {{ ciclo_amazon.iniciada_em|data }}.{% endif %}</p>
+    <p class="text-sm">Retirada do carrinho, conferência de checkout e monitor de preço no navegador logado (<a class="link" href="http://{{ host }}:6081/vnc.html">http://{{ host }}:6081/vnc.html</a>), até {{ cfg_amazon.monitor_max_paginas_hora }} páginas por hora.</p>
     {% else %}
-    <p class="text-sm">Desligada: {{ estado_amazon.motivo or "sem motivo" }}. Volta quando você ligar de novo.</p>
+    <p class="text-sm">Desligado: {{ estado_amazon.motivo or "sem motivo" }}. Volta quando você ligar de novo; a busca segue.</p>
     {% endif %}
     <div class="divider my-0"></div>
     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -94,7 +119,7 @@
     </div>
     {{ alerta_sem_login() }}
     {{ alerta_carrinho() }}
-    <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/logs?aba=amazon">Ver histórico</a></div>
+    <div class="card-actions"><a class="btn btn-sm btn-ghost" href="/logs?aba=monitor">Ver histórico</a></div>
   </div></div>
   {% endif %}
 

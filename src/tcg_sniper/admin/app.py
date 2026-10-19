@@ -43,6 +43,7 @@ from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db import repositorio_termos as repo_termos
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
     COLETOR_CASADOR,
     COLETOR_LIGA,
     COLETOR_MANUTENCAO,
@@ -64,7 +65,8 @@ MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
 
 NOMES_SERVICOS = {
     COLETOR_LIGA: "LigaMagic",
-    COLETOR_AMAZON: "Amazon",
+    COLETOR_AMAZON_BUSCA: "Amazon (busca)",
+    COLETOR_AMAZON: "Amazon (monitor e checkout)",
     COLETOR_CASADOR: "Casador (IA)",
     COLETOR_NOTIFICADOR: "WhatsApp (notificador)",
     COLETOR_MANUTENCAO: "Backup (manutenção)",
@@ -89,14 +91,16 @@ MENSAGENS_SERVICOS = {
     ),
     "desafio_pendente": "Há um desafio pendente: resolva pelo noVNC e clique em Retomar (nada foi desligado).",
     "notificador_retomar": "Envio do WhatsApp ligado.",
-    "amazon_pausar": "Busca na Amazon pausada.",
+    "amazon_pausar": "Monitor e checkout da Amazon pausados. A busca segue.",
+    "amazon_busca_pausar": "Busca na Amazon pausada. O monitor e o checkout seguem.",
     "monitor_ligar": "Monitor de preço ligado.",
     "monitor_desligar": "Monitor de preço desligado. A busca de anúncios novos continua.",
     "checkout_ligar": "Conferência de checkout ligada.",
     "checkout_desligar": "Conferência de checkout desligada. Os alertas usam o preço anunciado.",
     "checkout_retomar": "Conferência de checkout retomada.",
     "carrinho_conferido": "Carrinho conferido: o aviso saiu.",
-    "amazon_retomar": "Busca na Amazon retomada.",
+    "amazon_retomar": "Monitor e checkout da Amazon retomados.",
+    "amazon_busca_retomar": "Busca na Amazon retomada.",
     "casador_pausar": "Casador pausado.",
     "casador_retomar": "Casador retomado; roda em até 1 minuto.",
     "casador_rodar": "Rodada do casador solicitada; começa em até 1 minuto.",
@@ -381,6 +385,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "coleta_hora": efetiva.coleta_hora.strftime("%H:%M"),
                     "coleta_jitter": efetiva.coleta_jitter_min,
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
+                    "estado_amazon_busca": repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA),
                     "ciclo_amazon": consultas_amazon.ciclo_atual(s),
                     "janela": (f"{cfg_amazon.janela_inicio:%H:%M}", f"{cfg_amazon.janela_fim:%H:%M}"),
                     "cfg_amazon": cfg_amazon,
@@ -483,6 +488,18 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             repo.retomar(s, agora, COLETOR_AMAZON)
             _avisar_mudanca(s, COLETOR_AMAZON, "ativo", agora)
         return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/amazon/busca/pausar")
+    def pausar_busca_amazon():
+        return _desligar(COLETOR_AMAZON_BUSCA, "amazon_busca_pausar")
+
+    @app.post("/amazon/busca/retomar")
+    def retomar_busca_amazon():
+        agora = repo.agora_utc()
+        with sessoes() as s, s.begin():
+            repo.retomar(s, agora, COLETOR_AMAZON_BUSCA)
+            _avisar_mudanca(s, COLETOR_AMAZON_BUSCA, "ativo", agora)
+        return RedirectResponse("/servicos?msg=amazon_busca_retomar", status_code=status.HTTP_303_SEE_OTHER)
 
     def _ajustar_amazon(valores: dict[str, object], msg: str) -> RedirectResponse:
         with sessoes() as s, s.begin():
