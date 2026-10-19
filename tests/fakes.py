@@ -7,7 +7,15 @@ from tcg_sniper.avisos import formato
 from tcg_sniper.avisos.catalogo import CATALOGO, Dados, TipoAviso
 from tcg_sniper.coletor_amazon.modelos import OfertaLista
 from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
-from tcg_sniper.db.models import AnuncioAmazon, Envio, PrecoAtualLiga, ProdutoLiga, StatusCasamento
+from tcg_sniper.db.models import (
+    AnuncioAmazon,
+    Casamento,
+    Envio,
+    OrigemCasamento,
+    PrecoAtualLiga,
+    ProdutoLiga,
+    StatusCasamento,
+)
 from tcg_sniper.notificador.base import Destino
 
 T0 = datetime(2026, 10, 13, 13, 0, tzinfo=UTC)
@@ -105,19 +113,42 @@ class NavegadorFake:
         return resposta
 
 
-def criar_anuncio(s, asin="B000000001", produto=None, status=StatusCasamento.PENDENTE, agora=T0) -> AnuncioAmazon:
+def criar_anuncio(
+    s, asin="B000000001", produto=None, status=StatusCasamento.PENDENTE, agora=T0, origem=None
+) -> AnuncioAmazon:
+    """Anúncio e, com `produto`, o par (anúncio, produto) com `status` e `origem`.
+
+    Transição (sai na Task 7): também grava as colunas antigas do anúncio, para as áreas ainda não
+    portadas. `outro_confirmado` não existe na coluna antiga (vira `manual` lá)."""
+    origem_antiga = OrigemCasamento.MANUAL if origem is OrigemCasamento.OUTRO_CONFIRMADO else origem
     anuncio = AnuncioAmazon(
         asin=asin,
         titulo=f"Anúncio {asin}",
         url=f"https://www.amazon.com.br/dp/{asin}",
         produto_id=produto.id if produto is not None else None,
         status_casamento=status,
+        origem_casamento=origem_antiga,
         visto_primeiro_em=agora,
         visto_ultimo_em=agora,
     )
     s.add(anuncio)
     s.flush()
+    if produto is not None:
+        criar_par(s, anuncio, produto, status=status, origem=origem, agora=agora)
     return anuncio
+
+
+def criar_par(
+    s, anuncio, produto, status=StatusCasamento.PENDENTE, origem=None, agora=T0, revisado_em=None
+) -> Casamento:
+    """Par (anúncio, produto) direto no banco, sem as regras do repositório (para montar cenários)."""
+    par = Casamento(
+        anuncio_id=anuncio.id, produto_id=produto.id, status=status, origem=origem, revisado_em=revisado_em,
+        visto_primeiro_em=agora, visto_ultimo_em=agora,
+    )
+    s.add(par)
+    s.flush()
+    return par
 
 
 def criar_preco_liga(s, produto, preco, listagem_em=T0, num_lojas=None, preco_medio=None) -> PrecoAtualLiga:

@@ -237,6 +237,7 @@ def test_migracao_preenche_a_origem_do_casamento(engine):
     finally:
         command.upgrade(cfg, "head")
         with proprio.begin() as c:
+            c.execute(text("DELETE FROM casamento WHERE anuncio_id IN (SELECT id FROM anuncio_amazon WHERE asin LIKE 'BMIG%')"))
             c.execute(text("DELETE FROM avaliacao_ia WHERE anuncio_id IN (SELECT id FROM anuncio_amazon WHERE asin LIKE 'BMIG%')"))
             c.execute(text("DELETE FROM anuncio_amazon WHERE asin LIKE 'BMIG%'"))
             c.execute(text("DELETE FROM produto_liga WHERE liga_id = 'mig-origem'"))

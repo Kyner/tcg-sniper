@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, OfertaLista, ResultadoBusca
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     DATA,
     AnuncioAmazon,
@@ -417,27 +418,13 @@ def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> None:
 
 
 def casar_link_manual(s: Session, produto_id: int, asin: str, agora: datetime) -> AnuncioAmazon:
-    """Casa o ASIN informado à mão com o produto: confirma o anúncio existente (trocando de produto
-    se preciso) ou cria um já confirmado; e põe o produto na frente da fila."""
-    anuncio = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == asin))
-    if anuncio is None:
-        anuncio = AnuncioAmazon(
-            asin=asin,
-            titulo=TITULO_MANUAL,
-            url=f"https://www.amazon.com.br/dp/{asin}",
-            produto_id=produto_id,
-            status_casamento=StatusCasamento.CONFIRMADO,
-            revisado_em=agora,
-            origem_casamento=OrigemCasamento.MANUAL,
-            visto_primeiro_em=agora,
-            visto_ultimo_em=agora,
-        )
-        s.add(anuncio)
-        s.flush()
-    else:
-        confirmar_casamento(s, anuncio.id, produto_id, agora, OrigemCasamento.MANUAL)
-        anuncio.visto_ultimo_em = agora
-        s.flush()
+    """Casa o ASIN informado à mão com o produto (par confirmado `manual`, trocando o confirmado anterior
+    do anúncio se houver) e põe o produto na frente da fila."""
+    anuncio = repo_casamento.casar_asin(s, produto_id, asin, agora, TITULO_MANUAL)
+    # Transição (sai na Task 7): colunas antigas iguais ao par confirmado, para as telas ainda não portadas.
+    anuncio.produto_id, anuncio.status_casamento = produto_id, StatusCasamento.CONFIRMADO
+    anuncio.revisado_em, anuncio.origem_casamento = agora, OrigemCasamento.MANUAL
+    s.flush()
     priorizar_na_fila(s, produto_id, agora)
     return anuncio
 
