@@ -33,6 +33,8 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Notificador, casos raros aceitos: (a) uma mensagem cujo registro sempre falha pode travar a fila; (b) se o banco cair entre gravar a oportunidade e gravar a mensagem, o alerta fica só no log.
 - [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio. Vale também para a espera dos termos de busca cuja chamada falhou.
 - [ ] Casamento por par: um anúncio confirmado para um produto que foi **desativado** continua confirmado nele (como antes): sai do monitor, mas não aparece como pendente para outros produtos e não pode ser confirmado em outro até você reativar o produto ou desfazer o par. Decidir se desativar um produto deve soltar os confirmados dele.
+- [ ] Casamento por par: `marcar_reavaliado` pode tirar a marca de reavaliar com uma resposta da IA que já estava a caminho, mais antiga que o pedido de reavaliar (inofensivo: a avaliação gravada vale para os mesmos dados; para reavaliar de novo, é só clicar outra vez).
+- [ ] Casamento por par: a guarda global contra as colunas antigas (`tests/test_sem_casamento_no_anuncio.py`) só pega os prefixos `anuncio.` e `AnuncioAmazon.`; uma variável com outro nome (`a.produto_id`, `item.status_casamento`) passaria. As colunas já saíram do banco, então o erro apareceria em execução.
 - [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
 - [ ] Teste de Ofertas com produto sem preço na Liga.
 - [ ] `openai` fixada em `<3` no `pyproject.toml`: a 3.x troca a biblioteca de rede e exige refazer os testes do pacote `ia`.
