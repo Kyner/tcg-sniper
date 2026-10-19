@@ -3,8 +3,9 @@ contra o banco de teste. O usuário pede o código, o teste lê o código na fil
 gestão até a grade liberar `ver_area_gestao`. Também confere o layout das telas novas.
 
 Só roda com TCG_E2E=1; antes: `cd web && npm ci && npm run build` e `uv run playwright install chromium`
-(com PLAYWRIGHT_BROWSERS_PATH apontando para .playwright-navegadores/ do checkout). Os dois servidores são
-parados no fim, passe ou falhe."""
+(com PLAYWRIGHT_BROWSERS_PATH apontando para .playwright-navegadores/ do checkout; sem a variável, o teste usa
+essa pasta). Os dois servidores são parados no fim, passe ou falhe, um sem depender do outro (no Windows, a
+árvore de processos inteira)."""
 
 import importlib.util
 import os
@@ -45,8 +46,15 @@ def esperar(url: str, limite_s: float = 40) -> None:
     raise RuntimeError(f"{url} não respondeu em {limite_s:.0f} s")
 
 
-def parar(processo: subprocess.Popen) -> None:
-    processo.terminate()
+def parar(processo: subprocess.Popen | None) -> None:
+    """Para o processo e o que ele abriu. No Windows o terminate() não alcança os filhos: taskkill /T /F na árvore
+    (e kill() se o taskkill falhar); fora dele, terminate() e kill() se não sair em 10 s."""
+    if processo is None or processo.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(processo.pid), "/T", "/F"], capture_output=True, check=False)
+    else:
+        processo.terminate()
     try:
         processo.wait(timeout=10)
     except subprocess.TimeoutExpired:
@@ -64,20 +72,28 @@ def servidores(engine):
         "SEGREDO_API": SEGREDO_TESTE,  # segredo falso; nunca o do .env
         "API_ALVO": f"http://127.0.0.1:{PORTA_API}",
     }
+    navegadores_antes = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if navegadores_antes is None:  # o Chromium do teste fica no checkout, nunca na pasta do usuário
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(RAIZ / ".playwright-navegadores")
     codigo_api = f"from tcg_sniper.cli import main; main(['api', '--porta', '{PORTA_API}'])"
-    api = subprocess.Popen([sys.executable, "-c", codigo_api], cwd=RAIZ, env=ambiente)
     vite = RAIZ / "web" / "node_modules" / "vite" / "bin" / "vite.js"
-    web = subprocess.Popen(
-        ["node", str(vite), "preview", "--host", "127.0.0.1", "--port", str(PORTA_WEB), "--strictPort"],
-        cwd=RAIZ / "web", env=ambiente,
-    )
+    api = web = None
     try:
+        api = subprocess.Popen([sys.executable, "-c", codigo_api], cwd=RAIZ, env=ambiente)
+        web = subprocess.Popen(
+            ["node", str(vite), "preview", "--host", "127.0.0.1", "--port", str(PORTA_WEB), "--strictPort"],
+            cwd=RAIZ / "web", env=ambiente,
+        )
         esperar(f"http://127.0.0.1:{PORTA_API}/api/saude")
         esperar(f"{BASE}/api/saude")
         yield BASE
     finally:
-        parar(web)
-        parar(api)
+        try:
+            parar(web)
+        finally:
+            parar(api)
+            if navegadores_antes is None:
+                os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
 
 
 @pytest.fixture
