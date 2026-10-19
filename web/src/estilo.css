@@ -1,0 +1,6 @@
+/* Tailwind CSS 4 + DaisyUI 5, temas winter (claro, padrão) e night (escuro).
+   Só o framework: nada de CSS próprio (mesma regra do admin antigo). */
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: winter --default, night --prefersdark;
+}
