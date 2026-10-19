@@ -57,6 +57,9 @@ def main(argv: list[str] | None = None) -> None:
         "coletor-amazon",
         help="inicia o monitor de preço, a conferência de checkout e a retirada do carrinho da Amazon (navegador logado)",
     )
+    sub.add_parser(
+        "coletor-amazon-busca", help="inicia a fila de buscas de anúncios novos na Amazon (navegador próprio, sem login)"
+    )
     sub.add_parser("notificador", help="envia a tabela de saída do WhatsApp pela Evolution API")
     sub.add_parser("casador", help="avalia com a IA os anúncios pendentes da Amazon")
     sub.add_parser("manutencao", help="backup diário do banco (com cópia no R2) e limpeza do histórico antigo")
@@ -141,6 +144,22 @@ def main(argv: list[str] | None = None) -> None:
             engine,
             sessoes,
             lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
+            criar_avisador(sessoes),
+            config,
+        ).rodar()
+    elif args.comando == "coletor-amazon-busca":
+        from tcg_sniper.avisos.servico import criar_avisador
+        from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
+        from tcg_sniper.coletor_amazon.varredura_busca import VarreduraBusca
+        from tcg_sniper.db.models import COLETOR_AMAZON_BUSCA
+        from tcg_sniper.navegador.chromium import NavegadorChromium
+
+        Batimento(sessoes, COLETOR_AMAZON_BUSCA).iniciar()
+        instalar_sigterm()
+        VarreduraBusca(
+            engine,
+            sessoes,
+            lambda: NavegadorChromium(config.dir_dados / "perfil-amazon-busca", eh_desafio_amazon),
             criar_avisador(sessoes),
             config,
         ).rodar()
