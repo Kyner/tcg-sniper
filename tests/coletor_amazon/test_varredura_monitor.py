@@ -1,120 +1,44 @@
 import random
 from datetime import datetime, time, timedelta
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 import pytest
-from fakes import (
-    AvisadorFake,
-    NavegadorInterativoFake,
-    criar_anuncio,
-    criar_preco_liga,
-    criar_produto,
-    html_busca,
-    html_vendedor,
-    oferta_lista,
-    pagina_html,
-)
+from fakes import AvisadorFake, html_vendedor, oferta_lista, pagina_html
 from fakes_checkout import carrinho, checkout_resumo, login
 from fakes_ofertas import bloco_oferta, html_ofertas
+from fakes_varredura import CAPTCHA, MEIO_DIA, SP, FabricaFake, Relogio, confirmado, criar_laco, livre, ofertas
 from sqlalchemy import select
 
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
-from tcg_sniper.coletor_amazon.busca import url_busca
 from tcg_sniper.coletor_amazon.config import aplicar_config
 from tcg_sniper.coletor_amazon.parsers import URL_CARRINHO, url_ofertas, url_painel_ofertas, url_vendedor
-from tcg_sniper.coletor_amazon.varredura import (
-    ESPERA_OCIOSA_S,
-    MOTIVO_EM_ANDAMENTO,
-    RETIRADA_AUTOMATICA_MAX,
-    VarreduraAmazon,
-)
+from tcg_sniper.coletor_amazon.varredura_base import ESPERA_OCIOSA_S, MAX_FALHAS_SEGUIDAS
+from tcg_sniper.coletor_amazon.varredura_monitor import MOTIVO_EM_ANDAMENTO, RETIRADA_AUTOMATICA_MAX, VarreduraMonitor
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
+    Coleta,
     ConferenciaCheckout,
     Envio,
     EstadoColetorTipo,
+    FilaAmazon,
     OfertaAmazon,
     Oportunidade,
     OrigemPreco,
+    ProdutoLiga,
     SituacaoCheckout,
-    StatusCasamento,
 )
 from tcg_sniper.navegador.modelos import ErroRede
 from tcg_sniper.notificador.base import Destino
 
-SP = ZoneInfo("America/Sao_Paulo")
-MEIO_DIA = datetime(2026, 10, 15, 12, 0, tzinfo=SP)
-CAPTCHA = '<html><body><form action="/errors/validateCaptcha"></form></body></html>'
-
-
-class Relogio:
-    def __init__(self, agora):
-        self.agora = agora
-
-    def __call__(self):
-        return self.agora
-
-
-class FabricaFake:
-    def __init__(self, navegador):
-        self.navegador = navegador
-
-    def __call__(self):
-        fabrica = self
-
-        class Contexto:
-            def __enter__(self):
-                return fabrica.navegador
-
-            def __exit__(self, *_exc):
-                pass
-
-        return Contexto()
-
 
 def varredura(engine, sessoes, config, paginas, apos_clique=None, relogio=None):
-    navegador = NavegadorInterativoFake(paginas, apos_clique or [])
-    avisador = AvisadorFake()
-    relogio = relogio or Relogio(MEIO_DIA)
-    v = VarreduraAmazon(
-        engine, sessoes, FabricaFake(navegador), avisador, config,
-        relogio=relogio, rng=random.Random(1), dormir=lambda _: None,
+    v, navegador, _, avisador, relogio = criar_laco(
+        VarreduraMonitor, engine, sessoes, config, paginas, apos_clique, relogio
     )
     return v, navegador, avisador, relogio
-
-
-def confirmado(sessoes, nome, asin, preco=None, lido_em=MEIO_DIA):
-    """Produto (R$ 1.000 na Liga) casado com o anúncio; com `preco`, já lido pelo monitor em `lido_em` com
-    essa oferta da Amazon como a melhor. A descoberta do produto só volta daqui a 7 dias."""
-    with sessoes() as s, s.begin():
-        p = criar_produto(s, nome, nome=nome)
-        criar_preco_liga(s, p, "1000.00", listagem_em=MEIO_DIA)
-        a = criar_anuncio(s, asin, produto=p, status=StatusCasamento.CONFIRMADO)
-        if preco is not None:
-            o = oferta_lista(preco, vendedor="Amazon.com.br", seller_id="amazon", envio=Envio.AMAZON, posicao=0)
-            repo_amz.gravar_ofertas(s, a.id, lido_em, [repo_amz.OfertaAvaliada(o, None, True, True)])
-            repo_amz.registrar_preco(s, a.id, o.preco, OrigemPreco.OFERTAS, None, Envio.AMAZON, lido_em, SP)
-        repo_amz.sincronizar_fila(s, MEIO_DIA)
-        repo_amz.reagendar(s, p.id, MEIO_DIA, MEIO_DIA + timedelta(days=7), False)
-        return p.id, a.id
-
-
-def livre(sessoes, nome):
-    """Produto sem par, vencido na fila da descoberta. Devolve a URL da busca."""
-    with sessoes() as s, s.begin():
-        p = criar_produto(s, nome, nome=nome)
-        criar_preco_liga(s, p, "1000.00", listagem_em=MEIO_DIA)
-        repo_amz.sincronizar_fila(s, MEIO_DIA - timedelta(hours=1))
-        return url_busca(repo_amz.obter_config(s), nome)
-
-
-def ofertas(asin, preco):
-    return pagina_html(
-        html_ofertas(bloco_oferta(preco, "Amazon.com.br", seller_id=None, envia=None, destaque=True)), url=url_ofertas(asin)
-    )
 
 
 def painel(asin, preco):
@@ -129,7 +53,7 @@ def conferencias(sessoes):
         return list(s.scalars(select(ConferenciaCheckout).order_by(ConferenciaCheckout.id)))
 
 
-def test_conferencia_antes_do_monitor_antes_da_descoberta(engine, sessoes, config):
+def test_conferencia_antes_do_monitor_e_nenhuma_busca(engine, sessoes, config):
     url_livre = livre(sessoes, "livre")
     _, candidata = confirmado(sessoes, "cand", "B0CAND0001", "700.00")
     confirmado(sessoes, "venc", "B0VENC0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=20))
@@ -138,17 +62,16 @@ def test_conferencia_antes_do_monitor_antes_da_descoberta(engine, sessoes, confi
         URL_CARRINHO: [carrinho(), um_item, um_item, carrinho()],
         url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 700,00"),
         url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00"),
-        url_livre: pagina_html(html_busca(), url=url_livre),
     }
     v, navegador, avisador, _ = varredura(
         engine, sessoes, config, paginas, [um_item, checkout_resumo("R$ 700,00", "R$ 0,00", None, "R$ 700,00"), carrinho()]
     )
     assert v.passo() == 0  # conferência
     assert v.passo() == 0  # monitor
-    assert v.passo() == 0  # descoberta
-    assert v.passo() == ESPERA_OCIOSA_S
+    assert v.passo() == ESPERA_OCIOSA_S  # o produto livre é da busca, não daqui
     visitadas = navegador.visitadas
-    assert visitadas.index(URL_CARRINHO) < visitadas.index(url_ofertas("B0VENC0001")) < visitadas.index(url_livre)
+    assert visitadas.index(URL_CARRINHO) < visitadas.index(url_ofertas("B0VENC0001"))
+    assert url_livre not in visitadas
     [conf] = conferencias(sessoes)
     assert (conf.anuncio_id, conf.situacao, conf.total, conf.item_removido) == (candidata, SituacaoCheckout.OK, Decimal("700.00"), True)
     with sessoes() as s:
@@ -158,26 +81,18 @@ def test_conferencia_antes_do_monitor_antes_da_descoberta(engine, sessoes, confi
 
 
 def test_janela_propria_do_monitor(engine, sessoes, config):
-    url_livre = livre(sessoes, "livre")
     confirmado(sessoes, "venc", "B0VENC0001")  # nunca lido: vencido
     with sessoes() as s, s.begin():
-        aplicar_config(s, {"janela_inicio": time(14, 0)}, MEIO_DIA)  # a busca só começa às 14h
-    paginas = {url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00"), url_livre: pagina_html(html_busca(), url=url_livre)}
-    v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
+        aplicar_config(s, {"janela_inicio": time(14, 0)}, MEIO_DIA)  # a janela da busca não importa aqui
+    v, navegador, _, _ = varredura(engine, sessoes, config, {url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00")})
     assert v.passo() == 0
     assert v.passo() == ESPERA_OCIOSA_S
     assert navegador.visitadas == [url_ofertas("B0VENC0001")]
-
-
-def test_monitor_fora_da_janela_dele_a_descoberta_segue(engine, sessoes, config):
-    url_livre = livre(sessoes, "livre")
-    confirmado(sessoes, "venc", "B0VENC0001")
     with sessoes() as s, s.begin():
-        aplicar_config(s, {"monitor_janela_inicio": time(14, 0)}, MEIO_DIA)
-    paginas = {url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00"), url_livre: pagina_html(html_busca(), url=url_livre)}
-    v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
-    v.passo()
-    assert navegador.visitadas == [url_livre]
+        aplicar_config(s, {"janela_inicio": time(8, 0), "monitor_janela_inicio": time(14, 0)}, MEIO_DIA)
+    confirmado(sessoes, "outro", "B0OUTR0001")
+    v2, navegador2, _, _ = varredura(engine, sessoes, config, {})
+    assert v2.passo() == ESPERA_OCIOSA_S and navegador2.visitadas == []
 
 
 def test_monitor_desligado_nao_le(engine, sessoes, config):
@@ -196,43 +111,26 @@ def test_conferencia_desligada_nao_confere(engine, sessoes, config):
     assert v.passo() == ESPERA_OCIOSA_S and navegador.visitadas == []
 
 
-def test_monitor_e_conferencia_somam_no_mesmo_teto_e_a_descoberta_segue(engine, sessoes, config):
-    url_livre = livre(sessoes, "livre")
+def test_monitor_e_conferencia_somam_no_mesmo_teto(engine, sessoes, config):
     confirmado(sessoes, "cand", "B0CAND0001", "700.00")
     confirmado(sessoes, "venc", "B0VENC0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=20))
     with sessoes() as s, s.begin():
-        aplicar_config(s, {"monitor_max_paginas_hora": 5}, MEIO_DIA)
+        aplicar_config(s, {"monitor_max_paginas_hora": 5, "max_buscas_hora": 1}, MEIO_DIA)
     um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
     paginas = {
         URL_CARRINHO: [carrinho(), um_item, um_item, carrinho()],
         url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 700,00"),
         url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00"),
-        url_livre: pagina_html(html_busca(), url=url_livre),
     }
     v, navegador, _, relogio = varredura(
         engine, sessoes, config, paginas, [um_item, checkout_resumo("R$ 700,00", "R$ 0,00", None, "R$ 700,00"), carrinho()]
     )
     v.passo()  # a conferência abre 8 páginas: estoura o teto de 5
-    v.passo()  # o monitor espera; a descoberta tem o próprio teto
-    assert url_livre in navegador.visitadas and url_ofertas("B0VENC0001") not in navegador.visitadas
+    assert v.passo() == ESPERA_OCIOSA_S  # o monitor espera o teto dele
+    assert url_ofertas("B0VENC0001") not in navegador.visitadas
     relogio.agora += timedelta(minutes=61)
     v.passo()
     assert navegador.visitadas[-1] == url_ofertas("B0VENC0001")
-
-
-def test_descoberta_so_de_nao_casados_e_casados_com_7_dias(engine, sessoes, config):
-    url_livre = livre(sessoes, "livre")
-    confirmado(sessoes, "recente", "B0RECE0001", "990.00")
-    velho_id, _ = confirmado(sessoes, "velho", "B0VELH0001", "990.00")
-    with sessoes() as s, s.begin():
-        repo_amz.reagendar(s, velho_id, MEIO_DIA - timedelta(days=8), MEIO_DIA - timedelta(days=1), False)
-        url_velho = url_busca(repo_amz.obter_config(s), "velho")
-    paginas = {u: pagina_html(html_busca(), url=u) for u in (url_livre, url_velho)}
-    v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
-    v.passo()
-    v.passo()
-    assert v.passo() == ESPERA_OCIOSA_S
-    assert sorted(navegador.visitadas) == sorted([url_livre, url_velho])
 
 
 def test_sem_login_desliga_a_conferencia_avisa_uma_vez_e_o_monitor_continua(engine, sessoes, config):
@@ -313,13 +211,15 @@ def test_monitor_que_falha_nao_trava_no_mesmo_anuncio(engine, sessoes, config):
     assert v.passo() == ESPERA_OCIOSA_S
 
 
-def test_captcha_no_monitor_pausa_a_amazon(engine, sessoes, config):
+def test_captcha_no_monitor_pausa_so_o_monitor(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
     v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): pagina_html(CAPTCHA, url=url_ofertas("B0AAAA0001"))})
     assert v.passo() == ESPERA_OCIOSA_S
     with sessoes() as s:
         assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO_DESAFIO
-    assert TipoAviso.AMAZON_CAPTCHA in avisador.tipos()
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.ATIVO
+    [dados] = avisador.dados(TipoAviso.AMAZON_CAPTCHA)
+    assert dados.linhas[1] == "Monitor e conferência pausados até você retomar; a busca segue"
 
 
 def test_leituras_com_mais_de_30_dias_sao_apagadas(engine, sessoes, config):
@@ -348,7 +248,7 @@ def test_marca_de_conferencia_em_andamento_garante_a_retirada_depois_de_um_reini
     [marca] = conferencias(sessoes)
     assert (marca.situacao, marca.item_removido) == (SituacaoCheckout.FALHA, False) and "andamento" in marca.motivo
     del navegador.clicar  # o coletor reinicia (mesmas páginas): a primeira volta tira o item
-    v2 = VarreduraAmazon(
+    v2 = VarreduraMonitor(
         engine, sessoes, FabricaFake(navegador), AvisadorFake(), config,
         relogio=Relogio(MEIO_DIA), rng=random.Random(1), dormir=lambda _: None,
     )
@@ -499,7 +399,7 @@ def test_tres_falhas_passam_para_conferir_a_mao_e_o_aviso_nao_se_repete_depois_d
     with sessoes() as s:
         assert s.get(ConferenciaCheckout, conferencia_id).conferir_a_mao_em is not None
     novo = AvisadorFake()  # o coletor reinicia: o aviso está gravado no estado, não se repete
-    v2 = VarreduraAmazon(
+    v2 = VarreduraMonitor(
         engine, sessoes, FabricaFake(navegador), novo, config, relogio=relogio, rng=random.Random(1), dormir=lambda _: None,
     )
     v2.inicializar()
@@ -556,7 +456,7 @@ def test_erro_inesperado_na_conferencia_conta_as_paginas_no_teto(engine, sessoes
     v, _, _, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [carrinho()]})
     with pytest.raises(RuntimeError):
         v.passo()
-    assert v._teto_monitor.liberado_em(MEIO_DIA, 1) is not None  # a página aberta contou
+    assert v._teto.liberado_em(MEIO_DIA, 1) is not None  # a página aberta contou
 
 
 def test_conferencia_ok_zera_as_falhas_seguidas(engine, sessoes, config):
@@ -572,9 +472,8 @@ def test_conferencia_ok_zera_as_falhas_seguidas(engine, sessoes, config):
     assert v._falhas_seguidas == 0
 
 
-
 def test_erro_depois_do_clique_na_retirada_conta_as_paginas_abertas(engine, sessoes, config, monkeypatch):
-    from tcg_sniper.coletor_amazon import varredura as modulo
+    from tcg_sniper.coletor_amazon import varredura_monitor as modulo
 
     preso(sessoes)
     with sessoes() as s, s.begin():
@@ -589,7 +488,7 @@ def test_erro_depois_do_clique_na_retirada_conta_as_paginas_abertas(engine, sess
     v, _, _, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [um_item, carrinho()]})
     with pytest.raises(RuntimeError):
         v.passo()
-    assert v._teto_monitor.liberado_em(MEIO_DIA, 2) is not None  # as 2 páginas abertas contaram
+    assert v._teto.liberado_em(MEIO_DIA, 2) is not None  # as 2 páginas abertas contaram
 
 
 def test_clique_de_excluir_que_falha_depois_de_carregar_conta_no_teto(engine, sessoes, config):
@@ -602,7 +501,7 @@ def test_clique_de_excluir_que_falha_depois_de_carregar_conta_no_teto(engine, se
     v, navegador, _, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [um_item]}, [ErroRede("timeout depois do clique")])
     v.passo()
     assert len(navegador.cliques) == 1
-    assert v._teto_monitor.liberado_em(MEIO_DIA, 2) is not None  # o carrinho e a página do clique que falhou
+    assert v._teto.liberado_em(MEIO_DIA, 2) is not None  # o carrinho e a página do clique que falhou
 
 
 def test_retirada_ok_conta_tambem_a_pagina_do_clique(engine, sessoes, config):
@@ -613,7 +512,7 @@ def test_retirada_ok_conta_tambem_a_pagina_do_clique(engine, sessoes, config):
     v, navegador, _, _ = varredura(engine, sessoes, config, {URL_CARRINHO: [um_item, carrinho()]}, [carrinho()])
     v.passo()
     assert len(navegador.cliques) == 1
-    assert v._teto_monitor.liberado_em(MEIO_DIA, 3) is not None  # carrinho, clique em Excluir e a recarga
+    assert v._teto.liberado_em(MEIO_DIA, 3) is not None  # carrinho, clique em Excluir e a recarga
 
 
 def test_carrinho_de_visitante_nao_resolve_a_retirada(engine, sessoes, config):
@@ -682,7 +581,7 @@ def test_leitura_que_falha_conta_no_teto_todas_as_paginas_abertas(engine, sessoe
     v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
     v.passo()
     assert len(navegador.visitadas) == 4  # ofertas, perfil X, perfil Y duas vezes
-    assert v._teto_monitor.liberado_em(MEIO_DIA, 4) is not None  # as 4 contaram (antes: só 1)
+    assert v._teto.liberado_em(MEIO_DIA, 4) is not None  # as 4 contaram (antes: só 1)
 
 
 def test_rodada_do_monitor_avisa_quando_fica_em_dia(engine, sessoes, config):
@@ -767,3 +666,103 @@ def test_retirada_por_clique_resolve_o_aviso_do_carrinho(engine, sessoes, config
     v.passo()
     assert len(navegador.cliques) == 1
     assert (TipoAviso.AMAZON_CARRINHO, "B0CAND0001") in avisador.resolvidos
+
+
+def test_monitor_nunca_busca(engine, sessoes, config):
+    livre(sessoes, "livre")
+    v, navegador, _, _ = varredura(engine, sessoes, config, {})
+    assert v.passo() == ESPERA_OCIOSA_S and navegador.visitadas == []
+    with sessoes() as s:
+        assert s.scalar(select(FilaAmazon.ultima_busca_em)) is None
+        assert s.scalar(select(Coleta)) is None
+
+
+def test_rodada_avisa_ao_fim_de_cada_volta_mesmo_com_o_monitor_sempre_atrasado(engine, sessoes, config):
+    asins = ("B0AAAA0001", "B0BBBB0001", "B0CCCC0001")
+    for i, asin in enumerate(asins):
+        confirmado(sessoes, f"p{i}", asin)  # nunca lidos
+    v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas(a): ofertas(a, "R$ 990,00") for a in asins})
+    for _ in range(3):
+        assert v.passo() == 0
+        relogio.agora += timedelta(minutes=16)  # intervalo de 15 min: o lido já venceu de novo
+    assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
+    assert v.passo() == 0  # fecha a volta e já começa a seguinte
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[0] == "Anúncios lidos: 3"
+    for _ in range(3):
+        relogio.agora += timedelta(minutes=16)
+        assert v.passo() == 0
+    assert [d.linhas[0] for d in avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)] == [
+        "Anúncios lidos: 3", "Anúncios lidos: 3",
+    ]
+
+
+def test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada(engine, sessoes, config):
+    for asin in ("B0AAAA0001", "B0BBBB0001"):
+        confirmado(sessoes, asin, asin)
+    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001")}
+    v, _, avisador, relogio = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0  # lê um dos dois
+    relogio.agora = MEIO_DIA.replace(hour=23)
+    assert v.passo() == ESPERA_OCIOSA_S  # janela fechada: a volta incompleta é descartada
+    assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
+    relogio.agora = MEIO_DIA + timedelta(days=1)
+    assert v.passo() == 0 and v.passo() == 0
+    assert v.passo() == ESPERA_OCIOSA_S
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[0] == "Anúncios lidos: 2"  # só a volta do dia seguinte
+
+
+def test_anuncio_que_sai_do_monitor_no_meio_da_volta_nao_prende_a_rodada(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    b_id, _ = confirmado(sessoes, "b", "B0BBBB0001")
+    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001")}
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0
+    assert navegador.visitadas == [url_ofertas("B0AAAA0001")]  # nunca lidos: pela ordem do id
+    with sessoes() as s, s.begin():
+        s.get(ProdutoLiga, b_id).ativo = False  # o outro sai do monitor sem ser lido
+    assert v.passo() == ESPERA_OCIOSA_S
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[0] == "Anúncios lidos: 1"
+
+
+def test_anuncio_que_falha_sai_da_volta(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    confirmado(sessoes, "b", "B0BBBB0001")
+    paginas = {
+        url_ofertas("B0AAAA0001"): pagina_html("<html><body>layout novo</body></html>", url=url_ofertas("B0AAAA0001")),
+        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 990,00"),
+    }
+    v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and v.passo() == 0
+    assert v.passo() == ESPERA_OCIOSA_S
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[0] == "Anúncios lidos: 1"
+
+
+def test_falhas_seguidas_pausam_so_o_monitor(engine, sessoes, config):
+    asins = [f"B0FALH{i:04d}" for i in range(MAX_FALHAS_SEGUIDAS)]
+    for asin in asins:
+        confirmado(sessoes, asin, asin)
+    layout_novo = {url_ofertas(a): pagina_html("<html><body>layout novo</body></html>", url=url_ofertas(a)) for a in asins}
+    v, navegador, avisador, _ = varredura(engine, sessoes, config, layout_novo)
+    for _ in range(MAX_FALHAS_SEGUIDAS - 1):
+        assert v.passo() == 0
+    assert v.passo() == ESPERA_OCIOSA_S
+    with sessoes() as s:
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is not EstadoColetorTipo.ATIVO
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.ATIVO
+    [pausa] = avisador.dados(TipoAviso.AMAZON_PAUSADA)
+    assert pausa.linhas[1] == "Com o monitor pausado, a retirada automática de item do carrinho também para"
+    assert len(navegador.visitadas) == MAX_FALHAS_SEGUIDAS
+
+
+def test_janela_do_monitor_fechada_fecha_o_navegador(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    v, _, fabrica, _, relogio = criar_laco(
+        VarreduraMonitor, engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 990,00")}
+    )
+    assert v.passo() == 0 and fabrica.abertos == 1
+    relogio.agora = MEIO_DIA.replace(hour=23)
+    assert v.passo() == ESPERA_OCIOSA_S and fabrica.fechados == 1

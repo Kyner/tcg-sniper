@@ -309,3 +309,14 @@ def test_anuncio_so_com_pares_pendentes_ou_ignorados_fica_fora_do_monitor_e_do_c
     ids = [casado.id, pendente.id, ignorado.id, pelo_automatico.id]
     assert [linha.produto.liga_id for linha in repo.confirmados_com_referencia(s, ids)] == ["p-B0PURO0001"]
     assert repo.candidatas_ao_checkout(s, T0, cfg) == []
+
+
+def test_ids_vencidos_do_monitor_sao_os_confirmados_ativos_nunca_lidos_ou_vencidos(s):
+    nunca = confirmado(s, "B0NUNC0001")
+    velho = confirmado(s, "B0VELH0001")
+    novo = confirmado(s, "B0NOVO0001")
+    inativo = confirmado(s, "B0INAT0001", ativo=False)
+    ler(s, velho, T0 - timedelta(minutes=20), oferta_lista("990.00", posicao=0))
+    ler(s, novo, T0 - timedelta(minutes=5), oferta_lista("990.00", posicao=0))
+    assert repo.ids_vencidos_do_monitor(s, T0, 15) == {nunca.id, velho.id}
+    assert inativo.id not in repo.ids_vencidos_do_monitor(s, T0, 15)

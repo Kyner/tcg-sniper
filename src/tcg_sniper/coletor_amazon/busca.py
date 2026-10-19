@@ -1,7 +1,7 @@
 """Uma busca na Amazon para um produto da Liga (descoberta): grava os resultados (cada ASIN ganha o par
 com o produto buscado; par novo fica pendente) e o preço de origem `busca`. Não abre página de produto
 nem de vendedor: o preço dos anúncios confirmados é do monitor (monitor.py). Não conhece fila, ciclo nem
-janela (ver varredura.py). `abrir_pagina` e `ler_pagina` são usadas também pelo monitor e pela
+janela (ver varredura_busca.py). `abrir_pagina` e `ler_pagina` são usadas também pelo monitor e pela
 conferência."""
 
 import dataclasses

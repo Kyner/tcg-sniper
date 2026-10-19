@@ -514,6 +514,16 @@ def proximo_do_monitor(
     return (linha.id, linha.asin) if linha else None
 
 
+def ids_vencidos_do_monitor(s: Session, agora: datetime, intervalo_min: int) -> set[int]:
+    """Os anúncios confirmados (de produto ativo) nunca lidos ou com a leitura de ofertas vencida: a volta
+    do monitor que começa agora (ver `varredura_monitor._Rodada`)."""
+    leitura = _leitura_do_monitor()
+    consulta = _confirmados_ativos(select(AnuncioAmazon.id)).where(
+        or_(leitura.is_(None), leitura <= agora - timedelta(minutes=intervalo_min))
+    )
+    return set(s.scalars(consulta))
+
+
 @dataclass(frozen=True)
 class SituacaoMonitor:
     confirmados: int
