@@ -247,3 +247,139 @@ def test_condicao_confirmado_e_produtos_casados(s):
     assert set(s.scalars(repo_casamento.produtos_casados())) == {p.id}
     par = s.scalar(select(Casamento).where(repo_casamento.condicao_confirmado(anuncio.id)))
     assert par.produto_id == p.id
+
+
+AUTO = OrigemCasamento.AUTOMATICO_IA
+
+
+def test_automatico_nao_confirma_par_ignorado_por_voce(s):
+    p = criar_produto(s, "p")
+    anuncio = criar_anuncio(s, "B0MANU0001", produto=p, status=IGNORADO, origem=MANUAL)
+    par = repo_casamento.confirmar(s, anuncio.id, p.id, T0 + timedelta(hours=1), AUTO)
+    assert (par.status, par.origem) == (IGNORADO, MANUAL)
+    assert repo_casamento.confirmado_do_anuncio(s, anuncio.id) is None
+
+
+def test_automatico_nao_ignora_par_confirmado_por_voce(s):
+    p, q = criar_produto(s, "p"), criar_produto(s, "q")
+    anuncio = criar_anuncio(s, "B0MANU0002", produto=p)
+    criar_par(s, anuncio, q)
+    repo_casamento.confirmar(s, anuncio.id, p.id, T0, MANUAL)
+    par = repo_casamento.ignorar(s, anuncio.id, p.id, T0 + timedelta(hours=1), AUTO)
+    assert (par.status, par.origem, par.revisado_em) == (CONFIRMADO, MANUAL, T0)
+    assert situacao(s, anuncio, q) == (IGNORADO, OUTRO)
+
+
+def test_automatico_nao_troca_confirmado_por_voce(s):
+    p, q = criar_produto(s, "p"), criar_produto(s, "q")
+    anuncio = criar_anuncio(s, "B0MANU0003", produto=p, status=CONFIRMADO, origem=MANUAL)
+    par = repo_casamento.trocar(s, anuncio.id, q.id, T0, AUTO)
+    assert (par.produto_id, par.status, par.origem) == (p.id, CONFIRMADO, MANUAL)
+    assert situacao(s, anuncio, q) is None
+
+
+def test_voce_decide_por_cima_do_automatico(s):
+    p = criar_produto(s, "p")
+    anuncio = criar_anuncio(s, "B0MANU0004", produto=p, status=IGNORADO, origem=AUTO)
+    assert situacao(s, anuncio, p) == (IGNORADO, AUTO)
+    par = repo_casamento.confirmar(s, anuncio.id, p.id, T0, MANUAL)
+    assert (par.status, par.origem) == (CONFIRMADO, MANUAL)
+    par = repo_casamento.ignorar(s, anuncio.id, p.id, T0, OrigemCasamento.SUGERIDO_IA)
+    assert (par.status, par.origem) == (IGNORADO, OrigemCasamento.SUGERIDO_IA)
+
+
+def test_confirmar_que_esbarra_no_indice_nao_deixa_par_novo(s, monkeypatch):
+    """Se o índice único recusar (outro confirmou sem passar pela trava), o par recém-criado não fica."""
+    p, q = criar_produto(s, "p"), criar_produto(s, "q")
+    anuncio = criar_anuncio(s, "B0SAVE0001", produto=q, status=CONFIRMADO, origem=MANUAL)
+    monkeypatch.setattr(repo_casamento, "confirmado_do_anuncio", lambda s, anuncio_id: None)
+    with pytest.raises(repo_casamento.JaConfirmado):
+        repo_casamento.confirmar(s, anuncio.id, p.id, T0)
+    monkeypatch.undo()
+    assert situacao(s, anuncio, p) is None
+    assert situacao(s, anuncio, q) == (CONFIRMADO, MANUAL)
+
+
+def _visto_durante_confirmacao(engine, prefixo, ver):
+    """Transação A confirma o anúncio para `p` e segura o commit; B (`ver`) roda nesse meio. Devolve o par
+    de B para `q` depois de tudo. Grava de verdade e apaga no fim."""
+    fabrica = sessionmaker(bind=engine, expire_on_commit=False)
+    with fabrica() as s, s.begin():
+        p, q = criar_produto(s, f"{prefixo}-p"), criar_produto(s, f"{prefixo}-q")
+        anuncio_id, p_id, q_id = criar_anuncio(s, f"B0{prefixo.upper()}01").id, p.id, q.id
+    confirmou = threading.Event()
+
+    def confirmar_e_segurar() -> None:
+        with fabrica() as s, s.begin():
+            repo_casamento.confirmar(s, anuncio_id, p_id, T0)
+            confirmou.set()
+            threading.Event().wait(0.5)
+
+    def ver_durante() -> None:
+        confirmou.wait(timeout=10)
+        with fabrica() as s, s.begin():
+            ver(s, anuncio_id, q_id)
+
+    try:
+        linhas = [threading.Thread(target=confirmar_e_segurar), threading.Thread(target=ver_durante)]
+        for linha in linhas:
+            linha.start()
+        for linha in linhas:
+            linha.join(timeout=30)
+        with fabrica() as s:
+            par = repo_casamento.obter_par(s, anuncio_id, q_id)
+            return None if par is None else (par.status, par.origem)
+    finally:
+        with engine.begin() as c:
+            c.execute(text("DELETE FROM casamento WHERE anuncio_id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM anuncio_amazon WHERE id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM produto_liga WHERE liga_id LIKE :l"), {"l": f"{prefixo}-%"})
+
+
+def test_registrar_visto_espera_a_confirmacao_em_andamento(engine):
+    def ver(s, anuncio_id, produto_id):
+        repo_casamento.registrar_visto(s, anuncio_id, produto_id, T0)
+
+    assert _visto_durante_confirmacao(engine, "travv", ver) == (IGNORADO, OUTRO)
+
+
+def test_reavaliar_produto_espera_a_confirmacao_em_andamento(engine):
+    """O par `outro_confirmado` de q só volta a pendente se o anúncio não estiver confirmado em ninguém;
+    com a confirmação de p em andamento, reavaliar q espera e não reabre."""
+
+    def reavaliar(s, anuncio_id, produto_id):
+        repo_casamento.reavaliar_produto(s, produto_id, T0)
+
+    fabrica = sessionmaker(bind=engine, expire_on_commit=False)
+    with fabrica() as s, s.begin():
+        p, q = criar_produto(s, "travr-p"), criar_produto(s, "travr-q")
+        anuncio = criar_anuncio(s, "B0TRAVR001")
+        criar_par(s, anuncio, q, status=IGNORADO, origem=OUTRO, revisado_em=T0)
+        anuncio_id, p_id, q_id = anuncio.id, p.id, q.id
+    confirmou = threading.Event()
+
+    def confirmar_e_segurar() -> None:
+        with fabrica() as s, s.begin():
+            repo_casamento.confirmar(s, anuncio_id, p_id, T0)
+            confirmou.set()
+            threading.Event().wait(0.5)
+
+    def reavaliar_durante() -> None:
+        confirmou.wait(timeout=10)
+        with fabrica() as s, s.begin():
+            reavaliar(s, anuncio_id, q_id)
+
+    try:
+        linhas = [threading.Thread(target=confirmar_e_segurar), threading.Thread(target=reavaliar_durante)]
+        for linha in linhas:
+            linha.start()
+        for linha in linhas:
+            linha.join(timeout=30)
+        with fabrica() as s:
+            par = repo_casamento.obter_par(s, anuncio_id, q_id)
+            assert (par.status, par.origem) == (IGNORADO, OUTRO)
+    finally:
+        with engine.begin() as c:
+            c.execute(text("DELETE FROM casamento WHERE anuncio_id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM anuncio_amazon WHERE id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM produto_liga WHERE liga_id LIKE 'travr-%'"))

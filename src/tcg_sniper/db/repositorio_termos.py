@@ -44,10 +44,29 @@ def marcar_tentativa(s: Session, produto_id: int, agora: datetime) -> None:
     s.flush()
 
 
-def guardar_termos(s: Session, produto_id: int, termos: Sequence[tuple[str, str]], agora: datetime) -> list[TermoBusca]:
-    """Substitui os termos do produto por `termos` ((termo, idioma), já filtrados, 1 a 3) e marca a tentativa."""
+def _validar(termos: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
     if not 1 <= len(termos) <= MAX_TERMOS:
         raise ValueError(f"de 1 a {MAX_TERMOS} termos; recebeu {len(termos)}")
+    limpos: list[tuple[str, str]] = []
+    vistos: set[str] = set()
+    for termo, idioma in termos:
+        termo = termo.strip()
+        if not 1 <= len(termo) <= TERMO_MAX:
+            raise ValueError(f"termo com {len(termo)} caracteres (de 1 a {TERMO_MAX})")
+        if idioma not in IDIOMAS:
+            raise ValueError(f"idioma {idioma!r} (só {', '.join(IDIOMAS)})")
+        if termo.casefold() in vistos:
+            raise ValueError(f"termo repetido: {termo!r}")
+        vistos.add(termo.casefold())
+        limpos.append((termo, idioma))
+    return limpos
+
+
+def guardar_termos(s: Session, produto_id: int, termos: Sequence[tuple[str, str]], agora: datetime) -> list[TermoBusca]:
+    """Substitui os termos do produto por `termos` ((termo, idioma), 1 a 3) e marca a tentativa. Confere antes
+    de gravar (ValueError, nada muda): cada termo com 1 a 80 caracteres sem os espaços das pontas (guardado
+    assim), idioma `pt` ou `en`, sem repetir (sem diferenciar maiúsculas)."""
+    termos = _validar(termos)
     s.execute(delete(TermoBusca).where(TermoBusca.produto_id == produto_id))
     novos = [
         TermoBusca(produto_id=produto_id, termo=termo, idioma=idioma, ordem=ordem, criado_em=agora)

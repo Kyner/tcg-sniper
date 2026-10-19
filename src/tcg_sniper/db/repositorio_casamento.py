@@ -5,7 +5,9 @@ Regras (spec 2026-10-19-casamento-por-par-design.md):
 - confirmado para no máximo um produto (índice único parcial `uq_casamento_confirmado`);
 - confirmar um par ignora os outros pendentes do anúncio (origem `outro_confirmado`);
 - tirar a confirmação (desfazer ou ignorar o confirmado) reabre esses `outro_confirmado`;
-- desfazer e "Reavaliar com a IA" marcam o par para a IA reavaliar mesmo com os dados iguais.
+- desfazer e "Reavaliar com a IA" marcam o par para a IA reavaliar mesmo com os dados iguais;
+- o automático da IA (origem `automatico_ia`) nunca passa por cima de uma decisão sua (`manual`): confirmar,
+  ignorar e trocar devolvem o par como está, sem mudar nada (`decidido_por_voce` diz se foi o caso).
 
 Toda escrita trava antes a linha do anúncio (confirmações do mesmo anúncio viram fila). Este módulo só
 depende dos modelos: o repositorio_amazon importa este, nunca o contrário."""
@@ -22,6 +24,15 @@ from tcg_sniper.db.models import AnuncioAmazon, AvaliacaoIA, Casamento, Oportuni
 PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO
 # Ignorados que "Reavaliar com a IA" devolve a pendente (decisões `manual` e confirmados não mudam).
 ORIGENS_REAVALIAVEIS = (OrigemCasamento.SUGERIDO_IA, OrigemCasamento.AUTOMATICO_IA, OrigemCasamento.OUTRO_CONFIRMADO)
+
+
+def decidido_por_voce(par: Casamento | None) -> bool:
+    """O par tem uma decisão sua (confirmado ou ignorado com origem `manual`): o automático não muda."""
+    return par is not None and par.status is not PENDENTE and par.origem is OrigemCasamento.MANUAL
+
+
+def _automatico_barrado(par: Casamento | None, origem: OrigemCasamento) -> bool:
+    return origem is OrigemCasamento.AUTOMATICO_IA and decidido_por_voce(par)
 
 
 class JaConfirmado(Exception):
@@ -106,7 +117,8 @@ def _inserir_par(s: Session, anuncio_id: int, produto_id: int, agora: datetime, 
 def registrar_visto(s: Session, anuncio_id: int, produto_id: int, agora: datetime) -> tuple[Casamento, bool]:
     """A busca do produto viu o anúncio. Par existente: só `visto_ultimo_em` (status não muda). Par novo:
     pendente; se o anúncio já é confirmado de outro produto, ignorado com origem `outro_confirmado`.
-    Devolve (par, criado)."""
+    Devolve (par, criado). Trava o anúncio antes (uma confirmação em andamento termina primeiro)."""
+    travar_anuncio(s, anuncio_id)
     par = obter_par(s, anuncio_id, produto_id)
     if par is not None:
         par.visto_ultimo_em = agora
@@ -125,17 +137,22 @@ def confirmar(
 ) -> Casamento:
     """Confirma o par (criando-o se não existe), ignora os outros pendentes do anúncio (`outro_confirmado`) e
     fecha as oportunidades abertas do anúncio para outros produtos. Lança JaConfirmado (nada muda) se o
-    anúncio já é confirmado de outro produto; o mesmo par já confirmado volta como está."""
+    anúncio já é confirmado de outro produto; o mesmo par já confirmado volta como está. Origem
+    `automatico_ia` num par que você decidiu (`manual`): devolve o par como está."""
     travar_anuncio(s, anuncio_id)
     atual = confirmado_do_anuncio(s, anuncio_id)
     if atual is not None:
         if atual.produto_id == produto_id:
             return atual
         raise JaConfirmado(anuncio_id, atual.produto_id)
-    _inserir_par(s, anuncio_id, produto_id, agora, status=PENDENTE, origem=None, revisado_em=None)
-    par = obter_par(s, anuncio_id, produto_id)
+    existente = obter_par(s, anuncio_id, produto_id)
+    if _automatico_barrado(existente, origem):
+        return existente
     try:
+        # Criar e confirmar no mesmo SAVEPOINT: se o índice recusar, o par recém-criado também volta.
         with s.begin_nested():
+            _inserir_par(s, anuncio_id, produto_id, agora, status=PENDENTE, origem=None, revisado_em=None)
+            par = obter_par(s, anuncio_id, produto_id)
             par.status, par.origem, par.revisado_em, par.reavaliar = CONFIRMADO, origem, agora, False
             s.flush()
     except IntegrityError:  # outra transação confirmou sem passar pela trava: o índice único segura
@@ -156,11 +173,14 @@ def ignorar(
     s: Session, anuncio_id: int, produto_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
 ) -> Casamento | None:
     """Ignora o par (só ele). Se era o confirmado: fecha as oportunidades do anúncio e reabre os
-    `outro_confirmado`. Sem o par: None."""
+    `outro_confirmado`. Sem o par: None. Origem `automatico_ia` num par que você decidiu (`manual`): devolve
+    o par como está."""
     if obter_par(s, anuncio_id, produto_id) is None:
         return None
     travar_anuncio(s, anuncio_id)
     par = obter_par(s, anuncio_id, produto_id)
+    if _automatico_barrado(par, origem):
+        return par
     era_confirmado = par.status is CONFIRMADO
     par.status, par.origem, par.revisado_em, par.reavaliar = IGNORADO, origem, agora, False
     s.flush()
@@ -196,11 +216,16 @@ def trocar(
     s: Session, anuncio_id: int, produto_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
 ) -> Casamento:
     """Confirma (anúncio, produto) — criando o par se não existe — e o confirmado anterior do anúncio, se
-    houver, vira ignorado `manual` (suas oportunidades fecham)."""
+    houver, vira ignorado `manual` (suas oportunidades fecham). Origem `automatico_ia` com o confirmado
+    atual ou o par novo decididos por você: devolve o confirmado atual (ou o par) como está."""
     travar_anuncio(s, anuncio_id)
     atual = confirmado_do_anuncio(s, anuncio_id)
     if atual is not None and atual.produto_id == produto_id:
         return atual
+    if _automatico_barrado(atual, origem):
+        return atual
+    if _automatico_barrado(novo := obter_par(s, anuncio_id, produto_id), origem):
+        return novo
     if atual is not None:
         atual.status, atual.origem, atual.revisado_em, atual.reavaliar = IGNORADO, OrigemCasamento.MANUAL, agora, False
         s.flush()
@@ -241,7 +266,12 @@ def reavaliar_produto(s: Session, produto_id: int, agora: datetime) -> int:
         .execution_options(populate_existing=True)
     ).all()
     marcados = 0
-    for par in alvos:
+    for alvo in alvos:
+        # Trava o anúncio e relê o par: uma confirmação em andamento termina antes da decisão.
+        travar_anuncio(s, alvo.anuncio_id)
+        par = obter_par(s, alvo.anuncio_id, produto_id)
+        if par.status is CONFIRMADO or (par.status is IGNORADO and par.origem not in ORIGENS_REAVALIAVEIS):
+            continue
         if par.origem is OrigemCasamento.OUTRO_CONFIRMADO and confirmado_do_anuncio(s, par.anuncio_id) is not None:
             continue
         par.status, par.origem, par.revisado_em, par.reavaliar = PENDENTE, None, None, True

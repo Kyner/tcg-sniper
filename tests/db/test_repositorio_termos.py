@@ -65,3 +65,31 @@ def test_produtos_para_gerar_termos(s):
     assert [p.id for p in repo_termos.produtos_para_gerar_termos(s, agora, 10)] == [pedido.id, seco.id]
     assert [p.id for p in repo_termos.produtos_para_gerar_termos(s, agora, 1)] == [pedido.id]
     assert tentado.id in [p.id for p in repo_termos.produtos_para_gerar_termos(s, T0 + 13 * DIA, 10)]
+
+
+@pytest.mark.parametrize(
+    "termos",
+    [
+        [("x" * 81, "pt")],
+        [("   ", "pt")],
+        [("", "en")],
+        [("caixa", "es")],
+        [("Caixa Alfa", "pt"), ("caixa alfa", "en")],
+        [("caixa alfa", "pt"), (" caixa alfa ", "pt")],
+    ],
+)
+def test_guardar_termos_recusa_invalidos_sem_gravar(s, termos):
+    p = criar_produto(s, "p")
+    repo_amz.sincronizar_fila(s, T0)
+    repo_termos.guardar_termos(s, p.id, [("antigo", "pt")], T0)
+    with pytest.raises(ValueError):
+        repo_termos.guardar_termos(s, p.id, termos, T0 + DIA)
+    assert [t.termo for t in repo_termos.termos_do_produto(s, p.id)] == ["antigo"]
+    assert s.get(FilaAmazon, p.id).termos_tentados_em == T0
+
+
+def test_guardar_termos_tira_os_espacos_das_pontas(s):
+    p = criar_produto(s, "p")
+    repo_amz.sincronizar_fila(s, T0)
+    repo_termos.guardar_termos(s, p.id, [("  caixa alfa ", "pt"), ("x" * 80, "en")], T0)
+    assert [t.termo for t in repo_termos.termos_do_produto(s, p.id)] == ["caixa alfa", "x" * 80]
