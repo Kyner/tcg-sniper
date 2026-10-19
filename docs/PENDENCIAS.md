@@ -3,63 +3,110 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-19.
+Última revisão: 2026-10-19 (inclui a auditoria conversa × lista e as respostas do usuário do mesmo dia).
 
 ## 0. Crítico (em andamento)
 
-- [ ] **Spec escrita (2026-10-19): `docs/superpowers/specs/2026-10-19-casamento-por-par-design.md`** (par anúncio × produto, desfazer reavalia, busca alternativa com termos da IA, botões). **Anúncio ignorado preso ao primeiro produto**: cada anúncio da Amazon fica ligado ao primeiro produto da Liga para o qual foi sugerido (`gravar_busca` nunca troca `produto_id`/status de um ASIN conhecido). Se foi ignorado para o produto errado (ex.: Colecionador sugerido para Jogo) e depois aparece na busca do produto certo, continua ignorado e nunca vira pendente para o produto certo; a IA só avalia pendentes. Perde oportunidades. Decidido (2026-10-18): **ignorado vale só para aquele par** — o mesmo anúncio achado na busca de outro produto vira pendente para esse outro produto e a IA avalia. Precisa de modelo de pares (anúncio × produto) ou equivalente. Relacionados, depois: busca alternativa (nome encurtado/sem edição) após muitos dias sem candidato; botões "rebuscar agora" e "reavaliar com a IA"; "Desfazer" não faz a IA reavaliar anúncio igual.
+- [ ] **Casamento por par (anúncio × produto)** — spec **aprovada** em 2026-10-19 (`docs/superpowers/specs/2026-10-19-casamento-por-par-design.md`); plano em escrita (`docs/superpowers/plans/2026-10-19-casamento-por-par.md`), execução a seguir. Problema: cada anúncio da Amazon fica ligado ao primeiro produto da Liga para o qual foi sugerido (`gravar_busca` nunca troca `produto_id`/status de um ASIN conhecido); se foi ignorado para o produto errado, nunca vira pendente para o produto certo e a oportunidade se perde. Decidido: **ignorado vale só para aquele par** (tabela `casamento`, um confirmado por anúncio, recuperação natural dos ignorados). Escopo **C, tudo junto**, nesta mesma entrega:
+  - "Desfazer" faz a IA reavaliar o par, mesmo com anúncio igual;
+  - **busca alternativa** com 2 a 3 termos gerados pela IA e guardados, para produto ativo sem candidato há **7 dias** (prazo confirmado pelo usuário), dentro do teto de gasto;
+  - botões "Rebuscar agora", "Reavaliar com a IA" e "Gerar termos de busca" no **admin antigo** (regra em código comum, para a fase 3 reaproveitar).
+- [ ] **Avaliação da IA — em andamento (2026-10-19).** O automático está ligado desde 16/10 sem nunca ter sido medido, e foi ele quem decidiu a maioria dos casamentos (cerca de 96% ignorados). Rodando `tcg-sniper ia avaliar --modelo gpt-5-mini` nos 266 pares decididos à mão, para medir falsos "sim" e "não" com o limite de 90. Resultado: _a registrar aqui_. Se aparecer falso "sim" acima de 90, desligar o automático e rever o limite.
 
-## 1. Pequenas (sem pressa, juntar num pacote)
+## 1. Segurança antes da internet (prioridade alta)
 
+Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são menos de 20 pessoas, mas o acesso vai ser vendido: limites e sessões precisam ser pensados para crescer.
+
+- [ ] **Login sem bloqueio de quem é legítimo e resistente a ataque.** O limite geral de 20 pedidos de código por hora permite que qualquer um bloqueie o login de todos por 1 h. Trocar por limites **por IP e por número**, sem bloqueio global; considerar atraso progressivo por origem, aviso no grupo admin quando o padrão parecer ataque (muitos números, muitos IPs, muitas tentativas erradas) e manter a mesma resposta para número sem cadastro. Requisito: usuário legítimo nunca fica trancado fora (o acesso de emergência `tcg-sniper codigo-acesso` continua como último recurso, não como caminho normal).
+- [ ] Login (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro (no pedido, só o cadastrado gera código e enfileira a mensagem; no entrar, só o cadastrado busca o último código, confere o HMAC e grava a tentativa errada). Fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo.
+- [ ] Sessões encerradas ou vencidas nunca são apagadas (pedidos e códigos são, depois de 1 dia). Com a venda de acesso o volume cresce: limpar na manutenção diária.
+- [ ] O texto do código de acesso fica legível na fila (`mensagem_saida`) enquanto está pendente (até 5 min; Admin → Mensagens já mostra "texto oculto"). Decidir se fica cifrado na fila.
+- [ ] Cloudflare Access na frente do noVNC e da gestão quando publicar (ver "Publicar na internet", seção 4).
+
+## 2. Pequenas (sem pressa, juntar num pacote)
+
+- [ ] Login: celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. **Decidido (2026-10-19):** aceitar a variante sem o 9 no login, normalizando para o número cadastrado.
 - [ ] Login: `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
 - [ ] Usuários: `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
 - [ ] Front: ao fechar um modal, o foco não volta para o botão que o abriu.
 - [ ] README: o passo de gerar `SEGREDO_API` usa Python no PC; dar alternativa com `docker compose run --rm api python -c ...`.
 - [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
-- [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
-- [ ] Login do front (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro (no pedido, só o cadastrado gera código e enfileira a mensagem; no entrar, só o cadastrado busca o último código, confere o HMAC e grava a tentativa errada). Rever antes de abrir a API para a internet (ex.: fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo).
-- [ ] Sessões encerradas ou vencidas nunca são apagadas (pedidos e códigos são, depois de 1 dia). Pouco volume com < 20 pessoas; limpar na manutenção quando crescer.
-- [ ] O texto do código de acesso fica na fila (mensagem_saida) enquanto está pendente (até 5 min); Admin → Mensagens mostra só "texto oculto". Some ao sair da fila (enviada, vencida, falha ou descartada), também com o notificador parado (a manutenção apaga os vencidos).
-- [ ] Login: o limite geral de 20 pedidos de código por hora permite que alguém na rede de casa bloqueie o login de todos por 1 h. Decidir se o limite geral fica, sobe ou vira por IP antes de abrir para a internet.
-- [ ] Login: celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. Decidir se aceita a variante sem o 9.
+- [ ] Vigia de serviços: container parado de propósito no compose recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços. O vigia deveria ignorar serviço parado de propósito (hoje o jeito é pausá-lo no admin).
 - [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
+- [ ] Aviso "mensagem não enviada" nunca é resolvido, então o lembrete de 2 h mostra uma contagem que só cresce.
+- [ ] Notificador, casos raros aceitos: (a) uma mensagem cujo registro sempre falha pode travar a fila; (b) se o banco cair entre gravar a oportunidade e gravar a mensagem, o alerta fica só no log.
+- [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio.
+- [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
+- [ ] Teste de Ofertas com produto sem preço na Liga.
+- [ ] `openai` fixada em `<3` no `pyproject.toml`: a 3.x troca a biblioteca de rede e exige refazer os testes do pacote `ia`.
+- [ ] Limpar as 6 reexportações `# noqa: PLC0414` em `src/` (sobra da extração do pacote `navegador`).
+- [ ] `TZ` fixo em America/Sao_Paulo no compose: mudar o fuso em Configurações → Geral não muda os logs nem o relógio do noVNC.
+- [ ] Card da LigaMagic diz "Próxima começa em instantes" até a meia-noite quando a coleta do dia foi pulada (pausa no horário) (`consultas_painel.py`). Pode ir junto com a fase 3.
+- [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela). Pode ir junto com a fase 3.
+- [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
 
-## 2. Acompanhar (sem código)
+## 3. Acompanhar (sem código)
 
-- [ ] Catálogo com 2165 produtos ativos (eram 224): coleta da Liga passa de ~1 h para ~10 h; a busca da Amazon (200/h na janela 08–22h) alcança cada produto sem par ~1 vez por dia; mais anúncios novos = mais chamadas à IA. Conferir se a ativação em massa foi intencional e se o ritmo atende.
+- [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: coleta da Liga passa de ~1 h para ~10 h; a busca da Amazon (200/h na janela 08–22h) alcança cada produto sem par ~1 vez por dia; mais anúncios novos e a busca alternativa = mais gasto com a IA.
+- [ ] Frequência de CAPTCHA da Amazon com o monitor no teto de produção de **1000 páginas/h**. Se os CAPTCHAs aumentarem, baixar para ~220 páginas/h (o suficiente para os anúncios confirmados a cada 15 min).
+- [ ] Primeira semana do casamento por par: quantos ignorados viraram confirmados para outro produto e quantos produtos entraram na busca alternativa. Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
-- [ ] Frequência de CAPTCHA da Amazon com o monitor ligado (até 150 páginas/h).
-- [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare.
-- [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio para em 7 diários + 4 semanais.
+- [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare. No fim, revisar o máximo de cliques em "Exibir mais" (Configurações → LigaMagic) com os números reais.
+- [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio local para em 7 diários + 4 semanais. No R2, as regras de ciclo de vida foram criadas no painel (`diario/` 7 dias, `semanal/` 35 dias): conferir que os arquivos antigos somem.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
 - [ ] Volume de avisos no grupo admin na primeira semana (~60–70/dia com a rodada do monitor); desligar em Configurações → Avisos o que virar ruído.
 - [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida é uma thread de 60 s).
 
-## 3. Próximas funcionalidades (decisão do grupo)
+## 4. Próximas funcionalidades (decisão do grupo)
 
 - [ ] **Site novo, fase 2 — área de negócio**: dashboard do grupo (oportunidades, funil, resultados), com as permissões ver_oportunidades e ver_resultados.
-- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes.
+- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo.
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
-- [ ] **Margem líquida real** por oportunidade: comissão de lojista da LigaMagic, frete de envio, imposto, cupons e cartões. Precisa dos valores/regras do grupo.
+- [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
+- [ ] **Vender acesso às oportunidades**: assinantes na área de negócio, no mesmo sistema (sem multi-cliente). Assinatura, pagamento e planos ficam num projeto próprio; a base de permissões finas já veio na fase 1.
+- [ ] **Margem líquida real** por oportunidade: comissão de lojista da LigaMagic, frete de envio, imposto, cupons e cartões. Alertar por um piso de margem configurável (ex.: 15%) no lugar ou ao lado do desconto mínimo, com uma tabela editável de regras (Prime e frete grátis, cashback por cartão, cupons com validade). Precisa dos valores/regras do grupo.
 - [ ] **Coletor do Mercado Livre** pelo navegador (sem API).
-- [ ] **Limite de exposição por produto** (quanto o grupo aceita comprar de cada item).
-- [ ] **Outros sites** de compra.
-- [ ] **Migrar para servidor** (a LigaMagic continua sendo coletada em casa).
+- [ ] **Limite de exposição por produto** (quanto o grupo aceita comprar de cada item). Pré-requisito: registrar compras e estoque (hoje não existe). Faz sentido depois da margem.
+- [ ] **Outros sites** de compra, um por vez. Candidatos: Magalu, Shopee e lojas de TCG.
+- [ ] **Migrar para servidor**, modelo híbrido: API, front, banco e serviços num VPS (mínimo 4 GB de RAM); **os dois coletores** (LigaMagic e Amazon) continuam em casa, ligados ao banco do VPS por rede privada (Tailscale ou WireGuard), por causa do IP e da conta da Amazon. Antes, testar a Liga e a Amazon alguns dias com o IP do VPS.
 - [ ] Imagens no R2 da Cloudflare: só se for preciso mostrar fotos no admin ou guardar histórico de imagem (hoje a IA baixa direto da loja).
+- [ ] Ideia, fora do escopo agora: pipeline de deploy separado por serviço (o monorepo permite).
 
-## 4. Riscos conhecidos (decisão, não código)
+## 5. Riscos conhecidos (decisão, não código)
 
-- [ ] O PC é ponto único de falha (ver "Migrar para servidor").
+- [ ] O PC é ponto único de falha (ver "Migrar para servidor"). Ninguém fica sabendo quando ele cai: o vigia e o notificador caem junto. Vale um aviso externo simples (batida de vida para um serviço de fora, que avisa se parar).
 - [ ] O número do WhatsApp pode ser banido: usar chip secundário.
+- [ ] Conta da Amazon dedicada ao coletor (com Prime): evita o "carrinho ocupado" que desliga a conferência e protege a conta pessoal numa futura migração para servidor (logar a conta pessoal de IP de datacenter é o risco mais sério).
+
+## Decisões pendentes
+
+- [ ] Alerta que **espera a conferência de checkout** antes de sair (decidido pelo assistente em 2026-10-18 e descrito no README): falta a confirmação do usuário.
+
+## Decisões registradas
+
+- 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
+- 2026-10-19: teto do monitor da Amazon em produção é 1000 páginas/h; baixar para ~220 só se os CAPTCHAs aumentarem.
+- 2026-10-19: busca alternativa entra depois de 7 dias sem candidato.
+- 2026-10-19: celular sem o 9 extra é aceito no login (normalizado para o cadastrado).
+- 2026-10-19: menos de 20 usuários por enquanto, mas o acesso vai ser vendido; limites e sessões pensados para crescer, sem multi-cliente.
+- 2026-10-19: o front (React) fica a cargo do assistente.
+- 2026-10-19: os nomes fictícios usados nos testes ficam como estão.
+- 2026-10-19: o histórico do GitHub fica como está (sem reescrever commits nem pedir limpeza ao suporte).
+- 2026-10-19: regras de ciclo de vida do R2 criadas no painel.
+- 2026-10-17: desconto mínimo de produção em 20% (Configurações → Amazon; o padrão de fábrica é 25%).
+- 2026-10-17: preço conferido = itens + impostos, sem frete (frete mostrado à parte); a oportunidade usa o preço Prime quando existir (o preço que a conta vê).
+- 2026-10-15: Ofertas não lê uma vez por dia os anúncios casados sem desconto; só mostra o rótulo "vendedor não verificado" (por isso vendedor e variação ficam vazios nesses anúncios).
+- Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Ordem sugerida
 
-0. Seção 0 (anúncio ignorado preso ao primeiro produto) — em desenho.
+0. Seção 0: casamento por par (spec aprovada, plano em escrita, execução a seguir) e o resultado da avaliação da IA.
 1. Site novo, fase 2 (área de negócio).
-2. Site novo, fase 3 (área administrativa + auditoria de layout), depois fase 4.
-3. Seção 1 (pequenas), junto com a próxima mexida no código de cada área.
-4. Seção 2 (acompanhar) ao longo dos próximos dias, sem prazo.
-5. Margem líquida (seção 3), quando o grupo tiver os valores.
+2. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
+3. Seção 1 (segurança do login), antes de publicar na internet.
+4. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
+5. Seção 3 (acompanhar) ao longo dos próximos dias, sem prazo.
+6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
 

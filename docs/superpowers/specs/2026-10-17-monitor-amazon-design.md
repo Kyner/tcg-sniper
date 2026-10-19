@@ -79,7 +79,7 @@ O casador (`casador/servico.py`) passa a pular pares cujo produto já tem anúnc
 ## Oportunidade e mensagens
 
 - O motor de oportunidades usa o **total do checkout** quando há conferência ok válida para a melhor oferta; senão o preço anunciado.
-- A mensagem do WhatsApp mostra: preço final conferido (com impostos e frete) ou "preço anunciado, não conferido (<motivo>)"; vendedor; "importado (EUA)" quando for; Prime; e, se houver, o desconto condicional como informação ("cupom: 15% na 1ª compra com cartão Amazon").
+- A mensagem do WhatsApp mostra: preço final conferido (itens + impostos, sem frete; frete mostrado à parte; corrigido em 2026-10-19, regra do usuário) ou "preço anunciado, não conferido (<motivo>)"; vendedor; "importado (EUA)" quando for; Prime; e, se houver, o desconto condicional como informação ("cupom: 15% na 1ª compra com cartão Amazon").
 - Uma oportunidade aberta com preço anunciado é atualizada quando a conferência chegar (sem novo alerta, a menos que o desconto confirmado caia abaixo do mínimo, caso em que ela fecha).
 
 ## Origem do casamento
