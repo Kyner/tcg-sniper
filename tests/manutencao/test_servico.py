@@ -10,7 +10,15 @@ from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_manutencao as repo_man
-from tcg_sniper.db.models import COLETOR_MANUTENCAO, ChamadaIA, ExecucaoManutencao, StatusManutencao
+from tcg_sniper.db import repositorio_mensagens as repo_msg
+from tcg_sniper.db.models import (
+    COLETOR_MANUTENCAO,
+    ChamadaIA,
+    ExecucaoManutencao,
+    MensagemSaida,
+    StatusManutencao,
+    StatusMensagem,
+)
 from tcg_sniper.manutencao.backup import SaidaComando
 from tcg_sniper.manutencao.servico import ServicoManutencao
 from tcg_sniper.notificador.base import Destino
@@ -349,3 +357,21 @@ def test_tick_roda_a_vigia_mesmo_com_o_backup_desligado(sessoes, config):
     srv.tick()
     with sessoes() as s:
         assert "casador" in avisos.abertos(s, TipoAviso.SERVICO_SEM_SINAL)
+
+
+def test_tick_expira_individual_vencida_e_apaga_o_codigo(sessoes, config):
+    with sessoes() as s, s.begin():
+        vencida = repo_msg.enfileirar(
+            s, "individual", "*123456*", QUARTA_4H - timedelta(minutes=5), numero="+5511900000001",
+            expira_em=QUARTA_4H,
+        ).id
+        valida = repo_msg.enfileirar(
+            s, "individual", "*654321*", QUARTA_4H, numero="+5511900000001", expira_em=QUARTA_4H + timedelta(minutes=5)
+        ).id
+        grupo = repo_msg.enfileirar(s, "admin", "aviso", QUARTA_4H - timedelta(hours=1)).id
+    servico(sessoes, config, QUARTA_4H).tick()
+    with sessoes() as s:
+        m, v, g = (s.get(MensagemSaida, i) for i in (vencida, valida, grupo))
+        assert (m.status, m.texto) == (StatusMensagem.EXPIRADA, repo_msg.TEXTO_APAGADO)
+        assert (v.status, v.texto) == (StatusMensagem.PENDENTE, "*654321*")
+        assert (g.status, g.texto) == (StatusMensagem.PENDENTE, "aviso")

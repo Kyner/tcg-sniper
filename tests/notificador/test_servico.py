@@ -445,3 +445,19 @@ def test_erro_que_repete_o_numero_e_mascarado(sessoes, env, configurado, caplog)
         avisos_admin = [x.texto for x in s.scalars(select(MensagemSaida).where(MensagemSaida.destino == "admin"))]
     assert avisos_admin and all("900000001" not in texto for texto in avisos_admin)
     assert "900000001" not in caplog.text
+
+
+@respx.mock
+def test_pausado_expira_individual_vencida_e_apaga_o_codigo(sessoes, env, configurado):
+    rota = respx.post(ROTA).mock(return_value=httpx.Response(201))
+    vencida = nova_individual(sessoes, criada=AGORA - timedelta(minutes=5))
+    valida = nova_individual(sessoes, criada=AGORA)
+    grupo = nova(sessoes, "admin", "aviso do grupo", criada=AGORA - timedelta(hours=1))
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", AGORA, COLETOR_NOTIFICADOR)
+    assert servico(sessoes, env).ciclo() == 0
+    assert not rota.called
+    m = ler(sessoes, vencida)
+    assert (m.status, m.texto) == (StatusMensagem.EXPIRADA, repo_msg.TEXTO_APAGADO)
+    assert ler(sessoes, valida).status is StatusMensagem.PENDENTE and "*123456*" in ler(sessoes, valida).texto
+    assert (ler(sessoes, grupo).status, ler(sessoes, grupo).texto) == (StatusMensagem.PENDENTE, "aviso do grupo")

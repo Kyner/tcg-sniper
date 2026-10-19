@@ -23,6 +23,7 @@ from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_manutencao as repo_man
+from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db import retencao
 from tcg_sniper.db.models import COLETOR_MANUTENCAO, EstadoColetorTipo, StatusManutencao
 from tcg_sniper.formatacao import formatar_bytes
@@ -87,6 +88,11 @@ class ServicoManutencao:
     def tick(self) -> bool:
         """Registra que está vivo e roda a execução do dia se for a hora. Devolve se rodou."""
         agora = self._relogio()
+        try:  # apaga o código de acesso vencido mesmo com o notificador parado
+            with self._sessoes() as s, s.begin():
+                repo_msg.expirar_individuais_vencidas(s, agora)
+        except Exception:
+            log.exception("não consegui expirar os códigos vencidos")
         with self._sessoes() as s, s.begin():
             repo_man.registrar_ciclo(s, agora)
             vigia.verificar(s, agora, self._vigia_desde)  # roda também com o backup desligado

@@ -72,6 +72,11 @@ class ServicoNotificador:
         Pausado no admin, só registra que está vivo: as mensagens ficam pendentes até retomar.
         Devolve quantas mensagens processou."""
         agora = inicio = self._relogio()
+        try:  # antes da pausa: o código vencido não pode ficar no banco com o notificador parado
+            with self._sessoes() as s, s.begin():
+                repo_msg.expirar_individuais_vencidas(s, agora)
+        except Exception:
+            log.exception("não consegui expirar os códigos vencidos")
         with self._sessoes() as s, s.begin():
             if repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado != EstadoColetorTipo.ATIVO:
                 repo_msg.registrar_ciclo(s, agora)
@@ -129,16 +134,16 @@ class ServicoNotificador:
             return None
         individual = m.destino == Destino.INDIVIDUAL.value
         if individual:
-            grupo = (m.numero or "").removeprefix("+")  # a Evolution quer só os dígitos
+            alvo = (m.numero or "").removeprefix("+")  # a Evolution quer só os dígitos
         else:
-            grupo = geral.whatsapp_grupo_admin if m.destino == "admin" else geral.whatsapp_grupo_oportunidades
+            alvo = geral.whatsapp_grupo_admin if m.destino == "admin" else geral.whatsapp_grupo_oportunidades
         falta = None
         if self._chave is None:
             falta = "EVOLUTION_URL ou EVOLUTION_API_KEY ausente (ou com o valor padrão) no .env"
         elif not geral.evolution_instancia:
             falta = "sem instância da Evolution em Configurações → Geral"
-        elif not grupo:
-            falta = f"sem grupo de {m.destino} em Configurações → Geral"
+        elif not alvo:
+            falta = "sem número na mensagem individual" if individual else f"sem grupo de {m.destino} em Configurações → Geral"
         if falta is not None:
             m.ultimo_erro = falta
             m.proxima_tentativa_em = agora + ESPERA_SEM_DESTINO
@@ -146,7 +151,7 @@ class ServicoNotificador:
         # linhas antigas da fila e "reenviar" saem como estão gravadas: a guarda de URL vale aqui também
         texto = formato.conferir_urls(m.texto, avisos.zona_e_host(s)[1], estrito=False)
         resultado, erro = enviar_uma_vez(
-            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, texto
+            self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, alvo, texto
         )
         if individual and erro and m.numero:
             erro = ocultar_numero(erro, m.numero)  # a Evolution pode repetir o número no erro

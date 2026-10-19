@@ -49,6 +49,21 @@ def enfileirar(
     return mensagem
 
 
+def expirar_individuais_vencidas(s: Session, agora: datetime) -> int:
+    """Individual pendente já vencida vira expirada e perde o texto (o código), mesmo com o notificador parado.
+    Devolve quantas mudaram."""
+    resultado = s.execute(
+        update(MensagemSaida)
+        .where(
+            MensagemSaida.destino == Destino.INDIVIDUAL.value,
+            MensagemSaida.status == StatusMensagem.PENDENTE,
+            MensagemSaida.expira_em <= agora,
+        )
+        .values(status=StatusMensagem.EXPIRADA, texto=TEXTO_APAGADO, atualizado_em=agora)
+    )
+    return resultado.rowcount
+
+
 def apagar_texto_individual(mensagem: MensagemSaida) -> None:
     """Mensagem individual (código de acesso) não guarda o texto depois de sair da fila: enviada, expirada,
     falha ou descartada."""
