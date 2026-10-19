@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from tcg_sniper.db.models import CodigoAcesso, Papel, PedidoCodigo, PermissaoPapel, Sessao, Usuario
 
 ACEITO = "aceito"
+ENTRADA = "entrada"  # tentativa de entrar com código (limite próprio; não conta como pedido de código)
 RETENCAO = timedelta(days=1)  # pedidos e códigos mais velhos que isso não servem para nada
 
 
@@ -170,9 +171,10 @@ def registrar_pedido(s: Session, numero_hash: str, resultado: str, agora: dateti
     s.flush()
 
 
-def contar_pedidos(s: Session, desde: datetime, numero_hash: str | None = None) -> int:
-    """Pedidos aceitos depois de `desde` (janela aberta), de um número ou de todos."""
-    condicoes = [PedidoCodigo.resultado == ACEITO, PedidoCodigo.em > desde]
+def contar_pedidos(s: Session, desde: datetime, numero_hash: str | None = None, resultado: str = ACEITO) -> int:
+    """Pedidos aceitos (ou, com `resultado=ENTRADA`, tentativas de entrar) depois de `desde` (janela aberta), de um
+    número ou de todos."""
+    condicoes = [PedidoCodigo.resultado == resultado, PedidoCodigo.em > desde]
     if numero_hash is not None:
         condicoes.append(PedidoCodigo.numero_hash == numero_hash)
     return s.scalar(select(func.count()).select_from(PedidoCodigo).where(*condicoes)) or 0

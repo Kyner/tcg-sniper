@@ -341,7 +341,8 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
     ),
     TipoAviso.SEGURANCA_LIMITE: _problema(
         A, "Segurança · limite de códigos", ACESSO,
-        "Pedidos de código acima do limite (3 por número em 15 min ou 20 por hora no total); agrupa por número.",
+        "Pedidos de código acima do limite (3 por número em 15 min ou 20 por hora no total) ou 5 códigos errados "
+        "seguidos (o código é invalidado); agrupa por número.",
         "Se ninguém do grupo está tentando entrar, alguém pode estar testando números; "
         "o site recusa novos pedidos até a janela passar.",
         Dados(linhas=("Limite: 3 códigos por número em 15 min", "Número com final 34")),

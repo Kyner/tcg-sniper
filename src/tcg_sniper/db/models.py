@@ -807,13 +807,14 @@ class PermissaoPapel(Base):
 
 
 class PedidoCodigo(Base):
-    """Cada pedido de código, para os limites (3 por número em 15 min, 20 por hora no total). Sem o número: só o hash,
-    também de números sem cadastro (o limite vale para eles, senão o 429 revelaria quem tem cadastro)."""
+    """Cada pedido de código, para os limites (3 por número em 15 min, 20 por hora no total), e cada tentativa de
+    entrar (`resultado = 'entrada'`, até 10 por número em 15 min). Sem o número: só o hash, também de números sem
+    cadastro (o limite vale para eles, senão o 429 revelaria quem tem cadastro)."""
 
     __tablename__ = "pedido_codigo"
     __table_args__ = (
         CheckConstraint(
-            "resultado IN ('aceito', 'limite_numero', 'limite_total')", name="ck_pedido_codigo_resultado"
+            "resultado IN ('aceito', 'limite_numero', 'limite_total', 'entrada')", name="ck_pedido_codigo_resultado"
         ),
         Index("ix_pedido_codigo_em", "em"),
         Index("ix_pedido_codigo_numero", "numero_hash", "em"),
