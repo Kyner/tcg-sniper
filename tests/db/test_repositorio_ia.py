@@ -2,11 +2,19 @@ from datetime import timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
+from fakes import T0, criar_anuncio, criar_par, criar_preco_liga, criar_produto
 
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import COLETOR_CASADOR, PADROES_CONFIG_IA, EstadoColetorTipo, OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import (
+    COLETOR_CASADOR,
+    PADROES_CONFIG_IA,
+    Casamento,
+    EstadoColetorTipo,
+    OrigemCasamento,
+    StatusCasamento,
+)
 
 SP = ZoneInfo("America/Sao_Paulo")
 
@@ -61,7 +69,7 @@ def test_pares_pendentes_com_avaliacao_e_precos(s):
     criar_preco_liga(s, p, Decimal(500))
     a1 = criar_anuncio(s, "B1", produto=p, agora=T0 - timedelta(days=1))
     a2 = criar_anuncio(s, "B2", produto=p, agora=T0)
-    a3 = criar_anuncio(s, "B3", produto=inativo, agora=T0 + timedelta(hours=1))
+    criar_anuncio(s, "B3", produto=inativo, agora=T0 + timedelta(hours=1))  # produto inativo: fora
     criar_anuncio(s, "B4", produto=p, status=StatusCasamento.CONFIRMADO)
     criar_anuncio(s, "B5", produto=None)
     av = repo_ia.gravar_avaliacao(
@@ -69,9 +77,20 @@ def test_pares_pendentes_com_avaliacao_e_precos(s):
         modelo="gpt-5", assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
     )
     pares = repo_ia.pares_pendentes(s)
-    assert [par.anuncio.id for par in pares] == [a2.id, a1.id, a3.id]  # ativos primeiro, mais recentes primeiro
+    assert [par.anuncio.id for par in pares] == [a2.id, a1.id]  # mais recentes primeiro
     assert pares[1].avaliacao.id == av.id and pares[0].avaliacao is None
     assert pares[0].preco_liga == Decimal(500) and pares[0].preco_amazon is None
+    assert pares[0].reavaliar is False
+
+
+def test_pares_pendentes_um_anuncio_em_dois_produtos_e_fora_se_confirmado(s):
+    p, q, r = criar_produto(s, "p"), criar_produto(s, "q"), criar_produto(s, "r")
+    anuncio = criar_anuncio(s, "B1", produto=p)
+    criar_par(s, anuncio, q)
+    casado = criar_anuncio(s, "B2", produto=r, status=StatusCasamento.CONFIRMADO)
+    criar_par(s, casado, p)  # pendente de anúncio confirmado em r (corrida): fora da IA
+    pares = {(par.anuncio.id, par.produto.id) for par in repo_ia.pares_pendentes(s)}
+    assert pares == {(anuncio.id, p.id), (anuncio.id, q.id)}
 
 
 def test_gravar_avaliacao_substitui_e_preserva_aplicada_em(s):
@@ -101,33 +120,34 @@ def test_avaliacoes_dos_pares(s):
     assert repo_ia.avaliacoes_dos_pares(s, []) == {}
 
 
-def test_pares_decididos_sem_os_aplicados_pela_ia(s):
-    p = criar_produto(s, "p1")
-    c = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO)
-    i = criar_anuncio(s, "B2", produto=p, status=StatusCasamento.IGNORADO)
-    pela_ia = criar_anuncio(s, "B3", produto=p, status=StatusCasamento.CONFIRMADO)
+def test_pares_decididos_sem_os_aplicados_pela_ia_nem_os_do_sistema(s):
+    p, q = criar_produto(s, "p1"), criar_produto(s, "p2")
+    c = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+    criar_par(s, c, q, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.OUTRO_CONFIRMADO, revisado_em=T0)
+    i = criar_anuncio(s, "B2", produto=p, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.MANUAL)
+    pela_ia = criar_anuncio(s, "B3", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.AUTOMATICO_IA)
     criar_anuncio(s, "B4", produto=p)  # pendente
     av = repo_ia.gravar_avaliacao(
         s, anuncio_id=pela_ia.id, produto_id=p.id, mesmo_produto=True, confianca=99, motivo="m", modelo="gpt-5",
         assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
     )
     av.aplicada_em = T0
-    pela_ia.revisado_em = T0  # o automático grava os dois no mesmo instante
+    s.get(Casamento, (pela_ia.id, p.id)).revisado_em = T0  # o automático grava os dois no mesmo instante
     s.flush()
     decididos = repo_ia.pares_decididos(s, None)
-    assert {(d.anuncio.id, d.confirmado) for d in decididos} == {(c.id, True), (i.id, False)}
+    assert {(d.anuncio.id, d.produto.id, d.confirmado) for d in decididos} == {(c.id, p.id, True), (i.id, p.id, False)}
     assert len(repo_ia.pares_decididos(s, 1)) == 1
 
 
 def test_correcao_do_usuario_depois_do_automatico_conta_na_avaliacao(s):
     p = criar_produto(s, "p1")
-    a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.IGNORADO)
+    a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.MANUAL)
     av = repo_ia.gravar_avaliacao(
         s, anuncio_id=a.id, produto_id=p.id, mesmo_produto=True, confianca=99, motivo="m", modelo="gpt-5",
         assinatura="x", sem_imagem=False, chamada_id=None, agora=T0,
     )
     av.aplicada_em = T0  # a IA confirmou; o usuário desfez e ignorou depois
-    a.revisado_em = T0 + timedelta(hours=1)
+    s.get(Casamento, (a.id, p.id)).revisado_em = T0 + timedelta(hours=1)
     s.flush()
     assert [(d.anuncio.id, d.confirmado) for d in repo_ia.pares_decididos(s, None)] == [(a.id, False)]
 
@@ -157,10 +177,14 @@ def test_origem_da_decisao(s):
 def test_pares_pendentes_so_descoberta_pula_os_antigos_de_produto_casado(s):
     casado = criar_produto(s, "casado")
     livre = criar_produto(s, "livre")
-    criar_anuncio(s, "B0", produto=casado, status=StatusCasamento.CONFIRMADO).revisado_em = T0
+    b0 = criar_anuncio(s, "B0", produto=casado, status=StatusCasamento.CONFIRMADO)
+    s.get(Casamento, (b0.id, casado.id)).revisado_em = T0
     antigo = criar_anuncio(s, "B1", produto=casado, agora=T0 - timedelta(days=1))
     da_semanal = criar_anuncio(s, "B2", produto=casado, agora=T0 + timedelta(days=7))
     de_livre = criar_anuncio(s, "B3", produto=livre, agora=T0 - timedelta(days=1))
     s.flush()
     assert {p.anuncio.id for p in repo_ia.pares_pendentes(s, so_descoberta=True)} == {da_semanal.id, de_livre.id}
     assert {p.anuncio.id for p in repo_ia.pares_pendentes(s)} == {antigo.id, da_semanal.id, de_livre.id}
+    repo_casamento.reavaliar_produto(s, casado.id, T0)  # pedido de reavaliar vale mesmo no produto casado
+    pares = {p.anuncio.id: p for p in repo_ia.pares_pendentes(s, so_descoberta=True)}
+    assert antigo.id in pares and pares[antigo.id].reavaliar is True

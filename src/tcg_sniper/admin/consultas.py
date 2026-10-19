@@ -59,7 +59,7 @@ def historico_coletas(
 
 
 SITUACOES_IA = ("todas", "com_erro")
-FINALIDADES_IA = ("todas", "casamento", "avaliacao")
+FINALIDADES_IA = ("todas", "casamento", "avaliacao", "termos")
 
 
 def historico_chamadas_ia(

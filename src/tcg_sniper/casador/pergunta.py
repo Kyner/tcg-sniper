@@ -25,6 +25,7 @@ INSTRUCOES = """Você compara um produto selado de Magic: The Gathering vendido 
 Responda se o anúncio é exatamente o mesmo item lacrado do produto da LigaMagic.
 É o mesmo produto só se coincidirem: o jogo, a edição/coleção, o tipo (booster avulso, caixa de boosters, bundle, deck, kit, colecionador etc.), a versão do booster (draft, set, play, collector), o idioma quando informado e a quantidade.
 É outro produto: carta avulsa, acessório (sleeve, deck box, playmat), outra edição, outro tipo, outra quantidade ou lote com vários itens.
+Idioma diferente = outro produto: português, inglês e japonês não se casam entre si.
 Use as imagens, quando houver, para conferir embalagem, edição e tipo. Preço muito abaixo do esperado é pista de item diferente, não prova.
 A confiança é um inteiro de 0 a 100 sobre a sua resposta. O motivo é uma frase curta em português (até 200 caracteres) com o que decidiu."""
 
