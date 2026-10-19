@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico (em andamento)
 
-- [ ] **Reabrir os ignorados por inglês** (casamento por par implantado em 2026-10-19, merge `cb16fbb`): `docker compose exec casador tcg-sniper casamento reabrir-ingles` (simulação) achou **19** pares; aplicar com `--aplicar` depois do ok do usuário.
+- [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -104,7 +104,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Ordem sugerida
 
-0. Seção 0: reabrir os 19 ignorados por inglês (ok do usuário) e acompanhar a primeira semana do casamento por par (seção 3).
+0. Acompanhar a primeira semana do casamento por par (seção 3) e o resultado dos 19 pares em inglês reabertos.
 1. Site novo, fase 2 (área de negócio).
 2. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
 3. Seção 1 (segurança do login), antes de publicar na internet.
