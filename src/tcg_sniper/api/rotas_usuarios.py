@@ -1,5 +1,5 @@
 """Gestão → Usuários: listar, criar, editar (nome, papel, ativo) e as sessões de cada um. Exige `gerir_usuarios`.
-Só o superadmin cria, edita, rebaixa ou desativa admins e encerra sessões de admins (403 `so_superadmin`); o
+Só o superadmin cria, edita, rebaixa ou desativa admins e vê ou encerra sessões de admins (403 `so_superadmin`); o
 superadmin nunca é rebaixado, desativado nem tem sessões encerradas por ninguém (403 `superadmin_protegido`; só ele
 encerra as dele). Quem não é o superadmin não muda o próprio papel nem se desativa (403 `proprio_papel`); o próprio
 nome e as próprias sessões, qualquer um. Desativar encerra todas as sessões na hora. Criar e trocar o superadmin: só pelos comandos locais. O número sai sempre mascarado."""
@@ -102,8 +102,13 @@ def _saida(usuario: Usuario, sessoes_ativas: int) -> UsuarioSaida:
     )
 
 
-def _obter(s: Session, usuario_id: int) -> Usuario:
-    usuario = s.get(Usuario, usuario_id) if 1 <= usuario_id <= MAX_ID else None
+def _obter(s: Session, usuario_id: int, *, travar: bool = False) -> Usuario:
+    """`travar`: SELECT ... FOR UPDATE (lido de novo do banco) para editar sem corrida com outra edição ou com o
+    `trocar-superadmin`."""
+    if not 1 <= usuario_id <= MAX_ID:
+        usuario = None
+    else:
+        usuario = s.get(Usuario, usuario_id, with_for_update=travar, populate_existing=travar)
     if usuario is None:
         raise ErroApi(404, "nao_encontrado", "Usuário não encontrado.")
     return usuario
@@ -112,7 +117,9 @@ def _obter(s: Session, usuario_id: int) -> Usuario:
 def _so_superadmin(contexto: Contexto, *papeis: Papel | None) -> None:
     """Admin envolvido (alvo admin ou papel novo admin): só o superadmin."""
     if not contexto.superadmin and Papel.ADMIN in papeis:
-        raise ErroApi(403, "so_superadmin", "Só o superadmin cria, edita, rebaixa ou desativa admins.")
+        raise ErroApi(
+            403, "so_superadmin", "Só o superadmin cria, edita, rebaixa ou desativa admins e vê ou encerra as sessões deles."
+        )
 
 
 def _protegido() -> ErroApi:
@@ -150,7 +157,7 @@ def editar(request: Request, usuario_id: int, entrada: EdicaoUsuario, contexto: 
     estado = request.app.state
     agora = estado.relogio()
     with estado.sessoes() as s, s.begin():
-        usuario = _obter(s, usuario_id)
+        usuario = _obter(s, usuario_id, travar=True)  # duas edições ao mesmo tempo: uma espera a outra
         rebaixa = entrada.papel is not None and entrada.papel is not Papel.ADMIN
         if usuario.superadmin and (rebaixa or entrada.ativo is False):
             raise _protegido()  # nem ele mesmo; papel admin e ativo true (formulário inteiro) passam
@@ -182,6 +189,8 @@ def sessoes_do_usuario(request: Request, usuario_id: int, contexto: GerirUsuario
     estado = request.app.state
     with estado.sessoes() as s:
         usuario = _obter(s, usuario_id)
+        if usuario.id != contexto.usuario_id:  # as próprias, qualquer um; de admins (e do superadmin), só o superadmin
+            _so_superadmin(contexto, usuario.papel)
         ativas = repo_acesso.sessoes_ativas(s, usuario.id, estado.relogio())
         return SessoesSaida(
             sessoes=[

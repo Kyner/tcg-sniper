@@ -230,3 +230,20 @@ def test_desativar_derruba_a_sessao_em_uso(cliente, logar, sessoes):
     assert outro.get("/api/usuarios").status_code == 403  # logado, mas sem permissão
     assert cliente.patch(f"/api/usuarios/{grupo_id}", json={"ativo": False}).status_code == 200
     assert outro.get("/api/usuarios").status_code == 401
+
+
+@pytest.mark.parametrize("papel", [Papel.ADMIN, Papel.OPERADOR])
+def test_so_o_superadmin_ve_sessoes_de_admins(cliente, logar, sessoes, papel):
+    """Quem não é o superadmin (com `gerir_usuarios`) não lista sessões de admins nem do superadmin; as próprias sim."""
+    super_id = criar_usuario(sessoes, Papel.ADMIN, nome="Pessoa Superadmin", superadmin=True)
+    admin_id = criar_usuario(sessoes, Papel.ADMIN, nome="Outro Admin", numero="+5511900000004")
+    with sessoes() as s, s.begin():
+        repo_acesso.salvar_permissao(s, Papel.OPERADOR, "gerir_usuarios", True)
+    eu_id = logar(papel, numero="+5511900000006")
+    for alvo in (super_id, admin_id):
+        assert _recusado(cliente.get(f"/api/usuarios/{alvo}/sessoes"), "so_superadmin")
+    assert cliente.get(f"/api/usuarios/{eu_id}/sessoes").status_code == 200
+    cliente.cookies.clear()
+    criar_sessao(sessoes, super_id, "token-super")
+    cliente.cookies.set("sessao", "token-super")
+    assert cliente.get(f"/api/usuarios/{admin_id}/sessoes").status_code == 200
