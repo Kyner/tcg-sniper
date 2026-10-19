@@ -7,7 +7,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import (
-    AnuncioAmazon,
+    Casamento,
     MensagemSaida,
     Oportunidade,
     ProdutoLiga,
@@ -20,16 +20,16 @@ PENDENTE_PARADA = timedelta(minutes=30)
 
 @dataclass(frozen=True)
 class ContadoresMenu:
-    casamentos: int  # produtos ativos com anúncio pendente
+    casamentos: int  # produtos ativos com par pendente
     ofertas: int  # oportunidades abertas
     mensagens: int  # falhas + pendentes paradas há mais de 30 min
 
 
 def contadores_menu(s: Session, agora: datetime) -> ContadoresMenu:
     casamentos = s.scalar(
-        select(func.count(func.distinct(AnuncioAmazon.produto_id)))
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE, ProdutoLiga.ativo.is_(True))
+        select(func.count(func.distinct(Casamento.produto_id)))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
+        .where(Casamento.status == StatusCasamento.PENDENTE, ProdutoLiga.ativo.is_(True))
     )
     ofertas = s.scalar(select(func.count()).select_from(Oportunidade).where(Oportunidade.fechada_em.is_(None)))
     mensagens = s.scalar(
