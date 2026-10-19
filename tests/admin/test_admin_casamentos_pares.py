@@ -56,7 +56,7 @@ def test_dashboard_conta_produtos(s, config):
     c = painel.numeros(s, T0, config).catalogo
     # p casado; q (ignorado por estar casado em outro produto + um pendente) espera sua decisão
     assert (c.casado, c.esperando_decisao, c.so_ignorados, c.sem_candidato) == (1, 1, 0, 0)
-    assert (c.com_mais_de_uma_sugestao, c.pares_pendentes, c.produtos_com_pendentes) == (1, 1, 1)
+    assert (c.com_mais_de_uma_sugestao, c.pares_pendentes, c.produtos_com_pendentes, c.casados_com_pendentes) == (1, 1, 1, 0)
 
 
 def test_ofertas_e_produto_usam_o_par_confirmado_e_a_origem_dele(s):

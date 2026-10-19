@@ -42,11 +42,14 @@ class SituacaoCatalogo:
     com_mais_de_um_confirmado: int
     pares_pendentes: int  # anúncios pendentes dos produtos ativos
     produtos_com_pendentes: int  # produtos distintos desses pendentes
+    casados_com_pendentes: int  # desses produtos, os que já têm confirmado
     produtos_avaliados: int  # produtos com pelo menos uma avaliação da IA
     avaliados_hoje: int  # produtos com avaliação feita hoje (no fuso configurado)
     esperando_ia: int  # sem confirmado, com pendente sem avaliação ou marcado para reavaliar
+    # `avaliacao_ia` guarda uma linha por par (reavaliar sobrescreve): é o número de anúncios avaliados
+    # (pares), não de chamadas nem de avaliações feitas ao longo do tempo
     avaliacoes_total: int
-    media_por_produto: float  # avaliações por produto avaliado (1 casa; 0 sem avaliação)
+    media_por_produto: float  # anúncios avaliados por produto avaliado (1 casa; 0 sem avaliação)
 
     def por_situacao(self) -> dict[str, int]:
         return {situacao: getattr(self, situacao) for situacao in SITUACOES_PRODUTO}
@@ -91,12 +94,13 @@ def situacao_catalogo(s: Session, agora: datetime, zona: ZoneInfo) -> SituacaoCa
             func.count().filter(conf > 1),
             func.coalesce(func.sum(pend), 0),
             func.count().filter(pend > 0),
+            func.count().filter(conf > 0, pend > 0),
         )
         .select_from(ProdutoLiga)
         .outerjoin(pares, pares.c.produto_id == ProdutoLiga.id)
         .where(ativo)
     ).one()
-    ativos, casado, esperando, so_ignorados, sem, mais_de_uma, mais_de_um_conf, pend_total, prod_pend = linha
+    ativos, casado, esperando, so_ignorados, sem, mais_de_uma, mais_de_um_conf, pend_total, prod_pend, casados_pend = linha
 
     avaliacoes_ativas = select(AvaliacaoIA).join(ProdutoLiga, ProdutoLiga.id == AvaliacaoIA.produto_id).where(ativo)
     produtos_avaliados, avaliacoes_total = s.execute(
@@ -144,6 +148,7 @@ def situacao_catalogo(s: Session, agora: datetime, zona: ZoneInfo) -> SituacaoCa
         com_mais_de_um_confirmado=mais_de_um_conf,
         pares_pendentes=int(pend_total),
         produtos_com_pendentes=prod_pend,
+        casados_com_pendentes=casados_pend,
         produtos_avaliados=produtos_avaliados,
         avaliados_hoje=avaliados_hoje,
         esperando_ia=esperando_ia,

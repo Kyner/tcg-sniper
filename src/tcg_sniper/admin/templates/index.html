@@ -44,7 +44,7 @@
       </li>
       {% endfor %}
     </ul>
-    <p class="text-xs text-base-content/60">{{ c.com_mais_de_uma_sugestao|milhar }} {{ "produto" if c.com_mais_de_uma_sugestao == 1 else "produtos" }} com mais de uma sugestão · {{ c.pares_pendentes|milhar }} {{ "anúncio" if c.pares_pendentes == 1 else "anúncios" }} aguardando em {{ c.produtos_com_pendentes|milhar }} {{ "produto" if c.produtos_com_pendentes == 1 else "produtos" }}</p>
+    <p class="text-xs text-base-content/60">{{ c.com_mais_de_uma_sugestao|milhar }} {{ "produto" if c.com_mais_de_uma_sugestao == 1 else "produtos" }} com mais de uma sugestão · {{ c.pares_pendentes|milhar }} {{ "anúncio" if c.pares_pendentes == 1 else "anúncios" }} aguardando em {{ c.produtos_com_pendentes|milhar }} {{ "produto" if c.produtos_com_pendentes == 1 else "produtos" }}{% if c.casados_com_pendentes %} (inclui produtos já casados){% endif %}</p>
   </div></div>
 
   <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
@@ -54,7 +54,7 @@
       <div class="stat px-3"><div class="stat-title">Avaliados hoje</div><div class="stat-value text-2xl tabular-nums">{{ c.avaliados_hoje|milhar }}</div><div class="stat-desc whitespace-normal">produtos</div></div>
       <div class="stat px-3"><div class="stat-title">Esperando a IA</div><div class="stat-value text-2xl tabular-nums text-info">{{ c.esperando_ia|milhar }}</div><div class="stat-desc whitespace-normal">produtos sem confirmado, com anúncio a avaliar</div></div>
     </div>
-    <p class="text-xs text-base-content/60">{{ c.avaliacoes_total|milhar }} {{ "avaliação" if c.avaliacoes_total == 1 else "avaliações" }} · média de {{ ("%.1f"|format(c.media_por_produto))|replace(".", ",") if c.media_por_produto else "0" }} por produto</p>
+    <p class="text-xs text-base-content/60">{{ c.avaliacoes_total|milhar }} {{ "anúncio avaliado" if c.avaliacoes_total == 1 else "anúncios avaliados" }} · média de {{ ("%.1f"|format(c.media_por_produto))|replace(".", ",") if c.media_por_produto else "0" }} por produto</p>
     <div class="space-y-1">
       <div class="flex justify-between text-sm"><span>Gasto do mês</span><span class="tabular-nums">{{ n.gasto_mes|usd }} de {{ n.teto_mes|usd }}</span></div>
       <progress class="progress progress-info w-full" value="{{ n.gasto_mes }}" max="{{ n.teto_mes or 1 }}"></progress>

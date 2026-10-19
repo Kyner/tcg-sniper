@@ -23,8 +23,8 @@ def test_dashboard_mostra_casamentos_e_ia_por_produto(sessoes, cliente):
         catalogo_exemplo(s)
     texto = cliente.get("/").text
     for trecho in ("Casados", "Esperando sua decisão", "Só ignorados", "Sem candidato",
-                   "2 produtos com mais de uma sugestão", "2 anúncios aguardando em 2 produtos",
-                   "Produtos avaliados", "Avaliados hoje", "Esperando a IA", "média de 0 por produto",
+                   "2 produtos com mais de uma sugestão", "2 anúncios aguardando em 2 produtos (inclui produtos já casados)",
+                   "Produtos avaliados", "Avaliados hoje", "Esperando a IA", "0 anúncios avaliados · média de 0 por produto",
                    "Gasto do mês"):
         assert trecho in texto
     for situacao in SITUACOES_PRODUTO:

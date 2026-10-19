@@ -30,7 +30,7 @@ def test_cada_produto_ativo_cai_em_uma_situacao(s):
     assert (c.casado, c.esperando_decisao, c.so_ignorados, c.sem_candidato) == (2, 1, 1, 1)
     assert c.casado + c.esperando_decisao + c.so_ignorados + c.sem_candidato == c.produtos_ativos == 5
     assert (c.com_mais_de_uma_sugestao, c.com_mais_de_um_confirmado) == (2, 1)
-    assert (c.pares_pendentes, c.produtos_com_pendentes) == (2, 2)
+    assert (c.pares_pendentes, c.produtos_com_pendentes, c.casados_com_pendentes) == (2, 2, 1)
     assert c.por_situacao() == {"casado": 2, "esperando_decisao": 1, "so_ignorados": 1, "sem_candidato": 1}
     assert c.pct("casado") == 40
 
