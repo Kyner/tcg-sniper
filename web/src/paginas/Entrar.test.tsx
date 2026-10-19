@@ -82,6 +82,38 @@ describe("Entrar", () => {
     expect(screen.getByLabelText("Número do WhatsApp")).toHaveValue("11 90000-0002");
   });
 
+  it("o campo Código ganha o foco quando o código é pedido", async () => {
+    apiFalsa({ "GET /api/auth/eu": SEM_SESSAO, "POST /api/auth/pedir-codigo": PEDIDO_OK });
+    renderizarEm("/entrar");
+    await pedirCodigo();
+    expect(await screen.findByLabelText("Código")).toHaveFocus();
+  });
+
+  it("Usar outro número apaga o erro anterior", async () => {
+    apiFalsa({
+      "GET /api/auth/eu": SEM_SESSAO,
+      "POST /api/auth/pedir-codigo": PEDIDO_OK,
+      "POST /api/auth/entrar": {
+        status: 401,
+        corpo: { erro: "codigo_invalido", mensagem: "Código errado, vencido ou já usado. Peça um novo." },
+      },
+    });
+    renderizarEm("/entrar");
+    const usuario = await pedirCodigo();
+    await usuario.type(await screen.findByLabelText("Código"), "000000");
+    await usuario.click(screen.getByRole("button", { name: "Entrar" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await usuario.click(screen.getByRole("button", { name: "Usar outro número" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("API fora ao pedir o código (500 vazio do proxy) mostra Sistema indisponível", async () => {
+    apiFalsa({ "GET /api/auth/eu": SEM_SESSAO, "POST /api/auth/pedir-codigo": { status: 500 } });
+    renderizarEm("/entrar");
+    await pedirCodigo();
+    expect(await screen.findByRole("heading", { name: "Sistema indisponível" })).toBeInTheDocument();
+  });
+
   it("já logado, /entrar vai direto para o início", async () => {
     apiFalsa({ "GET /api/auth/eu": ok(EU_GRUPO) });
     renderizarEm("/entrar");

@@ -54,6 +54,12 @@ export function Entrar() {
     }
   }
 
+  /** Volta ao primeiro passo mantendo o número digitado e sem o erro do código anterior. */
+  function usarOutroNumero() {
+    setErro(null);
+    setEtapa("numero");
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-base-200 p-4">
       <div className="card w-full max-w-sm bg-base-100 shadow-md">
@@ -110,6 +116,7 @@ export function Entrar() {
                   pattern="[0-9]{6}"
                   maxLength={6}
                   required
+                  autoFocus
                   value={codigo}
                   onChange={(e) => setCodigo(e.target.value)}
                 />
@@ -117,7 +124,7 @@ export function Entrar() {
               <button type="submit" className="btn btn-primary" disabled={enviando}>
                 Entrar
               </button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEtapa("numero")}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={usarOutroNumero}>
                 Usar outro número
               </button>
             </form>

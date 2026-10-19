@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApiIndisponivel, chamarApi, ErroApi } from "./api";
 import { apiFalsa, ok } from "./teste/apoio";
 
@@ -19,6 +19,21 @@ describe("chamarApi", () => {
   it.each([502, 503, 504])("HTTP %i (proxy sem API) vira ApiIndisponivel", async (status) => {
     apiFalsa({ "GET /api/x": { status } });
     await expect(chamarApi("/api/x")).rejects.toBeInstanceOf(ApiIndisponivel);
+  });
+
+  it("HTTP 500 sem corpo (proxy do Vite sem API) vira ApiIndisponivel", async () => {
+    apiFalsa({ "GET /api/x": { status: 500 } });
+    await expect(chamarApi("/api/x")).rejects.toBeInstanceOf(ApiIndisponivel);
+  });
+
+  it("HTTP 500 com corpo que não é JSON vira ApiIndisponivel", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Internal Server Error", { status: 500 })));
+    await expect(chamarApi("/api/x")).rejects.toBeInstanceOf(ApiIndisponivel);
+  });
+
+  it("HTTP 500 no formato da API continua ErroApi", async () => {
+    apiFalsa({ "GET /api/x": { status: 500, corpo: { erro: "erro_interno", mensagem: "Erro interno." } } });
+    await expect(chamarApi("/api/x")).rejects.toMatchObject({ status: 500, erro: "erro_interno" });
   });
 
   it("rede fora vira ApiIndisponivel", async () => {

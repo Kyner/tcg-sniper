@@ -53,4 +53,17 @@ describe("proteção das rotas", () => {
     renderizarEm("/nada");
     expect(await screen.findByRole("heading", { name: "Página não encontrada" })).toBeInTheDocument();
   });
+
+  it("Página não encontrada leva ao início de quem está logado", async () => {
+    apiFalsa({ "GET /api/auth/eu": ok({ ...EU_OPERADOR, permissoes: ["ver_area_gestao"] }) });
+    renderizarEm("/nada");
+    expect(await screen.findByRole("link", { name: "Ir para o início" })).toHaveAttribute("href", "/gestao");
+  });
+
+  it("carregando é anunciado como status", async () => {
+    apiFalsa({ "GET /api/auth/eu": ok(EU_GRUPO) });
+    renderizarEm("/");
+    expect(screen.getByRole("status", { name: "Carregando" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Área de negócio" })).toBeInTheDocument();
+  });
 });

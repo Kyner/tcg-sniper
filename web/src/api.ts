@@ -41,6 +41,11 @@ export async function chamarApi<T>(caminho: string, { metodo = "GET", corpo }: O
     throw new ApiIndisponivel();
   }
   const dados: unknown = await resposta.json().catch(() => null);
+  // 500 sem o JSON da API ({erro, mensagem}) não veio da API: é o proxy do Vite (dev/preview) com a API fora.
+  const formatoDaApi = typeof (dados as { erro?: unknown } | null)?.erro === "string";
+  if (resposta.status === 500 && !formatoDaApi) {
+    throw new ApiIndisponivel();
+  }
   if (!resposta.ok) {
     const { erro = "desconhecido", mensagem = "Erro inesperado. Tente de novo." } = (dados ?? {}) as {
       erro?: string;
