@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico (em andamento)
 
-- [ ] **Implantar o casamento por par** (com ok do usuário), seguindo o README → "Implantar o casamento por par": backup em `dados/backups/`, conferir antes que `SELECT count(*) FROM anuncio_amazon WHERE produto_id IS NULL` dá 0 e anotar as contagens por situação (`SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL GROUP BY 1`), `docker compose up -d --build` (todos os serviços) e comparar com `SELECT status, count(*) FROM casamento GROUP BY 1`: têm de bater com as contagens tiradas logo antes (não com números antigos; em 2026-10-19 eram 50 confirmados, 6 pendentes e 1269 ignorados).
+- [ ] **Implantar o casamento por par** (com ok do usuário), seguindo o README → "Implantar o casamento por par": backup em `dados/backups/`, conferir antes que `SELECT count(*) FROM anuncio_amazon WHERE produto_id IS NULL` dá 0 e anotar as contagens por situação (`SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL GROUP BY 1`), `docker compose up -d --build` (todos os serviços) e comparar com `SELECT status, count(*) FROM casamento GROUP BY 1`: têm de bater com as contagens tiradas logo antes (não com números antigos: conferir as contagens do dia).
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -84,7 +84,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Decisões registradas
 
-- **Idioma (2026-10-19):** inglês, português e japonês (e outros idiomas) são **produtos diferentes**; um anúncio em inglês não casa com o produto em português da Liga.
+- **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário. Após o deploy: `tcg-sniper casamento reabrir-ingles` (simulação) e `--aplicar` para devolver à IA os ignorados pelo automático por serem em inglês.
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
 - 2026-10-19: teto do monitor da Amazon em produção é 1000 páginas/h; baixar para ~220 só se os CAPTCHAs aumentarem.
 - 2026-10-19: busca alternativa entra depois de 7 dias sem candidato.
@@ -123,7 +123,7 @@ Spec `docs/superpowers/specs/2026-10-19-casamento-por-par-design.md`, plano `doc
 
 ### Avaliação da IA (2026-10-19)
 
-- [x] `ia avaliar --modelo gpt-5-mini` nos 266 pares decididos à mão: 260 acertos (98%), 3 falsos "sim" e 3 falsos "não", US$ 0,14. Na faixa em que o automático age (confiança ≥ 90): 217 de 218. O único erro ≥ 90 era um caso de idioma (caixa em inglês confirmada à mão para o produto em português); pela regra de idioma decidida (inglês, português e japonês são produtos diferentes) a IA estava certa e esse casamento foi desfeito. Automático segue ligado com 90/90. Os 24 ignorados pelo automático por idioma estão corretos.
+- [x] `ia avaliar --modelo gpt-5-mini` nos 266 pares decididos à mão: 260 acertos (98%), 3 falsos "sim" e 3 falsos "não", US$ 0,14. Na faixa em que o automático age (confiança ≥ 90): 217 de 218. O único erro ≥ 90 era um caso de idioma (caixa em inglês do Senhor dos Anéis confirmada à mão para o produto em português); o usuário a reconfirmou em 2026-10-19 10:24 e, pela regra de idioma revista (português preferido, inglês casa quando o produto não tem português confirmado), ela está certa e continua confirmada. Automático segue ligado com 90/90. Os 24 ignorados pelo automático por idioma voltam para a IA com `tcg-sniper casamento reabrir-ingles --aplicar` depois do deploy.
 
 ### Site novo, fase 1 — base (merge `ccb2b98`, em produção desde 2026-10-19; superadmin criado e login pelo WhatsApp funcionando)
 

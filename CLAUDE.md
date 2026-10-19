@@ -33,7 +33,7 @@ Valem para toda sessão neste repositório. O repositório é público: nada de 
 
 ## Negócio
 
-- Idioma conta como produto diferente: inglês, português e japonês não se casam entre si.
+- Idioma (regra revista em 2026-10-19): a edição em português é a preferida para o produto da LigaMagic; um anúncio em inglês também casa quando o produto não tem anúncio em português confirmado (coleções antigas juntam português e inglês num produto só). Inglês já confirmado continua confirmado se o português aparecer depois (quem desfaz é o usuário). Japonês e qualquer outro idioma são sempre produto diferente.
 - O grupo vende como lojista na LigaMagic. Sem API da LigaMagic nem do Mercado Livre (coleta pelo navegador). Avisos só pelo WhatsApp.
 - O acesso às oportunidades vai ser vendido depois: assinantes no mesmo sistema, **sem multi-cliente**. Limites e sessões pensados para crescer.
 

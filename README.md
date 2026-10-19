@@ -187,7 +187,9 @@ Os anúncios achados só viram oportunidade depois de confirmados em **Casamento
 
 ### 9. Casamento com IA (opcional)
 
-O `casador` avalia com a IA (OpenAI) os anúncios da Amazon que ainda estão pendentes em **Casamentos**, olhando o texto e as imagens do anúncio e do produto da LigaMagic. Cada anúncio avaliado ganha um selo com a confiança e o motivo da IA; você continua decidindo, a menos que ligue o modo automático.
+O `casador` avalia com a IA (OpenAI) os anúncios da Amazon que ainda estão pendentes em **Casamentos**, olhando o texto e as imagens do anúncio e do produto da LigaMagic. Cada anúncio avaliado ganha um selo com a confiança, o motivo da IA e o idioma do anúncio; você continua decidindo, a menos que ligue o modo automático.
+
+Regra de idioma: a edição em português é a preferida para o produto da LigaMagic; um anúncio em inglês também é o mesmo produto quando o produto não tem anúncio em português confirmado (coleções antigas juntam os dois num produto só da Liga). Japonês e qualquer outro idioma são sempre outro produto. O automático nunca confirma anúncio japonês ou de outro idioma, e só confirma o inglês em produto sem anúncio em português confirmado (nem confirmado de idioma não registrado); nos outros casos o par fica pendente para você. Um inglês já confirmado continua confirmado se o português aparecer depois: quem desfaz é você.
 
 A IA avalia cada par (anúncio × produto) pendente. **Desfazer** devolve o par para a IA, que o reavalia mesmo sem mudança no anúncio (com o automático ligado, ela pode decidir de novo; para tirar de vez, use **Ignorar**). O automático nunca muda uma decisão sua (manual ou tomada com o selo da IA). Na tela de um produto em **Casamentos** ficam três botões: **Rebuscar agora** (põe o produto na frente da fila da Amazon), **Reavaliar com a IA** (volta para a IA os pares pendentes e os ignorados pelo automático; suas decisões e os confirmados não mudam) e **Gerar termos de busca** (pede os termos alternativos agora; o casador gera em instantes, dentro do teto, se a IA estiver ligada e o casador ativo). Um anúncio confirmado em outro produto aparece como "casado com <produto>".
 
@@ -357,6 +359,14 @@ A migração `a9d4f2c6e8b1` cria a tabela `casamento` (um par por anúncio, com 
    ```
 
 7. No admin: Dashboard e Casamentos com os mesmos números de antes; a tela de um produto em Casamentos mostra os botões Rebuscar agora, Reavaliar com a IA e, em produto ainda sem casamento, Gerar termos de busca. A contagem dos 7 dias sem anúncio novo da busca alternativa começa na implantação: a IA só gera termos sozinha uma semana depois.
+8. Regra de idioma revista: devolva à IA os pares que o automático ignorou por serem em inglês. Primeiro a simulação (só mostra as contagens), depois aplique:
+
+   ```bash
+   docker compose exec casador tcg-sniper casamento reabrir-ingles
+   docker compose exec casador tcg-sniper casamento reabrir-ingles --aplicar
+   ```
+
+   Só pares ignorados pelo automático (com o motivo da IA falando de inglês ou idioma, e não de japonês) voltam a pendente; suas decisões não mudam. Anúncio já confirmado em outro produto fica ignorado.
 
 ## Uso no dia a dia
 
