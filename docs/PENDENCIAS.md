@@ -14,13 +14,6 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 - [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
 - [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
 - [ ] Login do front (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro (no pedido, só o cadastrado gera código e enfileira a mensagem; no entrar, só o cadastrado busca o último código, confere o HMAC e grava a tentativa errada). Rever antes de abrir a API para a internet (ex.: fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo).
-- [ ] Limites do login com corrida: `pedir_codigo` e `registrar_entrada` contam os pedidos e depois gravam, sem trava; dois pedidos ao mesmo tempo podem passar um a mais do limite. Usar `pg_advisory_xact_lock` pelo hash do número (e um para o total).
-- [ ] `registrar_entrada` não chama `limpar_antigos` (só o `pedir_codigo` chama): as linhas de entrada antigas só somem no próximo pedido de código. Limpar também ali.
-- [ ] 429 do `POST /api/auth/entrar` usa a mesma mensagem do pedido de código ("Muitos pedidos de código..."); trocar por um texto de tentativas de entrar.
-- [ ] Caddy (`web/Caddyfile`): falta o cabeçalho `Content-Security-Policy` (ex.: `default-src 'self'`); conferir com o build do Vite antes.
-- [ ] `web/.dockerignore`: acrescentar `.npm-cache`, `*.log` e a pasta de cobertura (`coverage`), para o contexto do build não levar lixo.
-- [ ] Quem tem `gerir_usuarios` sem ser o superadmin vê (lista e contagem) as sessões dos admins, mesmo sem poder encerrá-las. Decidir se deve ver só as de operador e grupo.
-- [ ] `PATCH /api/usuarios/{id}` não trava a linha do usuário (`SELECT ... FOR UPDATE`): um `trocar-superadmin` no terminal ao mesmo tempo pode cruzar com a edição (o banco ainda garante um superadmin só, sempre admin e ativo; o pior caso é um erro na resposta, não um estado inválido).
 - [ ] Sessões encerradas ou vencidas nunca são apagadas (pedidos e códigos são, depois de 1 dia). Pouco volume com < 20 pessoas; limpar na manutenção quando crescer.
 - [ ] O texto do código de acesso fica na fila (mensagem_saida) enquanto está pendente (até 5 min), visível em Admin → Mensagens. Some ao sair da fila; some de vez quando o admin antigo for desligado (fase 4).
 - [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
@@ -67,6 +60,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 - [x] Superadmin único (`tcg-sniper criar-superadmin` e `trocar-superadmin`, só no terminal): o único que mexe em admins; nunca rebaixado, desativado nem encerrado pelo site.
 - [x] Avisos novos: `CODIGO_ACESSO` (individual), `SEGURANCA_USUARIO` e `SEGURANCA_LIMITE` (grupo admin), desligáveis na aba Avisos.
 - [x] Site novo (`web/`, React + Vite + DaisyUI, Caddy em `127.0.0.1:8090`): Entrar, área de negócio (esqueleto), Gestão → Usuários e Gestão → Acessos, sem acesso e sistema indisponível; testes Vitest, ponta a ponta com Playwright e layout no `verificar_layout.py`.
+- [x] Revisão final: limites do login atrás de `pg_advisory_xact_lock` (sem corrida na última vaga); `SEGURANCA_LIMITE` resolve (o do número quando ele entra, o total no próximo pedido aceito); entrar também limpa pedidos antigos e tem 429 com texto próprio; sessões de admins só o superadmin vê ou encerra; `PATCH /api/usuarios/{id}` e `trocar-superadmin` travam as linhas; CSP no Caddy (tema inicial em arquivo, sem script inline); `.dockerignore` do `web/`; nome do menu atualiza ao se renomear; Escape fecha os modais; README com a sequência segura de implantação.
 
 ### Avisos no WhatsApp (2026-10-18, merge `75733d2`)
 

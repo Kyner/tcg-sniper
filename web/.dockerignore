@@ -5,3 +5,5 @@ dist
 .env*
 .npm-cache
 .playwright-navegadores
+*.log
+coverage
