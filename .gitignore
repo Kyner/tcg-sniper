@@ -20,3 +20,6 @@ Monitor de arbitragem de selados de Magic.md
 web/node_modules/
 web/dist/
 .npm-cache/
+
+# Chromium do Playwright para o teste ponta a ponta (PLAYWRIGHT_BROWSERS_PATH).
+.playwright-navegadores/
