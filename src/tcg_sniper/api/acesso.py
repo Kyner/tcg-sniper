@@ -27,6 +27,7 @@ LIMITE_TOTAL = 20
 JANELA_TOTAL = timedelta(hours=1)
 LIMITE_ENTRADAS = 10  # tentativas de entrar por número (com ou sem cadastro) a cada 15 min
 JANELA_ENTRADAS = timedelta(minutes=15)
+CHAVE_TOTAL = "total"  # chave do `SEGURANCA_LIMITE` do limite total por hora
 LINHAS_CODIGO = ("Vale por 5 minutos.", "Não passe este código para ninguém.")
 NAVEGADORES = (("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari"))
 SISTEMAS = (
@@ -65,7 +66,7 @@ def _chave_numero(numero_hash: str) -> str:
 def _recusar(s: Session, numero: str, numero_hash: str, resultado: ResultadoPedido, agora: datetime) -> ResultadoPedido:
     repo_acesso.registrar_pedido(s, numero_hash, resultado.value, agora)
     if resultado is ResultadoPedido.LIMITE_TOTAL:
-        chave = "total"
+        chave = CHAVE_TOTAL
         linhas = (f"Limite: {LIMITE_TOTAL} pedidos por hora no total", "Vários números")
     else:
         chave = _chave_numero(numero_hash)
@@ -81,11 +82,15 @@ def pedir_codigo(s: Session, numero: str, agora: datetime, segredo: str) -> Resu
     O chamador responde igual para número com ou sem cadastro."""
     repo_acesso.limpar_antigos(s, agora)
     numero_hash = hash_segredo(segredo, numero)
+    # Sempre nesta ordem (total, depois número): sem impasse entre duas requisições.
+    repo_acesso.travar_limite(s, repo_acesso.TRAVA_PEDIDOS_TOTAL)
+    repo_acesso.travar_limite(s, repo_acesso.TRAVA_PEDIDOS_NUMERO, numero_hash)
     if repo_acesso.contar_pedidos(s, agora - JANELA_TOTAL) >= LIMITE_TOTAL:
         return _recusar(s, numero, numero_hash, ResultadoPedido.LIMITE_TOTAL, agora)
     if repo_acesso.contar_pedidos(s, agora - JANELA_NUMERO, numero_hash) >= LIMITE_POR_NUMERO:
         return _recusar(s, numero, numero_hash, ResultadoPedido.LIMITE_NUMERO, agora)
     repo_acesso.registrar_pedido(s, numero_hash, ResultadoPedido.ACEITO.value, agora)
+    avisos.resolver(s, TipoAviso.SEGURANCA_LIMITE, CHAVE_TOTAL, agora)  # aceito: o limite total já passou
     usuario = repo_acesso.usuario_por_numero(s, numero)
     if usuario is None or not usuario.ativo:
         log.info("pedido de código para %s: sem usuário ativo, nada enviado", mascarar_numero(numero))
@@ -100,8 +105,11 @@ def pedir_codigo(s: Session, numero: str, agora: datetime, segredo: str) -> Resu
 
 def registrar_entrada(s: Session, numero: str, agora: datetime, segredo: str) -> bool:
     """Conta uma tentativa de entrar (`numero` já normalizado), tenha ou não cadastro. False (nada gravado) se o
-    número já fez `LIMITE_ENTRADAS` tentativas na janela: o chamador responde 429 sem conferir o código."""
+    número já fez `LIMITE_ENTRADAS` tentativas na janela: o chamador responde 429 sem conferir o código.
+    Também apaga pedidos e códigos antigos (como `pedir_codigo`)."""
+    repo_acesso.limpar_antigos(s, agora)
     numero_hash = hash_segredo(segredo, numero)
+    repo_acesso.travar_limite(s, repo_acesso.TRAVA_ENTRADAS_NUMERO, numero_hash)
     if repo_acesso.contar_pedidos(s, agora - JANELA_ENTRADAS, numero_hash, repo_acesso.ENTRADA) >= LIMITE_ENTRADAS:
         log.warning("entrada recusada para %s: limite de tentativas", mascarar_numero(numero))
         return False
@@ -138,4 +146,6 @@ def entrar(
     token = gerar_token()
     repo_acesso.criar_sessao(s, usuario.id, hash_segredo(segredo, token), aparelho, agora, VALIDADE_SESSAO)
     log.info("entrada de %s (usuário %d, %s)", mascarar_numero(numero), usuario.id, aparelho)
+    # Entrou: o problema de limite deste número (pedidos ou códigos errados) acabou.
+    avisos.resolver(s, TipoAviso.SEGURANCA_LIMITE, _chave_numero(hash_segredo(segredo, numero)), agora)
     return usuario, token

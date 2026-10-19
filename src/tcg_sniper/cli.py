@@ -285,10 +285,11 @@ def main(argv: list[str] | None = None) -> None:
         numero = _numero_ou_sair(args.numero)
         agora = agora_utc()
         with sessoes() as s, s.begin():
-            atual = repo_acesso.superadmin_atual(s)
+            # Trava as duas linhas (o atual e o novo) contra uma edição pela API ao mesmo tempo.
+            atual = repo_acesso.superadmin_atual(s, travar=True)
             if atual is None:
                 raise SystemExit("ainda não há superadmin; use tcg-sniper criar-superadmin <nome> <número>")
-            novo = repo_acesso.usuario_por_numero(s, numero)
+            novo = repo_acesso.usuario_por_numero(s, numero, travar=True)
             if novo is None or not novo.ativo:
                 raise SystemExit("nenhum usuário ativo com esse número")
             if novo.id == atual.id:

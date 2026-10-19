@@ -13,6 +13,10 @@ from tcg_sniper.db.models import CodigoAcesso, Papel, PedidoCodigo, PermissaoPap
 ACEITO = "aceito"
 ENTRADA = "entrada"  # tentativa de entrar com código (limite próprio; não conta como pedido de código)
 RETENCAO = timedelta(days=1)  # pedidos e códigos mais velhos que isso não servem para nada
+# Classes do `pg_advisory_xact_lock(classe, chave)` dos limites (contar e registrar sem corrida entre requisições).
+TRAVA_PEDIDOS_TOTAL = 1
+TRAVA_PEDIDOS_NUMERO = 2
+TRAVA_ENTRADAS_NUMERO = 3
 
 
 class NumeroJaCadastrado(Exception):
@@ -52,16 +56,21 @@ def _inserir(s: Session, usuario: Usuario) -> Usuario:
     return usuario
 
 
-def usuario_por_numero(s: Session, numero: str) -> Usuario | None:
-    return s.scalar(select(Usuario).where(Usuario.numero == numero))
+def _talvez_travar(consulta, travar: bool):
+    """`travar`: SELECT ... FOR UPDATE, relido do banco (para mudar sem corrida com outra transação)."""
+    return consulta.with_for_update().execution_options(populate_existing=True) if travar else consulta
+
+
+def usuario_por_numero(s: Session, numero: str, *, travar: bool = False) -> Usuario | None:
+    return s.scalar(_talvez_travar(select(Usuario).where(Usuario.numero == numero), travar))
 
 
 def listar_usuarios(s: Session) -> list[Usuario]:
     return list(s.scalars(select(Usuario).order_by(func.lower(Usuario.nome), Usuario.id)))
 
 
-def superadmin_atual(s: Session) -> Usuario | None:
-    return s.scalar(select(Usuario).where(Usuario.superadmin.is_(True)))
+def superadmin_atual(s: Session, *, travar: bool = False) -> Usuario | None:
+    return s.scalar(_talvez_travar(select(Usuario).where(Usuario.superadmin.is_(True)), travar))
 
 
 def criar_superadmin(s: Session, nome: str, numero: str, agora: datetime) -> Usuario:
@@ -82,7 +91,7 @@ def trocar_superadmin(s: Session, novo: Usuario) -> Usuario | None:
         raise TrocaInvalida("esta pessoa já é o superadmin")
     if not novo.ativo:
         raise TrocaInvalida("esta pessoa está inativa")
-    antigo = superadmin_atual(s)
+    antigo = superadmin_atual(s, travar=True)
     if antigo is not None:
         antigo.superadmin = False
         s.flush()
@@ -178,6 +187,13 @@ def contar_pedidos(s: Session, desde: datetime, numero_hash: str | None = None, 
     if numero_hash is not None:
         condicoes.append(PedidoCodigo.numero_hash == numero_hash)
     return s.scalar(select(func.count()).select_from(PedidoCodigo).where(*condicoes)) or 0
+
+
+def travar_limite(s: Session, classe: int, numero_hash: str | None = None) -> None:
+    """Trava (até o fim da transação) a contagem de um limite: duas requisições ao mesmo tempo não passam juntas pela
+    última vaga. Por número, a chave sai do HMAC do número (nunca o número); sem número, chave fixa (limite total)."""
+    chave = int(numero_hash[:8], 16) - 2**31 if numero_hash else 0  # int4 com sinal
+    s.execute(select(func.pg_advisory_xact_lock(classe, chave)))
 
 
 def limpar_antigos(s: Session, agora: datetime) -> None:

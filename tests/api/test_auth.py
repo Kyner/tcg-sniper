@@ -313,3 +313,47 @@ def test_cookie_httponly_samesite_strict_path_raiz_no_eu_e_apagado_no_sair(clien
     apagado = cliente.post("/api/auth/sair", headers={"X-Forwarded-Proto": "https"}).headers["set-cookie"]
     for parte in ('sessao=""', "Max-Age=0", "HttpOnly", "Path=/", "SameSite=strict", "Secure"):
         assert parte in apagado, parte
+
+
+def _estado_limite(sessoes, chave):
+    with sessoes() as s:
+        return s.get(EstadoAviso, (TipoAviso.SEGURANCA_LIMITE.value, chave))
+
+
+def test_entrada_certa_resolve_o_aviso_de_limite_do_numero(cliente, sessoes, codigos):
+    criar_usuario(sessoes, Papel.GRUPO)
+    for _ in range(acesso.LIMITE_POR_NUMERO):
+        pedir(cliente)
+    assert pedir(cliente).status_code == 429
+    chave = f"numero:{hash_segredo(SEGREDO_TESTE, GRUPO)[:12]}"
+    assert _estado_limite(sessoes, chave).aberto
+    assert entrar(cliente, "333333").status_code == 200
+    assert not _estado_limite(sessoes, chave).aberto
+    resolvido = mensagens(sessoes, "admin")[-1]
+    assert "resolvido" in resolvido and "900000002" not in resolvido
+
+
+def test_limite_total_resolve_no_proximo_pedido_aceito_depois_da_janela(cliente, sessoes, relogio):
+    for i in range(acesso.LIMITE_TOTAL):
+        pedir(cliente, f"11 90000-{i:04d}")
+    assert pedir(cliente, "11 90000-0099").status_code == 429
+    assert _estado_limite(sessoes, "total").aberto
+    relogio.agora = T0 + timedelta(hours=1)
+    assert pedir(cliente, "11 90000-0099").status_code == 200
+    assert not _estado_limite(sessoes, "total").aberto
+
+
+def test_entrar_tambem_apaga_pedidos_antigos(cliente, sessoes, relogio):
+    with sessoes() as s, s.begin():
+        s.add(PedidoCodigo(em=T0 - timedelta(days=2), numero_hash="h" * 64, resultado="aceito"))
+    entrar(cliente, "999999")
+    with sessoes() as s:
+        assert s.scalars(select(PedidoCodigo.numero_hash)).all() == [hash_segredo(SEGREDO_TESTE, GRUPO)]
+
+
+def test_limite_de_entrar_tem_mensagem_propria_e_neutra(cliente, sessoes, codigos):
+    for _ in range(acesso.LIMITE_ENTRADAS):
+        entrar(cliente, "999999")
+    r = entrar(cliente, "999999")
+    assert r.status_code == 429
+    assert r.json() == {"erro": "limite", "mensagem": "Muitas tentativas. Espere alguns minutos e tente de novo."}

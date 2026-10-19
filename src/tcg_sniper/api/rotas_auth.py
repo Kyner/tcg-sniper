@@ -19,6 +19,7 @@ roteador = APIRouter(prefix="/api/auth", tags=["login"])
 MENSAGEM_PEDIDO = "Se o número estiver cadastrado, o código chega no WhatsApp em instantes. Vale por 5 minutos."
 MENSAGEM_CODIGO_INVALIDO = "Código errado, vencido ou já usado. Peça um novo."
 MENSAGEM_LIMITE = "Muitos pedidos de código. Espere alguns minutos e tente de novo."
+MENSAGEM_LIMITE_ENTRAR = "Muitas tentativas. Espere alguns minutos e tente de novo."
 
 
 class PedidoCodigoEntrada(BaseModel):
@@ -94,7 +95,7 @@ def entrar(request: Request, resposta: Response, entrada: EntrarEntrada) -> EuSa
             usuario, token = resultado
             usuario_id, nome, papel, superadmin = usuario.id, usuario.nome, usuario.papel, usuario.superadmin
     if not dentro_do_limite:  # igual com ou sem cadastro: não revela quem existe
-        raise ErroApi(429, "limite", MENSAGEM_LIMITE)
+        raise ErroApi(429, "limite", MENSAGEM_LIMITE_ENTRAR)
     if resultado is None:  # a tentativa errada já foi gravada
         raise ErroApi(401, "codigo_invalido", MENSAGEM_CODIGO_INVALIDO)
     _gravar_cookie(resposta, request, token)
