@@ -43,3 +43,14 @@ def test_ocultar_numero_com_e_sem_mais():
     oculto = ocultar_numero(texto, "+5511900000034")
     assert "900000034" not in oculto
     assert oculto.count("+55 11 9****-**34") == 3
+
+
+def test_ocultar_numero_variante_sem_o_nove_extra():
+    texto = '{"a":"551100000034","jid":"551100000034@s.whatsapp.net","b":"+551100000034","c":"5511900000034"}'
+    oculto = ocultar_numero(texto, "+5511900000034")
+    assert "00000034" not in oculto.replace("**34", "")
+    assert oculto.count("+55 11 9****-**34") == 4
+
+
+def test_ocultar_numero_fixo_nao_inventa_variante():
+    assert ocultar_numero("x 551130000034 y", "+551130000034") == "x +55 11 3***-**34 y"

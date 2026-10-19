@@ -22,15 +22,32 @@ class SuperadminJaExiste(Exception):
     pass
 
 
+class TrocaInvalida(Exception):
+    """`trocar_superadmin` recusada (a mensagem diz o motivo, sem dados pessoais)."""
+
+
+def _violacao(erro: IntegrityError, restricao: str) -> bool:
+    """O erro do banco é a violação desta restrição (e não outra, como o check de nome ou de formato do número)?"""
+    return getattr(getattr(erro.orig, "diag", None), "constraint_name", None) == restricao
+
+
 def criar_usuario(s: Session, nome: str, numero: str, papel: Papel, agora: datetime) -> Usuario:
-    """`numero` já normalizado (E.164). Número repetido levanta `NumeroJaCadastrado` (nada é gravado)."""
-    usuario = Usuario(nome=nome, numero=numero, papel=papel, ativo=True, criado_em=agora)
+    """`numero` já normalizado (E.164). Número repetido levanta `NumeroJaCadastrado` (nada é gravado); outras
+    violações (nome vazio, formato do número) seguem como `IntegrityError`."""
+    return _inserir(s, Usuario(nome=nome, numero=numero, papel=papel, ativo=True, criado_em=agora))
+
+
+def _inserir(s: Session, usuario: Usuario) -> Usuario:
     try:
-        with s.begin_nested():
+        with s.begin_nested():  # o savepoint desfaz tudo (inclusive o objeto na sessão) se falhar
             s.add(usuario)
             s.flush()
-    except IntegrityError:
-        raise NumeroJaCadastrado from None
+    except IntegrityError as erro:
+        if _violacao(erro, "uq_usuario_numero"):
+            raise NumeroJaCadastrado from None
+        if _violacao(erro, "uq_usuario_superadmin"):
+            raise SuperadminJaExiste from None
+        raise
     return usuario
 
 
@@ -47,18 +64,23 @@ def superadmin_atual(s: Session) -> Usuario | None:
 
 
 def criar_superadmin(s: Session, nome: str, numero: str, agora: datetime) -> Usuario:
-    """Só pelo comando local `criar-superadmin`. Já existe um: `SuperadminJaExiste` (nada é gravado)."""
+    """Só pelo comando local `criar-superadmin`. Já existe um: `SuperadminJaExiste`; número de outra pessoa:
+    `NumeroJaCadastrado` (nada é gravado)."""
     if superadmin_atual(s) is not None:
         raise SuperadminJaExiste
-    usuario = criar_usuario(s, nome, numero, Papel.ADMIN, agora)
-    usuario.superadmin = True
-    s.flush()
-    return usuario
+    return _inserir(
+        s, Usuario(nome=nome, numero=numero, papel=Papel.ADMIN, ativo=True, superadmin=True, criado_em=agora)
+    )
 
 
 def trocar_superadmin(s: Session, novo: Usuario) -> Usuario | None:
     """Só pelo comando local `trocar-superadmin`: a marca passa para `novo` (que vira admin, se não era); o antigo
-    continua admin comum. Devolve o antigo (None se não havia). Desmarca antes de marcar: o índice único é parcial."""
+    continua admin comum. Devolve o antigo (None se não havia). `TrocaInvalida` (nada muda) se `novo` já é o
+    superadmin ou está inativo. Desmarca antes de marcar: o índice único é parcial."""
+    if novo.superadmin:
+        raise TrocaInvalida("esta pessoa já é o superadmin")
+    if not novo.ativo:
+        raise TrocaInvalida("esta pessoa está inativa")
     antigo = superadmin_atual(s)
     if antigo is not None:
         antigo.superadmin = False

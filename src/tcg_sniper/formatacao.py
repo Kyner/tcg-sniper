@@ -56,4 +56,12 @@ def ocultar_numero(texto: str, numero: str) -> str:
     """Troca o número (com ou sem "+") pela versão mascarada: texto de terceiros (erro da Evolution) que repete o
     número da pessoa não vai para log, banco de erros nem grupo."""
     mascarado = mascarar_numero(numero)
-    return texto.replace(numero, mascarado).replace(numero.removeprefix("+"), mascarado)
+    digitos = numero.removeprefix("+")
+    variantes = [numero, digitos]
+    if digitos.startswith("55") and len(digitos) == 13 and digitos[4] == "9":
+        # celular do Brasil sem o 9 extra (formato antigo, ainda aceito pelo WhatsApp)
+        sem_nove = digitos[:4] + digitos[5:]
+        variantes += ["+" + sem_nove, sem_nove]
+    for variante in variantes:  # com "+" antes das versões sem, para não sobrar "+" solto
+        texto = texto.replace(variante, mascarado)
+    return texto

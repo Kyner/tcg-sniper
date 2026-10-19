@@ -154,3 +154,48 @@ def test_mensagem_de_grupo_nao_leva_numero(s):
 def test_mensagem_individual_com_numero_e_aceita(s):
     s.add(_mensagem("individual", GRUPO))
     s.flush()
+
+
+def test_nome_vazio_nao_vira_numero_repetido(s):
+    with pytest.raises(IntegrityError):
+        novo(s, nome="")
+
+
+def test_numero_invalido_nao_vira_numero_repetido(s):
+    with pytest.raises(IntegrityError):
+        novo(s, numero="11900000002")
+
+
+def test_criar_superadmin_com_numero_repetido(s):
+    novo(s)
+    with pytest.raises(repo_acesso.NumeroJaCadastrado):
+        repo_acesso.criar_superadmin(s, "Dono", GRUPO, T)
+    assert repo_acesso.superadmin_atual(s) is None
+    assert len(repo_acesso.listar_usuarios(s)) == 1
+
+
+def test_criar_superadmin_corrida_no_indice_unico(s, monkeypatch):
+    """Outro processo criou o superadmin entre a checagem e o insert: o índice único vira SuperadminJaExiste."""
+    repo_acesso.criar_superadmin(s, "Dono", "+5511900000001", T)
+    monkeypatch.setattr(repo_acesso, "superadmin_atual", lambda _s: None)
+    with pytest.raises(repo_acesso.SuperadminJaExiste):
+        repo_acesso.criar_superadmin(s, "Outro", "+5511900000004", T)
+    assert [u.nome for u in repo_acesso.listar_usuarios(s)] == ["Dono"]
+
+
+def test_trocar_superadmin_para_quem_ja_e_recusa(s):
+    dono = repo_acesso.criar_superadmin(s, "Dono", "+5511900000001", T)
+    with pytest.raises(repo_acesso.TrocaInvalida):
+        repo_acesso.trocar_superadmin(s, dono)
+    assert repo_acesso.superadmin_atual(s).id == dono.id
+
+
+def test_trocar_superadmin_para_inativo_recusa_sem_mexer_no_antigo(s):
+    dono = repo_acesso.criar_superadmin(s, "Dono", "+5511900000001", T)
+    inativo = novo(s)
+    inativo.ativo = False
+    s.flush()
+    with pytest.raises(repo_acesso.TrocaInvalida):
+        repo_acesso.trocar_superadmin(s, inativo)
+    assert repo_acesso.superadmin_atual(s).id == dono.id
+    assert inativo.papel == Papel.GRUPO
