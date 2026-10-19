@@ -105,3 +105,17 @@ def test_rotulo_dos_precos_de_configuracoes(sessoes):
     [r] = avaliar(sessoes, t, http, ["gpt-5"], None, SP, lambda: T0)
     md = relatorio_markdown([r], T0)
     assert "com os preços de Configurações → IA" in md and "Tokens: 1000 de entrada, 100 de saída" in md
+
+
+def test_pergunta_diz_se_o_produto_ja_tem_portugues_confirmado(sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1")
+        a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO)
+        repo_ia.gravar_avaliacao(
+            s, anuncio_id=a.id, produto_id=p.id, mesmo_produto=True, confianca=99, motivo="m", modelo="x",
+            assinatura="x", sem_imagem=True, chamada_id=None, agora=T0, idioma_anuncio="pt",
+        )
+    t = TransporteFake([v(True, 99)])
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+    avaliar(sessoes, t, http, ["gpt-5"], None, SP, lambda: T0)
+    assert "- já tem anúncio em português confirmado: sim" in t.pedidos[0].texto

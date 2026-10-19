@@ -555,3 +555,110 @@ def test_reavaliar_produto_casado_reavalia_tambem_os_pares_antigos(sessoes, conf
     with sessoes() as s, s.begin():
         assert repo_casamento.reavaliar_produto(s, p_id, T0) == 1
     assert sv.ciclo() == 1 and len(t.pedidos) == 1
+
+
+# Regra de idioma (2026-10-19, revista): português preferido; inglês casa quando o produto não tem
+# português confirmado; japonês e outros idiomas nunca são confirmados pelo automático.
+
+
+def veredito_idioma(idioma, mesmo=True, confianca=95, motivo="mesma caixa"):
+    dados = {"mesmo_produto": mesmo, "confianca": confianca, "motivo": motivo, "idioma_anuncio": idioma}
+    return Bruta(json.dumps(dados), 1000, 100)
+
+
+def produto_com_confirmado(sessoes, idioma_confirmado):
+    """Produto com um anúncio confirmado (avaliado com `idioma_confirmado`, ou sem avaliação se "sem") e um
+    anúncio pendente. Devolve (produto, confirmado, pendente)."""
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1", nome="Caixa Alfa")
+        conf = criar_anuncio(s, "BCONF", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+        if idioma_confirmado != "sem":
+            repo_ia.gravar_avaliacao(
+                s, anuncio_id=conf.id, produto_id=p.id, mesmo_produto=True, confianca=99, motivo="m", modelo="x",
+                assinatura=assinatura(conf, p), sem_imagem=True, chamada_id=None, agora=T0,
+                idioma_anuncio=idioma_confirmado,
+            )
+        pend = criar_anuncio(s, "BPEND", produto=p)
+        return p.id, conf.id, pend.id
+
+
+def test_ingles_confirmado_quando_o_produto_nao_tem_portugues(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    _, [a] = pares(sessoes)
+    sv, t, _ = servico(sessoes, config, [veredito_idioma("en")])
+    assert sv.ciclo() == 1
+    assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO
+    [av] = avaliacoes(sessoes)
+    assert av.idioma_anuncio == "en" and av.aplicada_em is not None
+    assert "- já tem anúncio em português confirmado: não" in t.pedidos[0].texto
+
+
+def test_ingles_com_so_ingles_confirmado_tambem_confirma(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, _, pend = produto_com_confirmado(sessoes, "en")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("en")])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.CONFIRMADO
+
+
+def test_ingles_fica_pendente_quando_o_produto_tem_portugues_confirmado(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, conf, pend = produto_com_confirmado(sessoes, "pt")
+    sv, t, _ = servico(sessoes, config, [veredito_idioma("en", True, 99)])
+    assert sv.ciclo() == 1
+    assert status_de(sessoes, pend, p) is StatusCasamento.PENDENTE
+    assert status_de(sessoes, conf, p) is StatusCasamento.CONFIRMADO
+    av = repo_ia_avaliacao(sessoes, pend, p)
+    assert av.idioma_anuncio == "en" and av.aplicada_em is None
+    assert "- já tem anúncio em português confirmado: sim" in t.pedidos[0].texto
+
+
+def test_ingles_fica_pendente_quando_o_confirmado_nao_tem_idioma_registrado(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, _, pend = produto_com_confirmado(sessoes, "sem")
+    sv, t, _ = servico(sessoes, config, [veredito_idioma("en", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.PENDENTE
+    assert "- já tem anúncio em português confirmado: não se sabe" in t.pedidos[0].texto
+
+
+def test_ingles_diferente_continua_ignorado_mesmo_com_portugues_confirmado(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, _, pend = produto_com_confirmado(sessoes, "pt")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("en", False, 97, "outra coleção")])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.IGNORADO
+
+
+def test_portugues_confirmado_depois_nao_desfaz_o_ingles(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, conf, pend = produto_com_confirmado(sessoes, "en")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("pt")])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.CONFIRMADO
+    assert status_de(sessoes, conf, p) is StatusCasamento.CONFIRMADO  # o inglês fica: quem desfaz é o usuário
+
+
+def test_japones_e_outro_idioma_nunca_sao_confirmados(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    _, ids = pares(sessoes, 2)
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("ja", True, 99), veredito_idioma("outro", True, 99)])
+    assert sv.ciclo() == 2
+    for anuncio_id in ids:
+        assert status_de(sessoes, anuncio_id) is StatusCasamento.PENDENTE
+    assert all(av.aplicada_em is None for av in avaliacoes(sessoes))
+
+
+def test_avaliacao_antiga_sem_idioma_segue_a_regra_de_antes(sessoes, config):
+    """Avaliação de antes da coluna (idioma vazio) aplicada depois: confirma como antes."""
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    _, [a] = pares(sessoes)
+    sv, _, _ = servico(sessoes, config, [veredito(True, 95)])
+    sv.ciclo()
+    assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO
+    assert avaliacoes(sessoes)[0].idioma_anuncio is None
+
+
+def repo_ia_avaliacao(sessoes, anuncio_id, produto_id):
+    with sessoes() as s:
+        return repo_ia.avaliacoes_dos_pares(s, [(anuncio_id, produto_id)])[(anuncio_id, produto_id)]

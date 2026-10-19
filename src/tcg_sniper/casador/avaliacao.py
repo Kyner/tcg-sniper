@@ -59,6 +59,7 @@ def avaliar(
     """Os preços informados (US$ por milhão de tokens) substituem os de Configurações → IA no custo."""
     with sessoes() as s:
         decididos = repo_ia.pares_decididos(s, limite)
+        portugues = {d.produto.id: repo_ia.portugues_confirmado(s, d.produto.id) for d in decididos}
         vistos: set[int] = set()
         for d in decididos:
             for objeto in (d.anuncio, d.produto):
@@ -73,7 +74,7 @@ def avaliar(
                 veredito, resposta, _ = avaliar_par(
                     sessoes, transporte, cliente_http, d.anuncio, d.produto, d.preco_liga, d.preco_amazon,
                     finalidade="avaliacao", zona=zona, modelo=modelo, preco_entrada=preco_entrada,
-                    preco_saida=preco_saida, relogio=relogio,
+                    preco_saida=preco_saida, relogio=relogio, portugues_confirmado=portugues[d.produto.id],
                 )
             except (SemOrcamento, ChaveInvalida, ConfiguracaoInvalida) as erro:
                 r.interrompida = str(erro)

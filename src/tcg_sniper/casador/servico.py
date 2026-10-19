@@ -35,6 +35,7 @@ PASSO_S = 30  # de quanto em quanto tempo olha se pediram "Rodar agora"
 FALHAS_SEGUIDAS_MAX = 3  # falhas seguidas de chamada (rede, 5xx, 429) que encerram a rodada
 ESPERAS_FALHA = (timedelta(hours=1), timedelta(hours=6), timedelta(hours=24))  # par que falhou espera; teto 24 h
 TIMEOUT_IMAGEM_S = 15
+IDIOMAS_NUNCA_CONFIRMAR = ("ja", "outro")  # sempre outro produto: o automático nunca os confirma
 TERMOS_POR_CICLO = 5  # produtos por ciclo na busca alternativa (uma chamada barata cada, sem imagem)
 
 
@@ -93,6 +94,8 @@ class ServicoCasador:
                     continue
                 candidatos.append((p, atual))
             pares = candidatos[:lote]
+            # o que a pergunta diz do português confirmado (fora da assinatura: muda sem reavaliar)
+            portugues = {p.produto.id: repo_ia.portugues_confirmado(s, p.produto.id) for p, _ in pares}
             # vários anúncios podem sugerir o mesmo produto: cada objeto sai da sessão uma vez só
             for obj in {*(p.anuncio for p, _ in pares), *(p.produto for p, _ in pares)}:
                 s.expunge(obj)
@@ -113,6 +116,7 @@ class ServicoCasador:
                 veredito, resposta, sem_imagem = avaliar_par(
                     self._sessoes, self._transporte, self._http, par.anuncio, par.produto, par.preco_liga,
                     par.preco_amazon, finalidade="casamento", zona=zona, relogio=self._relogio,
+                    portugues_confirmado=portugues[par.produto.id],
                 )
                 decisao = self._gravar(par, veredito, resposta, sem_imagem, automatico, limites)
             except SemOrcamento as erro:
@@ -203,7 +207,7 @@ class ServicoCasador:
                 s, anuncio_id=par.anuncio.id, produto_id=par.produto.id, mesmo_produto=veredito.mesmo_produto,
                 confianca=veredito.confianca, motivo=veredito.motivo, modelo=resposta.modelo,
                 assinatura=assinatura(par.anuncio, par.produto), sem_imagem=sem_imagem,
-                chamada_id=resposta.chamada_id, agora=agora,
+                chamada_id=resposta.chamada_id, agora=agora, idioma_anuncio=veredito.idioma_anuncio,
             )
             repo_casamento.marcar_reavaliado(s, par.anuncio.id, par.produto.id)
             if automatico and not ja_aplicada:
@@ -213,7 +217,10 @@ class ServicoCasador:
     @staticmethod
     def _aplicar(s: Session, av, limites: tuple[int, int], agora: datetime) -> StatusCasamento | None:
         """Automático: confirma ou ignora o par se a confiança passa do limite. Só age se o par ainda está
-        pendente (decisão sua vale) e o anúncio não foi confirmado para outro produto nesse meio-tempo."""
+        pendente (decisão sua vale) e o anúncio não foi confirmado para outro produto nesse meio-tempo.
+        Regra de idioma: nunca confirma anúncio japonês ou de outro idioma, e confirma o inglês só se o
+        produto não tem anúncio em português confirmado (nem confirmado de idioma não registrado); senão o
+        par fica pendente para você. Avaliação sem idioma (de antes da regra) segue como antes."""
         confirmar, ignorar = limites
         repo_casamento.travar_anuncio(s, av.anuncio_id)
         par = repo_casamento.obter_par(s, av.anuncio_id, av.produto_id)
@@ -221,6 +228,8 @@ class ServicoCasador:
             return None  # você decidiu enquanto a IA respondia
         try:
             if av.mesmo_produto and av.confianca >= confirmar:
+                if not ServicoCasador._idioma_permite_confirmar(s, av):
+                    return None
                 repo_casamento.confirmar(s, av.anuncio_id, av.produto_id, agora, OrigemCasamento.AUTOMATICO_IA)
                 decisao = StatusCasamento.CONFIRMADO
             elif not av.mesmo_produto and av.confianca >= ignorar:
@@ -233,6 +242,14 @@ class ServicoCasador:
             return None
         av.aplicada_em = agora
         return decisao
+
+    @staticmethod
+    def _idioma_permite_confirmar(s: Session, av) -> bool:
+        if av.idioma_anuncio in IDIOMAS_NUNCA_CONFIRMAR:
+            return False
+        if av.idioma_anuncio == "en":
+            return repo_ia.portugues_confirmado(s, av.produto_id) is False
+        return True
 
     def _gerar_termos(self, zona: ZoneInfo) -> int:
         """Busca alternativa: gera os termos dos produtos pedidos no admin e dos em seca sem termos, no máximo
