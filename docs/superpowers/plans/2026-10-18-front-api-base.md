@@ -15,6 +15,8 @@
 - Nomes, comentários, mensagens de erro e textos de tela em português, como o resto do código (identificadores em português; componentes React com nomes em português, ex.: `Entrar`, `Acessos`). Mensagens de commit em inglês, no formato `feat:`/`fix:`/`test:`/`docs:`/`chore:`, **sem** linha `Co-Authored-By` nem qualquer trailer de IA.
 - Repositório público: nada de dado pessoal em código, teste, fixture ou documento. Telefones de teste são obviamente falsos: `+5511900000001` (admin), `+5511900000002` (grupo), `+5511900000003` (operador), `+55119000000NN` para os demais; exemplos de tela usam `(11) 9XXXX-XXXX`.
 - Dados pessoais (verbatim do spec): "números ficam só no banco; nunca em log (mascarados: `+55 11 9****-**34`), nunca no repositório, nunca no grupo. Código e token nunca em log, banco (só hash) ou mensagem de grupo." Na resposta da API o número sai só mascarado (`numero_mascarado`).
+- Hashes (verbatim do spec): "código, token de sessão e número (para contagem de limites) são guardados como **HMAC-SHA256 com chave secreta** `SEGREDO_API` do `.env` (obrigatória; o serviço `api` não sobe sem ela; documentada no `.env.example`), nunca SHA-256 puro." No código: sempre `api.segredos.hash_segredo(segredo, texto)`; nada de `hashlib.sha256` direto. Testes usam o segredo falso fixo `SEGREDO_TESTE` (`tests/fakes_api.py`, o mesmo valor do fixture `config` de `tests/conftest.py`), nunca um segredo real.
+- Superadmin (spec, seção "Superadmin"): um só (`usuario.superadmin`, índice único parcial), criado e trocado só pelos comandos locais `criar-superadmin`/`trocar-superadmin`; sempre `admin`, ativo e com todas as permissões; nunca rebaixado, desativado nem tem sessões encerradas pela API por ninguém (só ele encerra as próprias); só ele cria/edita/rebaixa/desativa admins e encerra sessões de admins (403 `so_superadmin`). Não existe regra de "último admin".
 - Cookie (verbatim do spec): `sessao`, `HttpOnly`, `SameSite=Strict`, `Path=/`, `Secure` quando servido em HTTPS. Sessão: 30 dias, renovada no uso. Código: 6 dígitos, aleatório criptográfico, 5 min, 5 tentativas erradas invalidam. Limites: até 3 códigos por número a cada 15 min; até 20 pedidos por hora no total; acima disso 429.
 - Erros da API sempre em JSON `{"erro": "<código>", "mensagem": "<texto em português>"}`; 401 sem sessão, 403 sem permissão, 404, 409 conflito, 422 validação, 429 limite. Nenhuma resposta de erro ecoa o valor recebido (número, código).
 - Portas: `api` em `127.0.0.1:8100`, `web` em `127.0.0.1:8090`; o admin antigo (`:8000`) não muda. Nenhuma mensagem de WhatsApp leva endereço do sistema (regra dos avisos; `tests/avisos/test_regras_globais.py`). Fora de `avisos/`, nada chama `enfileirar`; `host_publico` só no admin, na configuração, no banco e nos avisos.
@@ -25,11 +27,12 @@
 
 ## Review Focus
 
-1. **Quem tem `gerir_usuarios` mas não é admin** (operador que ganhou a permissão na grade) tentando criar um admin, promover alguém a admin, editar um admin ou encerrar a sessão de um admin: a API recusa com 403 `so_admin` (sem isso, a grade vira escada para o admin). Teste na Task 5 (`test_quem_nao_e_admin_nao_cria_nem_edita_admin`).
-2. **O único admin ativo se desativando ou se rebaixando** (inclusive sem querer, na tela de editar): 409 `ultimo_admin`, nada muda. Teste na Task 5 (`test_ultimo_admin_nao_se_desativa_nem_se_rebaixa`).
-3. **Número digitado em formatos diferentes** ("(11) 90000-0002", "+55 11 90000 0002", "11900000002", com ou sem o 55): é sempre o mesmo usuário, no login, no limite por número e na checagem de duplicado. Testes na Task 1 (`test_normalizar_numero_formatos`), Task 4 (`test_fluxo_completo_com_numero_formatado`, `test_quarto_pedido_do_mesmo_numero_em_15_min_e_recusado`) e Task 5 (`test_numero_duplicado_em_outro_formato_409`).
-4. **WhatsApp fora ou notificador pausado por mais de 5 min com um código na fila**: quando volta, o código vencido não sai (nem pelo "Reenviar" do admin) e o texto com o código some do banco. Testes na Task 2 (`test_codigo_vencido_na_fila_nao_sai_nem_e_reenviado`, `test_individual_vai_para_o_numero_e_o_texto_some_depois`).
-5. **Erro da Evolution que repete o número da pessoa** (ex.: `HTTP 400: {"message":"5511900000001 não está no WhatsApp"}`): o número sai mascarado em `ultimo_erro`, no log e no aviso "mensagem não enviada" do grupo admin. Teste na Task 2 (`test_erro_que_repete_o_numero_e_mascarado`).
+1. **Quem tem `gerir_usuarios` mas não é o superadmin** (admin comum, ou operador que ganhou a permissão na grade) tentando criar um admin, promover alguém a admin, editar/rebaixar/desativar um admin ou encerrar a sessão de um admin: a API recusa com 403 `so_superadmin` (sem isso, a grade vira escada para o admin). Testes na Task 5 (`test_quem_nao_e_superadmin_nao_cria_nem_mexe_em_admin`, `test_superadmin_gere_admins`).
+2. **O superadmin sendo rebaixado, desativado ou tendo sessões encerradas** por qualquer um pela API (inclusive ele mesmo, sem querer, na tela de editar): 403 `superadmin_protegido`, nada muda; só ele encerra as próprias sessões; só os comandos locais criam (`criar-superadmin`) ou trocam (`trocar-superadmin`) o superadmin, e o banco garante no máximo um (índice único parcial). Testes na Task 1 (`test_superadmin_unico_e_troca`), Task 5 (`test_superadmin_nunca_rebaixado_desativado_nem_encerrado`) e Task 6 (`test_criar_superadmin_uma_vez_so`, `test_trocar_superadmin`).
+3. **`SEGREDO_API` ausente ou fraca:** a API (`criar_app` e `tcg-sniper api`) e o `codigo-acesso` recusam começar com mensagem clara; todo hash (código, token, número do pedido) é HMAC-SHA256 com ela, nunca SHA-256 puro. Testes na Task 3 (`test_hash_e_hmac_com_o_segredo`, `test_app_nao_sobe_sem_segredo`) e Task 6 (`test_api_recusa_subir_sem_segredo`).
+4. **Número digitado em formatos diferentes** ("(11) 90000-0002", "+55 11 90000 0002", "11900000002", com ou sem o 55): é sempre o mesmo usuário, no login, no limite por número e na checagem de duplicado. Testes na Task 1 (`test_normalizar_numero_formatos`), Task 4 (`test_fluxo_completo_com_numero_formatado`, `test_quarto_pedido_do_mesmo_numero_em_15_min_e_recusado`) e Task 5 (`test_numero_duplicado_em_outro_formato_409`).
+5. **WhatsApp fora ou notificador pausado por mais de 5 min com um código na fila**: quando volta, o código vencido não sai (nem pelo "Reenviar" do admin) e o texto com o código some do banco. Testes na Task 2 (`test_codigo_vencido_na_fila_nao_sai_nem_e_reenviado`, `test_individual_vai_para_o_numero_e_o_texto_some_depois`).
+6. **Erro da Evolution que repete o número da pessoa** (ex.: `HTTP 400: {"message":"5511900000001 não está no WhatsApp"}`): o número sai mascarado em `ultimo_erro`, no log e no aviso "mensagem não enviada" do grupo admin. Teste na Task 2 (`test_erro_que_repete_o_numero_e_mascarado`).
 
 ## Decisões tomadas neste plano (o spec não fixava)
 
@@ -39,10 +42,12 @@
 - **Nada de número no grupo:** os avisos de segurança dizem nome de quem mudou e de quem foi mudado; o de limite diz só "Número com final 34". A chave do `SEGURANCA_LIMITE` é `numero:<12 primeiros do hash>` (ou `total`), nunca o número; ele agrupa e não é resolvido (como `MENSAGEM_NAO_ENVIADA`).
 - **Limites contam pedidos, não códigos:** tabela nova `pedido_codigo` (`em`, `numero_hash`, `resultado`), na mesma migração. Assim número inexistente também recebe 429 no 4º pedido (sem isso o 429 revelaria quem tem cadastro). Só pedidos `aceito` contam; janela aberta (`em > agora - janela`). Pedidos e códigos com mais de 1 dia são apagados a cada pedido.
 - **Só o último código vale.** Pedir outro invalida o anterior (mais simples e as 5 tentativas valem para o código atual).
-- **Hash:** SHA-256 sem segredo (`api/segredos.hash_segredo`) para código, token e número do pedido. O token tem 256 bits, então basta; o código vence em 5 min e tem 5 tentativas. Registrado em `docs/PENDENCIAS.md` como ponto a rever antes de publicar na internet.
+- **Hash:** `api.segredos.hash_segredo(segredo, texto)` = HMAC-SHA256 em hexadecimal com `SEGREDO_API` (campo `Config.segredo_api: SecretStr | None`, opcional no `Config` porque os outros serviços não usam; quem precisa chama `exigir_segredo(config)`). `exigir_segredo` recusa vazio, o valor de exemplo `trocar-este-segredo` e menos de 32 caracteres (`SegredoAusente`, mensagem com o comando para gerar: `python -c "import secrets; print(secrets.token_urlsafe(32))"`). Exigem: `criar_app` (guarda em `app.state.segredo`), `tcg-sniper api` e `tcg-sniper codigo-acesso`; `criar-superadmin` e `trocar-superadmin` não criam código nem sessão, então não exigem. Trocar a `SEGREDO_API` derruba todas as sessões e códigos abertos (todos entram de novo) e zera a contagem dos limites — documentado no `.env.example`.
+- **Superadmin no banco:** `usuario.superadmin` (bool, padrão `false`), índice único parcial `uq_usuario_superadmin` (`WHERE superadmin`) e check `ck_usuario_superadmin` (`NOT superadmin OR (papel = 'admin' AND ativo)`): o banco garante um só, sempre admin e ativo. `trocar-superadmin` passa a marca para outro usuário ativo existente (que vira admin; o antigo continua admin comum) e avisa `SEGURANCA_USUARIO` "superadmin trocado".
+- **Erros do superadmin:** 403 `so_superadmin` (quem não é o superadmin mexendo em admin ou dando o papel admin); 403 `superadmin_protegido` (rebaixar, desativar ou encerrar sessão do superadmin, por qualquer um; vem antes do `so_superadmin`). PATCH no superadmin com `papel: "admin"` e `ativo: true` não é rebaixar (a tela manda o formulário inteiro). Qualquer pessoa com `gerir_usuarios` encerra as **próprias** sessões (o spec diz que o superadmin encerra as dele; vale igual para os outros).
 - **Cookie renovado no `GET /api/auth/eu`:** a sessão no banco renova a cada uso; o cookie (`Max-Age` 30 dias) é regravado no `eu`, que o front chama ao abrir.
 - **Grade:** `permissao_papel.permissao` é texto sem check (cada fase acrescenta permissões sem migração; linha com permissão desconhecida é ignorada). Cache de 5 s por instância do app (`GradePermissoes`), invalidado no `PUT /api/acessos`; cada teste cria o próprio app, então o cache não vaza entre testes. `PUT` com o papel admin responde 422 `papel_travado`; linhas do admin no banco são ignoradas.
-- **Regras de gestão de usuários:** só admin cria/edita/encerra sessões de um admin ou dá o papel admin (403 `so_admin`); o único admin ativo não se desativa nem se rebaixa (409 `ultimo_admin`); o número não muda depois de criado (para trocar: desativar e criar outro); reativar também avisa (`SEGURANCA_USUARIO` "usuário reativado").
+- **Regras de gestão de usuários:** as do superadmin acima (sem regra de "último admin"); o número não muda depois de criado (para trocar: desativar e criar outro); reativar também avisa (`SEGURANCA_USUARIO` "usuário reativado").
 - **Número:** `formatacao.normalizar_numero` aceita espaços, parênteses, pontos e traços; sem `+`, 10 ou 11 dígitos viram Brasil (`+55`). E.164 no banco (check `^[+][1-9][0-9]{9,14}$`).
 - **`aparelho`:** "Navegador · Sistema" (ex.: "Chrome · Windows") tirado do User-Agent, nunca o User-Agent inteiro.
 - **`tcg-sniper api`** escuta em `127.0.0.1` por padrão; o compose passa `--host 0.0.0.0` dentro do container e publica só em `127.0.0.1:8100`. `Secure` do cookie: `X-Forwarded-Proto: https` (Caddy/túnel) ou esquema https.
@@ -58,7 +63,7 @@
 - **Onda A (em paralelo):** Task 1 (banco: modelos, migração, repositório e números) e Task 7 (front base) — independentes.
 - **Onda B (em paralelo):** Task 2 (avisos novos e envio individual) e Task 3 (API base: erros, sessão, permissões, grade) — ambas dependem só da 1; Task 8 (front: Usuários e Acessos) — depende da 7.
 - **Onda C (em paralelo):** Task 4 (login pelo WhatsApp) e Task 5 (usuários, sessões e avisos de segurança) — dependem da 2 e da 3.
-- **Onda D (em paralelo):** Task 6 (CLI `api`, `codigo-acesso`, `criar-admin`) — depende da 4 e da 5; Task 9 (containers `api` e `web`, Caddy) — depende da 8.
+- **Onda D (em paralelo):** Task 6 (CLI `api`, `codigo-acesso`, `criar-superadmin`, `trocar-superadmin`) — depende da 4 e da 5; Task 9 (containers `api` e `web`, Caddy) — depende da 8.
 - **Onda E:** Task 10 (ponta a ponta, `verificar_layout`, regra global de log, README e `docs/PENDENCIAS.md`) — depende de todas.
 - Conflitos esperados e como resolver: `src/tcg_sniper/api/app.py` (Task 4 e Task 5 acrescentam cada uma um `app.include_router(...)` logo abaixo do de acessos: manter os dois); `tests/api/` (arquivos novos diferentes; `tests/fakes_api.py` só a Task 3 cria); `.gitignore` (Task 7 acrescenta `web/`, Task 10 acrescenta `.playwright-navegadores/`: manter tudo); `src/tcg_sniper/admin/static/admin.css` (só a Task 2 regenera; na integração, se houver conflito, rodar `uv run python scripts/gerar_css.py` e commitar).
 
@@ -66,17 +71,18 @@
 
 | Arquivo | Responsabilidade | Tasks |
 |---|---|---|
-| `src/tcg_sniper/db/models.py`, migração `f8d2a6c4e1b3_acesso.py` (nova) | `Papel`, `Usuario`, `CodigoAcesso`, `Sessao`, `PermissaoPapel`, `PedidoCodigo`; `mensagem_saida.numero/expira_em` e destino `individual` | 1 |
-| `src/tcg_sniper/db/repositorio_acesso.py` (novo) | consultas e gravações do login, das sessões, dos pedidos e da grade | 1 |
+| `src/tcg_sniper/db/models.py`, migração `f8d2a6c4e1b3_acesso.py` (nova) | `Papel`, `Usuario` (com `superadmin`), `CodigoAcesso`, `Sessao`, `PermissaoPapel`, `PedidoCodigo`; `mensagem_saida.numero/expira_em` e destino `individual` | 1 |
+| `src/tcg_sniper/db/repositorio_acesso.py` (novo) | consultas e gravações do login, do superadmin, das sessões, dos pedidos e da grade | 1 |
 | `src/tcg_sniper/formatacao.py` | `normalizar_numero`, `mascarar_numero`, `ocultar_numero` | 1 |
 | `src/tcg_sniper/notificador/base.py`, `avisos/catalogo.py`, `avisos/servico.py` | `Destino.INDIVIDUAL`, `Severidade.ACESSO`, `CODIGO_ACESSO`, `SEGURANCA_USUARIO`, `SEGURANCA_LIMITE`, `avisar_individual` | 2 |
 | `src/tcg_sniper/db/repositorio_mensagens.py`, `notificador/servico.py` | fila individual: número, validade, texto apagado, erro sem número | 2 |
 | `src/tcg_sniper/admin/app.py`, `admin/consultas_mensagens.py`, `admin/templates/configuracoes.html`, `admin/static/admin.css` | destino individual em Mensagens e na aba Avisos | 2 |
-| `src/tcg_sniper/api/__init__.py`, `app.py`, `erros.py`, `segredos.py`, `permissoes.py`, `dependencias.py`, `rotas_acessos.py` (novos) | app, JSON de erro, sessão, `exige`, grade com cache, `/api/acessos`, `/api/saude`, `/api/docs` | 3 |
-| `tests/fakes_api.py`, `tests/api/conftest.py` (novos) | relógio e usuário logado nos testes da API | 3 |
+| `src/tcg_sniper/api/__init__.py`, `app.py`, `erros.py`, `segredos.py`, `permissoes.py`, `dependencias.py`, `rotas_acessos.py` (novos) | app, JSON de erro, sessão, `exige`, grade com cache, `/api/acessos`, `/api/saude`, `/api/docs`, HMAC com `SEGREDO_API` | 3 |
+| `src/tcg_sniper/config.py`, `.env.example` | `SEGREDO_API` (campo `segredo_api` e documentação) | 3 |
+| `tests/fakes_api.py`, `tests/api/conftest.py` (novos), `tests/conftest.py` | relógio, usuário logado e segredo falso nos testes da API | 3 |
 | `src/tcg_sniper/api/acesso.py`, `api/rotas_auth.py` (novos) | pedir código, entrar, sair, eu, limites | 4 |
 | `src/tcg_sniper/api/avisos_acesso.py`, `api/rotas_usuarios.py` (novos), `api/rotas_acessos.py` | usuários, sessões, avisos `SEGURANCA_USUARIO` | 5 |
-| `src/tcg_sniper/cli.py` | `api`, `codigo-acesso`, `criar-admin` | 6 |
+| `src/tcg_sniper/cli.py` | `api`, `codigo-acesso`, `criar-superadmin`, `trocar-superadmin` | 6 |
 | `web/` (novo: `package.json`, `vite.config.ts`, `src/...`) | front React | 7, 8 |
 | `web/Dockerfile`, `web/Caddyfile`, `web/.dockerignore`, `docker-compose.yml`, `.dockerignore` | containers `api` e `web` | 9 |
 | `tests/e2e/test_ponta_a_ponta.py` (novo), `scripts/verificar_layout.py`, `tests/avisos/test_regras_globais.py`, `.gitignore`, `README.md`, `docs/PENDENCIAS.md` | ponta a ponta, layout, regra de log, documentação | 10 |
@@ -86,7 +92,7 @@
 ### Task 1: Banco do login (modelos, migração, repositório e números)
 
 **Files:**
-- Modify: `src/tcg_sniper/db/models.py` (enum `Papel` junto dos outros enums; classes novas no fim; `MensagemSaida` ganha `numero`/`expira_em` e o check novo)
+- Modify: `src/tcg_sniper/db/models.py` (enum `Papel` junto dos outros enums; classes novas no fim, `Usuario` com `superadmin`; `MensagemSaida` ganha `numero`/`expira_em` e o check novo)
 - Create: `src/tcg_sniper/db/migrations/versions/f8d2a6c4e1b3_acesso.py`
 - Create: `src/tcg_sniper/db/repositorio_acesso.py`
 - Modify: `src/tcg_sniper/formatacao.py`
@@ -96,8 +102,8 @@
 - Consumes: `db.models._enum`, `DATA`, `Base`, `MensagemSaida`, `StatusMensagem` (existentes); head atual do Alembic `e4b7c2d9a1f6`.
 - Produces:
   - `models.Papel` (StrEnum): `GRUPO="grupo"`, `OPERADOR="operador"`, `ADMIN="admin"`.
-  - `models.Usuario(id, nome, numero, papel: Papel, ativo: bool, criado_em)`; `models.CodigoAcesso(id, usuario_id, hash_codigo, criado_em, expira_em, tentativas, usado_em)`; `models.Sessao(id, usuario_id, hash_token, aparelho, criada_em, ultimo_uso_em, expira_em, encerrada_em)`; `models.PermissaoPapel(papel: Papel, permissao: str, permitido: bool)`; `models.PedidoCodigo(id, em, numero_hash, resultado)`; `MensagemSaida.numero: str | None`, `MensagemSaida.expira_em: datetime | None`.
-  - `repositorio_acesso`: `ACEITO = "aceito"`, `RETENCAO = timedelta(days=1)`, `class NumeroJaCadastrado(Exception)`; `criar_usuario(s, nome: str, numero: str, papel: Papel, agora: datetime) -> Usuario`; `usuario_por_numero(s, numero: str) -> Usuario | None`; `listar_usuarios(s) -> list[Usuario]`; `existe_admin(s) -> bool`; `admins_ativos(s) -> int`; `criar_codigo(s, usuario_id: int, hash_codigo: str, agora: datetime, validade: timedelta) -> CodigoAcesso`; `ultimo_codigo(s, usuario_id: int) -> CodigoAcesso | None` (travado `FOR UPDATE`); `criar_sessao(s, usuario_id: int, hash_token: str, aparelho: str, agora: datetime, validade: timedelta) -> Sessao`; `sessao_por_hash(s, hash_token: str) -> Sessao | None`; `sessoes_ativas(s, usuario_id: int, agora: datetime) -> list[Sessao]` (último uso primeiro); `contar_sessoes_ativas(s, agora: datetime) -> dict[int, int]`; `encerrar_sessao(s, sessao: Sessao, agora: datetime) -> None`; `encerrar_sessoes_do_usuario(s, usuario_id: int, agora: datetime) -> int`; `registrar_pedido(s, numero_hash: str, resultado: str, agora: datetime) -> None`; `contar_pedidos(s, desde: datetime, numero_hash: str | None = None) -> int` (só `aceito`, `em > desde`); `limpar_antigos(s, agora: datetime) -> None`; `grade_salva(s) -> dict[tuple[Papel, str], bool]`; `salvar_permissao(s, papel: Papel, permissao: str, permitido: bool) -> None`.
+  - `models.Usuario(id, nome, numero, papel: Papel, ativo: bool, superadmin: bool, criado_em)` (no máximo um `superadmin` — índice único parcial `uq_usuario_superadmin`; check `ck_usuario_superadmin`: superadmin é admin e ativo); `models.CodigoAcesso(id, usuario_id, hash_codigo, criado_em, expira_em, tentativas, usado_em)`; `models.Sessao(id, usuario_id, hash_token, aparelho, criada_em, ultimo_uso_em, expira_em, encerrada_em)`; `models.PermissaoPapel(papel: Papel, permissao: str, permitido: bool)`; `models.PedidoCodigo(id, em, numero_hash, resultado)`; `MensagemSaida.numero: str | None`, `MensagemSaida.expira_em: datetime | None`.
+  - `repositorio_acesso`: `ACEITO = "aceito"`, `RETENCAO = timedelta(days=1)`, `class NumeroJaCadastrado(Exception)`, `class SuperadminJaExiste(Exception)`; `criar_usuario(s, nome: str, numero: str, papel: Papel, agora: datetime) -> Usuario`; `usuario_por_numero(s, numero: str) -> Usuario | None`; `listar_usuarios(s) -> list[Usuario]`; `superadmin_atual(s) -> Usuario | None`; `criar_superadmin(s, nome: str, numero: str, agora: datetime) -> Usuario` (`SuperadminJaExiste` se já houver um; `NumeroJaCadastrado` se o número for de alguém); `trocar_superadmin(s, novo: Usuario) -> Usuario | None` (passa a marca para `novo`, que vira admin; devolve o antigo, que continua admin comum, ou None se não havia); `criar_codigo(s, usuario_id: int, hash_codigo: str, agora: datetime, validade: timedelta) -> CodigoAcesso`; `ultimo_codigo(s, usuario_id: int) -> CodigoAcesso | None` (travado `FOR UPDATE`); `criar_sessao(s, usuario_id: int, hash_token: str, aparelho: str, agora: datetime, validade: timedelta) -> Sessao`; `sessao_por_hash(s, hash_token: str) -> Sessao | None`; `sessoes_ativas(s, usuario_id: int, agora: datetime) -> list[Sessao]` (último uso primeiro); `contar_sessoes_ativas(s, agora: datetime) -> dict[int, int]`; `encerrar_sessao(s, sessao: Sessao, agora: datetime) -> None`; `encerrar_sessoes_do_usuario(s, usuario_id: int, agora: datetime) -> int`; `registrar_pedido(s, numero_hash: str, resultado: str, agora: datetime) -> None`; `contar_pedidos(s, desde: datetime, numero_hash: str | None = None) -> int` (só `aceito`, `em > desde`); `limpar_antigos(s, agora: datetime) -> None`; `grade_salva(s) -> dict[tuple[Papel, str], bool]`; `salvar_permissao(s, papel: Papel, permissao: str, permitido: bool) -> None`.
   - `formatacao.normalizar_numero(texto: str) -> str` (ValueError se inválido); `formatacao.mascarar_numero(numero: str) -> str`; `formatacao.ocultar_numero(texto: str, numero: str) -> str`.
 
 - [ ] **Step 1: Banco da lane**
@@ -202,13 +208,34 @@ def test_listar_por_nome(s):
     assert [u.nome for u in repo_acesso.listar_usuarios(s)] == ["Alfa", "beta"]
 
 
-def test_admins_ativos(s):
-    assert not repo_acesso.existe_admin(s)
-    admin = novo(s, nome="Pessoa Admin", numero="+5511900000001", papel=Papel.ADMIN)
-    assert repo_acesso.existe_admin(s) and repo_acesso.admins_ativos(s) == 1
-    admin.ativo = False
-    s.flush()
-    assert not repo_acesso.existe_admin(s) and repo_acesso.admins_ativos(s) == 0
+def test_superadmin_unico_e_troca(s):
+    assert repo_acesso.superadmin_atual(s) is None
+    dono = repo_acesso.criar_superadmin(s, "Pessoa Superadmin", "+5511900000001", T)
+    assert (dono.papel, dono.ativo, dono.superadmin) == (Papel.ADMIN, True, True)
+    assert repo_acesso.superadmin_atual(s).id == dono.id
+    with pytest.raises(repo_acesso.SuperadminJaExiste):
+        repo_acesso.criar_superadmin(s, "Outra Pessoa", "+5511900000004", T)
+    grupo = novo(s)
+    assert novo(s, nome="Comum", numero="+5511900000005").superadmin is False
+    antigo = repo_acesso.trocar_superadmin(s, grupo)
+    assert antigo.id == dono.id
+    assert (antigo.papel, antigo.superadmin) == (Papel.ADMIN, False)  # o antigo continua admin comum
+    assert (grupo.papel, grupo.superadmin) == (Papel.ADMIN, True)
+    assert repo_acesso.superadmin_atual(s).id == grupo.id
+
+
+def test_banco_garante_um_superadmin_so(s):
+    repo_acesso.criar_superadmin(s, "Pessoa Superadmin", "+5511900000001", T)
+    s.add(Usuario(nome="X", numero="+5511900000004", papel=Papel.ADMIN, ativo=True, superadmin=True, criado_em=T))
+    with pytest.raises(IntegrityError):
+        s.flush()
+
+
+@pytest.mark.parametrize(("papel", "ativo"), [(Papel.OPERADOR, True), (Papel.ADMIN, False)])
+def test_banco_recusa_superadmin_que_nao_e_admin_ativo(s, papel, ativo):
+    s.add(Usuario(nome="X", numero="+5511900000004", papel=papel, ativo=ativo, superadmin=True, criado_em=T))
+    with pytest.raises(IntegrityError):
+        s.flush()
 
 
 def test_ultimo_codigo_e_o_mais_novo(s):
@@ -379,13 +406,17 @@ No fim do arquivo, acrescente:
 
 ```python
 class Usuario(Base):
-    """Pessoa que entra no front. `numero` em E.164 fica só no banco: nunca em log, tela (só mascarado) ou grupo."""
+    """Pessoa que entra no front. `numero` em E.164 fica só no banco: nunca em log, tela (só mascarado) ou grupo.
+    `superadmin`: o dono do sistema (um só, sempre admin e ativo; a API nunca o rebaixa, desativa ou encerra)."""
 
     __tablename__ = "usuario"
     __table_args__ = (
         UniqueConstraint("numero", name="uq_usuario_numero"),
         CheckConstraint("nome <> ''", name="ck_usuario_nome"),
         CheckConstraint("numero ~ '^[+][1-9][0-9]{9,14}$'", name="ck_usuario_numero"),
+        CheckConstraint("NOT superadmin OR (papel = 'admin' AND ativo)", name="ck_usuario_superadmin"),
+        # no máximo um superadmin (o dono do sistema): criado e trocado só pelos comandos locais
+        Index("uq_usuario_superadmin", "superadmin", unique=True, postgresql_where=text("superadmin")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -393,6 +424,7 @@ class Usuario(Base):
     numero: Mapped[str] = mapped_column(Text)
     papel: Mapped[Papel] = mapped_column(_enum(Papel, "papel"))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    superadmin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     criado_em: Mapped[datetime] = mapped_column(DATA)
 
 
@@ -501,11 +533,16 @@ def upgrade() -> None:
         sa.Column("numero", sa.Text(), nullable=False),
         sa.Column("papel", _papel(), nullable=False),
         sa.Column("ativo", sa.Boolean(), server_default="true", nullable=False),
+        sa.Column("superadmin", sa.Boolean(), server_default="false", nullable=False),
         sa.Column("criado_em", DATA, nullable=False),
         sa.CheckConstraint("nome <> ''", name="ck_usuario_nome"),
         sa.CheckConstraint("numero ~ '^[+][1-9][0-9]{9,14}$'", name="ck_usuario_numero"),
+        sa.CheckConstraint("NOT superadmin OR (papel = 'admin' AND ativo)", name="ck_usuario_superadmin"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("numero", name="uq_usuario_numero"),
+    )
+    op.create_index(
+        "uq_usuario_superadmin", "usuario", ["superadmin"], unique=True, postgresql_where=sa.text("superadmin")
     )
     op.create_table(
         "codigo_acesso",
@@ -582,6 +619,7 @@ def downgrade() -> None:
     op.drop_table("sessao")
     op.drop_index("ix_codigo_acesso_usuario", table_name="codigo_acesso")
     op.drop_table("codigo_acesso")
+    op.drop_index("uq_usuario_superadmin", table_name="usuario")
     op.drop_table("usuario")
 ```
 
@@ -595,7 +633,7 @@ Números de WhatsApp ficam só aqui (banco); código e token entram só como has
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, exists, func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -607,6 +645,10 @@ RETENCAO = timedelta(days=1)  # pedidos e códigos mais velhos que isso não ser
 
 
 class NumeroJaCadastrado(Exception):
+    pass
+
+
+class SuperadminJaExiste(Exception):
     pass
 
 
@@ -630,14 +672,31 @@ def listar_usuarios(s: Session) -> list[Usuario]:
     return list(s.scalars(select(Usuario).order_by(func.lower(Usuario.nome), Usuario.id)))
 
 
-def existe_admin(s: Session) -> bool:
-    return bool(s.scalar(select(exists().where(Usuario.papel == Papel.ADMIN, Usuario.ativo.is_(True)))))
+def superadmin_atual(s: Session) -> Usuario | None:
+    return s.scalar(select(Usuario).where(Usuario.superadmin.is_(True)))
 
 
-def admins_ativos(s: Session) -> int:
-    return s.scalar(
-        select(func.count()).select_from(Usuario).where(Usuario.papel == Papel.ADMIN, Usuario.ativo.is_(True))
-    ) or 0
+def criar_superadmin(s: Session, nome: str, numero: str, agora: datetime) -> Usuario:
+    """Só pelo comando local `criar-superadmin`. Já existe um: `SuperadminJaExiste` (nada é gravado)."""
+    if superadmin_atual(s) is not None:
+        raise SuperadminJaExiste
+    usuario = criar_usuario(s, nome, numero, Papel.ADMIN, agora)
+    usuario.superadmin = True
+    s.flush()
+    return usuario
+
+
+def trocar_superadmin(s: Session, novo: Usuario) -> Usuario | None:
+    """Só pelo comando local `trocar-superadmin`: a marca passa para `novo` (que vira admin, se não era); o antigo
+    continua admin comum. Devolve o antigo (None se não havia). Desmarca antes de marcar: o índice único é parcial."""
+    antigo = superadmin_atual(s)
+    if antigo is not None:
+        antigo.superadmin = False
+        s.flush()
+    novo.papel = Papel.ADMIN
+    novo.superadmin = True
+    s.flush()
+    return antigo
 
 
 def criar_codigo(s: Session, usuario_id: int, hash_codigo: str, agora: datetime, validade: timedelta) -> CodigoAcesso:
@@ -1271,16 +1330,18 @@ git commit -m "feat: individual WhatsApp messages with own validity and access a
 **Files:**
 - Create: `src/tcg_sniper/api/__init__.py`, `api/erros.py`, `api/segredos.py`, `api/permissoes.py`, `api/dependencias.py`, `api/rotas_acessos.py`, `api/app.py`
 - Create: `tests/fakes_api.py`, `tests/api/conftest.py`
+- Modify: `src/tcg_sniper/config.py` (campo `segredo_api`), `.env.example` (`SEGREDO_API`), `tests/conftest.py` (segredo falso no fixture `config`)
 - Test: `tests/api/test_base.py`, `tests/api/test_acessos.py` (novos)
 
 **Interfaces:**
 - Consumes (Task 1): `models.Papel`, `models.Usuario`, `models.Sessao`; `repo_acesso.sessao_por_hash`, `grade_salva`, `salvar_permissao`, `criar_usuario`, `criar_sessao`; `db.repositorio.agora_utc`.
 - Produces:
   - `api.erros`: `class ErroApi(Exception)` com `ErroApi(status: int, erro: str, mensagem: str)` e atributos `.status`, `.erro`, `.mensagem`; `MENSAGEM_NUMERO_INVALIDO = "Número inválido. Use DDD e número, ex.: (11) 9XXXX-XXXX."`; `instalar_tratadores(app: FastAPI) -> None`.
-  - `api.segredos`: `gerar_codigo() -> str` (6 dígitos), `gerar_token() -> str`, `hash_segredo(texto: str) -> str` (SHA-256 hex).
+  - `config.Config.segredo_api: SecretStr | None = None` (variável `SEGREDO_API`).
+  - `api.segredos`: `gerar_codigo() -> str` (6 dígitos), `gerar_token() -> str`, `hash_segredo(segredo: str, texto: str) -> str` (HMAC-SHA256 hex com o segredo como chave); `TAMANHO_MINIMO_SEGREDO = 32`, `SEGREDO_EXEMPLO = "trocar-este-segredo"`, `class SegredoAusente(Exception)` (a mensagem diz o que fazer e como gerar), `exigir_segredo(config: Config) -> str` (o valor; `SegredoAusente` se vazio, igual ao exemplo ou com menos de 32 caracteres).
   - `api.permissoes`: `class Permissao(StrEnum)` com `VER_AREA_NEGOCIO="ver_area_negocio"`, `VER_AREA_GESTAO="ver_area_gestao"`, `GERIR_USUARIOS="gerir_usuarios"`, `GERIR_ACESSOS="gerir_acessos"`, `VER_DOCUMENTACAO_API="ver_documentacao_api"`; `DefinicaoPermissao(rotulo: str, descricao: str)`; `DEFINICOES: dict[Permissao, DefinicaoPermissao]`; `ROTULOS_PAPEL: dict[Papel, str]` (`Grupo`, `Operador`, `Admin`); `PAPEIS_EDITAVEIS = (Papel.GRUPO, Papel.OPERADOR)`; `PADROES: dict[Papel, frozenset[Permissao]]`; `calcular_grade(salvas: dict[tuple[Papel, str], bool]) -> dict[Papel, frozenset[Permissao]]`; `class GradePermissoes(sessoes, ttl_s: float = 5.0, monotonico: Callable[[], float] = time.monotonic)` com `.grade() -> dict[Papel, frozenset[Permissao]]`, `.efetivas(papel: Papel) -> frozenset[Permissao]`, `.invalidar() -> None`.
-  - `api.dependencias`: `COOKIE = "sessao"`, `VALIDADE_SESSAO = timedelta(days=30)`, `MAX_TOKEN = 200`; `Contexto(usuario_id: int, nome: str, papel: Papel, permissoes: frozenset[Permissao], sessao_id: int)` (frozen); `usuario_logado(request: Request) -> Contexto` (401 `sem_sessao`); `exige(permissao: Permissao) -> Callable[..., Contexto]` (a função devolvida tem o atributo `.permissao`; 403 `sem_permissao`); `https(request: Request) -> bool`.
-  - `api.app.criar_app(sessoes: sessionmaker[Session], config: Config, relogio: Callable[[], datetime] | None = None) -> FastAPI`; `app.state.sessoes`, `.config`, `.relogio`, `.grade` (`GradePermissoes`).
+  - `api.dependencias`: `COOKIE = "sessao"`, `VALIDADE_SESSAO = timedelta(days=30)`, `MAX_TOKEN = 200`; `Contexto(usuario_id: int, nome: str, papel: Papel, permissoes: frozenset[Permissao], sessao_id: int, superadmin: bool)` (frozen); `usuario_logado(request: Request) -> Contexto` (401 `sem_sessao`); `exige(permissao: Permissao) -> Callable[..., Contexto]` (a função devolvida tem o atributo `.permissao`; 403 `sem_permissao`); `https(request: Request) -> bool`.
+  - `api.app.criar_app(sessoes: sessionmaker[Session], config: Config, relogio: Callable[[], datetime] | None = None) -> FastAPI` (`SegredoAusente` sem `SEGREDO_API` válida: não sobe); `app.state.sessoes`, `.config`, `.relogio`, `.grade` (`GradePermissoes`), `.segredo` (str, o valor de `SEGREDO_API`).
   - `api.rotas_acessos`: `roteador` (prefixo `/api/acessos`); `Mudanca(papel: Papel, permissao: Permissao, permitido: bool)`; `aplicar_mudancas(s, atual: dict[Papel, frozenset[Permissao]], mudancas: list[Mudanca]) -> list[Mudanca]` (grava e devolve só as que trocam o valor).
   - JSON de `GET/PUT /api/acessos`:
     ```json
@@ -1292,7 +1353,7 @@ git commit -m "feat: individual WhatsApp messages with own validity and access a
     ```
     Corpo do `PUT`: `{"mudancas": [{"papel": "grupo", "permissao": "ver_area_gestao", "permitido": true}]}` (1 a 100 itens; papel `admin` → 422 `papel_travado`).
   - `GET /api/saude` → `{"ok": true}` ou 503 `banco_fora`. `GET /api/docs` e `GET /api/openapi.json` exigem `ver_documentacao_api`.
-  - Testes: `tests/fakes_api.py` com `T0`, `NUMEROS: dict[Papel, str]`, `Relogio`, `criar_usuario(sessoes, papel, *, nome=None, numero=None, ativo=True, agora=T0) -> int`, `criar_sessao(sessoes, usuario_id, token, agora=T0) -> int`, `logar(sessoes, cliente, papel, *, nome=None, numero=None, token=None, agora=T0) -> int`, `mensagens(sessoes, destino) -> list[str]`; fixtures em `tests/api/conftest.py`: `relogio`, `app_api`, `cliente`, `logar` (atalho para o `cliente` padrão).
+  - Testes: `tests/fakes_api.py` com `T0`, `SEGREDO_TESTE` (segredo falso fixo, o mesmo do fixture `config`), `NUMEROS: dict[Papel, str]`, `Relogio`, `criar_usuario(sessoes, papel, *, nome=None, numero=None, ativo=True, superadmin=False, agora=T0) -> int`, `criar_sessao(sessoes, usuario_id, token, agora=T0) -> int`, `logar(sessoes, cliente, papel, *, nome=None, numero=None, token=None, superadmin=False, agora=T0) -> int`, `mensagens(sessoes, destino) -> list[str]`; fixtures em `tests/api/conftest.py`: `relogio`, `app_api`, `cliente`, `logar` (atalho para o `cliente` padrão).
 
 - [ ] **Step 1: Banco da lane**
 
@@ -1315,6 +1376,8 @@ from tcg_sniper.db import repositorio_acesso as repo_acesso
 from tcg_sniper.db.models import MensagemSaida, Papel
 
 T0 = datetime(2026, 10, 18, 13, 0, tzinfo=UTC)
+# Segredo falso e fixo dos testes (HMAC); o mesmo valor do fixture `config` de tests/conftest.py. Nunca um real.
+SEGREDO_TESTE = "segredo-de-teste-falso-0123456789abcdefghij"
 NUMEROS = {Papel.ADMIN: "+5511900000001", Papel.GRUPO: "+5511900000002", Papel.OPERADOR: "+5511900000003"}
 
 
@@ -1326,21 +1389,24 @@ class Relogio:
         return self.agora
 
 
-def criar_usuario(sessoes, papel: Papel, *, nome=None, numero=None, ativo=True, agora=T0) -> int:
+def criar_usuario(sessoes, papel: Papel, *, nome=None, numero=None, ativo=True, superadmin=False, agora=T0) -> int:
+    """`superadmin=True` só com `Papel.ADMIN` e ativo (o banco recusa o resto) e um por teste (índice único)."""
     with sessoes() as s, s.begin():
         usuario = repo_acesso.criar_usuario(s, nome or f"Pessoa {papel.value}", numero or NUMEROS[papel], papel, agora)
         usuario.ativo = ativo
+        usuario.superadmin = superadmin
         return usuario.id
 
 
 def criar_sessao(sessoes, usuario_id: int, token: str, agora=T0) -> int:
+    hash_token = hash_segredo(SEGREDO_TESTE, token)
     with sessoes() as s, s.begin():
-        return repo_acesso.criar_sessao(s, usuario_id, hash_segredo(token), "Chrome · Windows", agora, VALIDADE_SESSAO).id
+        return repo_acesso.criar_sessao(s, usuario_id, hash_token, "Chrome · Windows", agora, VALIDADE_SESSAO).id
 
 
-def logar(sessoes, cliente, papel: Papel, *, nome=None, numero=None, token=None, agora=T0) -> int:
+def logar(sessoes, cliente, papel: Papel, *, nome=None, numero=None, token=None, superadmin=False, agora=T0) -> int:
     """Cria o usuário e uma sessão e põe o cookie no cliente (troca o de antes). Devolve o id do usuário."""
-    usuario_id = criar_usuario(sessoes, papel, nome=nome, numero=numero, agora=agora)
+    usuario_id = criar_usuario(sessoes, papel, nome=nome, numero=numero, superadmin=superadmin, agora=agora)
     token = token or f"token-{papel.value}-{usuario_id}"
     criar_sessao(sessoes, usuario_id, token, agora)
     cliente.cookies.set(COOKIE, token)
@@ -1353,6 +1419,8 @@ def mensagens(sessoes, destino: str) -> list[str]:
             s.scalars(select(MensagemSaida.texto).where(MensagemSaida.destino == destino).order_by(MensagemSaida.id))
         )
 ```
+
+Em `tests/conftest.py`, no fixture `config`, acrescente o argumento `segredo_api="segredo-de-teste-falso-0123456789abcdefghij",` (o mesmo valor de `fakes_api.SEGREDO_TESTE`; `test_segredo_do_config_e_o_dos_fakes` confere).
 
 Crie `tests/api/conftest.py`:
 
@@ -1393,15 +1461,20 @@ def logar(sessoes, cliente):
 Crie `tests/api/test_base.py`:
 
 ```python
+import hashlib
+import hmac
 from datetime import timedelta
 
+import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
 
-from fakes_api import T0
+from fakes_api import SEGREDO_TESTE, T0
 from tcg_sniper.api.app import criar_app
+from tcg_sniper.api.segredos import SegredoAusente, exigir_segredo, hash_segredo
 from tcg_sniper.db.models import Papel, Sessao, Usuario
 
 PUBLICAS = {
@@ -1416,6 +1489,27 @@ PUBLICAS = {
 def test_saude_sem_login(cliente):
     r = cliente.get("/api/saude")
     assert r.status_code == 200 and r.json() == {"ok": True}
+
+
+def test_segredo_do_config_e_o_dos_fakes(config, app_api):
+    assert config.segredo_api.get_secret_value() == SEGREDO_TESTE == app_api.state.segredo
+
+
+def test_hash_e_hmac_com_o_segredo():
+    esperado = hmac.new(SEGREDO_TESTE.encode(), b"123456", hashlib.sha256).hexdigest()
+    assert hash_segredo(SEGREDO_TESTE, "123456") == esperado
+    assert hash_segredo(SEGREDO_TESTE, "123456") != hashlib.sha256(b"123456").hexdigest()  # nunca SHA-256 puro
+    assert hash_segredo("outro-segredo-falso-0123456789abcdefghij", "123456") != esperado
+
+
+@pytest.mark.parametrize("valor", [None, "", "   ", "trocar-este-segredo", "curto-demais"])
+def test_app_nao_sobe_sem_segredo(sessoes, config, valor):
+    sem = config.model_copy(update={"segredo_api": None if valor is None else SecretStr(valor)})
+    with pytest.raises(SegredoAusente, match="SEGREDO_API") as erro:
+        criar_app(sessoes, sem)
+    assert "token_urlsafe" in str(erro.value)  # diz como gerar
+    with pytest.raises(SegredoAusente):
+        exigir_segredo(sem)
 
 
 def test_saude_com_banco_fora_responde_503(config):
@@ -1699,10 +1793,33 @@ Crie `src/tcg_sniper/api/segredos.py`:
 
 ```python
 """Segredos do login: código de 6 dígitos e token de sessão (aleatórios criptográficos) e o hash que vai para o
-banco. Código e token nunca vão para log nem para o banco em texto."""
+banco: HMAC-SHA256 com a chave `SEGREDO_API` do .env, nunca SHA-256 puro (sem a chave, quem lê o banco não
+consegue testar os 1 milhão de códigos nem descobrir o número de um pedido). Código e token nunca vão para log nem
+para o banco em texto."""
 
 import hashlib
+import hmac
 import secrets
+
+from tcg_sniper.config import Config
+
+TAMANHO_MINIMO_SEGREDO = 32
+SEGREDO_EXEMPLO = "trocar-este-segredo"  # o valor do .env.example
+COMO_GERAR = 'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+
+
+class SegredoAusente(Exception):
+    """SEGREDO_API vazia, igual à do exemplo ou curta: a API (e o código de emergência) não começam sem ela."""
+
+
+def exigir_segredo(config: Config) -> str:
+    valor = config.segredo_api.get_secret_value().strip() if config.segredo_api else ""
+    if not valor or valor == SEGREDO_EXEMPLO or len(valor) < TAMANHO_MINIMO_SEGREDO:
+        raise SegredoAusente(
+            f"SEGREDO_API ausente ou fraca no .env (mínimo {TAMANHO_MINIMO_SEGREDO} caracteres). "
+            f"Gere uma com: {COMO_GERAR}"
+        )
+    return valor
 
 
 def gerar_codigo() -> str:
@@ -1713,10 +1830,31 @@ def gerar_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def hash_segredo(texto: str) -> str:
-    """SHA-256 em hexadecimal (código, token e número do pedido de código)."""
-    return hashlib.sha256(texto.encode()).hexdigest()
+def hash_segredo(segredo: str, texto: str) -> str:
+    """HMAC-SHA256 em hexadecimal, com `segredo` (SEGREDO_API) como chave: código, token e número do pedido."""
+    return hmac.new(segredo.encode(), texto.encode(), hashlib.sha256).hexdigest()
 ```
+
+Em `src/tcg_sniper/config.py`, depois de `admin_senha`, acrescente o campo (opcional aqui porque coletores, casador e admin não usam; quem usa chama `exigir_segredo`):
+
+```python
+    # Chave do HMAC do login do site novo (código, token de sessão e número do pedido). Obrigatória para o serviço
+    # `api` e o `codigo-acesso`; ver .env.example.
+    segredo_api: SecretStr | None = None
+```
+
+Em `.env.example`, na seção "Acesso", depois do bloco do `VNC_SENHA`, acrescente:
+
+```bash
+# Chave secreta do login do site novo (serviço api, http://<IP deste PC>:8090): o banco guarda o código
+# de acesso, o token da sessão e o número dos pedidos só como HMAC com esta chave. Obrigatória: vazia,
+# "trocar-este-segredo" ou com menos de 32 caracteres, a api não sobe. Gere uma com:
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Trocar a chave derruba todas as sessões e códigos abertos (todos entram de novo pelo WhatsApp).
+SEGREDO_API=trocar-este-segredo
+```
+
+E no cabeçalho do `.env.example`, em "Antes de subir, troque obrigatoriamente:", acrescente `SEGREDO_API` à lista (`ADMIN_SENHA, VNC_SENHA, EVOLUTION_API_KEY, SEGREDO_API`).
 
 - [ ] **Step 6: Permissões e grade**
 
@@ -1854,6 +1992,7 @@ class Contexto:
     papel: Papel
     permissoes: frozenset[Permissao]
     sessao_id: int
+    superadmin: bool  # o dono do sistema: só ele mexe em admins (rotas_usuarios)
 
 
 def https(request: Request) -> bool:
@@ -1869,7 +2008,7 @@ def usuario_logado(request: Request) -> Contexto:
     estado = request.app.state
     agora = estado.relogio()
     with estado.sessoes() as s, s.begin():
-        sessao = repo_acesso.sessao_por_hash(s, hash_segredo(token))
+        sessao = repo_acesso.sessao_por_hash(s, hash_segredo(estado.segredo, token))
         usuario = s.get(Usuario, sessao.usuario_id) if sessao is not None else None
         if (
             sessao is None
@@ -1881,9 +2020,11 @@ def usuario_logado(request: Request) -> Contexto:
             raise ErroApi(401, "sem_sessao", MENSAGEM_SEM_SESSAO)
         sessao.ultimo_uso_em = agora
         sessao.expira_em = agora + VALIDADE_SESSAO
-        usuario_id, nome, papel, sessao_id = usuario.id, usuario.nome, usuario.papel, sessao.id
-    # fora da transação: a grade abre a própria sessão
-    return Contexto(usuario_id, nome, papel, estado.grade.efetivas(papel), sessao_id)
+        usuario_id, nome, papel, sessao_id, superadmin = (
+            usuario.id, usuario.nome, usuario.papel, sessao.id, usuario.superadmin
+        )
+    # fora da transação: a grade abre a própria sessão (o superadmin é admin: todas as permissões)
+    return Contexto(usuario_id, nome, papel, estado.grade.efetivas(papel), sessao_id, superadmin)
 
 
 def exige(permissao: Permissao) -> Callable[..., Contexto]:
@@ -2002,7 +2143,7 @@ Crie `src/tcg_sniper/api/app.py`:
 
 ```python
 """App FastAPI do serviço `api` (`tcg-sniper api`). Só rotas /api em JSON; sem CORS (o front vem da mesma origem,
-pelo Caddy). A documentação OpenAPI fica em /api/docs e exige `ver_documentacao_api`."""
+pelo Caddy). A documentação OpenAPI fica em /api/docs e exige `ver_documentacao_api`. Não sobe sem `SEGREDO_API`."""
 
 import logging
 from collections.abc import Callable
@@ -2019,6 +2160,7 @@ from tcg_sniper.api import rotas_acessos
 from tcg_sniper.api.dependencias import Contexto, exige
 from tcg_sniper.api.erros import ErroApi, instalar_tratadores
 from tcg_sniper.api.permissoes import GradePermissoes, Permissao
+from tcg_sniper.api.segredos import exigir_segredo
 from tcg_sniper.config import Config
 from tcg_sniper.db.repositorio import agora_utc
 
@@ -2028,7 +2170,9 @@ log = logging.getLogger(__name__)
 def criar_app(
     sessoes: sessionmaker[Session], config: Config, relogio: Callable[[], datetime] | None = None
 ) -> FastAPI:
+    segredo = exigir_segredo(config)  # sem SEGREDO_API válida a API não sobe (SegredoAusente)
     app = FastAPI(title="TCG Sniper · API", docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.segredo = segredo
     app.state.sessoes = sessoes
     app.state.config = config
     app.state.relogio = relogio or agora_utc
@@ -2073,8 +2217,8 @@ Expected: verde (`test_regras_globais.py` passa: `api/` não chama `enfileirar` 
 - [ ] **Step 12: Commit**
 
 ```bash
-git add src/tcg_sniper/api tests/fakes_api.py tests/api
-git commit -m "feat: api service base with session cookie, role grid and json errors"
+git add src/tcg_sniper/api src/tcg_sniper/config.py .env.example tests/conftest.py tests/fakes_api.py tests/api
+git commit -m "feat: api service base with session cookie, role grid, hmac secret and json errors"
 ```
 
 ---
@@ -2087,10 +2231,10 @@ git commit -m "feat: api service base with session cookie, role grid and json er
 - Test: `tests/api/test_auth.py` (novo)
 
 **Interfaces:**
-- Consumes: Task 1 (`repo_acesso.*`, `formatacao.normalizar_numero`, `mascarar_numero`); Task 2 (`avisos.servico.avisar_individual`, `avisos.servico.avisar`, `TipoAviso.CODIGO_ACESSO`, `TipoAviso.SEGURANCA_LIMITE`, `catalogo.Dados`); Task 3 (`ErroApi`, `MENSAGEM_NUMERO_INVALIDO`, `COOKIE`, `VALIDADE_SESSAO`, `MAX_TOKEN`, `Contexto`, `usuario_logado`, `https`, `gerar_codigo`, `gerar_token`, `hash_segredo`, `Permissao`, `app.state.*`; fixtures `cliente`, `logar`, `relogio`; `fakes_api.criar_usuario`, `NUMEROS`, `T0`, `mensagens`).
+- Consumes: Task 1 (`repo_acesso.*`, `formatacao.normalizar_numero`, `mascarar_numero`); Task 2 (`avisos.servico.avisar_individual`, `avisos.servico.avisar`, `TipoAviso.CODIGO_ACESSO`, `TipoAviso.SEGURANCA_LIMITE`, `catalogo.Dados`); Task 3 (`ErroApi`, `MENSAGEM_NUMERO_INVALIDO`, `COOKIE`, `VALIDADE_SESSAO`, `MAX_TOKEN`, `Contexto` (com `superadmin`), `usuario_logado`, `https`, `gerar_codigo`, `gerar_token`, `hash_segredo(segredo, texto)`, `Permissao`, `app.state.*` (inclui `.segredo`); fixtures `cliente`, `logar`, `relogio`; `fakes_api.criar_usuario`, `NUMEROS`, `T0`, `SEGREDO_TESTE`, `mensagens`).
 - Produces:
-  - `api.acesso`: `VALIDADE_CODIGO = timedelta(minutes=5)`, `MAX_TENTATIVAS = 5`, `LIMITE_POR_NUMERO = 3`, `JANELA_NUMERO = timedelta(minutes=15)`, `LIMITE_TOTAL = 20`, `JANELA_TOTAL = timedelta(hours=1)`; `class ResultadoPedido(StrEnum)` (`ACEITO="aceito"`, `LIMITE_NUMERO="limite_numero"`, `LIMITE_TOTAL="limite_total"`); `emitir_codigo(s, usuario_id: int, agora: datetime) -> str`; `pedir_codigo(s, numero: str, agora: datetime) -> ResultadoPedido` (`numero` já normalizado); `entrar(s, numero: str, codigo: str, aparelho: str, agora: datetime) -> tuple[Usuario, str] | None` (o `str` é o token); `resumir_aparelho(user_agent: str | None) -> str`.
-  - `api.rotas_auth`: `roteador` (prefixo `/api/auth`); `MENSAGEM_PEDIDO`, `MENSAGEM_CODIGO_INVALIDO`, `MENSAGEM_LIMITE`; `class EuSaida(BaseModel)`: `{"id": int, "nome": str, "papel": "grupo"|"operador"|"admin", "permissoes": [str, ...]}` (na ordem do enum `Permissao`).
+  - `api.acesso`: `VALIDADE_CODIGO = timedelta(minutes=5)`, `MAX_TENTATIVAS = 5`, `LIMITE_POR_NUMERO = 3`, `JANELA_NUMERO = timedelta(minutes=15)`, `LIMITE_TOTAL = 20`, `JANELA_TOTAL = timedelta(hours=1)`; `class ResultadoPedido(StrEnum)` (`ACEITO="aceito"`, `LIMITE_NUMERO="limite_numero"`, `LIMITE_TOTAL="limite_total"`); `emitir_codigo(s, usuario_id: int, agora: datetime, segredo: str) -> str`; `pedir_codigo(s, numero: str, agora: datetime, segredo: str) -> ResultadoPedido` (`numero` já normalizado); `entrar(s, numero: str, codigo: str, aparelho: str, agora: datetime, segredo: str) -> tuple[Usuario, str] | None` (o `str` é o token). `segredo` é o valor de `SEGREDO_API` (`app.state.segredo` ou `exigir_segredo(config)`). `resumir_aparelho(user_agent: str | None) -> str`.
+  - `api.rotas_auth`: `roteador` (prefixo `/api/auth`); `MENSAGEM_PEDIDO`, `MENSAGEM_CODIGO_INVALIDO`, `MENSAGEM_LIMITE`; `class EuSaida(BaseModel)`: `{"id": int, "nome": str, "papel": "grupo"|"operador"|"admin", "superadmin": bool, "permissoes": [str, ...]}` (na ordem do enum `Permissao`).
   - Rotas: `POST /api/auth/pedir-codigo` `{"numero": str}` → 200 `{"ok": true, "mensagem": MENSAGEM_PEDIDO}` (sempre igual), 422 `numero_invalido`, 429 `limite`; `POST /api/auth/entrar` `{"numero": str, "codigo": "dddddd"}` → 200 `EuSaida` + `Set-Cookie`, 401 `codigo_invalido`; `POST /api/auth/sair` → 200 `{"ok": true}` (apaga o cookie, encerra a sessão se houver); `GET /api/auth/eu` → 200 `EuSaida` (regrava o cookie) ou 401 `sem_sessao`.
 
 - [ ] **Step 1: Banco da lane**
@@ -2109,12 +2253,13 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import select
 
-from fakes_api import NUMEROS, T0, criar_usuario, mensagens
+from fakes_api import NUMEROS, SEGREDO_TESTE, T0, criar_usuario, mensagens
 from tcg_sniper.api import acesso
 from tcg_sniper.api.rotas_auth import MENSAGEM_PEDIDO
+from tcg_sniper.api.segredos import hash_segredo
 from tcg_sniper.avisos import servico as avisos
 from tcg_sniper.avisos.catalogo import TipoAviso
-from tcg_sniper.db.models import MensagemSaida, Papel, Sessao
+from tcg_sniper.db.models import CodigoAcesso, MensagemSaida, Papel, PedidoCodigo, Sessao
 
 GRUPO = NUMEROS[Papel.GRUPO]  # +5511900000002
 CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
@@ -2156,8 +2301,8 @@ def test_fluxo_completo_com_numero_formatado(cliente, sessoes):
     assert m.texto.startswith("🔑 *Código de acesso*\n")
     r = entrar(cliente, codigo_da_fila(sessoes), numero="+55 11 90000 0002")
     assert r.status_code == 200
-    assert {k: r.json()[k] for k in ("nome", "papel", "permissoes")} == {
-        "nome": "Pessoa Grupo", "papel": "grupo", "permissoes": ["ver_area_negocio"]
+    assert {k: r.json()[k] for k in ("nome", "papel", "superadmin", "permissoes")} == {
+        "nome": "Pessoa Grupo", "papel": "grupo", "superadmin": False, "permissoes": ["ver_area_negocio"]
     }
     cookie = r.headers["set-cookie"]
     for parte in ("sessao=", "HttpOnly", "Max-Age=2592000", "Path=/", "SameSite=strict"):
@@ -2172,6 +2317,16 @@ def test_fluxo_completo_com_numero_formatado(cliente, sessoes):
     assert cliente.post("/api/auth/sair").json() == {"ok": True}
     cliente.cookies.set("sessao", token)  # mesmo guardando o token, a sessão acabou
     assert cliente.get("/api/auth/eu").status_code == 401
+
+
+def test_banco_guarda_so_o_hmac_do_codigo_do_token_e_do_numero(cliente, sessoes, codigos):
+    criar_usuario(sessoes, Papel.GRUPO)
+    pedir(cliente)
+    token = entrar(cliente, "111111").cookies["sessao"]
+    with sessoes() as s:
+        assert s.scalars(select(CodigoAcesso.hash_codigo)).one() == hash_segredo(SEGREDO_TESTE, "111111")
+        assert s.scalars(select(PedidoCodigo.numero_hash)).one() == hash_segredo(SEGREDO_TESTE, GRUPO)
+        assert s.scalars(select(Sessao.hash_token)).one() == hash_segredo(SEGREDO_TESTE, token)
 
 
 def test_mesma_resposta_para_numero_inexistente_ou_inativo(cliente, sessoes):
@@ -2295,6 +2450,15 @@ def test_eu_sem_sessao_401(cliente):
     assert cliente.get("/api/auth/eu").json()["erro"] == "sem_sessao"
 
 
+def test_eu_diz_quem_e_o_superadmin(cliente, logar):
+    logar(Papel.ADMIN)
+    assert cliente.get("/api/auth/eu").json()["superadmin"] is False
+    logar(Papel.ADMIN, numero="+5511900000004", superadmin=True)
+    eu = cliente.get("/api/auth/eu").json()
+    assert (eu["papel"], eu["superadmin"]) == ("admin", True)
+    assert len(eu["permissoes"]) == 5  # todas
+
+
 @pytest.mark.parametrize(
     ("user_agent", "esperado"),
     [
@@ -2370,11 +2534,11 @@ def resumir_aparelho(user_agent: str | None) -> str:
     return f"{navegador} · {sistema}"
 
 
-def emitir_codigo(s: Session, usuario_id: int, agora: datetime) -> str:
+def emitir_codigo(s: Session, usuario_id: int, agora: datetime, segredo: str) -> str:
     """Novo código para o usuário (o anterior deixa de valer: só o último vale). Usado no login e no acesso de
-    emergência (`tcg-sniper codigo-acesso`)."""
+    emergência (`tcg-sniper codigo-acesso`). No banco, só o HMAC com `segredo` (SEGREDO_API)."""
     codigo = gerar_codigo()
-    repo_acesso.criar_codigo(s, usuario_id, hash_segredo(codigo), agora, VALIDADE_CODIGO)
+    repo_acesso.criar_codigo(s, usuario_id, hash_segredo(segredo, codigo), agora, VALIDADE_CODIGO)
     return codigo
 
 
@@ -2391,12 +2555,12 @@ def _recusar(s: Session, numero: str, numero_hash: str, resultado: ResultadoPedi
     return resultado
 
 
-def pedir_codigo(s: Session, numero: str, agora: datetime) -> ResultadoPedido:
+def pedir_codigo(s: Session, numero: str, agora: datetime, segredo: str) -> ResultadoPedido:
     """`numero` já normalizado. Dentro dos limites, registra o pedido e, se for de um usuário ativo, emite o código e
     enfileira a mensagem individual. Fora dos limites, registra, avisa o grupo admin e devolve o limite atingido.
     O chamador responde igual para número com ou sem cadastro."""
     repo_acesso.limpar_antigos(s, agora)
-    numero_hash = hash_segredo(numero)
+    numero_hash = hash_segredo(segredo, numero)
     if repo_acesso.contar_pedidos(s, agora - JANELA_TOTAL) >= LIMITE_TOTAL:
         return _recusar(s, numero, numero_hash, ResultadoPedido.LIMITE_TOTAL, agora)
     if repo_acesso.contar_pedidos(s, agora - JANELA_NUMERO, numero_hash) >= LIMITE_POR_NUMERO:
@@ -2406,7 +2570,7 @@ def pedir_codigo(s: Session, numero: str, agora: datetime) -> ResultadoPedido:
     if usuario is None or not usuario.ativo:
         log.info("pedido de código para %s: sem usuário ativo, nada enviado", mascarar_numero(numero))
         return ResultadoPedido.ACEITO
-    codigo = emitir_codigo(s, usuario.id, agora)
+    codigo = emitir_codigo(s, usuario.id, agora, segredo)
     dados = Dados(destaque=codigo, linhas=LINHAS_CODIGO)
     na_fila = avisos.avisar_individual(s, TipoAviso.CODIGO_ACESSO, usuario.numero, dados, agora, VALIDADE_CODIGO)
     situacao = "na fila do WhatsApp" if na_fila else "não enfileirado (aviso desligado ou erro)"
@@ -2414,7 +2578,9 @@ def pedir_codigo(s: Session, numero: str, agora: datetime) -> ResultadoPedido:
     return ResultadoPedido.ACEITO
 
 
-def entrar(s: Session, numero: str, codigo: str, aparelho: str, agora: datetime) -> tuple[Usuario, str] | None:
+def entrar(
+    s: Session, numero: str, codigo: str, aparelho: str, agora: datetime, segredo: str
+) -> tuple[Usuario, str] | None:
     """Confere o último código do usuário (validade, uso, tentativas). Certo: marca usado, cria a sessão e devolve
     (usuário, token). Errado: conta a tentativa (o chamador grava antes de responder 401) e devolve None."""
     usuario = repo_acesso.usuario_por_numero(s, numero)
@@ -2424,13 +2590,13 @@ def entrar(s: Session, numero: str, codigo: str, aparelho: str, agora: datetime)
     if atual is None or atual.usado_em is not None or atual.expira_em <= agora or atual.tentativas >= MAX_TENTATIVAS:
         log.info("entrada recusada para %s: sem código válido", mascarar_numero(numero))
         return None
-    if not secrets.compare_digest(atual.hash_codigo, hash_segredo(codigo)):
+    if not secrets.compare_digest(atual.hash_codigo, hash_segredo(segredo, codigo)):
         atual.tentativas += 1
         log.info("código errado para %s (tentativa %d de %d)", mascarar_numero(numero), atual.tentativas, MAX_TENTATIVAS)
         return None
     atual.usado_em = agora
     token = gerar_token()
-    repo_acesso.criar_sessao(s, usuario.id, hash_segredo(token), aparelho, agora, VALIDADE_SESSAO)
+    repo_acesso.criar_sessao(s, usuario.id, hash_segredo(segredo, token), aparelho, agora, VALIDADE_SESSAO)
     log.info("entrada de %s (usuário %d, %s)", mascarar_numero(numero), usuario.id, aparelho)
     return usuario, token
 ```
@@ -2483,6 +2649,7 @@ class EuSaida(BaseModel):
     id: int
     nome: str
     papel: Papel
+    superadmin: bool  # o front mostra/esconde as ações sobre admins (a API confere do mesmo jeito)
     permissoes: list[Permissao]
 
 
@@ -2504,8 +2671,11 @@ def _gravar_cookie(resposta: Response, request: Request, token: str) -> None:
     )
 
 
-def _eu(usuario_id: int, nome: str, papel: Papel, permissoes: frozenset[Permissao]) -> EuSaida:
-    return EuSaida(id=usuario_id, nome=nome, papel=papel, permissoes=[p for p in Permissao if p in permissoes])
+def _eu(usuario_id: int, nome: str, papel: Papel, superadmin: bool, permissoes: frozenset[Permissao]) -> EuSaida:
+    return EuSaida(
+        id=usuario_id, nome=nome, papel=papel, superadmin=superadmin,
+        permissoes=[p for p in Permissao if p in permissoes],
+    )
 
 
 @roteador.post("/pedir-codigo")
@@ -2513,7 +2683,7 @@ def pedir_codigo(request: Request, entrada: PedidoCodigoEntrada) -> PedidoSaida:
     numero = _numero(entrada.numero)
     estado = request.app.state
     with estado.sessoes() as s, s.begin():
-        resultado = acesso.pedir_codigo(s, numero, estado.relogio())
+        resultado = acesso.pedir_codigo(s, numero, estado.relogio(), estado.segredo)
     if resultado is not acesso.ResultadoPedido.ACEITO:  # já gravado e avisado; agora responde
         raise ErroApi(429, "limite", MENSAGEM_LIMITE)
     return PedidoSaida(ok=True, mensagem=MENSAGEM_PEDIDO)
@@ -2525,14 +2695,14 @@ def entrar(request: Request, resposta: Response, entrada: EntrarEntrada) -> EuSa
     estado = request.app.state
     aparelho = acesso.resumir_aparelho(request.headers.get("user-agent"))
     with estado.sessoes() as s, s.begin():
-        resultado = acesso.entrar(s, numero, entrada.codigo, aparelho, estado.relogio())
+        resultado = acesso.entrar(s, numero, entrada.codigo, aparelho, estado.relogio(), estado.segredo)
         if resultado is not None:
             usuario, token = resultado
-            usuario_id, nome, papel = usuario.id, usuario.nome, usuario.papel
+            usuario_id, nome, papel, superadmin = usuario.id, usuario.nome, usuario.papel, usuario.superadmin
     if resultado is None:  # a tentativa errada já foi gravada
         raise ErroApi(401, "codigo_invalido", MENSAGEM_CODIGO_INVALIDO)
     _gravar_cookie(resposta, request, token)
-    return _eu(usuario_id, nome, papel, estado.grade.efetivas(papel))
+    return _eu(usuario_id, nome, papel, superadmin, estado.grade.efetivas(papel))
 
 
 @roteador.post("/sair")
@@ -2541,7 +2711,7 @@ def sair(request: Request, resposta: Response) -> Ok:
     if token and len(token) <= MAX_TOKEN:
         estado = request.app.state
         with estado.sessoes() as s, s.begin():
-            sessao = repo_acesso.sessao_por_hash(s, hash_segredo(token))
+            sessao = repo_acesso.sessao_por_hash(s, hash_segredo(estado.segredo, token))
             if sessao is not None:
                 repo_acesso.encerrar_sessao(s, sessao, estado.relogio())
     resposta.delete_cookie(COOKIE, path="/", httponly=True, samesite="strict", secure=https(request))
@@ -2552,7 +2722,7 @@ def sair(request: Request, resposta: Response) -> Ok:
 def eu(request: Request, resposta: Response, contexto: Annotated[Contexto, Depends(usuario_logado)]) -> EuSaida:
     """Quem está logado e o que pode (o front monta menu e rotas com isso). Regrava o cookie: a sessão foi renovada."""
     _gravar_cookie(resposta, request, request.cookies[COOKIE])
-    return _eu(contexto.usuario_id, contexto.nome, contexto.papel, contexto.permissoes)
+    return _eu(contexto.usuario_id, contexto.nome, contexto.papel, contexto.superadmin, contexto.permissoes)
 ```
 
 Em `src/tcg_sniper/api/app.py`: troque `from tcg_sniper.api import rotas_acessos` por `from tcg_sniper.api import rotas_acessos, rotas_auth` e, logo abaixo de `app.include_router(rotas_acessos.roteador)`, acrescente `app.include_router(rotas_auth.roteador)`.
@@ -2584,15 +2754,15 @@ git commit -m "feat: whatsapp code login with limits and session cookie"
 - Test: `tests/api/test_usuarios.py` (novo)
 
 **Interfaces:**
-- Consumes: Task 1 (`repo_acesso.*`, `models.Usuario`, `Sessao`, `Papel`, `formatacao.normalizar_numero`, `mascarar_numero`); Task 2 (`avisos.servico.avisar`, `TipoAviso.SEGURANCA_USUARIO`, `CHAVE_GERAL`, `Dados`); Task 3 (`ErroApi`, `MENSAGEM_NUMERO_INVALIDO`, `exige`, `Contexto`, `Permissao`, `DEFINICOES`, `ROTULOS_PAPEL`, `rotas_acessos.salvar`/`aplicar_mudancas`; fixtures e `fakes_api`).
+- Consumes: Task 1 (`repo_acesso.*`, `models.Usuario` (com `superadmin`), `Sessao`, `Papel`, `formatacao.normalizar_numero`, `mascarar_numero`); Task 2 (`avisos.servico.avisar`, `TipoAviso.SEGURANCA_USUARIO`, `CHAVE_GERAL`, `Dados`); Task 3 (`ErroApi`, `MENSAGEM_NUMERO_INVALIDO`, `exige`, `Contexto` (com `superadmin`), `Permissao`, `DEFINICOES`, `ROTULOS_PAPEL`, `rotas_acessos.salvar`/`aplicar_mudancas`; fixtures e `fakes_api`, inclusive `superadmin=True` em `logar`/`criar_usuario`).
 - Produces:
-  - `api.avisos_acesso`: `usuario_criado(s, usuario: Usuario, por: str, agora: datetime) -> None`; `papel_alterado(s, usuario: Usuario, antes: Papel, por: str, agora: datetime) -> None`; `ativo_alterado(s, usuario: Usuario, por: str, agora: datetime) -> None`; `permissao_alterada(s, papel: Papel, permissao: Permissao, permitido: bool, por: str, agora: datetime) -> None`. Todos mandam `SEGURANCA_USUARIO` (`titulo_extra` "usuário criado" | "papel alterado" | "usuário desativado" | "usuário reativado" | "permissão alterada"), sem número.
+  - `api.avisos_acesso`: `usuario_criado(s, usuario: Usuario, por: str, agora: datetime) -> None`; `papel_alterado(s, usuario: Usuario, antes: Papel, por: str, agora: datetime) -> None`; `ativo_alterado(s, usuario: Usuario, por: str, agora: datetime) -> None`; `permissao_alterada(s, papel: Papel, permissao: Permissao, permitido: bool, por: str, agora: datetime) -> None`; `superadmin_trocado(s, novo: Usuario, antigo: Usuario, por: str, agora: datetime) -> None` (usado pelo `trocar-superadmin` da Task 6). Todos mandam `SEGURANCA_USUARIO` (`titulo_extra` "usuário criado" | "papel alterado" | "usuário desativado" | "usuário reativado" | "permissão alterada" | "superadmin trocado"), sem número. No "usuário criado" do superadmin o papel sai "Admin (superadmin)".
   - Rotas (todas `gerir_usuarios`):
-    - `GET /api/usuarios` → `{"usuarios": [UsuarioSaida]}`; `UsuarioSaida = {"id": int, "nome": str, "numero_mascarado": str, "papel": str, "ativo": bool, "criado_em": str ISO, "sessoes_ativas": int}`.
-    - `POST /api/usuarios` `{"nome": str (1–80), "numero": str, "papel": str}` → 201 `UsuarioSaida`; 409 `numero_ja_cadastrado`; 422 `numero_invalido`; 403 `so_admin` (papel admin por quem não é admin).
-    - `PATCH /api/usuarios/{id}` `{"nome"?, "papel"?, "ativo"?}` (pelo menos um) → 200 `UsuarioSaida`; 404 `nao_encontrado`; 403 `so_admin`; 409 `ultimo_admin`. Desativar encerra todas as sessões na hora.
+    - `GET /api/usuarios` → `{"usuarios": [UsuarioSaida]}`; `UsuarioSaida = {"id": int, "nome": str, "numero_mascarado": str, "papel": str, "superadmin": bool, "ativo": bool, "criado_em": str ISO, "sessoes_ativas": int}`.
+    - `POST /api/usuarios` `{"nome": str (1–80), "numero": str, "papel": str}` → 201 `UsuarioSaida`; 409 `numero_ja_cadastrado`; 422 `numero_invalido`; 403 `so_superadmin` (papel admin por quem não é o superadmin). A API nunca cria superadmin.
+    - `PATCH /api/usuarios/{id}` `{"nome"?, "papel"?, "ativo"?}` (pelo menos um) → 200 `UsuarioSaida`; 404 `nao_encontrado`; 403 `superadmin_protegido` (rebaixar ou desativar o superadmin, por qualquer um; `papel: "admin"`/`ativo: true` nele não contam); 403 `so_superadmin` (alvo admin, ou papel novo admin, por quem não é o superadmin). Desativar encerra todas as sessões na hora.
     - `GET /api/usuarios/{id}/sessoes` → `{"sessoes": [{"id", "aparelho", "criada_em", "ultimo_uso_em", "expira_em", "atual": bool}]}` (só as ativas).
-    - `POST /api/sessoes/{id}/encerrar` → 200 `{"ok": true}` (já encerrada: 200 também); 404; 403 `so_admin`.
+    - `POST /api/sessoes/{id}/encerrar` → 200 `{"ok": true}` (já encerrada: 200 também); 404; as próprias sessões sempre podem; de outro: 403 `superadmin_protegido` (dono é o superadmin), 403 `so_superadmin` (dono é admin e quem pede não é o superadmin).
 
 - [ ] **Step 1: Banco da lane**
 
@@ -2603,11 +2773,12 @@ Run: `docker exec tcg-sniper-postgres-teste-1 createdb -U tcg tcg_test_t5`
 Crie `tests/api/test_usuarios.py`:
 
 ```python
+import pytest
 from sqlalchemy import select
 
 from fakes_api import T0, criar_sessao, criar_usuario, mensagens
 from tcg_sniper.db import repositorio_acesso as repo_acesso
-from tcg_sniper.db.models import Papel, Sessao
+from tcg_sniper.db.models import Papel, Sessao, Usuario
 
 
 def test_listar_exige_gerir_usuarios(cliente, logar):
@@ -2622,13 +2793,14 @@ def test_operador_por_padrao_nao_gere_usuarios(cliente, logar):
 
 
 def test_admin_lista_com_numero_mascarado(cliente, logar, sessoes):
-    logar(Papel.ADMIN)
+    logar(Papel.ADMIN, superadmin=True)
     criar_usuario(sessoes, Papel.GRUPO)
     r = cliente.get("/api/usuarios")
     assert r.status_code == 200 and "900000002" not in r.text and "900000001" not in r.text
     por_papel = {u["papel"]: u for u in r.json()["usuarios"]}
     assert por_papel["grupo"]["numero_mascarado"] == "+55 11 9****-**02"
     assert (por_papel["grupo"]["ativo"], por_papel["grupo"]["sessoes_ativas"]) == (True, 0)
+    assert (por_papel["grupo"]["superadmin"], por_papel["admin"]["superadmin"]) == (False, True)
     assert por_papel["admin"]["sessoes_ativas"] == 1
 
 
@@ -2662,19 +2834,68 @@ def test_numero_ou_nome_invalido_422(cliente, logar):
     assert r.status_code == 422 and r.json()["erro"] == "validacao"
 
 
-def test_quem_nao_e_admin_nao_cria_nem_edita_admin(cliente, logar, sessoes):
-    logar(Papel.OPERADOR)
+def _recusado(resposta, erro):
+    return resposta.status_code == 403 and resposta.json()["erro"] == erro
+
+
+@pytest.mark.parametrize("papel", [Papel.ADMIN, Papel.OPERADOR])
+def test_quem_nao_e_superadmin_nao_cria_nem_mexe_em_admin(cliente, logar, sessoes, papel):
+    """Admin comum e operador que ganhou `gerir_usuarios` na grade: só operador e grupo."""
+    logar(papel, numero="+5511900000006")
     with sessoes() as s, s.begin():
         repo_acesso.salvar_permissao(s, Papel.OPERADOR, "gerir_usuarios", True)
-    admin_id = criar_usuario(sessoes, Papel.ADMIN)
+    admin_id = criar_usuario(sessoes, Papel.ADMIN, nome="Outro Admin", numero="+5511900000004")
     grupo_id = criar_usuario(sessoes, Papel.GRUPO)
     novo_admin = {"nome": "Intrusa", "numero": "11 90000-0008", "papel": "admin"}
-    assert cliente.post("/api/usuarios", json=novo_admin).json()["erro"] == "so_admin"
-    assert cliente.patch(f"/api/usuarios/{grupo_id}", json={"papel": "admin"}).status_code == 403
-    assert cliente.patch(f"/api/usuarios/{admin_id}", json={"nome": "Outro nome"}).status_code == 403
+    assert _recusado(cliente.post("/api/usuarios", json=novo_admin), "so_superadmin")
+    assert _recusado(cliente.patch(f"/api/usuarios/{grupo_id}", json={"papel": "admin"}), "so_superadmin")
+    for mudanca in ({"nome": "Outro nome"}, {"papel": "operador"}, {"ativo": False}):
+        assert _recusado(cliente.patch(f"/api/usuarios/{admin_id}", json=mudanca), "so_superadmin")
     sessao_admin = criar_sessao(sessoes, admin_id, "token-do-admin")
-    assert cliente.post(f"/api/sessoes/{sessao_admin}/encerrar").status_code == 403
+    assert _recusado(cliente.post(f"/api/sessoes/{sessao_admin}/encerrar"), "so_superadmin")
     assert cliente.patch(f"/api/usuarios/{grupo_id}", json={"papel": "operador"}).status_code == 200
+    assert cliente.patch(f"/api/usuarios/{grupo_id}", json={"ativo": False}).status_code == 200
+    with sessoes() as s:
+        assert s.get(Usuario, admin_id).papel is Papel.ADMIN and s.get(Usuario, admin_id).ativo
+
+
+def test_superadmin_gere_admins(cliente, logar, sessoes):
+    logar(Papel.ADMIN, nome="Pessoa Superadmin", superadmin=True)
+    r = cliente.post("/api/usuarios", json={"nome": "Admin Novo", "numero": "11 90000-0004", "papel": "admin"})
+    assert r.status_code == 201 and (r.json()["papel"], r.json()["superadmin"]) == ("admin", False)
+    admin_id = r.json()["id"]
+    sessao_admin = criar_sessao(sessoes, admin_id, "token-do-admin")
+    assert cliente.post(f"/api/sessoes/{sessao_admin}/encerrar").json() == {"ok": True}
+    assert cliente.patch(f"/api/usuarios/{admin_id}", json={"nome": "Admin Renomeado"}).status_code == 200
+    assert cliente.patch(f"/api/usuarios/{admin_id}", json={"papel": "operador"}).json()["papel"] == "operador"
+    assert cliente.patch(f"/api/usuarios/{admin_id}", json={"papel": "admin"}).json()["papel"] == "admin"
+    assert cliente.patch(f"/api/usuarios/{admin_id}", json={"ativo": False}).json()["ativo"] is False
+
+
+def test_superadmin_nunca_rebaixado_desativado_nem_encerrado(cliente, logar, sessoes):
+    """Nem por um admin comum nem por ele mesmo; só ele encerra as próprias sessões."""
+    super_id = logar(Papel.ADMIN, nome="Pessoa Superadmin", superadmin=True, token="token-super")
+    sessao_super = criar_sessao(sessoes, super_id, "token-super-celular")
+    logar(Papel.ADMIN, nome="Admin Comum", numero="+5511900000004")
+    for mudanca in ({"ativo": False}, {"papel": "operador"}, {"papel": "grupo", "ativo": False}):
+        assert _recusado(cliente.patch(f"/api/usuarios/{super_id}", json=mudanca), "superadmin_protegido")
+    assert _recusado(cliente.patch(f"/api/usuarios/{super_id}", json={"nome": "X"}), "so_superadmin")
+    assert _recusado(cliente.post(f"/api/sessoes/{sessao_super}/encerrar"), "superadmin_protegido")
+    cliente.cookies.set("sessao", "token-super")  # agora o próprio superadmin
+    for mudanca in ({"ativo": False}, {"papel": "operador"}):
+        assert _recusado(cliente.patch(f"/api/usuarios/{super_id}", json=mudanca), "superadmin_protegido")
+    r = cliente.patch(f"/api/usuarios/{super_id}", json={"nome": "Dono", "papel": "admin", "ativo": True})
+    assert r.status_code == 200 and (r.json()["nome"], r.json()["superadmin"]) == ("Dono", True)
+    assert cliente.post(f"/api/sessoes/{sessao_super}/encerrar").json() == {"ok": True}
+    with sessoes() as s:
+        dono = s.get(Usuario, super_id)
+        assert (dono.papel, dono.ativo, dono.superadmin) == (Papel.ADMIN, True, True)
+
+
+def test_qualquer_um_encerra_as_proprias_sessoes(cliente, logar, sessoes):
+    admin_id = logar(Papel.ADMIN)  # admin comum
+    outra = criar_sessao(sessoes, admin_id, "token-do-celular")
+    assert cliente.post(f"/api/sessoes/{outra}/encerrar").json() == {"ok": True}
 
 
 def test_papel_alterado_avisa(cliente, logar, sessoes):
@@ -2706,15 +2927,6 @@ def test_desativar_encerra_as_sessoes_na_hora_e_reativar_avisa(cliente, logar, s
     assert cliente.patch(f"/api/usuarios/{grupo_id}", json={"ativo": True}).json()["ativo"] is True
     avisos = mensagens(sessoes, "admin")
     assert "usuário desativado" in avisos[0] and "usuário reativado" in avisos[1]
-
-
-def test_ultimo_admin_nao_se_desativa_nem_se_rebaixa(cliente, logar, sessoes):
-    admin_id = logar(Papel.ADMIN)
-    for mudanca in ({"ativo": False}, {"papel": "operador"}):
-        r = cliente.patch(f"/api/usuarios/{admin_id}", json=mudanca)
-        assert r.status_code == 409 and r.json()["erro"] == "ultimo_admin"
-    criar_usuario(sessoes, Papel.ADMIN, numero="+5511900000004")
-    assert cliente.patch(f"/api/usuarios/{admin_id}", json={"papel": "operador"}).status_code == 200
 
 
 def test_patch_vazio_ou_usuario_inexistente(cliente, logar):
@@ -2778,8 +2990,13 @@ def _avisar(s: Session, titulo_extra: str, linhas: tuple[str, ...], agora: datet
 
 
 def usuario_criado(s: Session, usuario: Usuario, por: str, agora: datetime) -> None:
-    linhas = (f"Usuário: {usuario.nome}", f"Papel: {ROTULOS_PAPEL[usuario.papel]}", f"Por: {por}")
-    _avisar(s, "usuário criado", linhas, agora)
+    papel = ROTULOS_PAPEL[usuario.papel] + (" (superadmin)" if usuario.superadmin else "")
+    _avisar(s, "usuário criado", (f"Usuário: {usuario.nome}", f"Papel: {papel}", f"Por: {por}"), agora)
+
+
+def superadmin_trocado(s: Session, novo: Usuario, antigo: Usuario, por: str, agora: datetime) -> None:
+    linhas = (f"Superadmin agora: {novo.nome}", f"Antes: {antigo.nome} (continua admin)", f"Por: {por}")
+    _avisar(s, "superadmin trocado", linhas, agora)
 
 
 def papel_alterado(s: Session, usuario: Usuario, antes: Papel, por: str, agora: datetime) -> None:
@@ -2811,7 +3028,9 @@ Crie `src/tcg_sniper/api/rotas_usuarios.py`:
 
 ```python
 """Gestão → Usuários: listar, criar, editar (nome, papel, ativo) e as sessões de cada um. Exige `gerir_usuarios`.
-Só admin mexe em admin; o único admin ativo não se desativa nem se rebaixa. O número sai sempre mascarado."""
+Só o superadmin cria, edita, rebaixa ou desativa admins e encerra sessões de admins (403 `so_superadmin`); o
+superadmin nunca é rebaixado, desativado nem tem sessões encerradas por ninguém (403 `superadmin_protegido`; só ele
+encerra as dele). Criar e trocar o superadmin: só pelos comandos locais. O número sai sempre mascarado."""
 
 from datetime import datetime
 from typing import Annotated
@@ -2847,6 +3066,7 @@ class UsuarioSaida(BaseModel):
     nome: str
     numero_mascarado: str
     papel: Papel
+    superadmin: bool
     ativo: bool
     criado_em: datetime
     sessoes_ativas: int
@@ -2906,7 +3126,7 @@ class Ok(BaseModel):
 def _saida(usuario: Usuario, sessoes_ativas: int) -> UsuarioSaida:
     return UsuarioSaida(
         id=usuario.id, nome=usuario.nome, numero_mascarado=mascarar_numero(usuario.numero), papel=usuario.papel,
-        ativo=usuario.ativo, criado_em=usuario.criado_em, sessoes_ativas=sessoes_ativas,
+        superadmin=usuario.superadmin, ativo=usuario.ativo, criado_em=usuario.criado_em, sessoes_ativas=sessoes_ativas,
     )
 
 
@@ -2917,9 +3137,14 @@ def _obter(s: Session, usuario_id: int) -> Usuario:
     return usuario
 
 
-def _so_admin(contexto: Contexto, *papeis: Papel | None) -> None:
-    if contexto.papel is not Papel.ADMIN and Papel.ADMIN in papeis:
-        raise ErroApi(403, "so_admin", "Só um admin cria, edita ou encerra a sessão de um admin.")
+def _so_superadmin(contexto: Contexto, *papeis: Papel | None) -> None:
+    """Admin envolvido (alvo admin ou papel novo admin): só o superadmin."""
+    if not contexto.superadmin and Papel.ADMIN in papeis:
+        raise ErroApi(403, "so_superadmin", "Só o superadmin cria, edita, rebaixa ou desativa admins.")
+
+
+def _protegido() -> ErroApi:
+    return ErroApi(403, "superadmin_protegido", "O superadmin não pode ser rebaixado, desativado nem encerrado.")
 
 
 @roteador.get("/usuarios")
@@ -2932,7 +3157,7 @@ def listar(request: Request, _contexto: GerirUsuarios) -> UsuariosSaida:
 
 @roteador.post("/usuarios", status_code=201)
 def criar(request: Request, entrada: NovoUsuario, contexto: GerirUsuarios) -> UsuarioSaida:
-    _so_admin(contexto, entrada.papel)
+    _so_superadmin(contexto, entrada.papel)
     try:
         numero = normalizar_numero(entrada.numero)
     except ValueError:
@@ -2954,12 +3179,10 @@ def editar(request: Request, usuario_id: int, entrada: EdicaoUsuario, contexto: 
     agora = estado.relogio()
     with estado.sessoes() as s, s.begin():
         usuario = _obter(s, usuario_id)
-        _so_admin(contexto, usuario.papel, entrada.papel)
-        deixa_de_ser_admin = usuario.papel is Papel.ADMIN and (
-            (entrada.papel is not None and entrada.papel is not Papel.ADMIN) or entrada.ativo is False
-        )
-        if deixa_de_ser_admin and usuario.ativo and repo_acesso.admins_ativos(s) <= 1:
-            raise ErroApi(409, "ultimo_admin", "Este é o único admin ativo: crie outro admin antes.")
+        rebaixa = entrada.papel is not None and entrada.papel is not Papel.ADMIN
+        if usuario.superadmin and (rebaixa or entrada.ativo is False):
+            raise _protegido()  # nem ele mesmo; papel admin e ativo true (formulário inteiro) passam
+        _so_superadmin(contexto, usuario.papel, entrada.papel)
         if entrada.nome is not None:
             usuario.nome = entrada.nome
         if entrada.papel is not None and entrada.papel is not usuario.papel:
@@ -2999,7 +3222,11 @@ def encerrar(request: Request, sessao_id: int, contexto: GerirUsuarios) -> Ok:
         sessao = s.get(Sessao, sessao_id) if 1 <= sessao_id <= MAX_ID else None
         if sessao is None:
             raise ErroApi(404, "nao_encontrado", "Sessão não encontrada.")
-        _so_admin(contexto, s.get(Usuario, sessao.usuario_id).papel)
+        if sessao.usuario_id != contexto.usuario_id:  # as próprias sessões, qualquer um encerra
+            dono = s.get(Usuario, sessao.usuario_id)
+            if dono.superadmin:
+                raise _protegido()
+            _so_superadmin(contexto, dono.papel)
         repo_acesso.encerrar_sessao(s, sessao, estado.relogio())
     return Ok()
 ```
@@ -3040,18 +3267,19 @@ git commit -m "feat: user and session management with security alerts"
 
 ---
 
-### Task 6: CLI (`api`, `codigo-acesso`, `criar-admin`)
+### Task 6: CLI (`api`, `codigo-acesso`, `criar-superadmin`, `trocar-superadmin`)
 
 **Files:**
 - Modify: `src/tcg_sniper/cli.py`
 - Test: `tests/test_cli.py`
 
 **Interfaces:**
-- Consumes: Task 3 (`api.app.criar_app(sessoes, config)`, `api.segredos.hash_segredo`); Task 4 (`api.acesso.emitir_codigo(s, usuario_id, agora) -> str`); Task 5 (`api.avisos_acesso.usuario_criado(s, usuario, por, agora)`); Task 1 (`repo_acesso.*`, `formatacao.normalizar_numero`, `mascarar_numero`, `models.Papel`).
+- Consumes: Task 3 (`api.app.criar_app(sessoes, config)`, `api.segredos.hash_segredo(segredo, texto)`, `exigir_segredo(config)`, `SegredoAusente`; `fakes_api.SEGREDO_TESTE`); Task 4 (`api.acesso.emitir_codigo(s, usuario_id, agora, segredo) -> str`); Task 5 (`api.avisos_acesso.usuario_criado(s, usuario, por, agora)`, `superadmin_trocado(s, novo, antigo, por, agora)`); Task 1 (`repo_acesso.*` — `criar_superadmin`, `trocar_superadmin`, `superadmin_atual`, `SuperadminJaExiste`, `NumeroJaCadastrado` —, `formatacao.normalizar_numero`, `mascarar_numero`).
 - Produces:
-  - `tcg-sniper api [--host 127.0.0.1] [--porta 8100]` → `uvicorn.run(criar_app(sessoes, config), host=..., port=...)`.
-  - `tcg-sniper codigo-acesso <numero>` → imprime `Código para <nome> (<número mascarado>): <6 dígitos>` e `Vale por 5 minutos, uma vez. Digite na tela Entrar.`; `SystemExit` com "número inválido ..." ou "nenhum usuário ativo com esse número". Não manda WhatsApp.
-  - `tcg-sniper criar-admin <nome> <numero> [--forcar]` → imprime `Admin <nome> criado (<número mascarado>). ...`; `SystemExit` com "já existe um admin ativo; use --forcar para criar outro", "este número já é de um usuário", "nome vazio" ou "número inválido ...". Avisa `SEGURANCA_USUARIO` com "Por: terminal".
+  - `tcg-sniper api [--host 127.0.0.1] [--porta 8100]` → confere `exigir_segredo(config)` (`SystemExit` com a mensagem de `SegredoAusente`, antes de qualquer outra coisa) e `uvicorn.run(criar_app(sessoes, config), host=..., port=...)`.
+  - `tcg-sniper codigo-acesso <numero>` → exige `SEGREDO_API` como a `api` (o hash do código tem de ser o mesmo que a API confere); imprime `Código para <nome> (<número mascarado>): <6 dígitos>` e `Vale por 5 minutos, uma vez. Digite na tela Entrar.`; `SystemExit` com a mensagem de `SegredoAusente`, "número inválido ..." ou "nenhum usuário ativo com esse número". Não manda WhatsApp.
+  - `tcg-sniper criar-superadmin <nome> <numero>` → imprime `Superadmin <nome> criado (<número mascarado>). ...`; `SystemExit` com "já existe um superadmin; para trocar use tcg-sniper trocar-superadmin <número>", "este número já é de um usuário; para torná-lo superadmin use tcg-sniper trocar-superadmin <número>", "nome vazio" ou "número inválido ...". Avisa `SEGURANCA_USUARIO` "usuário criado" (papel "Admin (superadmin)") com "Por: terminal". Não exige `SEGREDO_API` (não cria código nem sessão).
+  - `tcg-sniper trocar-superadmin <numero>` → passa a marca para o usuário ativo com esse número (vira admin; o antigo continua admin comum); imprime `Superadmin agora é <nome> (<número mascarado>); <antigo> continua admin.`; `SystemExit` com "número inválido ...", "nenhum usuário ativo com esse número", "ainda não há superadmin; use tcg-sniper criar-superadmin <nome> <número>" ou "este usuário já é o superadmin". Avisa `SEGURANCA_USUARIO` "superadmin trocado" com "Por: terminal". Não exige `SEGREDO_API`.
 
 - [ ] **Step 1: Banco da lane**
 
@@ -3063,14 +3291,23 @@ Em `tests/test_cli.py`, acrescente no topo `import re` e `from sqlalchemy import
 
 ```python
 @pytest.fixture
-def banco(monkeypatch, sessoes):
+def segredo(monkeypatch):
+    """SEGREDO_API falsa e fixa (sobrepõe a do .env de quem roda o teste)."""
+    from fakes_api import SEGREDO_TESTE
+
+    monkeypatch.setenv("SEGREDO_API", SEGREDO_TESTE)
+    return SEGREDO_TESTE
+
+
+@pytest.fixture
+def banco(monkeypatch, sessoes, segredo):
     """O CLI usa as sessões do teste (tudo é desfeito no fim)."""
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: sessoes)
     return sessoes
 
 
-def test_api_sobe_o_uvicorn_so_no_localhost_por_padrao(monkeypatch):
+def test_api_sobe_o_uvicorn_so_no_localhost_por_padrao(monkeypatch, segredo):
     import uvicorn
 
     from tcg_sniper.api import app as modulo_app
@@ -3085,28 +3322,88 @@ def test_api_sobe_o_uvicorn_so_no_localhost_por_padrao(monkeypatch):
     assert chamadas == [("app", {"host": "127.0.0.1", "port": 8100}), ("app", {"host": "0.0.0.0", "port": 8101})]
 
 
-def test_criar_admin_uma_vez_so_sem_forcar(banco, capsys):
+@pytest.mark.parametrize("valor", ["", "trocar-este-segredo", "curto"])
+def test_api_recusa_subir_sem_segredo(monkeypatch, valor):
+    import uvicorn
+
+    chamadas = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: chamadas.append(app))
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("SEGREDO_API", valor)
+    with pytest.raises(SystemExit, match="SEGREDO_API"):
+        cli.main(["api"])
+    with pytest.raises(SystemExit, match="SEGREDO_API"):
+        cli.main(["codigo-acesso", "11 90000-0002"])
+    assert chamadas == []
+
+
+def test_criar_superadmin_uma_vez_so(banco, capsys):
     from tcg_sniper.db import repositorio_acesso as repo_acesso
     from tcg_sniper.db.models import MensagemSaida, Papel
 
-    cli.main(["criar-admin", "Pessoa Admin", "(11) 90000-0001"])
+    cli.main(["criar-superadmin", "Pessoa Superadmin", "(11) 90000-0001"])
     saida = capsys.readouterr().out
-    assert "Admin Pessoa Admin criado (+55 11 9****-**01)" in saida and "900000001" not in saida
+    assert "Superadmin Pessoa Superadmin criado (+55 11 9****-**01)" in saida and "900000001" not in saida
     with banco() as s:
-        admin = repo_acesso.usuario_por_numero(s, "+5511900000001")
-        assert (admin.papel, admin.ativo) == (Papel.ADMIN, True)
+        dono = repo_acesso.usuario_por_numero(s, "+5511900000001")
+        assert (dono.papel, dono.ativo, dono.superadmin) == (Papel.ADMIN, True, True)
         [aviso] = s.scalars(select(MensagemSaida.texto).where(MensagemSaida.destino == "admin")).all()
-        assert "usuário criado" in aviso and "• Por: terminal" in aviso and "900000001" not in aviso
-    with pytest.raises(SystemExit, match="já existe um admin"):
-        cli.main(["criar-admin", "Outra Pessoa", "11 90000-0004"])
-    cli.main(["criar-admin", "Outra Pessoa", "11 90000-0004", "--forcar"])
-    with pytest.raises(SystemExit, match="já é de um usuário"):
-        cli.main(["criar-admin", "Mais Uma", "11 90000-0004", "--forcar"])
+        assert "usuário criado" in aviso and "• Papel: Admin (superadmin)" in aviso
+        assert "• Por: terminal" in aviso and "900000001" not in aviso
+    with pytest.raises(SystemExit, match="já existe um superadmin"):
+        cli.main(["criar-superadmin", "Outra Pessoa", "11 90000-0004"])
     with pytest.raises(SystemExit, match="número inválido"):
-        cli.main(["criar-admin", "Mais Uma", "123", "--forcar"])
+        cli.main(["criar-superadmin", "Mais Uma", "123"])
+    with pytest.raises(SystemExit, match="nome vazio"):
+        cli.main(["criar-superadmin", "  ", "11 90000-0004"])
 
 
-def test_codigo_de_emergencia(banco, capsys):
+def test_criar_superadmin_com_numero_de_outro_usuario(banco):
+    from tcg_sniper.db import repositorio_acesso as repo_acesso
+    from tcg_sniper.db.models import Papel
+    from tcg_sniper.db.repositorio import agora_utc
+
+    with banco() as s, s.begin():
+        repo_acesso.criar_usuario(s, "Pessoa Grupo", "+5511900000002", Papel.GRUPO, agora_utc())
+    with pytest.raises(SystemExit, match="trocar-superadmin"):
+        cli.main(["criar-superadmin", "Pessoa Grupo", "11 90000-0002"])
+    with banco() as s:
+        assert repo_acesso.superadmin_atual(s) is None
+
+
+def test_trocar_superadmin(banco, capsys):
+    from tcg_sniper.db import repositorio_acesso as repo_acesso
+    from tcg_sniper.db.models import MensagemSaida, Papel
+    from tcg_sniper.db.repositorio import agora_utc
+
+    with banco() as s, s.begin():
+        repo_acesso.criar_usuario(s, "Pessoa Grupo", "+5511900000002", Papel.GRUPO, agora_utc())
+        repo_acesso.criar_usuario(s, "Pessoa Inativa", "+5511900000005", Papel.ADMIN, agora_utc()).ativo = False
+    with pytest.raises(SystemExit, match="ainda não há superadmin"):
+        cli.main(["trocar-superadmin", "11 90000-0002"])
+    cli.main(["criar-superadmin", "Pessoa Superadmin", "11 90000-0001"])
+    with pytest.raises(SystemExit, match="nenhum usuário ativo"):
+        cli.main(["trocar-superadmin", "11 90000-0005"])
+    with pytest.raises(SystemExit, match="nenhum usuário ativo"):
+        cli.main(["trocar-superadmin", "11 90000-0009"])
+    with pytest.raises(SystemExit, match="já é o superadmin"):
+        cli.main(["trocar-superadmin", "11 90000-0001"])
+    capsys.readouterr()
+    cli.main(["trocar-superadmin", "(11) 90000-0002"])
+    saida = capsys.readouterr().out
+    assert "Superadmin agora é Pessoa Grupo (+55 11 9****-**02); Pessoa Superadmin continua admin." in saida
+    assert "900000002" not in saida
+    with banco() as s:
+        novo = repo_acesso.usuario_por_numero(s, "+5511900000002")
+        antigo = repo_acesso.usuario_por_numero(s, "+5511900000001")
+        assert (novo.papel, novo.superadmin) == (Papel.ADMIN, True)
+        assert (antigo.papel, antigo.ativo, antigo.superadmin) == (Papel.ADMIN, True, False)
+        textos = s.scalars(select(MensagemSaida.texto).where(MensagemSaida.destino == "admin")).all()
+        assert any("superadmin trocado" in t and "• Por: terminal" in t for t in textos)
+
+
+def test_codigo_de_emergencia(banco, segredo, capsys):
     from tcg_sniper.api.segredos import hash_segredo
     from tcg_sniper.db import repositorio_acesso as repo_acesso
     from tcg_sniper.db.models import MensagemSaida, Papel
@@ -3121,7 +3418,7 @@ def test_codigo_de_emergencia(banco, capsys):
     with banco() as s:
         usuario = repo_acesso.usuario_por_numero(s, "+5511900000002")
         atual = repo_acesso.ultimo_codigo(s, usuario.id)
-        assert atual.hash_codigo == hash_segredo(codigo) and atual.usado_em is None
+        assert atual.hash_codigo == hash_segredo(segredo, codigo) and atual.usado_em is None
         assert s.scalars(select(MensagemSaida)).all() == []  # não manda WhatsApp
 
 
@@ -3149,10 +3446,15 @@ Em `src/tcg_sniper/cli.py`, logo depois de `admin.add_argument("--porta", type=i
         "codigo-acesso", help="acesso de emergência: mostra no terminal um código válido (5 min) para o usuário"
     )
     codigo_p.add_argument("numero", help='número de WhatsApp do usuário, ex.: "(11) 9XXXX-XXXX"')
-    criar_admin_p = sub.add_parser("criar-admin", help="cria o primeiro admin do site novo")
-    criar_admin_p.add_argument("nome")
-    criar_admin_p.add_argument("numero", help='número de WhatsApp, ex.: "(11) 9XXXX-XXXX"')
-    criar_admin_p.add_argument("--forcar", action="store_true", help="cria mesmo se já houver um admin ativo")
+    criar_super_p = sub.add_parser(
+        "criar-superadmin", help="cria o superadmin do site novo (o dono do sistema; um só, recusa se já houver)"
+    )
+    criar_super_p.add_argument("nome")
+    criar_super_p.add_argument("numero", help='número de WhatsApp, ex.: "(11) 9XXXX-XXXX"')
+    trocar_super_p = sub.add_parser(
+        "trocar-superadmin", help="passa o superadmin para outro usuário ativo (o antigo continua admin)"
+    )
+    trocar_super_p.add_argument("numero", help='número de WhatsApp do usuário, ex.: "(11) 9XXXX-XXXX"')
 ```
 
 Antes de `def main`, acrescente:
@@ -3165,6 +3467,16 @@ def _numero_ou_sair(texto: str) -> str:
         return normalizar_numero(texto)
     except ValueError:
         raise SystemExit('número inválido: use DDD e número, ex.: "(11) 9XXXX-XXXX"') from None
+
+
+def _segredo_ou_sair(config: Config) -> str:
+    """SEGREDO_API do .env (a API e o código de emergência não começam sem ela)."""
+    from tcg_sniper.api.segredos import SegredoAusente, exigir_segredo
+
+    try:
+        return exigir_segredo(config)
+    except SegredoAusente as erro:
+        raise SystemExit(str(erro)) from None
 ```
 
 No fim do encadeamento de `elif` (depois do ramo `admin`):
@@ -3175,6 +3487,7 @@ No fim do encadeamento de `elif` (depois do ramo `admin`):
 
         from tcg_sniper.api.app import criar_app
 
+        _segredo_ou_sair(config)  # mensagem clara no terminal antes de montar o app
         uvicorn.run(criar_app(sessoes, config), host=args.host, port=args.porta)
     elif args.comando == "codigo-acesso":
         from tcg_sniper.api import acesso
@@ -3182,20 +3495,20 @@ No fim do encadeamento de `elif` (depois do ramo `admin`):
         from tcg_sniper.db.repositorio import agora_utc
         from tcg_sniper.formatacao import mascarar_numero
 
+        segredo = _segredo_ou_sair(config)
         numero = _numero_ou_sair(args.numero)
         with sessoes() as s, s.begin():
             usuario = repo_acesso.usuario_por_numero(s, numero)
             if usuario is None or not usuario.ativo:
                 raise SystemExit("nenhum usuário ativo com esse número")
             nome = usuario.nome
-            codigo = acesso.emitir_codigo(s, usuario.id, agora_utc())
+            codigo = acesso.emitir_codigo(s, usuario.id, agora_utc(), segredo)
         # no terminal de propósito (é o acesso de emergência); nunca no log
         print(f"Código para {nome} ({mascarar_numero(numero)}): {codigo}")
         print("Vale por 5 minutos, uma vez. Digite na tela Entrar.")
-    elif args.comando == "criar-admin":
+    elif args.comando == "criar-superadmin":
         from tcg_sniper.api import avisos_acesso
         from tcg_sniper.db import repositorio_acesso as repo_acesso
-        from tcg_sniper.db.models import Papel
         from tcg_sniper.db.repositorio import agora_utc
         from tcg_sniper.formatacao import mascarar_numero
 
@@ -3205,17 +3518,42 @@ No fim do encadeamento de `elif` (depois do ramo `admin`):
         numero = _numero_ou_sair(args.numero)
         agora = agora_utc()
         with sessoes() as s, s.begin():
-            if repo_acesso.existe_admin(s) and not args.forcar:
-                raise SystemExit("já existe um admin ativo; use --forcar para criar outro")
             try:
-                usuario = repo_acesso.criar_usuario(s, nome, numero, Papel.ADMIN, agora)
+                usuario = repo_acesso.criar_superadmin(s, nome, numero, agora)
+            except repo_acesso.SuperadminJaExiste:
+                raise SystemExit(
+                    "já existe um superadmin; para trocar use tcg-sniper trocar-superadmin <número>"
+                ) from None
             except repo_acesso.NumeroJaCadastrado:
-                raise SystemExit("este número já é de um usuário") from None
+                raise SystemExit(
+                    "este número já é de um usuário; para torná-lo superadmin use tcg-sniper trocar-superadmin <número>"
+                ) from None
             avisos_acesso.usuario_criado(s, usuario, "terminal", agora)
         print(
-            f"Admin {nome} criado ({mascarar_numero(numero)}). Para entrar: peça o código na tela Entrar "
+            f"Superadmin {nome} criado ({mascarar_numero(numero)}). Para entrar: peça o código na tela Entrar "
             "ou rode tcg-sniper codigo-acesso com o número."
         )
+    elif args.comando == "trocar-superadmin":
+        from tcg_sniper.api import avisos_acesso
+        from tcg_sniper.db import repositorio_acesso as repo_acesso
+        from tcg_sniper.db.repositorio import agora_utc
+        from tcg_sniper.formatacao import mascarar_numero
+
+        numero = _numero_ou_sair(args.numero)
+        agora = agora_utc()
+        with sessoes() as s, s.begin():
+            atual = repo_acesso.superadmin_atual(s)
+            if atual is None:
+                raise SystemExit("ainda não há superadmin; use tcg-sniper criar-superadmin <nome> <número>")
+            novo = repo_acesso.usuario_por_numero(s, numero)
+            if novo is None or not novo.ativo:
+                raise SystemExit("nenhum usuário ativo com esse número")
+            if novo.id == atual.id:
+                raise SystemExit("este usuário já é o superadmin")
+            antigo = repo_acesso.trocar_superadmin(s, novo)
+            avisos_acesso.superadmin_trocado(s, novo, antigo, "terminal", agora)
+            nome_novo, nome_antigo = novo.nome, antigo.nome
+        print(f"Superadmin agora é {nome_novo} ({mascarar_numero(numero)}); {nome_antigo} continua admin.")
 ```
 
 - [ ] **Step 5: Rodar os testes do CLI**
@@ -3232,7 +3570,7 @@ Expected: verde.
 
 ```bash
 git add src/tcg_sniper/cli.py tests/test_cli.py
-git commit -m "feat: cli commands api, codigo-acesso and criar-admin"
+git commit -m "feat: cli commands api, codigo-acesso, criar-superadmin and trocar-superadmin"
 ```
 
 ---
@@ -3249,7 +3587,7 @@ git commit -m "feat: cli commands api, codigo-acesso and criar-admin"
 - Test: `web/src/api.test.ts`, `web/src/rotas.test.tsx`, `web/src/paginas/Entrar.test.tsx`
 
 **Interfaces:**
-- Consumes (contrato da API, Tasks 3–5; nesta tarefa tudo é simulado nos testes): `GET /api/auth/eu` → 200 `{"id", "nome", "papel", "permissoes": [...]}` ou 401 `{"erro": "sem_sessao", ...}`; `POST /api/auth/pedir-codigo` `{"numero"}` → 200 `{"ok": true, "mensagem"}`, 422/429 `{erro, mensagem}`; `POST /api/auth/entrar` `{"numero", "codigo"}` → 200 Eu ou 401 `{"erro": "codigo_invalido", ...}`; `POST /api/auth/sair` → 200 `{"ok": true}`. API fora: erro de rede ou 502/503/504 (Caddy).
+- Consumes (contrato da API, Tasks 3–5; nesta tarefa tudo é simulado nos testes): `GET /api/auth/eu` → 200 `{"id", "nome", "papel", "superadmin", "permissoes": [...]}` ou 401 `{"erro": "sem_sessao", ...}`; `POST /api/auth/pedir-codigo` `{"numero"}` → 200 `{"ok": true, "mensagem"}`, 422/429 `{erro, mensagem}`; `POST /api/auth/entrar` `{"numero", "codigo"}` → 200 Eu ou 401 `{"erro": "codigo_invalido", ...}`; `POST /api/auth/sair` → 200 `{"ok": true}`. API fora: erro de rede ou 502/503/504 (Caddy).
 - Produces:
   - `api.ts`: `class ErroApi extends Error` (`status: number`, `erro: string`, `message` = mensagem da API); `class ApiIndisponivel extends Error`; `chamarApi<T>(caminho: string, opcoes?: { metodo?: "GET" | "POST" | "PUT" | "PATCH"; corpo?: unknown }): Promise<T>`.
   - `tipos.ts`: `Papel`, `Permissao` (uniões com os valores da API), `Eu`, `Usuario`, `SessaoAparelho`, `GradeAcessos`.
@@ -3258,7 +3596,7 @@ git commit -m "feat: cli commands api, codigo-acesso and criar-admin"
   - `componentes/RotaProtegida.tsx`: `RotaProtegida` (sem login → `/entrar`; com login → `Layout` + `Outlet`) e `Exige({ permissao, children })` (sem a permissão → `/sem-acesso`).
   - `App.tsx`: `Rotas` (as rotas, usado também nos testes) e `export default App` (`SessaoProvider` + `BrowserRouter` + `Rotas`).
   - Títulos (`h1`) que testes e o ponta a ponta procuram: "Entrar", "Área de negócio", "Gestão", "Sem acesso", "Sistema indisponível", "Página não encontrada". Rótulos dos campos do login: "Número do WhatsApp", "Código"; botões "Receber código", "Entrar", "Usar outro número", "Sair", "Tentar de novo".
-  - `teste/apoio.tsx`: `apiFalsa(respostas: Record<string, RespostaFalsa | RespostaFalsa[]>): Chamada[]` (chave `"MÉTODO /caminho"`; lista = uma resposta por chamada, a última se repete; `"rede-fora"` simula a API fora); `ok(corpo)`; `renderizarEm(caminho: string)`; `EU_GRUPO`, `EU_OPERADOR`, `EU_ADMIN`.
+  - `teste/apoio.tsx`: `apiFalsa(respostas: Record<string, RespostaFalsa | RespostaFalsa[]>): Chamada[]` (chave `"MÉTODO /caminho"`; lista = uma resposta por chamada, a última se repete; `"rede-fora"` simula a API fora); `ok(corpo)`; `renderizarEm(caminho: string)`; `EU_GRUPO`, `EU_OPERADOR`, `EU_ADMIN` (admin comum), `EU_SUPERADMIN`.
 
 - [ ] **Step 1: Configuração do projeto**
 
@@ -3475,19 +3813,30 @@ export function renderizarEm(caminho: string) {
   );
 }
 
-export const EU_GRUPO: Eu = { id: 2, nome: "Pessoa Grupo", papel: "grupo", permissoes: ["ver_area_negocio"] };
+export const EU_GRUPO: Eu = {
+  id: 2,
+  nome: "Pessoa Grupo",
+  papel: "grupo",
+  superadmin: false,
+  permissoes: ["ver_area_negocio"],
+};
 export const EU_OPERADOR: Eu = {
   id: 3,
   nome: "Pessoa Operador",
   papel: "operador",
+  superadmin: false,
   permissoes: ["ver_area_negocio", "ver_area_gestao"],
 };
+/** Admin comum: gere operador e grupo, não mexe em admins. */
 export const EU_ADMIN: Eu = {
   id: 1,
   nome: "Pessoa Admin",
   papel: "admin",
+  superadmin: false,
   permissoes: ["ver_area_negocio", "ver_area_gestao", "gerir_usuarios", "gerir_acessos", "ver_documentacao_api"],
 };
+/** O dono do sistema: o único que mexe em admins. */
+export const EU_SUPERADMIN: Eu = { ...EU_ADMIN, id: 10, nome: "Pessoa Superadmin", superadmin: true };
 ```
 
 - [ ] **Step 3: Testes (falham)**
@@ -3700,20 +4049,22 @@ export type Permissao =
   | "gerir_acessos"
   | "ver_documentacao_api";
 
-/** GET /api/auth/eu e POST /api/auth/entrar. */
+/** GET /api/auth/eu e POST /api/auth/entrar. `superadmin`: o dono do sistema (só ele mexe em admins). */
 export interface Eu {
   id: number;
   nome: string;
   papel: Papel;
+  superadmin: boolean;
   permissoes: Permissao[];
 }
 
-/** GET /api/usuarios (o número vem sempre mascarado). */
+/** GET /api/usuarios (o número vem sempre mascarado). O superadmin é sempre admin e ativo. */
 export interface Usuario {
   id: number;
   nome: string;
   numero_mascarado: string;
   papel: Papel;
+  superadmin: boolean;
   ativo: boolean;
   criado_em: string;
   sessoes_ativas: number;
@@ -4476,8 +4827,8 @@ git commit -m "feat: react front base with whatsapp login and protected routes"
 - Test: `web/src/paginas/Usuarios.test.tsx`, `web/src/paginas/Acessos.test.tsx`
 
 **Interfaces:**
-- Consumes (Task 7): `chamarApi`, `useSessao` (`sessao`, `tratarErro`, `recarregar`), `ROTULO_PAPEL`, tipos `Usuario`, `SessaoAparelho`, `GradeAcessos`, `Papel`, `Permissao`; `Exige`; apoio dos testes (`apiFalsa`, `ok`, `renderizarEm`, `EU_ADMIN`, `EU_OPERADOR`). Contrato da API (Tasks 3 e 5): `GET /api/usuarios` → `{"usuarios": Usuario[]}`; `POST /api/usuarios` `{nome, numero, papel}` → 201 `Usuario`; `PATCH /api/usuarios/{id}` `{nome, papel, ativo}` → `Usuario`; `GET /api/usuarios/{id}/sessoes` → `{"sessoes": SessaoAparelho[]}`; `POST /api/sessoes/{id}/encerrar` → `{"ok": true}`; `GET /api/acessos` e `PUT /api/acessos` `{"mudancas": [{papel, permissao, permitido}]}` → `GradeAcessos`.
-- Produces: `Usuarios` (rota `/gestao/usuarios`, exige `gerir_usuarios`) e `Acessos` (rota `/gestao/acessos`, exige `gerir_acessos`). Rótulos e textos que testes e o ponta a ponta usam: título "Usuários", campos "Nome", "Número do WhatsApp", "Papel", botão "Cadastrar", mensagem "<nome> cadastrado."; botões "Editar", "Sessões", "Salvar", "Encerrar"; título "Acessos", toggles com `aria-label` "<Papel>: <rótulo da permissão>" (ex.: "Grupo: Entrar na área de gestão"), mensagem "Salvo. Vale na próxima ação de quem já está logado."
+- Consumes (Task 7): `chamarApi`, `useSessao` (`sessao`, `tratarErro`, `recarregar`), `ROTULO_PAPEL`, tipos `Usuario`, `SessaoAparelho`, `GradeAcessos`, `Papel`, `Permissao`; `Exige`; apoio dos testes (`apiFalsa`, `ok`, `renderizarEm`, `EU_ADMIN`, `EU_SUPERADMIN`, `EU_OPERADOR`); `Eu.superadmin`. Contrato da API (Tasks 3 e 5): `GET /api/usuarios` → `{"usuarios": Usuario[]}` (com `superadmin`); `POST /api/usuarios` `{nome, numero, papel}` → 201 `Usuario`; `PATCH /api/usuarios/{id}` `{nome, papel, ativo}` → `Usuario`; `GET /api/usuarios/{id}/sessoes` → `{"sessoes": SessaoAparelho[]}`; `POST /api/sessoes/{id}/encerrar` → `{"ok": true}`; `GET /api/acessos` e `PUT /api/acessos` `{"mudancas": [{papel, permissao, permitido}]}` → `GradeAcessos`.
+- Produces: `Usuarios` (rota `/gestao/usuarios`, exige `gerir_usuarios`) e `Acessos` (rota `/gestao/acessos`, exige `gerir_acessos`). Na tela Usuários (a API confere do mesmo jeito): a opção "Admin" e os botões das linhas de admin só para o superadmin; a linha do superadmin tem o selo "superadmin" e, para os outros, nenhum botão; para ele mesmo, "Editar" com Papel e Ativo travados (só o nome muda) e "Sessões"; qualquer um vê "Sessões" na própria linha. Rótulos e textos que testes e o ponta a ponta usam: título "Usuários", campos "Nome", "Número do WhatsApp", "Papel", botão "Cadastrar", mensagem "<nome> cadastrado."; botões "Editar", "Sessões", "Salvar", "Encerrar"; selo "superadmin"; título "Acessos", toggles com `aria-label` "<Papel>: <rótulo da permissão>" (ex.: "Grupo: Entrar na área de gestão"), mensagem "Salvo. Vale na próxima ação de quem já está logado."
 
 - [ ] **Step 1: Testes (falham)**
 
@@ -4487,16 +4838,20 @@ Crie `web/src/paginas/Usuarios.test.tsx`:
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { apiFalsa, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../teste/apoio";
+import { apiFalsa, EU_ADMIN, EU_OPERADOR, EU_SUPERADMIN, ok, renderizarEm } from "../teste/apoio";
 import type { Usuario } from "../tipos";
 
+// ids iguais aos de EU_ADMIN (1) e EU_SUPERADMIN (10): a linha de cada um é a "própria"
 const ADMIN: Usuario = {
-  id: 1, nome: "Pessoa Admin", numero_mascarado: "+55 11 9****-**01", papel: "admin", ativo: true,
-  criado_em: "2026-10-18T13:00:00Z", sessoes_ativas: 1,
+  id: 1, nome: "Pessoa Admin", numero_mascarado: "+55 11 9****-**01", papel: "admin", superadmin: false,
+  ativo: true, criado_em: "2026-10-18T13:00:00Z", sessoes_ativas: 1,
+};
+const SUPER: Usuario = {
+  ...ADMIN, id: 10, nome: "Pessoa Superadmin", numero_mascarado: "+55 11 9****-**10", superadmin: true,
 };
 const GRUPO: Usuario = {
-  id: 2, nome: "Pessoa Grupo", numero_mascarado: "+55 11 9****-**02", papel: "grupo", ativo: true,
-  criado_em: "2026-10-18T13:00:00Z", sessoes_ativas: 0,
+  id: 2, nome: "Pessoa Grupo", numero_mascarado: "+55 11 9****-**02", papel: "grupo", superadmin: false,
+  ativo: true, criado_em: "2026-10-18T13:00:00Z", sessoes_ativas: 0,
 };
 const NOVA: Usuario = { ...GRUPO, id: 9, nome: "Pessoa Nova", numero_mascarado: "+55 11 9****-**09", papel: "operador" };
 const OPERADOR_GERE_USUARIOS = { ...EU_OPERADOR, permissoes: [...EU_OPERADOR.permissoes, "gerir_usuarios" as const] };
@@ -4538,15 +4893,44 @@ describe("Gestão → Usuários", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Já existe um usuário com este número.");
   });
 
-  it("quem não é admin não vê a opção Admin nem os botões da linha do admin", async () => {
-    apiFalsa({ "GET /api/auth/eu": ok(OPERADOR_GERE_USUARIOS), "GET /api/usuarios": ok({ usuarios: [ADMIN, GRUPO] }) });
+  it.each([
+    ["operador com gerir_usuarios", OPERADOR_GERE_USUARIOS],
+    ["admin comum", EU_ADMIN],
+  ])("%s não vê a opção Admin nem os botões das linhas de admin e do superadmin", async (_nome, eu) => {
+    apiFalsa({ "GET /api/auth/eu": ok(eu), "GET /api/usuarios": ok({ usuarios: [SUPER, ADMIN, GRUPO] }) });
     renderizarEm("/gestao/usuarios");
-    const linhaAdmin = (await screen.findByText("Pessoa Admin")).closest("tr")!;
+    const linhaSuper = (await screen.findByText("Pessoa Superadmin")).closest("tr")!;
+    expect(within(linhaSuper).getByText("superadmin")).toBeInTheDocument();
+    expect(within(linhaSuper).queryByRole("button")).not.toBeInTheDocument();
+    const linhaAdmin = screen.getByText("Pessoa Admin").closest("tr")!;
     expect(within(linhaAdmin).queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
     const linhaGrupo = screen.getByText("Pessoa Grupo").closest("tr")!;
     expect(within(linhaGrupo).getByRole("button", { name: "Editar" })).toBeInTheDocument();
     const opcoes = within(screen.getByLabelText("Papel")).getAllByRole("option").map((o) => o.textContent);
     expect(opcoes).toEqual(["Grupo", "Operador"]);
+  });
+
+  it("admin comum vê Sessões na própria linha (encerra as próprias sessões)", async () => {
+    apiFalsa({ "GET /api/auth/eu": ok(EU_ADMIN), "GET /api/usuarios": ok({ usuarios: [SUPER, ADMIN, GRUPO] }) });
+    renderizarEm("/gestao/usuarios");
+    const linhaAdmin = (await screen.findByText("Pessoa Admin")).closest("tr")!;
+    expect(within(linhaAdmin).getByRole("button", { name: "Sessões" })).toBeInTheDocument();
+  });
+
+  it("superadmin gere admins e, na própria linha, só muda o nome", async () => {
+    apiFalsa({ "GET /api/auth/eu": ok(EU_SUPERADMIN), "GET /api/usuarios": ok({ usuarios: [SUPER, ADMIN, GRUPO] }) });
+    const usuario = userEvent.setup();
+    renderizarEm("/gestao/usuarios");
+    const linhaAdmin = (await screen.findByText("Pessoa Admin")).closest("tr")!;
+    expect(within(linhaAdmin).getByRole("button", { name: "Editar" })).toBeInTheDocument();
+    const opcoes = within(screen.getByLabelText("Papel")).getAllByRole("option").map((o) => o.textContent);
+    expect(opcoes).toEqual(["Grupo", "Operador", "Admin"]);
+    const linhaSuper = screen.getByText("Pessoa Superadmin").closest("tr")!;
+    await usuario.click(within(linhaSuper).getByRole("button", { name: "Editar" }));
+    const dialogo = screen.getByRole("dialog");
+    expect(within(dialogo).getByLabelText("Papel")).toBeDisabled();
+    expect(within(dialogo).getByLabelText(/Ativo/)).toBeDisabled();
+    expect(within(dialogo).getByLabelText("Nome")).toBeEnabled();
   });
 
   it("desativar manda PATCH com ativo false", async () => {
@@ -4661,7 +5045,8 @@ Crie `web/src/paginas/Usuarios.tsx`:
 
 ```tsx
 // Gestão → Usuários: lista (número sempre mascarado), cadastro, edição (nome, papel, ativo) e sessões.
-// Quem não é admin não vê a opção Admin nem os botões da linha de um admin (a API recusa do mesmo jeito).
+// Só o superadmin vê a opção Admin e os botões das linhas de admin; ninguém rebaixa, desativa ou encerra o
+// superadmin (na linha dele, só ele mesmo edita o nome e vê as sessões). A API recusa do mesmo jeito.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { chamarApi } from "../api";
 import { ROTULO_PAPEL } from "../permissoes";
@@ -4674,8 +5059,13 @@ function dataHora(iso: string): string {
 
 export function Usuarios() {
   const { sessao, tratarErro } = useSessao();
-  const souAdmin = sessao.estado === "logado" && sessao.eu.papel === "admin";
-  const papeis: Papel[] = souAdmin ? ["grupo", "operador", "admin"] : ["grupo", "operador"];
+  const eu = sessao.estado === "logado" ? sessao.eu : null;
+  const souSuperadmin = eu?.superadmin === true;
+  const papeis: Papel[] = souSuperadmin ? ["grupo", "operador", "admin"] : ["grupo", "operador"];
+  // Editar: operador e grupo para quem tem gerir_usuarios; admins (e a própria linha do superadmin) só o superadmin.
+  const podeEditar = (u: Usuario) => (u.superadmin ? u.id === eu?.id : souSuperadmin || u.papel !== "admin");
+  // Sessões: as de quem pode editar e as próprias (cada um encerra as suas).
+  const podeVerSessoes = (u: Usuario) => podeEditar(u) || u.id === eu?.id;
   const [usuarios, setUsuarios] = useState<Usuario[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [mensagem, setMensagem] = useState<string | null>(null);
@@ -4741,8 +5131,9 @@ export function Usuarios() {
                 <tr key={u.id}>
                   <td>{u.nome}</td>
                   <td className="whitespace-nowrap">{u.numero_mascarado}</td>
-                  <td>
+                  <td className="whitespace-nowrap">
                     <span className="badge badge-ghost">{ROTULO_PAPEL[u.papel]}</span>
+                    {u.superadmin && <span className="badge badge-primary badge-sm ml-1">superadmin</span>}
                   </td>
                   <td>
                     {u.ativo ? (
@@ -4753,15 +5144,15 @@ export function Usuarios() {
                   </td>
                   <td>{u.sessoes_ativas}</td>
                   <td className="whitespace-nowrap">
-                    {(souAdmin || u.papel !== "admin") && (
-                      <>
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEditando(u)}>
-                          Editar
-                        </button>
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={() => setSessoesDe(u)}>
-                          Sessões
-                        </button>
-                      </>
+                    {podeEditar(u) && (
+                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEditando(u)}>
+                        Editar
+                      </button>
+                    )}
+                    {podeVerSessoes(u) && (
+                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => setSessoesDe(u)}>
+                        Sessões
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -4900,6 +5291,7 @@ function EditarUsuario({
   const [papel, setPapel] = useState<Papel>(usuario.papel);
   const [ativo, setAtivo] = useState(usuario.ativo);
   const [erro, setErro] = useState<string | null>(null);
+  const travado = usuario.superadmin; // sempre admin e ativo: só o nome muda (só ele mesmo abre esta tela)
 
   async function salvar(evento: FormEvent) {
     evento.preventDefault();
@@ -4943,6 +5335,7 @@ function EditarUsuario({
             id="editar-papel"
             className="select w-full"
             value={papel}
+            disabled={travado}
             onChange={(e) => setPapel(e.target.value as Papel)}
           >
             {papeis.map((p) => (
@@ -4958,10 +5351,12 @@ function EditarUsuario({
             type="checkbox"
             className="toggle toggle-success"
             checked={ativo}
+            disabled={travado}
             onChange={(e) => setAtivo(e.target.checked)}
           />
           Ativo (desativar encerra as sessões na hora)
         </label>
+        {travado && <p className="text-sm opacity-70">O superadmin é sempre admin e ativo.</p>}
         <div className="modal-action">
           <button type="button" className="btn" onClick={aoFechar}>
             Cancelar
@@ -5201,7 +5596,7 @@ git commit -m "feat: users and role grid screens in the management area"
 
 **Interfaces:**
 - Consumes: `tcg-sniper api --host --porta` (Task 6; aqui só o texto do comando); o build do front (`npm run build` → `web/dist/`, Tasks 7–8).
-- Produces: serviço `api` (imagem `tcg-sniper`, `tcg-sniper api --host 0.0.0.0 --porta 8100`, `127.0.0.1:8100:8100`, depois do `migrate`); serviço `web` (imagem `tcg-sniper-web`, Caddy em `:8090`, `127.0.0.1:8090:8090`; `/api/*` → `{$API_ALVO:api:8100}`; o resto: arquivos do build com volta para `index.html`).
+- Produces: serviço `api` (imagem `tcg-sniper`, `tcg-sniper api --host 0.0.0.0 --porta 8100`, `127.0.0.1:8100:8100`, depois do `migrate`; a `SEGREDO_API` chega pelo `env_file: .env` do `x-app`, nada a acrescentar no compose — sem ela o container sai com a mensagem de `SegredoAusente`); serviço `web` (imagem `tcg-sniper-web`, Caddy em `:8090`, `127.0.0.1:8090:8090`; `/api/*` → `{$API_ALVO:api:8100}`; o resto: arquivos do build com volta para `index.html`).
 
 - [ ] **Step 1: Caddy e imagem do front**
 
@@ -5337,7 +5732,7 @@ git commit -m "feat: api and web compose services with caddy serving the front"
 - Modify: `.gitignore` (`.playwright-navegadores/`), `README.md`, `docs/PENDENCIAS.md`
 
 **Interfaces:**
-- Consumes: tudo das Tasks 1–9. Em especial: `tcg-sniper api --porta` (Task 6), o build do front e o proxy do `vite preview` com `API_ALVO` (Task 7), os rótulos "Número do WhatsApp", "Receber código", "Código", "Entrar", títulos "Área de negócio", "Sem acesso", "Gestão", toggle "Grupo: Entrar na área de gestão", mensagem "Salvo. ..." (Tasks 7–8), `repo_acesso.criar_usuario` (Task 1), o texto do código `*dddddd*` na fila individual (Tasks 2 e 4).
+- Consumes: tudo das Tasks 1–9. Em especial: `tcg-sniper api --porta` (Task 6), o build do front e o proxy do `vite preview` com `API_ALVO` (Task 7), os rótulos "Número do WhatsApp", "Receber código", "Código", "Entrar", títulos "Área de negócio", "Sem acesso", "Gestão", toggle "Grupo: Entrar na área de gestão", mensagem "Salvo. ..." (Tasks 7–8), `repo_acesso.criar_usuario` e `criar_superadmin` (Task 1), `fakes_api.SEGREDO_TESTE` (Task 3), o texto do código `*dddddd*` na fila individual (Tasks 2 e 4).
 - Produces: `scripts/verificar_layout.py` com `TELAS_WEB = ["/", "/gestao", "/gestao/usuarios", "/gestao/acessos", "/sem-acesso"]`, `entrar_no_web(navegador, base: str, numero: str, codigo: str) -> dict` (estado do navegador com o cookie) e `verificar_web(navegador, base: str, estado: dict, saida: Path) -> list[str]` (problemas); variáveis `WEB_BASE`, `WEB_NUMERO`, `WEB_CODIGO`, `SO_WEB`.
 
 - [ ] **Step 1: Banco da lane e Chromium local**
@@ -5559,6 +5954,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
+from fakes_api import SEGREDO_TESTE
 from tcg_sniper.db import repositorio_acesso as repo_acesso
 from tcg_sniper.db.models import Papel
 from tcg_sniper.db.repositorio import agora_utc
@@ -5600,6 +5996,7 @@ def servidores(engine):
     ambiente = {
         **os.environ,
         "DATABASE_URL": engine.url.render_as_string(hide_password=False),
+        "SEGREDO_API": SEGREDO_TESTE,  # segredo falso; nunca o do .env
         "API_ALVO": f"http://127.0.0.1:{PORTA_API}",
     }
     codigo_api = f"from tcg_sniper.cli import main; main(['api', '--porta', '{PORTA_API}'])"
@@ -5620,9 +6017,9 @@ def servidores(engine):
 
 @pytest.fixture
 def usuarios(engine):
-    """Admin e grupo gravados de verdade (a API roda em outro processo); tudo apagado no fim."""
+    """Superadmin e grupo gravados de verdade (a API roda em outro processo); tudo apagado no fim."""
     with sessionmaker(bind=engine)() as s, s.begin():
-        repo_acesso.criar_usuario(s, "Pessoa Admin", ADMIN, Papel.ADMIN, agora_utc())
+        repo_acesso.criar_superadmin(s, "Pessoa Admin", ADMIN, agora_utc())
         repo_acesso.criar_usuario(s, "Pessoa Grupo", GRUPO, Papel.GRUPO, agora_utc())
     yield
     with engine.begin() as conexao:
@@ -5767,16 +6164,19 @@ Em `README.md`:
 O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (o site, em `http://localhost:8090`). O admin antigo continua em `:8000` até as telas mudarem para cá.
 
 ```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # cole o resultado em SEGREDO_API no .env
 docker compose up -d --build api web
-docker compose exec api tcg-sniper criar-admin "Seu nome" "(DDD) seu número"
+docker compose exec api tcg-sniper criar-superadmin "Seu nome" "(DDD) seu número"
 ```
 
-Abra `http://localhost:8090`, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin.
+Sem `SEGREDO_API` no `.env` (ou com o valor de exemplo) a `api` não sobe e diz o que fazer. Trocar essa chave derruba todas as sessões: todos entram de novo pelo código.
+
+Abra `http://localhost:8090`, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Você é o superadmin: o único que cria, edita, rebaixa ou desativa admins, e ninguém (nem você) o rebaixa ou desativa pelo site. Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); admins comuns gerenciam só operadores e grupo. Em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin. Para passar o superadmin a outra pessoa já cadastrada (ex.: número novo): `docker compose exec api tcg-sniper trocar-superadmin "(DDD) número"` (o antigo continua admin).
 
 Sem WhatsApp (notificador pausado, Evolution fora), gere um código no terminal: `docker compose exec api tcg-sniper codigo-acesso "(DDD) número"`.
 ````
 
-2. Em "### Segurança", acrescente um parágrafo: "No site novo cada pessoa entra com o próprio número: o código de acesso vai só para o WhatsApp dela, vale 5 minutos e uma vez; 5 tentativas erradas o invalidam; no máximo 3 códigos por número a cada 15 minutos e 20 pedidos por hora no total (acima disso a tela pede para esperar e o grupo admin é avisado). O banco guarda só o hash do código e do token da sessão; o número nunca vai para log nem para o grupo (aparece mascarado, `+55 11 9****-**34`). A sessão dura 30 dias, renovada a cada uso; desativar um usuário encerra as sessões dele na hora."
+2. Em "### Segurança", acrescente um parágrafo: "No site novo cada pessoa entra com o próprio número: o código de acesso vai só para o WhatsApp dela, vale 5 minutos e uma vez; 5 tentativas erradas o invalidam; no máximo 3 códigos por número a cada 15 minutos e 20 pedidos por hora no total (acima disso a tela pede para esperar e o grupo admin é avisado). O banco guarda só o HMAC (com a chave `SEGREDO_API` do `.env`) do código, do token da sessão e do número dos pedidos; o número nunca vai para log nem para o grupo (aparece mascarado, `+55 11 9****-**34`). A sessão dura 30 dias, renovada a cada uso; desativar um usuário encerra as sessões dele na hora."
 
 3. Em "## Desenvolvimento", acrescente depois do bloco de comandos:
 
@@ -5784,7 +6184,7 @@ Sem WhatsApp (notificador pausado, Evolution fora), gere um código no terminal:
 Front (`web/`, React + Vite + TypeScript + Tailwind + DaisyUI 5):
 
 ```bash
-uv run tcg-sniper api          # API local em 127.0.0.1:8100 (usa o DATABASE_URL do .env)
+uv run tcg-sniper api          # API local em 127.0.0.1:8100 (usa o DATABASE_URL e a SEGREDO_API do .env)
 cd web
 npm ci
 npm run dev                     # http://127.0.0.1:5173, com /api repassado para a API local
@@ -5804,7 +6204,7 @@ TCG_E2E=1 DATABASE_URL_TESTE=postgresql+psycopg://tcg:tcg@127.0.0.1:5433/tcg_tes
 Layout do site novo: `docker compose exec api tcg-sniper codigo-acesso "<número>"` e depois `docker compose exec -T -e WEB_NUMERO="<número>" -e WEB_CODIGO=<código> admin python - < scripts/verificar_layout.py` (`SO_WEB=1` pula as telas do admin).
 ````
 
-4. Em "### Estrutura", acrescente as linhas `  api/                API do site novo (FastAPI, JSON): login pelo WhatsApp, sessões, permissões por papel` (dentro de `src/tcg_sniper/`) e, fora dela, `web/                  site novo (React + Vite + DaisyUI), servido pelo Caddy no container web`; e em `cli.py` acrescente `api, codigo-acesso, criar-admin` à lista de comandos.
+4. Em "### Estrutura", acrescente as linhas `  api/                API do site novo (FastAPI, JSON): login pelo WhatsApp, sessões, permissões por papel` (dentro de `src/tcg_sniper/`) e, fora dela, `web/                  site novo (React + Vite + DaisyUI), servido pelo Caddy no container web`; e em `cli.py` acrescente `api, codigo-acesso, criar-superadmin, trocar-superadmin` à lista de comandos.
 
 - [ ] **Step 6: Pendências**
 
@@ -5812,7 +6212,6 @@ Em `docs/PENDENCIAS.md`:
 
 1. Atualize a linha `Última revisão:` para a data do merge.
 2. Em "## 1. Pequenas", acrescente:
-   - `- [ ] Login do site novo: o hash do código, do token e do número do pedido é SHA-256 sem segredo. Antes de publicar na internet, trocar por HMAC com uma chave do .env (o token já tem 256 bits; o que ganha é o código e o número).`
    - `- [ ] Sessões encerradas ou vencidas nunca são apagadas (pedidos e códigos são, depois de 1 dia). Pouco volume com < 20 pessoas; limpar na manutenção quando crescer.`
    - `- [ ] O texto do código de acesso fica na fila (mensagem_saida) enquanto está pendente (até 5 min), visível em Admin → Mensagens. Some ao sair da fila; some de vez quando o admin antigo for desligado (fase 4).`
 3. Em "## 3. Próximas funcionalidades", acrescente no topo:
@@ -5825,7 +6224,8 @@ Em `docs/PENDENCIAS.md`:
 ### Site novo, fase 1 — base (2026-10-18)
 
 - [x] Serviço `api` (FastAPI, JSON, `127.0.0.1:8100`): erros padronizados, `/api/saude`, `/api/docs` com permissão, toda rota declara a permissão que exige (`exige(...)`), grade papel × permissão com cache de 5 s.
-- [x] Login pelo WhatsApp: código de 6 dígitos só para o número da pessoa (validade própria de 5 min na fila; vencido não sai), 5 tentativas, limites de 3 por número/15 min e 20/hora, mesma resposta para número sem cadastro; cookie `sessao` HttpOnly/SameSite=Strict; acesso de emergência `tcg-sniper codigo-acesso` e `tcg-sniper criar-admin`.
+- [x] Login pelo WhatsApp: código de 6 dígitos só para o número da pessoa (validade própria de 5 min na fila; vencido não sai), 5 tentativas, limites de 3 por número/15 min e 20/hora, mesma resposta para número sem cadastro; cookie `sessao` HttpOnly/SameSite=Strict; código, token e número só como HMAC-SHA256 com `SEGREDO_API` (a api não sobe sem ela); acesso de emergência `tcg-sniper codigo-acesso`.
+- [x] Superadmin único (`tcg-sniper criar-superadmin` e `trocar-superadmin`, só no terminal): o único que mexe em admins; nunca rebaixado, desativado nem encerrado pelo site.
 - [x] Avisos novos: `CODIGO_ACESSO` (individual), `SEGURANCA_USUARIO` e `SEGURANCA_LIMITE` (grupo admin), desligáveis na aba Avisos.
 - [x] Site novo (`web/`, React + Vite + DaisyUI, Caddy em `127.0.0.1:8090`): Entrar, área de negócio (esqueleto), Gestão → Usuários e Gestão → Acessos, sem acesso e sistema indisponível; testes Vitest, ponta a ponta com Playwright e layout no `verificar_layout.py`.
 ```
@@ -5853,10 +6253,10 @@ git commit -m "test: end-to-end login and role grid with playwright; docs for th
 
 ## Implantação (depois do merge, com ok do usuário; o controlador faz, não um subagente)
 
-1. Backup manual antes: `docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-front-api.dump`.
-2. `docker compose build` (imagem Python e a nova `tcg-sniper-web`) e `docker compose run --rm migrate` (aplica `f8d2a6c4e1b3`: tabelas do login, `pedido_codigo` e as colunas `numero`/`expira_em` de `mensagem_saida`).
+1. Backup manual antes: `docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-front-api.dump`. Gerar a `SEGREDO_API` (`python -c "import secrets; print(secrets.token_urlsafe(32))"`) e pôr no `.env` de produção (sem ela a `api` não sobe).
+2. `docker compose build` (imagem Python e a nova `tcg-sniper-web`) e `docker compose run --rm migrate` (aplica `f8d2a6c4e1b3`: tabelas do login com `usuario.superadmin`, `pedido_codigo` e as colunas `numero`/`expira_em` de `mensagem_saida`).
 3. Restart de `notificador` e `admin` (destino individual, aba Avisos com 31 tipos) e `docker compose up -d api web`.
-4. `docker compose exec api tcg-sniper criar-admin "<nome>" "<número>"`; abrir `http://localhost:8090`, pedir o código, entrar; cadastrar um usuário grupo e um operador; conferir que o grupo não vê Gestão e que liberar `ver_area_gestao` em Gestão → Acessos muda isso na hora (critério de pronto do spec); conferir o aviso "Segurança · acesso alterado" no grupo admin.
+4. `docker compose exec api tcg-sniper criar-superadmin "<nome>" "<número>"` (o usuário roda, com o número dele); abrir `http://localhost:8090`, pedir o código, entrar; cadastrar um usuário grupo e um operador; conferir que o grupo não vê Gestão e que liberar `ver_area_gestao` em Gestão → Acessos muda isso na hora (critério de pronto do spec); conferir o aviso "Segurança · acesso alterado" no grupo admin.
 5. Layout em produção: `docker compose exec api tcg-sniper codigo-acesso "<número>"` e `docker compose exec -T -e WEB_NUMERO=... -e WEB_CODIGO=... -e SO_WEB=1 admin python - < scripts/verificar_layout.py`.
 6. Atualizar `docs/PENDENCIAS.md` com o commit do merge.
 
