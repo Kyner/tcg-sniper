@@ -143,3 +143,13 @@ def test_aba_com_erro_abre_selecionada(cliente):
 def test_aba_salva_abre_selecionada(cliente):
     r = cliente.post("/configuracoes/amazon", data=FORMULARIO_AMAZON, follow_redirects=True)
     assert aba_marcada(r.text, "Amazon")
+
+
+def test_aba_amazon_explica_os_dois_navegadores_e_a_soma_dos_tetos(cliente):
+    texto = cliente.get("/configuracoes").text
+    trecho = texto[texto.index('id="amazon"') : texto.index('id="ia"')]
+    assert "Dois navegadores" in trecho
+    assert "porta 6082" in trecho and "porta 6081" in trecho
+    assert "soma dos dois tetos" in trecho
+    assert "Máximo de buscas por hora (busca)" in trecho
+    assert "Máximo de páginas por hora (monitor e checkout)" in trecho

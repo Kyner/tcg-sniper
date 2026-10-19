@@ -11,6 +11,7 @@ from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
     COLETOR_CASADOR,
     COLETOR_LIGA,
     COLETOR_NOTIFICADOR,
@@ -42,9 +43,9 @@ def coleta(s, tipo, quando, status=StatusColeta.OK, ok=1, falha=0, erro=None):
     return c
 
 
-def test_quatro_servicos_na_ordem(s, config):
+def test_cinco_servicos_na_ordem(s, config):
     nomes = [x.nome for x in painel.saude_servicos(s, AGORA, config, True)]
-    assert nomes == ["LigaMagic", "Amazon", "Casador (IA)", "WhatsApp"]
+    assert nomes == ["LigaMagic", "Amazon (busca)", "Amazon (monitor e checkout)", "Casador (IA)", "WhatsApp"]
 
 
 def test_liga_funcionando_com_a_ultima_coleta_e_a_proxima(s, config):
@@ -86,23 +87,47 @@ def test_liga_rotulos(s, config):
     assert saude(s, config)["LigaMagic"].rotulo == "pausado"
 
 
-def test_amazon(s, config):
-    amazon = saude(s, config)["Amazon"]
-    assert amazon.situacao == "ok" and amazon.texto == "Nenhum ciclo ainda"
-    assert amazon.detalhe.startswith("0 preços lidos nas últimas 24 h · ")
-    noite = saude(s, config, agora=datetime(2026, 10, 17, 2, 0, tzinfo=UTC))["Amazon"]  # 23:00 em SP
+def test_amazon_busca(s, config):
+    busca = saude(s, config)["Amazon (busca)"]
+    assert busca.situacao == "ok" and busca.texto == "Nenhum ciclo ainda"
+    noite = saude(s, config, agora=datetime(2026, 10, 17, 2, 0, tzinfo=UTC))["Amazon (busca)"]  # 23:00 em SP
     assert noite.situacao == "ok" and "fora do horário (08:00–22:00)" in noite.texto
     coleta(s, TipoColeta.AMAZON, AGORA - timedelta(hours=3))
     coleta(s, TipoColeta.AMAZON, AGORA - timedelta(minutes=30), StatusColeta.RODANDO)
-    amazon = saude(s, config)["Amazon"]
-    assert amazon.situacao == "rodando" and amazon.texto == "Ciclo desde 16:10 · último ok 13:40"
+    busca = saude(s, config)["Amazon (busca)"]
+    assert busca.situacao == "rodando" and busca.texto == "Ciclo desde 16:10 · último ok 13:40"
+    repo.pausar(s, "pausado no admin", AGORA, COLETOR_AMAZON_BUSCA)
+    assert saude(s, config)["Amazon (busca)"].situacao == "pausado"
+    assert saude(s, config)["Amazon (monitor e checkout)"].situacao == "ok"
+    repo.pausar_por_desafio(s, "captcha", AGORA, COLETOR_AMAZON_BUSCA)
+    busca = saude(s, config)["Amazon (busca)"]
+    assert busca.situacao == "pausado_desafio" and "6082" in busca.detalhe
+
+
+def test_amazon_busca_conta_buscas_na_ultima_hora_e_nunca_buscados(s, config):
+    feitos = [criar_produto(s, f"p{i}") for i in range(4)]
+    criar_produto(s, "inativo", ativo=False)
+    repo_amz.sincronizar_fila(s, AGORA - timedelta(hours=3))
+    repo_amz.reagendar(s, feitos[0].id, AGORA - timedelta(minutes=10), AGORA + timedelta(hours=1), False)
+    repo_amz.reagendar(s, feitos[1].id, AGORA - timedelta(hours=2), AGORA + timedelta(hours=1), False)
+    detalhe = saude(s, config)["Amazon (busca)"].detalhe
+    assert detalhe == "1 buscas na última hora · 2 produtos ativos nunca buscados"
+
+
+def test_amazon_monitor(s, config):
+    monitor = saude(s, config)["Amazon (monitor e checkout)"]
+    assert monitor.situacao == "ok" and monitor.detalhe.startswith("0 preços lidos nas últimas 24 h")
+    noite = saude(s, config, agora=datetime(2026, 10, 17, 2, 0, tzinfo=UTC))["Amazon (monitor e checkout)"]
+    assert "fora do horário (08:00–22:00)" in noite.texto
     repo.pausar(s, "pausado no admin", AGORA, COLETOR_AMAZON)
-    assert saude(s, config)["Amazon"].situacao == "pausado"
+    assert saude(s, config)["Amazon (monitor e checkout)"].situacao == "pausado"
+    assert saude(s, config)["Amazon (busca)"].situacao == "ok"
     repo.pausar_por_desafio(s, "captcha", AGORA, COLETOR_AMAZON)
-    assert saude(s, config)["Amazon"].situacao == "pausado_desafio"
+    monitor = saude(s, config)["Amazon (monitor e checkout)"]
+    assert monitor.situacao == "pausado_desafio" and "6081" in monitor.detalhe
 
 
-def test_amazon_conta_precos_lidos_nas_ultimas_24h(s, config):
+def test_amazon_monitor_conta_precos_lidos_nas_ultimas_24h(s, config):
     produto = criar_produto(s, "p1")
     for i, asin in enumerate(("B000000001", "B000000002")):
         anuncio = criar_anuncio(s, asin, produto)
@@ -110,7 +135,7 @@ def test_amazon_conta_precos_lidos_nas_ultimas_24h(s, config):
         repo_amz.registrar_preco(
             s, anuncio.id, Decimal(10), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, quando, config.zona
         )
-    assert saude(s, config)["Amazon"].detalhe.startswith("1 preços lidos nas últimas 24 h · ")
+    assert saude(s, config)["Amazon (monitor e checkout)"].detalhe.startswith("1 preços lidos nas últimas 24 h · ")
 
 
 def test_casador(s, config):
@@ -278,6 +303,6 @@ def test_notificador_desligado_nao_avisa_mensagens_paradas(s, config):
     repo.pausar(s, "pausado no admin", AGORA, COLETOR_NOTIFICADOR)
     resumo = painel.consultas_mensagens.resumo(s, AGORA, notificador_pausado=True)
     servicos = painel.saude_servicos(s, AGORA, config, True, resumo)
-    whatsapp = servicos[3]
+    whatsapp = servicos[4]
     assert whatsapp.texto == "Envio desligado; as mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram)"
     assert [a.link for a in painel.avisos(s, AGORA, config, servicos, resumo)] == ["/servicos"]

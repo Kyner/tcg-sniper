@@ -10,6 +10,9 @@
   <div class="tab-content pt-4" id="{{ secao.id }}">
     <div class="card bg-base-100 shadow-sm"><div class="card-body">
       {% if secao.erros %}{{ aviso("error", "Nada foi salvo. Corrija os campos marcados.") }}{% endif %}
+      {% if secao.id == "amazon" %}
+      {{ aviso("info", "Dois navegadores: a busca de anúncios novos roda sem login (noVNC na porta 6082), com o próprio horário e teto de buscas; o monitor, a conferência de checkout e a retirada do carrinho rodam no navegador logado (noVNC na porta 6081), com o horário e o teto do monitor. A Amazon vê a soma dos dois tetos, no mesmo endereço.") }}
+      {% endif %}
       {% if secao.id == "ia" %}
       <div class="stats stats-vertical sm:stats-horizontal bg-base-200">
         <div class="stat"><div class="stat-title">Hoje</div><div class="stat-value text-lg tabular-nums">{{ resumo_ia.gasto.dia_usd|usd }}</div><div class="stat-desc">de {{ resumo_ia.teto_dia|usd }}</div></div>
@@ -23,7 +26,7 @@
         {% if secao.id == "amazon" and campo == "monitor_intervalo_min" %}
         <div class="md:col-span-2 pt-2">
           <h3 class="text-base font-semibold">Monitor de preço</h3>
-          <p class="text-sm text-base-content/70">Lê a lista de ofertas dos anúncios confirmados e confere o checkout das candidatas. Ligar e desligar fica em Serviços.</p>
+          <p class="text-sm text-base-content/70">Lê a lista de ofertas dos anúncios confirmados e confere o checkout das candidatas, no navegador logado. Ligar e desligar fica em Serviços → Amazon (monitor e checkout).</p>
         </div>
         {% endif %}
         <fieldset class="fieldset{% if campo in ('categorias', 'url_listagem', 'url_busca') %} md:col-span-2{% endif %}">

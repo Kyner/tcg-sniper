@@ -124,10 +124,10 @@ def test_logs_tem_as_abas_monitor_e_checkout(cliente):
 
 def test_card_da_amazon_mostra_monitor_e_conferencia(s, config):
     confirmado(s, "B0LOG00001", lido_em=AGORA - timedelta(minutes=5))
-    detalhe = {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon"].detalhe
+    detalhe = {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon (monitor e checkout)"].detalhe
     assert detalhe.endswith("monitor: última leitura hoje 16:35 · conferência ligada")
     aplicar_config(s, {"checkout_sem_login_em": AGORA}, AGORA)
-    detalhe = {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon"].detalhe
+    detalhe = {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon (monitor e checkout)"].detalhe
     assert detalhe.endswith("conferência parada: conta sem login")
 
 

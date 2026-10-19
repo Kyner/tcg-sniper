@@ -25,12 +25,14 @@ from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
     COLETOR_CASADOR,
     COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
     ChamadaIA,
     Coleta,
     EstadoColetorTipo,
+    FilaAmazon,
     MensagemSaida,
     Oportunidade,
     PrecoAtualAmazon,
@@ -195,35 +197,76 @@ def _resumo_monitor(s: Session, agora: datetime, cfg: Config) -> str:
     return f"{monitor} · {conferencia}"
 
 
-def _saude_amazon(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
-    estado = repo.obter_estado(s, agora, COLETOR_AMAZON)
+NOME_BUSCA = "Amazon (busca)"
+NOME_MONITOR = "Amazon (monitor e checkout)"
+
+
+def _buscas_na_ultima_hora(s: Session, agora: datetime) -> int:
+    """Produtos buscados na última hora (um produto buscado duas vezes na hora conta uma)."""
+    return _contar(s, FilaAmazon, FilaAmazon.ultima_busca_em > agora - timedelta(hours=1))
+
+
+def _nunca_buscados(s: Session) -> int:
+    """Produtos ativos que a busca ainda não visitou (inclusive os que nem entraram na fila)."""
+    return s.scalar(
+        select(func.count())
+        .select_from(ProdutoLiga)
+        .outerjoin(FilaAmazon, FilaAmazon.produto_id == ProdutoLiga.id)
+        .where(ProdutoLiga.ativo.is_(True), FilaAmazon.ultima_busca_em.is_(None))
+    ) or 0
+
+
+def _saude_amazon_busca(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
+    estado = repo.obter_estado(s, agora, COLETOR_AMAZON_BUSCA)
     zona = cfg.zona
-    lidos = _contar(s, PrecoAtualAmazon, PrecoAtualAmazon.coletado_em >= agora - timedelta(hours=24))
-    detalhe = f"{lidos} preços lidos nas últimas 24 h · {_resumo_monitor(s, agora, cfg)}"
+    detalhe = (
+        f"{_buscas_na_ultima_hora(s, agora)} buscas na última hora · "
+        f"{_nunca_buscados(s)} produtos ativos nunca buscados"
+    )
     if estado.estado is EstadoColetorTipo.PAUSADO_DESAFIO:
         return SaudeServico(
-            "Amazon", "pausado_desafio", f"CAPTCHA pendente: {estado.motivo or ''}".strip(),
-            "Resolva pelo noVNC em Serviços.", "/servicos",
+            NOME_BUSCA, "pausado_desafio", f"CAPTCHA pendente: {estado.motivo or ''}".strip(),
+            "Resolva pelo noVNC da busca (porta 6082) em Serviços.", "/servicos",
         )
     if estado.estado is EstadoColetorTipo.PAUSADO:
-        return SaudeServico("Amazon", "pausado", f"Pausada: {estado.motivo or 'sem motivo'}", detalhe, "/servicos")
+        return SaudeServico(NOME_BUSCA, "pausado", f"Pausada: {estado.motivo or 'sem motivo'}", detalhe, "/servicos")
     ultimo_ok = consultas.ultima_coleta_sucesso(s, (TipoColeta.AMAZON,))
     ciclo = consultas_amazon.ciclo_atual(s)
     if ciclo is not None:
         texto = f"Ciclo desde {ciclo.iniciada_em.astimezone(zona):%H:%M}"
         if ultimo_ok is not None:
             texto += f" · último ok {ultimo_ok.iniciada_em.astimezone(zona):%H:%M}"
-        return SaudeServico("Amazon", "rodando", texto, detalhe, "/logs?aba=amazon")
+        return SaudeServico(NOME_BUSCA, "rodando", texto, detalhe, "/logs?aba=amazon")
     config_amazon = repo_amz.obter_config(s)
     if not (config_amazon.janela_inicio <= agora.astimezone(zona).time() < config_amazon.janela_fim):
         janela = f"{config_amazon.janela_inicio:%H:%M}–{config_amazon.janela_fim:%H:%M}"
-        return SaudeServico("Amazon", "ok", f"Parada: fora do horário ({janela})", detalhe, "/logs?aba=amazon")
+        return SaudeServico(NOME_BUSCA, "ok", f"Parada: fora do horário ({janela})", detalhe, "/logs?aba=amazon")
     ultimo = consultas.ultima_coleta_finalizada(s, (TipoColeta.AMAZON,))
     if ultimo is None:
         texto = "Nenhum ciclo ainda"
     else:
         texto = f"Último ciclo {_quando(ultimo.iniciada_em, agora, zona)} ({ultimo.status.value.replace('_', ' ')})"
-    return SaudeServico("Amazon", "ok", texto, detalhe, "/logs?aba=amazon")
+    return SaudeServico(NOME_BUSCA, "ok", texto, detalhe, "/logs?aba=amazon")
+
+
+def _saude_amazon_monitor(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
+    estado = repo.obter_estado(s, agora, COLETOR_AMAZON)
+    lidos = _contar(s, PrecoAtualAmazon, PrecoAtualAmazon.coletado_em >= agora - timedelta(hours=24))
+    detalhe = f"{lidos} preços lidos nas últimas 24 h · {_resumo_monitor(s, agora, cfg)}"
+    if estado.estado is EstadoColetorTipo.PAUSADO_DESAFIO:
+        return SaudeServico(
+            NOME_MONITOR, "pausado_desafio", f"CAPTCHA pendente: {estado.motivo or ''}".strip(),
+            "Resolva pelo noVNC do monitor (porta 6081) em Serviços.", "/servicos",
+        )
+    if estado.estado is EstadoColetorTipo.PAUSADO:
+        return SaudeServico(NOME_MONITOR, "pausado", f"Pausado: {estado.motivo or 'sem motivo'}", detalhe, "/servicos")
+    config_amazon = repo_amz.obter_config(s)
+    local = agora.astimezone(cfg.zona).time()
+    if not (config_amazon.monitor_janela_inicio <= local < config_amazon.monitor_janela_fim):
+        janela = f"{config_amazon.monitor_janela_inicio:%H:%M}–{config_amazon.monitor_janela_fim:%H:%M}"
+        return SaudeServico(NOME_MONITOR, "ok", f"Parado: fora do horário ({janela})", detalhe, "/logs?aba=monitor")
+    texto = f"Até {config_amazon.monitor_max_paginas_hora} páginas por hora no navegador logado"
+    return SaudeServico(NOME_MONITOR, "ok", texto, detalhe, "/logs?aba=monitor")
 
 
 def _saude_casador(s: Session, agora: datetime, cfg: Config, chave_ia: bool) -> SaudeServico:
@@ -290,13 +333,14 @@ def saude_servicos(
     chave_ia: bool,
     resumo: consultas_mensagens.ResumoMensagens | None = None,
 ) -> list[SaudeServico]:
-    """Um item por serviço, na ordem LigaMagic, Amazon, Casador (IA), WhatsApp. `resumo` (das
+    """Um item por serviço, na ordem LigaMagic, Amazon (busca), Amazon (monitor e checkout), Casador (IA), WhatsApp. `resumo` (das
     mensagens) é reaproveitado quando já foi lido."""
     if resumo is None:
         resumo = consultas_mensagens.resumo(s, agora)
     return [
         _saude_liga(s, agora, config_efetiva),
-        _saude_amazon(s, agora, config_efetiva),
+        _saude_amazon_busca(s, agora, config_efetiva),
+        _saude_amazon_monitor(s, agora, config_efetiva),
         _saude_casador(s, agora, config_efetiva, chave_ia),
         _saude_whatsapp(s, agora, config_efetiva, resumo),
     ]
@@ -388,7 +432,7 @@ def avisos(
             if aba == "liga":
                 texto = f"A última coleta da LigaMagic ({ultima.tipo.value}, {quando}) terminou com falha."
             else:
-                texto = f"O último ciclo da Amazon ({quando}) terminou com falha."
+                texto = f"O último ciclo da busca na Amazon ({quando}) terminou com falha."
             if ultima.erro:
                 texto += f" {ultima.erro}"
             lista.append(Aviso("warning", texto, f"/logs?aba={aba}", "Ver nos logs"))
