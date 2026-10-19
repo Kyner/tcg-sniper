@@ -47,6 +47,8 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] `TZ` fixo em America/Sao_Paulo no compose: mudar o fuso em Configurações → Geral não muda os logs nem o relógio do noVNC.
 - [ ] Card da LigaMagic diz "Próxima começa em instantes" até a meia-noite quando a coleta do dia foi pulada (pausa no horário) (`consultas_painel.py`). Pode ir junto com a fase 3.
 - [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela). Pode ir junto com a fase 3.
+- [ ] Mover `admin/consultas_catalogo.py` (situação do catálogo por produto) para um pacote neutro (ex.: `tcg_sniper/consultas/`) antes de a API da fase 2 importá-lo: a fase 4 apaga o pacote `admin`.
+- [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes na fase 3.
 - [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
 
 ## 3. Acompanhar (sem código)
