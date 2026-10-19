@@ -29,7 +29,9 @@ from playwright.sync_api import sync_playwright
 BASE = os.environ.get("ADMIN_BASE", "http://127.0.0.1:8000")
 WEB_BASE = os.environ.get("WEB_BASE", "http://web:8090")
 FIXAS = [
-    "/", "/servicos", "/catalogo", "/casamentos?situacao=todos", "/ofertas", "/mensagens", "/configuracoes", "/configuracoes?msg=avisos",
+    "/", "/servicos", "/catalogo", "/casamentos?situacao=todos",
+    *(f"/casamentos?situacao=todos&situacao_produto={s}" for s in ("casado", "esperando_decisao", "so_ignorados", "sem_candidato")),
+    "/ofertas", "/mensagens", "/configuracoes", "/configuracoes?msg=avisos",
     "/logs", "/logs?aba=amazon", "/logs?aba=ia", "/logs?aba=checkout", "/logs?aba=monitor", "/logs?aba=manutencao",
 ]
 TELAS_WEB = ["/", "/gestao", "/gestao/usuarios", "/gestao/acessos", "/sem-acesso"]

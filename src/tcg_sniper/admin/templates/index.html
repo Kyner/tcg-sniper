@@ -24,27 +24,37 @@
 
 {% set pontos = {"ok": "status-success", "rodando": "status-info", "parcial": "status-warning", "falha": "status-error", "nenhum": "status-neutral"} %}
 <div class="grid gap-3 lg:grid-cols-2">
+  {% set c = n.catalogo %}
+  {# Cada produto ativo cai em uma situação só; as quatro somam o catálogo ativo. #}
+  {% set situacoes_produto = [
+    ("casado", "Casados", "pelo menos um anúncio confirmado", "progress progress-success w-full"),
+    ("esperando_decisao", "Esperando sua decisão", "com anúncio pendente e nenhum confirmado", "progress progress-warning w-full"),
+    ("so_ignorados", "Só ignorados", "todos os anúncios encontrados foram ignorados", "progress progress-neutral w-full"),
+    ("sem_candidato", "Sem candidato", "nenhum anúncio encontrado na Amazon", "progress w-full"),
+  ] %}
   <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
     <div class="flex items-center justify-between gap-2"><h2 class="card-title text-base">Casamentos</h2><a class="link text-sm" href="/casamentos">Abrir Casamentos</a></div>
-    <div class="stats stats-vertical sm:stats-horizontal">
-      <div class="stat px-3"><div class="stat-title">Confirmados</div><div class="stat-value text-2xl tabular-nums text-success">{{ n.confirmados|milhar }}</div></div>
-      <div class="stat px-3"><div class="stat-title">Pendentes</div><div class="stat-value text-2xl tabular-nums text-warning">{{ n.pendentes|milhar }}</div></div>
-      <div class="stat px-3"><div class="stat-title">Ignorados</div><div class="stat-value text-2xl tabular-nums">{{ n.ignorados|milhar }}</div>{% if n.casados_em_outro %}<div class="stat-desc whitespace-normal">+ {{ n.casados_em_outro|milhar }} {{ "casado" if n.casados_em_outro == 1 else "casados" }} em outro produto</div>{% endif %}</div>
-    </div>
-    <div class="space-y-1">
-      <div class="flex justify-between text-sm"><span>Produtos ativos com par na Amazon</span><span class="tabular-nums">{{ n.produtos_com_par|milhar }} de {{ n.produtos_ativos|milhar }}</span></div>
-      <progress class="progress progress-success w-full" value="{{ n.produtos_com_par }}" max="{{ n.produtos_ativos or 1 }}"></progress>
-      <p class="text-xs text-base-content/60">Catálogo: {{ n.produtos_ativos|milhar }} monitorados de {{ n.produtos_total|milhar }} produtos da LigaMagic</p>
-    </div>
+    <p class="text-sm text-base-content/70">Por produto: {{ c.produtos_ativos|milhar }} monitorados de {{ n.produtos_total|milhar }} produtos da LigaMagic</p>
+    <ul class="space-y-3">
+      {% for chave, rotulo, explicacao, classe in situacoes_produto %}
+      <li>
+        <div class="flex items-baseline justify-between gap-2 text-sm"><a class="link link-hover font-medium" href="/casamentos?situacao=todos&amp;situacao_produto={{ chave }}">{{ rotulo }}</a><span class="tabular-nums">{{ c[chave]|milhar }} <span class="text-base-content/60">· {{ c.pct(chave) }}%</span></span></div>
+        <progress class="{{ classe }}" value="{{ c[chave] }}" max="{{ c.produtos_ativos or 1 }}" aria-label="{{ rotulo }}"></progress>
+        <p class="text-xs text-base-content/60">{{ explicacao }}</p>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="text-xs text-base-content/60">{{ c.com_mais_de_uma_sugestao|milhar }} {{ "produto" if c.com_mais_de_uma_sugestao == 1 else "produtos" }} com mais de uma sugestão · {{ c.pares_pendentes|milhar }} {{ "anúncio" if c.pares_pendentes == 1 else "anúncios" }} aguardando em {{ c.produtos_com_pendentes|milhar }} {{ "produto" if c.produtos_com_pendentes == 1 else "produtos" }}{% if c.casados_com_pendentes %} (inclui produtos já casados){% endif %}</p>
   </div></div>
 
   <div class="card bg-base-100 shadow-sm"><div class="card-body p-4">
     <div class="flex items-center justify-between gap-2"><h2 class="card-title text-base">IA</h2><a class="link text-sm" href="/configuracoes">Configurações → IA</a></div>
     <div class="stats stats-vertical sm:stats-horizontal">
-      <div class="stat px-3"><div class="stat-title">Avaliados</div><div class="stat-value text-2xl tabular-nums">{{ n.avaliados|milhar }}</div><div class="stat-desc whitespace-normal">de {{ n.pendentes|milhar }} pendentes</div></div>
-      <div class="stat px-3"><div class="stat-title">Pelo automático</div><div class="stat-value text-2xl tabular-nums">{{ n.pelo_automatico|milhar }}</div><div class="stat-desc whitespace-normal">confirmados ou ignorados</div></div>
-      <div class="stat px-3"><div class="stat-title">Esperando você</div><div class="stat-value text-2xl tabular-nums text-info">{{ n.esperando_voce|milhar }}</div><div class="stat-desc whitespace-normal">{% if n.automatico %}"mesmo produto" abaixo de {{ n.confianca_confirmar }}%{% else %}"mesmo produto", automático desligado{% endif %}</div></div>
+      <div class="stat px-3"><div class="stat-title">Produtos avaliados</div><div class="stat-value text-2xl tabular-nums">{{ c.produtos_avaliados|milhar }}</div><div class="stat-desc whitespace-normal">de {{ c.produtos_ativos|milhar }} ativos</div></div>
+      <div class="stat px-3"><div class="stat-title">Avaliados hoje</div><div class="stat-value text-2xl tabular-nums">{{ c.avaliados_hoje|milhar }}</div><div class="stat-desc whitespace-normal">produtos</div></div>
+      <div class="stat px-3"><div class="stat-title">Esperando a IA</div><div class="stat-value text-2xl tabular-nums text-info">{{ c.esperando_ia|milhar }}</div><div class="stat-desc whitespace-normal">produtos sem confirmado, com anúncio a avaliar</div></div>
     </div>
+    <p class="text-xs text-base-content/60">{{ c.avaliacoes_total|milhar }} {{ "anúncio avaliado" if c.avaliacoes_total == 1 else "anúncios avaliados" }} · média de {{ ("%.1f"|format(c.media_por_produto))|replace(".", ",") if c.media_por_produto else "0" }} por produto</p>
     <div class="space-y-1">
       <div class="flex justify-between text-sm"><span>Gasto do mês</span><span class="tabular-nums">{{ n.gasto_mes|usd }} de {{ n.teto_mes|usd }}</span></div>
       <progress class="progress progress-info w-full" value="{{ n.gasto_mes }}" max="{{ n.teto_mes or 1 }}"></progress>

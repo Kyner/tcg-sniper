@@ -106,6 +106,7 @@ class ServicoCasador:
                 if av is not None and av.aplicada_em is None:
                     self._aplicar(s, av, limites, self._relogio())
         avaliados = falhas = confirmados = ignorados = 0
+        produtos_avaliados: set[int] = set()  # a rodada conta anúncios; o aviso diz em quantos produtos
         interrompido = False  # orçamento, chave/configuração ou falhas seguidas: a etapa dos termos não roda
         chamada_ok = False
         for par, atual in pares:
@@ -155,13 +156,16 @@ class ServicoCasador:
             falhas = 0
             self._falhas.pop(chave, None)
             avaliados += 1
+            produtos_avaliados.add(par.produto.id)
             confirmados += decisao is StatusCasamento.CONFIRMADO
             ignorados += decisao is StatusCasamento.IGNORADO
         if avaliados:
             esperando = avaliados - confirmados - ignorados
+            anuncios = f"{avaliados} {'anúncio' if avaliados == 1 else 'anúncios'}"
+            produtos = f"{len(produtos_avaliados)} {'produto' if len(produtos_avaliados) == 1 else 'produtos'}"
             dados = Dados(
                 linhas=(
-                    f"Avaliados: {avaliados}",
+                    f"Avaliados: {anuncios} em {produtos}",
                     f"Confirmados pelo automático: {confirmados}",
                     f"Ignorados pelo automático: {ignorados}",
                     f"Esperando você: {esperando}",

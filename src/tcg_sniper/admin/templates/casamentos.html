@@ -3,24 +3,29 @@
 {% block titulo %}Casamentos · TCG Sniper{% endblock %}
 {% block conteudo %}
 {% set nomes = {"pendentes": "com pendentes", "oportunidade": "com oportunidade", "sem_par": "sem par", "casados": "casados", "todos": "todos"} %}
+{% set nomes_produto = {"casado": "produto casado", "esperando_decisao": "esperando sua decisão", "so_ignorados": "só ignorados", "sem_candidato": "sem candidato"} %}
 {{ cabecalho("Casamentos", "Anúncios da Amazon por produto da Liga · " ~ total ~ " produto(s)") }}
-{% call filtros(busca or situacao != "pendentes" or categoria or com_preco) %}
-<form method="get" action="/casamentos" class="grid gap-2 md:grid-cols-5">
+{% call filtros(busca or situacao != "pendentes" or situacao_produto or categoria or com_preco) %}
+<form method="get" action="/casamentos" class="grid gap-2 md:grid-cols-6">
   <input type="search" name="busca" value="{{ busca }}" placeholder="Buscar produto da Liga" class="input input-sm w-full md:col-span-2" aria-label="Buscar produto da Liga">
   <select name="situacao" class="select select-sm w-full" aria-label="Situação">
     {% for s in situacoes %}<option value="{{ s }}" {% if s == situacao %}selected{% endif %}>{{ nomes[s] }}</option>{% endfor %}
+  </select>
+  <select name="situacao_produto" class="select select-sm w-full" aria-label="Situação do produto">
+    <option value="">qualquer situação do produto</option>
+    {% for s in situacoes_produto %}<option value="{{ s }}" {% if s == situacao_produto %}selected{% endif %}>{{ nomes_produto[s] }}</option>{% endfor %}
   </select>
   <select name="categoria" class="select select-sm w-full" aria-label="Categoria">
     <option value="">todas as categorias</option>
     {% for c in categorias %}<option value="{{ c }}" {% if c == categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
   </select>
   <label class="label gap-2 text-sm"><input type="checkbox" name="com_preco" value="1" class="checkbox checkbox-sm" {% if com_preco %}checked{% endif %}> Só com preço na Liga</label>
-  <button type="submit" class="btn btn-sm btn-primary md:col-start-5">Filtrar</button>
+  <button type="submit" class="btn btn-sm btn-primary md:col-start-6">Filtrar</button>
 </form>
 {% endcall %}
 <div class="card hidden bg-base-100 shadow-sm md:block"><div class="overflow-x-auto">
   <table class="table table-zebra">
-    <thead><tr><th>Produto da Liga</th><th class="text-right">À partir de</th><th class="text-right">Pendentes</th><th class="text-right">IA sugere</th><th class="text-right">Confirmados</th><th class="text-right">Ignorados</th><th></th></tr></thead>
+    <thead><tr><th>Produto da Liga</th><th class="text-right">À partir de</th><th class="text-right">Sugestões</th><th class="text-right">Pendentes</th><th class="text-right">IA sugere</th><th class="text-right">Confirmados</th><th class="text-right">Ignorados</th><th></th></tr></thead>
     <tbody>
     {% for l in linhas %}
       <tr>
@@ -28,11 +33,12 @@
           {{ nome_en(l.produto) }}
           <div class="mt-1 flex flex-wrap gap-1">{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}{% if l.sem_par %}{{ selo("ignorado", "sem par") }}{% endif %}</div></td>
         <td class="text-right tabular-nums whitespace-nowrap">{{ l.preco_liga|brl }}</td>
+        <td class="text-right tabular-nums">{{ l.sugestoes }}</td>
         <td class="text-right tabular-nums">{{ l.pendentes }}</td><td class="text-right">{% if l.ia_sugere %}<span class="badge badge-sm badge-success badge-outline whitespace-nowrap">{{ l.ia_sugere }} pela IA</span>{% endif %}</td><td class="text-right tabular-nums">{{ l.confirmados }}</td><td class="text-right tabular-nums">{{ l.ignorados }}{% if l.em_outro %}<div class="text-xs text-base-content/60 whitespace-nowrap">{{ l.em_outro }} {{ "casado" if l.em_outro == 1 else "casados" }} em outro produto</div>{% endif %}</td>
         <td class="text-right"><a class="btn btn-sm btn-primary" href="/casamentos/produto/{{ l.produto.id }}?voltar={{ voltar_atual|urlencode }}">Abrir</a></td>
       </tr>
     {% else %}
-      <tr><td colspan="7">Nenhum produto neste filtro.</td></tr>
+      <tr><td colspan="8">Nenhum produto neste filtro.</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -43,7 +49,7 @@
     <a class="link link-hover font-medium" href="{{ l.produto.url }}" target="_blank" rel="noopener">{{ l.produto.nome }}</a>
     {{ nome_en(l.produto) }}
     <div class="flex flex-wrap gap-1">{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}{% if l.sem_par %}{{ selo("ignorado", "sem par") }}{% endif %}</div>
-    <div class="text-sm tabular-nums">{{ l.preco_liga|brl }} · {{ l.pendentes }} pendentes · {{ l.confirmados }} confirmados · {{ l.ignorados }} ignorados{% if l.em_outro %} · {{ l.em_outro }} {{ "casado" if l.em_outro == 1 else "casados" }} em outro produto{% endif %}{% if l.ia_sugere %} <span class="badge badge-sm badge-success badge-outline whitespace-nowrap">IA sugere: {{ l.ia_sugere }}</span>{% endif %}</div>
+    <div class="text-sm tabular-nums">{{ l.preco_liga|brl }} · {{ l.sugestoes }} {{ "sugestão" if l.sugestoes == 1 else "sugestões" }} · {{ l.pendentes }} pendentes · {{ l.confirmados }} confirmados · {{ l.ignorados }} ignorados{% if l.em_outro %} · {{ l.em_outro }} {{ "casado" if l.em_outro == 1 else "casados" }} em outro produto{% endif %}{% if l.ia_sugere %} <span class="badge badge-sm badge-success badge-outline whitespace-nowrap">IA sugere: {{ l.ia_sugere }}</span>{% endif %}</div>
     <div class="card-actions justify-end"><a class="btn btn-sm btn-primary" href="/casamentos/produto/{{ l.produto.id }}?voltar={{ voltar_atual|urlencode }}">Abrir</a></div>
   </div></div>
   {% else %}

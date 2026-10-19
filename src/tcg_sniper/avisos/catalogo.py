@@ -250,7 +250,7 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
         C, "IA · rodada concluída", IA, "Rodada do casador que avaliou pelo menos um anúncio.", None,
         Dados(
             linhas=(
-                "Avaliados: 12",
+                "Avaliados: 12 anúncios em 5 produtos",
                 "Confirmados pelo automático: 3",
                 "Ignorados pelo automático: 5",
                 "Esperando você: 4",

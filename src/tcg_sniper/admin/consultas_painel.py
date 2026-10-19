@@ -7,10 +7,16 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens
+from tcg_sniper.admin.consultas_catalogo import (
+    SituacaoCatalogo,
+    inicio_do_dia,
+    produtos_avaliados_desde,
+    situacao_catalogo,
+)
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
@@ -22,18 +28,14 @@ from tcg_sniper.db.models import (
     COLETOR_CASADOR,
     COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
-    AvaliacaoIA,
-    Casamento,
     ChamadaIA,
     Coleta,
     EstadoColetorTipo,
     MensagemSaida,
     Oportunidade,
-    OrigemCasamento,
     PrecoAtualAmazon,
     PrecoAtualLiga,
     ProdutoLiga,
-    StatusCasamento,
     StatusColeta,
     StatusManutencao,
     StatusMensagem,
@@ -85,18 +87,9 @@ class Aviso:
 
 @dataclass(frozen=True)
 class Numeros:
-    confirmados: int
-    pendentes: int
-    ignorados: int  # sem os `outro_confirmado` (contados em `casados_em_outro`)
-    casados_em_outro: int  # ignorados porque o anúncio é confirmado para outro produto
-    produtos_com_par: int
+    catalogo: SituacaoCatalogo  # casamentos e IA contados por produto ativo
     produtos_ativos: int
     produtos_total: int
-    avaliados: int
-    pelo_automatico: int
-    esperando_voce: int
-    automatico: bool
-    confianca_confirmar: int
     gasto_mes: Decimal
     teto_mes: Decimal
     abertas: int
@@ -111,10 +104,6 @@ class Atividade:
     rotulo: str
     texto: str
     situacao: str  # "ok" | "rodando" | "parcial" | "falha" | "nenhum" (cor do ponto)
-
-
-def _inicio_do_dia(agora: datetime, zona: ZoneInfo) -> datetime:
-    return agora.astimezone(zona).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _quando(dt: datetime, agora: datetime, zona: ZoneInfo) -> str:
@@ -154,7 +143,7 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
             "Não coleta até ser ligada de novo em Serviços.", "/servicos",
         )
     zona = cfg.zona
-    inicio_dia = _inicio_do_dia(agora, zona)
+    inicio_dia = inicio_do_dia(agora, zona)
     alvo = inicio_dia.replace(hour=cfg.coleta_hora.hour, minute=cfg.coleta_hora.minute)
     ja_rodou = repo.coleta_iniciada_desde(s, TipoColeta.LISTAGEM, inicio_dia)
     ativos = _contar(s, ProdutoLiga, ProdutoLiga.ativo.is_(True))
@@ -266,7 +255,7 @@ def _usd(valor: Decimal) -> str:
 
 
 def _mensagens_hoje(s: Session, agora: datetime, zona: ZoneInfo) -> tuple[int, int]:
-    inicio = _inicio_do_dia(agora, zona)
+    inicio = inicio_do_dia(agora, zona)
     enviadas = _contar(s, MensagemSaida, MensagemSaida.enviada_em >= inicio)
     falhas = _contar(s, MensagemSaida, MensagemSaida.status == StatusMensagem.FALHA, MensagemSaida.atualizado_em >= inicio)
     return enviadas, falhas
@@ -473,45 +462,14 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
 
 
 def numeros(s: Session, agora: datetime, config_efetiva: Config) -> Numeros:
-    # "Ignorados" mantém o sentido de antes (sua decisão ou da IA sobre o par); `outro_confirmado` vem à parte.
-    em_outro = Casamento.origem == OrigemCasamento.OUTRO_CONFIRMADO
-    sem_outro = Casamento.origem.is_distinct_from(OrigemCasamento.OUTRO_CONFIRMADO)
-    por_status = dict(
-        s.execute(select(Casamento.status, func.count()).where(sem_outro).group_by(Casamento.status)).all()
-    )
-    produtos_com_par = s.scalar(
-        select(func.count(func.distinct(Casamento.produto_id)))
-        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
-        .where(Casamento.status == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
-    ) or 0
-    esperando = s.scalar(
-        select(func.count())
-        .select_from(AvaliacaoIA)
-        .join(
-            Casamento,
-            and_(Casamento.anuncio_id == AvaliacaoIA.anuncio_id, Casamento.produto_id == AvaliacaoIA.produto_id),
-        )
-        .where(
-            Casamento.status == StatusCasamento.PENDENTE,
-            AvaliacaoIA.mesmo_produto.is_(True),
-            AvaliacaoIA.aplicada_em.is_(None),
-        )
-    ) or 0
+    """Números do Dashboard; casamentos e IA por produto ativo (`consultas_catalogo`)."""
+    catalogo = situacao_catalogo(s, agora, config_efetiva.zona)
     cfg_ia = repo_ia.obter_config_ia(s, agora)
-    inicio_dia = _inicio_do_dia(agora, config_efetiva.zona)
+    inicio_dia = inicio_do_dia(agora, config_efetiva.zona)
     return Numeros(
-        confirmados=por_status.get(StatusCasamento.CONFIRMADO, 0),
-        pendentes=por_status.get(StatusCasamento.PENDENTE, 0),
-        ignorados=por_status.get(StatusCasamento.IGNORADO, 0),
-        casados_em_outro=_contar(s, Casamento, em_outro),
-        produtos_com_par=produtos_com_par,
-        produtos_ativos=_contar(s, ProdutoLiga, ProdutoLiga.ativo.is_(True)),
+        catalogo=catalogo,
+        produtos_ativos=catalogo.produtos_ativos,
         produtos_total=_contar(s, ProdutoLiga),
-        avaliados=_contar(s, AvaliacaoIA),
-        pelo_automatico=_contar(s, AvaliacaoIA, AvaliacaoIA.aplicada_em.is_not(None)),
-        esperando_voce=esperando,
-        automatico=cfg_ia.automatico,
-        confianca_confirmar=cfg_ia.confianca_confirmar,
         gasto_mes=repo_ia.gasto(s, agora, config_efetiva.zona).mes_usd,
         teto_mes=cfg_ia.teto_mes_usd,
         abertas=_contar(s, Oportunidade, Oportunidade.fechada_em.is_(None)),
@@ -534,7 +492,7 @@ def _pior(situacoes: Sequence[StatusColeta]) -> str:
 
 def atividade_hoje(s: Session, agora: datetime, config_efetiva: Config) -> list[Atividade]:
     zona = config_efetiva.zona
-    inicio = _inicio_do_dia(agora, zona)
+    inicio = inicio_do_dia(agora, zona)
     ultimas = []
     for tipo in TIPOS_LIGA:
         coleta = s.scalar(
@@ -551,6 +509,8 @@ def atividade_hoje(s: Session, agora: datetime, config_efetiva: Config) -> list[
     chamadas = _contar(s, ChamadaIA, ChamadaIA.em >= inicio)
     erros = _contar(s, ChamadaIA, ChamadaIA.em >= inicio, ChamadaIA.ok.is_(False))
     situacao_ia = "falha" if erros else ("ok" if chamadas else "nenhum")
+    produtos_ia = produtos_avaliados_desde(s, inicio)
+    texto_ia = f"{chamadas} · {erros} com erro · {produtos_ia} {'produto avaliado' if produtos_ia == 1 else 'produtos avaliados'}"
 
     enviadas, falhas = _mensagens_hoje(s, agora, zona)
     situacao_msgs = "falha" if falhas else ("ok" if enviadas else "nenhum")
@@ -561,6 +521,6 @@ def atividade_hoje(s: Session, agora: datetime, config_efetiva: Config) -> list[
             f"{len(ciclos)} {'ciclo' if len(ciclos) == 1 else 'ciclos'} · {lidos} preços",
             situacao_amazon,
         ),
-        Atividade("Chamadas da IA", f"{chamadas} · {erros} com erro", situacao_ia),
+        Atividade("Chamadas da IA", texto_ia, situacao_ia),
         Atividade("Mensagens do WhatsApp", f"{enviadas} enviadas · {falhas} falhas", situacao_msgs),
     ]

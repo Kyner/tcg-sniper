@@ -161,7 +161,7 @@ ESPERADOS = {
     ),
     TipoAviso.IA_RODADA_CONCLUIDA: (
         "✅ *IA · rodada concluída*\n"
-        "• Avaliados: 12\n"
+        "• Avaliados: 12 anúncios em 5 produtos\n"
         "• Confirmados pelo automático: 3\n"
         "• Ignorados pelo automático: 5\n"
         "• Esperando você: 4\n"

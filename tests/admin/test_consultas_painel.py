@@ -187,9 +187,10 @@ def test_numeros_de_casamentos_e_ia(s, config):
         ))
     s.flush()
     n = painel.numeros(s, AGORA, config)
-    assert (n.confirmados, n.pendentes, n.ignorados) == (1, 2, 1)
-    assert (n.produtos_com_par, n.produtos_ativos, n.produtos_total) == (1, 1, 2)
-    assert (n.avaliados, n.pelo_automatico, n.esperando_voce) == (3, 1, 1)
+    c = n.catalogo  # por produto ativo: p1 tem confirmado, pendente e ignorado e conta uma vez, como casado
+    assert (c.casado, c.esperando_decisao, c.so_ignorados, c.sem_candidato) == (1, 0, 0, 0)
+    assert (n.produtos_ativos, n.produtos_total) == (1, 2)
+    assert (c.produtos_avaliados, c.avaliacoes_total, c.media_por_produto) == (1, 2, 2.0)
     assert n.teto_mes == Decimal("20.00")
 
 
@@ -226,7 +227,9 @@ def test_atividade_de_hoje(s, config):
     assert itens["Coleta da LigaMagic"].texto == "listagem 10:14 · produtos 10:32"
     assert itens["Coleta da LigaMagic"].situacao == "ok"
     assert itens["Buscas na Amazon"].texto == "1 ciclo · 0 preços"
-    assert (itens["Chamadas da IA"].texto, itens["Chamadas da IA"].situacao) == ("1 · 1 com erro", "falha")
+    assert (itens["Chamadas da IA"].texto, itens["Chamadas da IA"].situacao) == (
+        "1 · 1 com erro · 0 produtos avaliados", "falha",
+    )
     assert (itens["Mensagens do WhatsApp"].texto, itens["Mensagens do WhatsApp"].situacao) == (
         "0 enviadas · 0 falhas", "nenhum",
     )

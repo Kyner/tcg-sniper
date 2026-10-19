@@ -47,6 +47,8 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] `TZ` fixo em America/Sao_Paulo no compose: mudar o fuso em Configurações → Geral não muda os logs nem o relógio do noVNC.
 - [ ] Card da LigaMagic diz "Próxima começa em instantes" até a meia-noite quando a coleta do dia foi pulada (pausa no horário) (`consultas_painel.py`). Pode ir junto com a fase 3.
 - [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela). Pode ir junto com a fase 3.
+- [ ] Mover `admin/consultas_catalogo.py` (situação do catálogo por produto) para um pacote neutro (ex.: `tcg_sniper/consultas/`) antes de a API da fase 2 importá-lo: a fase 4 apaga o pacote `admin`.
+- [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes na fase 3.
 - [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
 
 ## 3. Acompanhar (sem código)
@@ -64,7 +66,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 4. Próximas funcionalidades (decisão do grupo)
 
-- [ ] **Site novo, fase 2 — área de negócio**: dashboard do grupo (oportunidades, funil, resultados), com as permissões ver_oportunidades e ver_resultados.
+- [ ] **Site novo, fase 2 — área de negócio**: dashboard do grupo (oportunidades, funil, resultados), com as permissões ver_oportunidades e ver_resultados. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo` (a mesma função do Dashboard do admin antigo; sem Jinja nem HTTP).
 - [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem.
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
 - [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
@@ -116,6 +118,11 @@ Nenhuma no momento.
 6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### Dashboard e Casamentos por produto (branch `feat/painel-produto`)
+
+- [x] Casamentos e IA contados por produto ativo da LigaMagic, não por par nem por chamada: cada produto cai em uma situação só (casado, esperando sua decisão, só ignorados, sem candidato; somam o catálogo ativo), com % e barra no Dashboard e link para Casamentos filtrado. Linha com produtos com mais de uma sugestão e anúncios aguardando em quantos produtos. IA: produtos avaliados, avaliados hoje (fuso configurado), esperando a IA, avaliações e média por produto; gasto do mês igual.
+- [x] Casamentos: filtro "situação do produto" (`situacao_produto`) e coluna Sugestões (pares do produto). Atividade de hoje e aviso de rodada da IA dizem em quantos produtos ("12 anúncios em 5 produtos").
 
 ### Casamento por par e busca alternativa (merge `cb16fbb`, em produção desde 2026-10-19 11:51; contagens antes = depois: 51 confirmados, 1269 ignorados, 5 pendentes, 1325 pares)
 

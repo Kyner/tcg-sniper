@@ -24,6 +24,7 @@ from tcg_sniper.admin import (
 )
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.admin import formularios_ia as form_ia
+from tcg_sniper.admin.consultas_catalogo import SITUACOES_PRODUTO
 from tcg_sniper.admin.icones import icone
 from tcg_sniper.avisos import formato
 from tcg_sniper.avisos import servico as avisos
@@ -934,9 +935,12 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         situacao: str = "pendentes",
         com_preco: str = "",
         pagina: str = "1",
+        situacao_produto: str = "",
     ):
         if situacao not in consultas_amazon.SITUACOES_CASAMENTO:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
+        if situacao_produto and situacao_produto not in SITUACOES_PRODUTO:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação do produto inválida: {situacao_produto}")
         so_com_preco = com_preco == "1"
         with sessoes() as s, s.begin():
             categorias = consultas.listar_categorias(s)
@@ -950,11 +954,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 situacao=situacao,
                 com_preco=so_com_preco,
                 desconto_min_pct=cfg.desconto_min_pct,
+                situacao_produto=situacao_produto or None,
             )
             linhas_pagina, numero, paginas = consultas.paginar(
                 linhas, numero_pagina(pagina), consultas_amazon.POR_PAGINA_CASAMENTOS
             )
-            parametros = {"busca": busca, "categoria": categoria, "situacao": situacao}
+            parametros = {
+                "busca": busca, "categoria": categoria, "situacao": situacao, "situacao_produto": situacao_produto
+            }
             if so_com_preco:
                 parametros["com_preco"] = "1"
             parametros = {k: v for k, v in parametros.items() if v}
@@ -977,6 +984,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "categorias": categorias,
                     "situacao": situacao,
                     "situacoes": consultas_amazon.SITUACOES_CASAMENTO,
+                    "situacao_produto": situacao_produto,
+                    "situacoes_produto": SITUACOES_PRODUTO,
                     "com_preco": so_com_preco,
                 },
             )

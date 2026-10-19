@@ -48,14 +48,15 @@ def test_lista_conta_por_par_um_anuncio_em_dois_produtos(s):
     assert consultas_menu.contadores_menu(s, T0).casamentos == 1
 
 
-def test_dashboard_conta_pares(s, config):
+def test_dashboard_conta_produtos(s, config):
     p, q = criar_produto(s, "p"), criar_produto(s, "q")
     anuncio = criar_anuncio(s, "B0PAINEL01", produto=p, status=CONFIRMADO, origem=OrigemCasamento.MANUAL)
     criar_par(s, anuncio, q, status=IGNORADO, origem=OrigemCasamento.OUTRO_CONFIRMADO, revisado_em=T0)
     criar_anuncio(s, "B0PAINEL02", produto=q)
-    n = painel.numeros(s, T0, config)
-    # "ignorados" mantém o sentido de antes (decisão sobre o anúncio); casado em outro produto vem à parte
-    assert (n.confirmados, n.pendentes, n.ignorados, n.casados_em_outro, n.produtos_com_par) == (1, 1, 0, 1, 1)
+    c = painel.numeros(s, T0, config).catalogo
+    # p casado; q (ignorado por estar casado em outro produto + um pendente) espera sua decisão
+    assert (c.casado, c.esperando_decisao, c.so_ignorados, c.sem_candidato) == (1, 1, 0, 0)
+    assert (c.com_mais_de_uma_sugestao, c.pares_pendentes, c.produtos_com_pendentes, c.casados_com_pendentes) == (1, 1, 1, 0)
 
 
 def test_ofertas_e_produto_usam_o_par_confirmado_e_a_origem_dele(s):
@@ -96,4 +97,4 @@ def test_lista_e_dashboard_mostram_casado_em_outro_produto_a_parte(sessoes, clie
         assert (linha.pendentes, linha.confirmados, linha.ignorados, linha.em_outro, linha.sem_par) == (0, 0, 1, 1, True)
     lista = cliente.get("/casamentos", params={"situacao": "todos"}).text
     assert "1 casado em outro produto" in lista
-    assert "casado em outro produto" in cliente.get("/").text
+    assert "casado em outro produto" not in cliente.get("/").text  # o Dashboard conta por produto
