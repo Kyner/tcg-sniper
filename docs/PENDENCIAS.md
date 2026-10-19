@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-18.
+Última revisão: 2026-10-19.
 
-## 0. Crítico (próximo a fazer)
+## 0. Crítico (em andamento)
 
-- [ ] **Anúncio ignorado preso ao primeiro produto**: cada anúncio da Amazon fica ligado ao primeiro produto da Liga para o qual foi sugerido (`gravar_busca` nunca troca `produto_id`/status de um ASIN conhecido). Se foi ignorado para o produto errado (ex.: Colecionador sugerido para Jogo) e depois aparece na busca do produto certo, continua ignorado e nunca vira pendente para o produto certo; a IA só avalia pendentes. Perde oportunidades. Decidido (2026-10-18): **ignorado vale só para aquele par** — o mesmo anúncio achado na busca de outro produto vira pendente para esse outro produto e a IA avalia. Precisa de modelo de pares (anúncio × produto) ou equivalente. Relacionados, depois: busca alternativa (nome encurtado/sem edição) após muitos dias sem candidato; botões "rebuscar agora" e "reavaliar com a IA"; "Desfazer" não faz a IA reavaliar anúncio igual.
+- [ ] **Em desenho (2026-10-19).** **Anúncio ignorado preso ao primeiro produto**: cada anúncio da Amazon fica ligado ao primeiro produto da Liga para o qual foi sugerido (`gravar_busca` nunca troca `produto_id`/status de um ASIN conhecido). Se foi ignorado para o produto errado (ex.: Colecionador sugerido para Jogo) e depois aparece na busca do produto certo, continua ignorado e nunca vira pendente para o produto certo; a IA só avalia pendentes. Perde oportunidades. Decidido (2026-10-18): **ignorado vale só para aquele par** — o mesmo anúncio achado na busca de outro produto vira pendente para esse outro produto e a IA avalia. Precisa de modelo de pares (anúncio × produto) ou equivalente. Relacionados, depois: busca alternativa (nome encurtado/sem edição) após muitos dias sem candidato; botões "rebuscar agora" e "reavaliar com a IA"; "Desfazer" não faz a IA reavaliar anúncio igual.
 
 ## 1. Pequenas (sem pressa, juntar num pacote)
 
@@ -19,11 +19,15 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 - [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
 - [ ] Login do front (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro (no pedido, só o cadastrado gera código e enfileira a mensagem; no entrar, só o cadastrado busca o último código, confere o HMAC e grava a tentativa errada). Rever antes de abrir a API para a internet (ex.: fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo).
 - [ ] Sessões encerradas ou vencidas nunca são apagadas (pedidos e códigos são, depois de 1 dia). Pouco volume com < 20 pessoas; limpar na manutenção quando crescer.
-- [ ] O texto do código de acesso fica na fila (mensagem_saida) enquanto está pendente (até 5 min), visível em Admin → Mensagens. Some ao sair da fila; some de vez quando o admin antigo for desligado (fase 4).
+- [ ] O texto do código de acesso fica na fila (mensagem_saida) enquanto está pendente (até 5 min); Admin → Mensagens mostra só "texto oculto". Some ao sair da fila (enviada, vencida, falha ou descartada), também com o notificador parado (a manutenção apaga os vencidos).
+- [ ] Login: o limite geral de 20 pedidos de código por hora permite que alguém na rede de casa bloqueie o login de todos por 1 h. Decidir se o limite geral fica, sobe ou vira por IP antes de abrir para a internet.
+- [ ] Login: celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. Decidir se aceita a variante sem o 9.
 - [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
 
 ## 2. Acompanhar (sem código)
 
+- [ ] Catálogo com 2165 produtos ativos (eram 224): coleta da Liga passa de ~1 h para ~10 h; a busca da Amazon (200/h na janela 08–22h) alcança cada produto sem par ~1 vez por dia; mais anúncios novos = mais chamadas à IA. Conferir se a ativação em massa foi intencional e se o ritmo atende.
+- [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
 - [ ] Frequência de CAPTCHA da Amazon com o monitor ligado (até 150 páginas/h).
 - [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare.
 - [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio para em 7 diários + 4 semanais.
@@ -34,7 +38,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 ## 3. Próximas funcionalidades (decisão do grupo)
 
 - [ ] **Site novo, fase 2 — área de negócio**: dashboard do grupo (oportunidades, funil, resultados), com as permissões ver_oportunidades e ver_resultados.
-- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo (com as correções da auditoria de layout) e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes.
+- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes.
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
 - [ ] **Margem líquida real** por oportunidade: comissão de lojista da LigaMagic, frete de envio, imposto, cupons e cartões. Precisa dos valores/regras do grupo.
 - [ ] **Coletor do Mercado Livre** pelo navegador (sem API).
@@ -50,14 +54,16 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
-0. Seção 0 (anúncio ignorado preso ao primeiro produto), logo depois dos avisos.
-1. Seção 1 (pequenas), junto com a próxima mexida no código.
-2. Seção 2 (acompanhar) ao longo dos próximos dias, sem prazo.
-3. Margem líquida (seção 3), quando o grupo tiver os valores.
+0. Seção 0 (anúncio ignorado preso ao primeiro produto) — em desenho.
+1. Site novo, fase 2 (área de negócio).
+2. Site novo, fase 3 (área administrativa + auditoria de layout), depois fase 4.
+3. Seção 1 (pequenas), junto com a próxima mexida no código de cada área.
+4. Seção 2 (acompanhar) ao longo dos próximos dias, sem prazo.
+5. Margem líquida (seção 3), quando o grupo tiver os valores.
 
 ## Concluídas
 
-### Site novo, fase 1 — base (2026-10-18)
+### Site novo, fase 1 — base (merge `ccb2b98`, em produção desde 2026-10-19; superadmin criado e login pelo WhatsApp funcionando)
 
 - [x] Serviço `api` (FastAPI, JSON, `127.0.0.1:8100`): erros padronizados, `/api/saude`, `/api/docs` com permissão, toda rota declara a permissão que exige (`exige(...)`), grade papel × permissão com cache de 5 s.
 - [x] Login pelo WhatsApp: código de 6 dígitos só para o número da pessoa (validade própria de 5 min na fila; vencido não sai), 5 tentativas, limites de 3 por número/15 min e 20/hora (e 10 tentativas de entrar por número/15 min), mesma resposta para número sem cadastro; cookie `sessao` HttpOnly/SameSite=Strict; código, token e número só como HMAC-SHA256 com `SEGREDO_API` (a api não sobe sem ela); acesso de emergência `tcg-sniper codigo-acesso`.
