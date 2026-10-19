@@ -24,7 +24,7 @@
     <tbody>
     {% for l in amazon %}{% set anuncio = l.anuncio %}{% set atual_amz = l.atual %}
       <tr>
-        <td><a class="link font-mono" href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<div class="text-xs text-base-content/70">{{ anuncio.variacao }}</div>{% endif %}<div>{{ selo_origem(anuncio.origem_casamento) }}</div></td>
+        <td><a class="link font-mono" href="{{ anuncio.url }}" target="_blank" rel="noopener">{{ anuncio.asin }}</a>{% if anuncio.variacao %}<div class="text-xs text-base-content/70">{{ anuncio.variacao }}</div>{% endif %}<div>{{ selo_origem(l.casamento.origem if l.casamento else None) }}</div></td>
         <td class="text-right tabular-nums whitespace-nowrap">{{ (atual_amz.preco if atual_amz else None)|brl }}</td>
         <td>{% if atual_amz %}{{ selo_vendedor(l.verificado, l.confiavel, atual_amz.envio, l.vendedor) }}{% else %}—{% endif %}</td>
         <td class="whitespace-nowrap">{{ (atual_amz.coletado_em if atual_amz else None)|data }}</td>

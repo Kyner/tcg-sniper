@@ -22,8 +22,8 @@ from tcg_sniper.db.models import (
     COLETOR_CASADOR,
     COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
-    AnuncioAmazon,
     AvaliacaoIA,
+    Casamento,
     ChamadaIA,
     Coleta,
     EstadoColetorTipo,
@@ -471,27 +471,21 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
 
 
 def numeros(s: Session, agora: datetime, config_efetiva: Config) -> Numeros:
-    por_status = dict(
-        s.execute(
-            select(AnuncioAmazon.status_casamento, func.count())
-            .where(AnuncioAmazon.produto_id.is_not(None))
-            .group_by(AnuncioAmazon.status_casamento)
-        ).all()
-    )
+    por_status = dict(s.execute(select(Casamento.status, func.count()).group_by(Casamento.status)).all())
     produtos_com_par = s.scalar(
-        select(func.count(func.distinct(AnuncioAmazon.produto_id)))
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
+        select(func.count(func.distinct(Casamento.produto_id)))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
+        .where(Casamento.status == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
     ) or 0
     esperando = s.scalar(
         select(func.count())
         .select_from(AvaliacaoIA)
         .join(
-            AnuncioAmazon,
-            and_(AnuncioAmazon.id == AvaliacaoIA.anuncio_id, AnuncioAmazon.produto_id == AvaliacaoIA.produto_id),
+            Casamento,
+            and_(Casamento.anuncio_id == AvaliacaoIA.anuncio_id, Casamento.produto_id == AvaliacaoIA.produto_id),
         )
         .where(
-            AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE,
+            Casamento.status == StatusCasamento.PENDENTE,
             AvaliacaoIA.mesmo_produto.is_(True),
             AvaliacaoIA.aplicada_em.is_(None),
         )

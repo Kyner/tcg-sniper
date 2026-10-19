@@ -178,9 +178,11 @@ def test_numeros_de_casamentos_e_ia(s, config):
     pendente2 = criar_anuncio(s, "B000000003", inativo)
     criar_anuncio(s, "B000000004", ativo, StatusCasamento.IGNORADO)
     criar_anuncio(s, "B000000005", None)  # sem produto: não conta
-    for anuncio, mesmo, aplicada in ((confirmado, True, AGORA), (pendente, True, None), (pendente2, False, None)):
+    for anuncio, produto, mesmo, aplicada in (
+        (confirmado, ativo, True, AGORA), (pendente, ativo, True, None), (pendente2, inativo, False, None)
+    ):
         s.add(AvaliacaoIA(
-            anuncio_id=anuncio.id, produto_id=anuncio.produto_id, mesmo_produto=mesmo, confianca=80, motivo="m",
+            anuncio_id=anuncio.id, produto_id=produto.id, mesmo_produto=mesmo, confianca=80, motivo="m",
             modelo="gpt-5", assinatura="a", sem_imagem=False, avaliado_em=AGORA, aplicada_em=aplicada,
         ))
     s.flush()
