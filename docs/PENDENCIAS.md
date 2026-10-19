@@ -9,7 +9,13 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 - [ ] **Anúncio ignorado preso ao primeiro produto**: cada anúncio da Amazon fica ligado ao primeiro produto da Liga para o qual foi sugerido (`gravar_busca` nunca troca `produto_id`/status de um ASIN conhecido). Se foi ignorado para o produto errado (ex.: Colecionador sugerido para Jogo) e depois aparece na busca do produto certo, continua ignorado e nunca vira pendente para o produto certo; a IA só avalia pendentes. Perde oportunidades. Decidido (2026-10-18): **ignorado vale só para aquele par** — o mesmo anúncio achado na busca de outro produto vira pendente para esse outro produto e a IA avalia. Precisa de modelo de pares (anúncio × produto) ou equivalente. Relacionados, depois: busca alternativa (nome encurtado/sem edição) após muitos dias sem candidato; botões "rebuscar agora" e "reavaliar com a IA"; "Desfazer" não faz a IA reavaliar anúncio igual.
 
-## 1. Acompanhar (sem código)
+## 1. Pequenas (sem pressa, juntar num pacote)
+
+- [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
+- [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
+- [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
+
+## 2. Acompanhar (sem código)
 
 - [ ] Frequência de CAPTCHA da Amazon com o monitor ligado (até 150 páginas/h).
 - [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare.
@@ -17,12 +23,6 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
 - [ ] Volume de avisos no grupo admin na primeira semana (~60–70/dia com a rodada do monitor); desligar em Configurações → Avisos o que virar ruído.
 - [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida é uma thread de 60 s).
-
-## 2. Pequenas (sem pressa, juntar num pacote)
-
-- [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
-- [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
-- [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
 
 ## 3. Próximas funcionalidades (decisão do grupo)
 
@@ -41,8 +41,9 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 ## Ordem sugerida
 
 0. Seção 0 (anúncio ignorado preso ao primeiro produto), logo depois dos avisos.
-1. Seção 1 (acompanhar) nos próximos dias.
-2. Margem líquida (seção 3), quando o grupo tiver os valores.
+1. Seção 1 (pequenas), junto com a próxima mexida no código.
+2. Seção 2 (acompanhar) ao longo dos próximos dias, sem prazo.
+3. Margem líquida (seção 3), quando o grupo tiver os valores.
 
 ## Concluídas
 
