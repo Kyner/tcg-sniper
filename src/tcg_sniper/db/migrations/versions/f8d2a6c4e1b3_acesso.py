@@ -85,7 +85,7 @@ def upgrade() -> None:
         sa.Column("numero_hash", sa.Text(), nullable=False),
         sa.Column("resultado", sa.Text(), nullable=False),
         sa.CheckConstraint(
-            "resultado IN ('aceito', 'limite_numero', 'limite_total')", name="ck_pedido_codigo_resultado"
+            "resultado IN ('aceito', 'limite_numero', 'limite_total', 'entrada')", name="ck_pedido_codigo_resultado"
         ),
         sa.PrimaryKeyConstraint("id"),
     )

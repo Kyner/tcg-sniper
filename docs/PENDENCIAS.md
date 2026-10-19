@@ -13,6 +13,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 - [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
 - [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
+- [ ] Login do front (`POST /api/auth/pedir-codigo`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro (só o cadastrado gera código e enfileira a mensagem). Rever antes de abrir a API para a internet (ex.: fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo).
 - [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
 
 ## 2. Acompanhar (sem código)
