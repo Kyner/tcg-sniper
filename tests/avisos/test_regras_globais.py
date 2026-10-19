@@ -103,14 +103,25 @@ def _cru(argumento: ast.AST) -> bool:
     return any(_cru(filho) for filho in ast.iter_child_nodes(argumento))
 
 
+NOMES_DE_LOGGER = {"log", "logging", "logger"}
+
+
+def _e_logger(alvo: ast.AST) -> bool:
+    """`log`, `logger`, `logging`, `LOG`, `_log`; `self.log`/`self._log`/`self.logger`; `logging.getLogger(...)`."""
+    if isinstance(alvo, ast.Call):
+        return _nome_chamado(alvo.func) == "getLogger"
+    if isinstance(alvo, ast.Name | ast.Attribute):
+        return _nome_chamado(alvo).lower().lstrip("_") in NOMES_DE_LOGGER
+    return False
+
+
 def _logs_com_dado_cru(fonte: str) -> list[int]:
-    """Linhas das chamadas de log (log/logging/logger) que levam número, código ou token sem máscara."""
+    """Linhas das chamadas de log (ver `_e_logger`) que levam número, código ou token sem máscara."""
     linhas = []
     for no in ast.walk(ast.parse(fonte)):
         if not (isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute) and no.func.attr in NIVEIS):
             continue
-        alvo = no.func.value
-        if not (isinstance(alvo, ast.Name) and alvo.id in {"log", "logging", "logger"}):
+        if not _e_logger(no.func.value):
             continue
         # Todos os argumentos, inclusive a mensagem (1º): f"... {numero}" também é log cru.
         argumentos = [*no.args, *(k.value for k in no.keywords)]
@@ -130,6 +141,18 @@ def test_regra_de_log_pega_fstring_e_aceita_mascara():
     assert _logs_com_dado_cru('log.info("de %s", ocultar_numero(texto))') == []
     assert _logs_com_dado_cru('log.info("pedido aceito")') == []
     assert _logs_com_dado_cru('print(numero)') == []
+
+
+def test_regra_de_log_pega_logger_em_atributo_e_getlogger():
+    """Logger guardado em atributo (`self.log`, `self._log`), criado na hora (`logging.getLogger(...)`) ou em
+    maiúsculas (`LOG`) também é log."""
+    assert _logs_com_dado_cru('self.log.info("de %s", numero)') == [1]
+    assert _logs_com_dado_cru('self._log.warning(f"código {codigo}")') == [1]
+    assert _logs_com_dado_cru('logging.getLogger(__name__).info("token %s", token)') == [1]
+    assert _logs_com_dado_cru('LOG.error("de %s", u.numero)') == [1]
+    assert _logs_com_dado_cru('_log.info("de %s", numero)') == [1]
+    assert _logs_com_dado_cru('self.log.info("de %s", mascarar_numero(numero))') == []
+    assert _logs_com_dado_cru('self.catalogo.info(numero)') == []
 
 
 def test_log_nunca_leva_numero_codigo_ou_token_cru():
