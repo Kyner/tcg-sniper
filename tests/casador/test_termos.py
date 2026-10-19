@@ -12,7 +12,6 @@ from tcg_sniper.ia.modelos import Bruta, RespostaForaDoFormato
 
 NOME, NOME_EN = "Caixa de Booster - Alfa", "Booster Box - Alpha"
 VALIDO = ("caixa alfa lacrada", "pt")
-REGRA_IDIOMA = "idioma diferente = outro produto: português, inglês e japonês não se casam entre si"
 
 
 def dados(*itens):
@@ -74,8 +73,12 @@ def test_gerar_termos_faz_uma_chamada_sem_imagem_e_registra_a_finalidade(sessoes
         assert [c.finalidade for c in s.scalars(select(ChamadaIA))] == [FINALIDADE]
 
 
-def test_regra_do_idioma_esta_nas_duas_perguntas():
-    # Regra do usuário (2026-10-19): edições em idiomas diferentes são produtos diferentes.
-    assert REGRA_IDIOMA in pergunta.INSTRUCOES.casefold()
-    assert REGRA_IDIOMA in termos.INSTRUCOES.casefold()
-    assert "mesma edição de idioma" in termos.INSTRUCOES  # os termos buscam a edição do idioma do produto
+def test_regra_do_idioma_condicional_esta_nas_duas_perguntas():
+    # Regra do usuário (2026-10-19, revista): português preferido; inglês casa quando o produto não tem
+    # português confirmado; japonês e outros idiomas nunca.
+    for instrucoes in (pergunta.INSTRUCOES, termos.INSTRUCOES):
+        assert "idioma diferente = outro produto" not in instrucoes.casefold()
+        assert "Japonês e qualquer outro idioma são sempre outro produto" in instrucoes
+    assert "Primeiro termos para achar a edição em português" in termos.INSTRUCOES
+    assert "pode incluir termos para a edição em inglês" in termos.INSTRUCOES
+    assert "nunca termos para a edição japonesa nem de outro idioma" in termos.INSTRUCOES

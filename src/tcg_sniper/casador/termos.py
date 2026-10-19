@@ -21,7 +21,7 @@ _LINK = re.compile(r"https?://|www\.|\.com\b|\.br\b", re.IGNORECASE)
 
 INSTRUCOES = """Você ajuda a achar na Amazon Brasil (amazon.com.br) um produto selado de Magic: The Gathering vendido na LigaMagic.
 A busca pelo nome da LigaMagic não achou nada parecido há uma semana. Sugira de 2 a 3 termos de busca curtos, do jeito que um vendedor da Amazon escreveria o título: em português ou em inglês, com a coleção e o tipo do produto (booster avulso, caixa de boosters, bundle, deck, kit, colecionador etc.).
-Idioma diferente = outro produto: português, inglês e japonês não se casam entre si. Os termos devem achar a mesma edição de idioma do produto da LigaMagic (ex.: produto em português não pode puxar a edição em inglês nem a japonesa).
+Idioma: a edição em português é a preferida para o produto da LigaMagic, e a edição em inglês também serve enquanto o produto não tem anúncio em português confirmado (é o caso deste produto). Primeiro termos para achar a edição em português; pode incluir termos para a edição em inglês; nunca termos para a edição japonesa nem de outro idioma. Japonês e qualquer outro idioma são sempre outro produto.
 Não repita o nome da LigaMagic nem o nome em inglês exatamente como foram dados. Sem links, sem aspas, até 80 caracteres cada. Informe o idioma em que cada termo está escrito: "pt" ou "en"."""
 
 FORMATO = {
