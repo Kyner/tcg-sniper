@@ -1,8 +1,12 @@
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from fakes import (
+    T0,
     AvisadorFake,
     NavegadorFake,
+    criar_anuncio,
     criar_produto,
     fixture_liga,
     pagina_html,
@@ -10,7 +14,7 @@ from fakes import (
 from sqlalchemy import func, select
 
 from tcg_sniper.avisos.catalogo import TipoAviso
-from tcg_sniper.coletor_liga.modelos import ErroRede
+from tcg_sniper.coletor_liga.modelos import ErroRede, Resumo
 from tcg_sniper.coletor_liga.parsers import parse_produto
 from tcg_sniper.coletor_liga.produtos import coletar_produtos
 from tcg_sniper.db import repositorio as repo
@@ -20,6 +24,7 @@ from tcg_sniper.db.models import (
     PrecoAtualLiga,
     ProdutoLiga,
     ResumoPreco,
+    StatusCasamento,
     StatusColeta,
     TipoColeta,
 )
@@ -36,7 +41,7 @@ def preparar(sessoes, *liga_ids, inativos=()):
         return {i: criar_produto(s, i).url for i in liga_ids}
 
 
-def coletar(sessoes, config, paginas, pausas=None):
+def coletar(sessoes, config, paginas, pausas=None, agora=None):
     navegador = NavegadorFake(paginas)
     avisador = AvisadorFake()
     resultado = coletar_produtos(
@@ -46,6 +51,7 @@ def coletar(sessoes, config, paginas, pausas=None):
         config,
         dormir=(pausas if pausas is not None else []).append,
         embaralhar=lambda lista: None,
+        agora=agora,
     )
     return resultado, navegador, avisador
 
@@ -172,7 +178,108 @@ def test_coleta_guarda_o_nome_em_ingles_e_nao_apaga_com_pagina_sem_ele(sessoes, 
         assert s.scalar(select(ProdutoLiga.imagem_url)) == (
             "https://repositorio.sbrauble.com/arquivos/up/prod/20230222/1677093808_3868.jpg"
         )
-    coletar(sessoes, config, {url: pagina_html(HTML_OK, url=url)})
+    with sessoes() as s, s.begin():  # casado: entra na lista de amanhã (lido hoje fica de fora)
+        criar_anuncio(s, produto=s.scalar(select(ProdutoLiga)), status=StatusCasamento.CONFIRMADO)
+    amanha = repo.agora_utc() + timedelta(days=1)
+    _, navegador, _ = coletar(sessoes, config, {url: pagina_html(HTML_OK, url=url)}, agora=amanha)
+    assert navegador.visitadas == [url]  # a página sem o nome em inglês foi mesmo aberta
     with sessoes() as s:
         assert s.scalar(select(ProdutoLiga.nome_en)).startswith("Booster Box")
         assert s.scalar(select(ProdutoLiga.imagem_url)).endswith("1677093808_3868.jpg")
+
+
+SP = ZoneInfo("America/Sao_Paulo")
+QUARTA = datetime(2026, 10, 14, 12, 0, tzinfo=SP)
+ANTIGO = QUARTA - timedelta(days=10)
+
+
+def lido_em(s, produto, quando):
+    c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, quando)
+    repo.gravar_precos_produto(s, c.id, produto.id, Resumo(None, None, None, 1), quando)
+
+
+def test_le_so_a_lista_do_dia_e_resume_os_grupos(sessoes, config):
+    with sessoes() as s, s.begin():
+        casado = criar_produto(s, "casado")
+        lido_em(s, casado, ANTIGO)
+        criar_anuncio(s, "B000000001", produto=casado, status=StatusCasamento.CONFIRMADO)
+        candidato = criar_produto(s, "candidato")
+        lido_em(s, candidato, ANTIGO)
+        criar_anuncio(s, "B000000002", produto=candidato, status=StatusCasamento.PENDENTE)
+        novo = criar_produto(s, "novo")
+        velhos = [criar_produto(s, f"velho{i}") for i in range(7)]
+        for v in velhos:
+            lido_em(s, v, ANTIGO)
+        [do_dia] = [v for v in velhos if v.id % 7 == QUARTA.weekday()]
+        urls = [p.url for p in (casado, candidato, novo, do_dia)]
+    paginas = {u: pagina_html(HTML_OK, url=u) for u in urls}
+    resultado, navegador, _ = coletar(sessoes, config, paginas, agora=QUARTA)
+    assert navegador.visitadas == urls  # os outros 6 velhos ficam para outros dias da semana
+    assert (resultado.status, resultado.produtos_ok, resultado.produtos_falha) == (StatusColeta.OK, 4, 0)
+    assert resultado.grupos == "casados 1, candidatos 1, novos 1, rodízio 1"
+
+
+def test_retomar_continua_de_onde_parou_sem_reler_os_lidos_hoje(sessoes, config):
+    urls = preparar(sessoes, "a", "b", "c")
+    navegador = NavegadorFake(
+        {urls["a"]: pagina_html(HTML_OK), urls["b"]: [DESAFIO, pagina_html(HTML_OK)], urls["c"]: pagina_html(HTML_OK)}
+    )
+
+    def rodar():
+        return coletar_produtos(
+            sessoes, navegador, AvisadorFake(), config, dormir=[].append, embaralhar=lambda lista: None
+        )
+
+    assert rodar().status is StatusColeta.PAUSADA_DESAFIO
+    with sessoes() as s, s.begin():
+        repo.retomar(s, repo.agora_utc())
+    segundo = rodar()
+    assert navegador.visitadas == [urls["a"], urls["b"], urls["b"], urls["c"]]  # "a" não é relido
+    assert (segundo.status, segundo.produtos_ok) == (StatusColeta.OK, 2)
+    assert segundo.grupos == "casados 0, candidatos 0, novos 2, rodízio 0"
+
+
+def test_lista_vazia_fecha_ok_sem_abrir_pagina(sessoes, config):
+    preparar(sessoes, inativos=("z",))
+    resultado, navegador, avisador = coletar(sessoes, config, {})
+    assert navegador.visitadas == [] and avisador.mensagens == []
+    assert (resultado.status, resultado.produtos_ok, resultado.produtos_falha) == (StatusColeta.OK, 0, 0)
+    assert resultado.grupos == "casados 0, candidatos 0, novos 0, rodízio 0"
+
+
+def test_teto_de_novos_vem_da_configuracao(sessoes, config):
+    with sessoes() as s, s.begin():
+        novos = [criar_produto(s, f"n{i}", agora=T0 - timedelta(days=i)) for i in range(3)]  # n2 é o mais antigo
+    paginas = {p.url: pagina_html(HTML_OK, url=p.url) for p in novos}
+    c = config.model_copy(update={"produtos_novos_dia": 2})
+    _, navegador, _ = coletar(sessoes, c, paginas)
+    assert navegador.visitadas == [novos[2].url, novos[1].url]
+
+
+def test_aviso_do_primeiro_desafio_do_dia_diz_que_volta_depois_de_esfriar(sessoes, config):
+    urls = preparar(sessoes, "a")
+    _, _, avisador = coletar(sessoes, config, {urls["a"]: DESAFIO})
+    [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
+    assert dados.linhas[1:] == (
+        "A coleta fica pausada até você retomar",
+        "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia",
+    )
+
+
+def test_aviso_sem_esfriar_diz_que_volta_logo(sessoes, config):
+    urls = preparar(sessoes, "a")
+    c = config.model_copy(update={"esfriar_desafio_min": 0})
+    _, _, avisador = coletar(sessoes, c, {urls["a"]: DESAFIO})
+    [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
+    assert dados.linhas[2] == "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro até o fim do dia"
+
+
+def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):
+    urls = preparar(sessoes, "a")
+    with sessoes() as s, s.begin():
+        antes = repo.agora_utc() - timedelta(seconds=1)
+        c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, antes)
+        repo.finalizar_coleta(s, c.id, StatusColeta.PAUSADA_DESAFIO, 0, 0, antes, erro="desafio em /x")
+    _, _, avisador = coletar(sessoes, config, {urls["a"]: DESAFIO})
+    [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
+    assert dados.linhas[2] == "2º desafio de hoje: depois de retomar, a coleta só volta amanhã, no horário de sempre"

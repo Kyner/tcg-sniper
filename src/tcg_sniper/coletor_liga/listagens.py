@@ -78,7 +78,7 @@ def _varrer(
             try:
                 expandida = abrir_listagem(navegador, url, config, dormir)
             except DesafioDetectado:
-                registrar_desafio(sessoes, avisador, coleta_id, url, ok, falha)
+                registrar_desafio(sessoes, avisador, config, coleta_id, url, ok, falha)
                 return ResultadoColeta(coleta_id, StatusColeta.PAUSADA_DESAFIO, ok, falha, novos)
             except ErroRede as erro:
                 log.warning("categoria %s falhou por rede: %s", categ, erro)

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.avisos.servico import Avisador
+from tcg_sniper.coletor_liga.esfriamento import TIPOS_LIGA, situacao_desafio
 from tcg_sniper.coletor_liga.execucao import dados_resumo, pausa_humana
 from tcg_sniper.coletor_liga.listagens import coletar_listagens
 from tcg_sniper.coletor_liga.navegador import Navegador
@@ -24,7 +25,6 @@ log = logging.getLogger(__name__)
 
 ID_LOCK = 7_202_610
 INTERVALO_TICK_S = 60
-TIPOS_LIGA = (TipoColeta.LISTAGEM, TipoColeta.PRODUTOS)
 
 
 def alvo_do_dia(dia: date, hora: time, jitter_min: int, fuso: ZoneInfo, rng: random.Random) -> datetime:
@@ -106,8 +106,27 @@ class Agendador:
         with self._sessoes() as s, s.begin():
             if repo.obter_estado(s, agora).estado != EstadoColetorTipo.ATIVO:
                 return None
-            solicitada = repo.consumir_solicitacao(s, agora)
+            desafio = situacao_desafio(s, agora, self._config.zona, self._config.esfriar_desafio_min)
+            if desafio.parada_hoje:
+                # 2º desafio do dia: nada roda até amanhã. O pedido (Retomar, Rodar agora) é descartado e a
+                # execução atrasada também, para nada sair à meia-noite; amanhã vale o horário normal.
+                if repo.consumir_solicitacao(s, agora):
+                    log.info("pedido de execução descartado: parada até amanhã (2º desafio do dia)")
+                self._atrasada_em = None
+                return None
             rodou_hoje = repo.coleta_iniciada_desde(s, TipoColeta.LISTAGEM, inicio_do_dia)
+            if desafio.esfriando_ate is not None:
+                # Esfriando depois de um desafio: nada roda (nem pedido, nem atrasada, nem o horário do
+                # dia). O pedido fica guardado; a atrasada e o horário só são adiados. Uma atrasada vencida
+                # que já não rodaria hoje (job de hoje já começou) ou que era de outro dia é descartada,
+                # como no caminho normal: o fim da espera nunca vira job extra nem passa da meia-noite.
+                atrasada = self._atrasada_em
+                if atrasada is not None and agora >= atrasada:
+                    de_outro_dia = atrasada.astimezone(self._config.zona).date() != hoje
+                    if rodou_hoje or hoje in self._datas_tentadas or de_outro_dia:
+                        self._atrasada_em = None
+                return None
+            solicitada = repo.consumir_solicitacao(s, agora)
             ultima_listagem_ok = repo.ultima_coleta_sucesso(s, TipoColeta.LISTAGEM)
 
         if solicitada:
@@ -165,22 +184,36 @@ class Agendador:
                     self.fechar_navegador()
         return True
 
+    def _config_do_job(self) -> Config:
+        """Depois de um desafio hoje, o job inteiro usa as pausas em dobro (listagens, cliques e produtos)."""
+        with self._sessoes() as s, s.begin():
+            desafio = situacao_desafio(s, self._relogio(), self._config.zona, self._config.esfriar_desafio_min)
+        if not desafio.pausas_dobradas:
+            return self._config
+        log.info("desafio hoje: pausas em dobro até o fim do dia")
+        return self._config.model_copy(
+            update={"pausa_min_s": self._config.pausa_min_s * 2, "pausa_max_s": self._config.pausa_max_s * 2}
+        )
+
     def _coletar(self, navegador: Navegador, incluir_listagens: bool) -> bool:
         """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare. Se o job vai até o fim
         sem desafio, sem etapa interrompida por erro e sem etapa que falhou, avisa "concluída" (ou
         "parcial") e resolve as falhas e erros abertos. O job só roda com a Liga ativa: um desafio aberto
-        foi resolvido (retomada)."""
+        foi resolvido (retomada). Depois de um desafio hoje, as pausas são em dobro."""
         inicio = self._relogio()
+        config = self._config_do_job()
         self._avisador.resolver(TipoAviso.LIGA_DESAFIO, CHAVE_GERAL)
         listagens = None
         if incluir_listagens:
-            listagens = coletar_listagens(self._sessoes, navegador, self._avisador, self._config, self._dormir)
+            listagens = coletar_listagens(self._sessoes, navegador, self._avisador, config, self._dormir)
             if listagens is None:
                 return False
             if listagens.status is StatusColeta.PAUSADA_DESAFIO:
                 return True
-            pausa_humana(self._config, self._dormir)
-        produtos = coletar_produtos(self._sessoes, navegador, self._avisador, self._config, self._dormir)
+            pausa_humana(config, self._dormir)
+        produtos = coletar_produtos(
+            self._sessoes, navegador, self._avisador, config, self._dormir, agora=self._relogio()
+        )
         if produtos is None:
             return False
         if produtos.status is StatusColeta.PAUSADA_DESAFIO:
