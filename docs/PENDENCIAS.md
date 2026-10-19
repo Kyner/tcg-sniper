@@ -3,13 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-19 (busca da Amazon separada do monitor pronta no código, falta implantar; antes: casamento por par).
+Última revisão: 2026-10-19 (busca da Amazon separada do monitor em produção; plano da LigaMagic por interesse escrito).
 
 ## 0. Crítico
 
-- [ ] **Implantar a busca da Amazon separada** (código pronto, `e45702e`): backup, `docker compose up -d --build`, conferir os dois serviços da Amazon no ar, a migração `c6a2f8e4d1b9` aplicada e o noVNC 6082 abrindo (README → "Implantar a busca da Amazon separada").
-
-- [ ] **Coletor da LigaMagic provocando o Cloudflare** (2026-10-19): a leitura de todos os 2165 produtos ativos (~10 h seguidas) gerou o desafio; a cada "Retomar" o job recomeçava a lista e o desafio voltava (pausado desde 16:01). Desenho aprovado: leitura por interesse (casados e candidatos todo dia, novos até 100/dia, resto em rodízio de 7 dias) e esfriar 30 min após desafio (2º desafio no dia encerra o dia). Spec: `docs/superpowers/specs/2026-10-19-liga-leitura-por-interesse-design.md` (aguardando revisão do usuário). Até lá, não retomar a Liga.
+- [ ] **Coletor da LigaMagic provocando o Cloudflare** (2026-10-19): a leitura de todos os 2165 produtos ativos (~10 h seguidas) gerou o desafio; a cada "Retomar" o job recomeçava a lista e o desafio voltava (pausado desde 16:01). Desenho aprovado: leitura por interesse (casados e candidatos todo dia, novos até 100/dia, resto em rodízio de 7 dias) e esfriar 30 min após desafio (2º desafio no dia encerra o dia). Spec: `docs/superpowers/specs/2026-10-19-liga-leitura-por-interesse-design.md`. Plano: `docs/superpowers/plans/2026-10-19-liga-leitura-por-interesse.md`. Até implantar, não retomar a Liga.
 
 - [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
 
@@ -122,7 +120,7 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### Busca da Amazon separada do monitor (2026-10-19)
+### Busca da Amazon separada do monitor (merge `ee69f72`, em produção desde 2026-10-19 18:49)
 
 Spec `docs/superpowers/specs/2026-10-19-amazon-busca-separada-design.md`, plano `docs/superpowers/plans/2026-10-19-amazon-busca-separada.md`. Resolve a busca parada pelo monitor (um navegador só, prioridade estrita; 1941 de 1969 produtos sem candidato nunca buscados).
 
