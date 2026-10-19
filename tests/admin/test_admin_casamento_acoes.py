@@ -148,8 +148,10 @@ def test_rebuscar_poe_o_produto_na_frente_da_fila(cliente, sessoes, dois):
         assert s.get(FilaAmazon, dois["jogo"]).proxima_busca_em < T0 + timedelta(days=3)
 
 
-def test_reavaliar_mexe_so_nos_pares_do_produto_e_pede_o_casador(cliente, sessoes, dois):
+def test_reavaliar_mexe_so_nos_pares_do_produto_e_pede_o_casador(sessoes, config, dois):
+    cliente = _cliente(sessoes, config, openai_api_key="sk-teste")
     with sessoes() as s, s.begin():
+        repo_ia.salvar_config_ia(s, {"ligado": True}, T0)
         repo_casamento.ignorar(s, dois["anuncio"], dois["jogo"], T0, OrigemCasamento.AUTOMATICO_IA)
         repo_casamento.ignorar(s, dois["anuncio"], dois["colec"], T0, OrigemCasamento.AUTOMATICO_IA)
         manual = criar_anuncio(s, "B0ACAO0002", produto=s.get(ProdutoLiga, dois["jogo"]), status=IGNORADO, origem=MANUAL)
@@ -234,3 +236,44 @@ def test_reavaliar_nao_mexe_em_decisao_sua_nem_no_casado_em_outro_produto(client
 def test_tela_explica_o_que_reavaliar_reabre(cliente, dois):
     texto = cliente.get(f"/casamentos/produto/{dois['jogo']}").text
     assert "pendentes, os ignorados pelo automático" in texto
+
+
+def test_rebuscar_produto_fora_da_fila_avisa_em_vez_de_prometer_a_busca(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        fora = criar_produto(s, "fora-da-fila").id
+    r = cliente.post(f"/casamentos/produto/{fora}/rebuscar", data={"voltar": "/casamentos"}, follow_redirects=False)
+    assert msg(r) == ["rebuscar_fora_da_fila"]
+    _, texto = MENSAGENS_CASAMENTO["rebuscar_fora_da_fila"]
+    assert "alguns minutos" in texto and "na frente da fila" not in texto
+
+
+def test_reavaliar_e_termos_nao_prometem_em_instantes_com_o_casador_parado(sessoes, config, dois):
+    with sessoes() as s, s.begin():
+        repo_casamento.ignorar(s, dois["anuncio"], dois["jogo"], T0, OrigemCasamento.AUTOMATICO_IA)
+        repo_casamento.ignorar(s, dois["anuncio"], dois["colec"], T0, OrigemCasamento.AUTOMATICO_IA)
+    desligada = _cliente(sessoes, config, openai_api_key="sk-teste")  # IA desligada em Configurações
+    r = desligada.post(f"/casamentos/produto/{dois['jogo']}/reavaliar", data={"voltar": "/casamentos"}, follow_redirects=False)
+    assert msg(r) == ["reavaliar_ia_desligada"]
+    with sessoes() as s, s.begin():
+        repo_ia.salvar_config_ia(s, {"ligado": True}, T0)
+        repo.pausar(s, "pausado no admin", T0, COLETOR_CASADOR)
+    pausado = _cliente(sessoes, config, openai_api_key="sk-teste")
+    r = pausado.post(f"/casamentos/produto/{dois['colec']}/reavaliar", data={"voltar": "/casamentos"}, follow_redirects=False)
+    assert msg(r) == ["reavaliar_casador_pausado"]
+    r = pausado.post(f"/casamentos/produto/{dois['jogo']}/termos", data={"voltar": "/casamentos"}, follow_redirects=False)
+    assert msg(r) == ["termos_casador_pausado"]
+    with sessoes() as s:
+        assert s.get(FilaAmazon, dois["jogo"]).termos_pedidos_em is not None  # o pedido fica guardado
+    for chave in ("reavaliar_ia_desligada", "reavaliar_casador_pausado", "termos_casador_pausado"):
+        nivel, texto = MENSAGENS_CASAMENTO[chave]
+        assert nivel == "warning" and "em instantes" not in texto
+
+
+def test_busca_do_trocar_nao_oferece_o_produto_de_onde_veio_nem_o_ja_confirmado(cliente, sessoes, dois):
+    with sessoes() as s, s.begin():
+        terceiro = criar_produto(s, "terceiro", nome="Caixa Terceira").id
+        repo_casamento.confirmar(s, dois["anuncio"], dois["colec"], T0)
+    texto = cliente.get(f"/casamentos/{dois['anuncio']}/trocar", params={"de": dois["jogo"], "busca": "Caixa"}).text
+    assert f'name="produto_id" value="{terceiro}"' in texto
+    assert f'name="produto_id" value="{dois["jogo"]}"' not in texto
+    assert f'name="produto_id" value="{dois["colec"]}"' not in texto

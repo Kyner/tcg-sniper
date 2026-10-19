@@ -383,13 +383,16 @@ def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 2
 # --- link manual ----------------------------------------------------------------------------
 
 
-def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> None:
-    """Põe o produto na frente da fila da Amazon (sem linha na fila, não faz nada: a próxima
-    sincronização o insere já vencido)."""
+def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> bool:
+    """Põe o produto na frente da fila da Amazon. Sem linha na fila, não faz nada e devolve False (a
+    próxima sincronização o insere já vencido)."""
     primeiro = s.scalar(select(func.min(FilaAmazon.proxima_busca_em)).where(FilaAmazon.produto_id != produto_id))
     quando = agora if primeiro is None else min(agora, primeiro - timedelta(seconds=1))
-    s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(proxima_busca_em=quando))
+    resultado = s.execute(
+        update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(proxima_busca_em=quando)
+    )
     s.flush()
+    return resultado.rowcount > 0
 
 
 def casar_link_manual(s: Session, produto_id: int, asin: str, agora: datetime) -> AnuncioAmazon:

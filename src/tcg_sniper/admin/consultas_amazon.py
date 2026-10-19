@@ -349,8 +349,13 @@ def sugestoes_para(
     return _com_preco_liga(s, ids)
 
 
-def buscar_produtos(s: Session, busca: str, limite: int = 20) -> list[tuple[ProdutoLiga, Decimal | None]]:
+def buscar_produtos(
+    s: Session, busca: str, limite: int = 20, excluir: Collection[int] = ()
+) -> list[tuple[ProdutoLiga, Decimal | None]]:
+    """Produtos ativos cujo nome casa com `busca`, sem os de `excluir` (como em `sugestoes_para`)."""
     consulta = select(ProdutoLiga.id).where(ProdutoLiga.ativo.is_(True)).order_by(ProdutoLiga.nome).limit(limite)
+    if excluir:
+        consulta = consulta.where(ProdutoLiga.id.not_in(list(excluir)))
     if busca.strip():
         consulta = consulta.where(casa_nome(busca))
     return _com_preco_liga(s, list(s.scalars(consulta)))

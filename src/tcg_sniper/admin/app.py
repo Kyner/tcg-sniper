@@ -116,7 +116,25 @@ MENSAGENS_CASAMENTO: dict[str, tuple[str, str]] = {
     "link_salvo": ("success", "Link salvo; o anúncio será lido em alguns minutos."),
     "ja_confirmado": ("error", "Este anúncio já está confirmado para outro produto; nada mudou."),
     "rebuscar": ("success", "Produto na frente da fila da Amazon; a busca roda em alguns minutos."),
+    "rebuscar_fora_da_fila": (
+        "warning",
+        "O produto ainda não entrou na fila da Amazon; ele entra sozinho em alguns minutos. Tente de novo depois.",
+    ),
     "reavaliar": ("success", "Pares marcados para a IA reavaliar; o casador roda em instantes."),
+    "reavaliar_ia_desligada": (
+        "warning",
+        (
+            "Pares marcados para a IA reavaliar, mas a IA está desligada (Configurações → IA) ou sem chave: "
+            "a reavaliação sai quando ela for ligada."
+        ),
+    ),
+    "reavaliar_casador_pausado": (
+        "warning",
+        (
+            "Pares marcados para a IA reavaliar, mas o casador está pausado (Serviços): a reavaliação sai "
+            "quando ele for retomado."
+        ),
+    ),
     "reavaliar_nada": (
         "info",
         (
@@ -128,6 +146,10 @@ MENSAGENS_CASAMENTO: dict[str, tuple[str, str]] = {
     "termos_ia_desligada": (
         "warning",
         "Pedido guardado, mas a IA está desligada (Configurações → IA) ou sem chave: os termos saem quando ela for ligada.",
+    ),
+    "termos_casador_pausado": (
+        "warning",
+        "Pedido guardado, mas o casador está pausado (Serviços): os termos saem quando ele for retomado.",
     ),
     "termos_fora_da_fila": ("warning", "O produto ainda não entrou na fila da Amazon; tente de novo em alguns minutos."),
 }
@@ -1068,7 +1090,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "de": de,
                     "confirmado_em": s.get(ProdutoLiga, confirmado.produto_id) if confirmado else None,
                     "sugestoes": consultas_amazon.sugestoes_para(s, anuncio, excluir=excluir),
-                    "produtos": consultas_amazon.buscar_produtos(s, busca) if busca.strip() else [],
+                    "produtos": consultas_amazon.buscar_produtos(s, busca, excluir=excluir) if busca.strip() else [],
                 },
             )
 
@@ -1082,13 +1104,22 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         destino = f"/casamentos/produto/{produto_id}?" + urlencode({"voltar": destino_seguro(voltar), "msg": chave})
         return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
+    def _casador_parado(s: Session, agora: datetime) -> str | None:
+        """Por que o casador não vai rodar "em instantes": IA desligada/sem chave ou casador pausado."""
+        if not (repo_ia.obter_config_ia(s).ligado and (config.openai_api_key or "").strip()):
+            return "ia_desligada"
+        if repo.obter_estado(s, agora, COLETOR_CASADOR).estado is not EstadoColetorTipo.ATIVO:
+            return "casador_pausado"
+        return None
+
     @app.post("/casamentos/produto/{produto_id}/rebuscar")
     async def rebuscar_produto(request: Request, produto_id: int):
         formulario = await ler_formulario(request)
         with sessoes() as s, s.begin():
             _produto_ativo_ou_404(s, produto_id)
-            repo_amz.priorizar_na_fila(s, produto_id, repo.agora_utc())
-        return _volta_ao_produto(produto_id, formulario.get("voltar", "/casamentos"), "rebuscar")
+            na_fila = repo_amz.priorizar_na_fila(s, produto_id, repo.agora_utc())
+        chave = "rebuscar" if na_fila else "rebuscar_fora_da_fila"
+        return _volta_ao_produto(produto_id, formulario.get("voltar", "/casamentos"), chave)
 
     @app.post("/casamentos/produto/{produto_id}/reavaliar")
     async def reavaliar_produto(request: Request, produto_id: int):
@@ -1099,7 +1130,11 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             marcados = repo_casamento.reavaliar_produto(s, produto_id, agora)
             if marcados:
                 repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
-        chave = "reavaliar" if marcados else "reavaliar_nada"
+            parado = _casador_parado(s, agora)
+        if not marcados:
+            chave = "reavaliar_nada"
+        else:
+            chave = f"reavaliar_{parado}" if parado else "reavaliar"
         return _volta_ao_produto(produto_id, formulario.get("voltar", "/casamentos"), chave)
 
     @app.post("/casamentos/produto/{produto_id}/termos")
@@ -1111,11 +1146,11 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             pedido = repo_termos.pedir_termos(s, produto_id, agora)
             if pedido:
                 repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
-            ligada = repo_ia.obter_config_ia(s).ligado and bool((config.openai_api_key or "").strip())
+            parado = _casador_parado(s, agora)
         if not pedido:
             chave = "termos_fora_da_fila"
         else:
-            chave = "termos_pedidos" if ligada else "termos_ia_desligada"
+            chave = f"termos_{parado}" if parado else "termos_pedidos"
         return _volta_ao_produto(produto_id, formulario.get("voltar", "/casamentos"), chave)
 
     return app
