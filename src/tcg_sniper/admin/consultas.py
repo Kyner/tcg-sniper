@@ -6,7 +6,6 @@ from decimal import Decimal
 from sqlalchemy import ColumnElement, case, func, or_, select, update
 from sqlalchemy.orm import Session
 
-from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     Casamento,
@@ -15,11 +14,13 @@ from tcg_sniper.db.models import (
     ConferenciaCheckout,
     ExecucaoManutencao,
     OfertaAmazon,
+    Oportunidade,
     PrecoAtualLiga,
     PrecoListagem,
     ProdutoLiga,
     ResumoPreco,
     SituacaoCheckout,
+    StatusCasamento,
     StatusColeta,
     TipoColeta,
 )
@@ -242,6 +243,39 @@ def _pagina(total: int, pagina: int, por_pagina: int) -> tuple[int, int]:
     return min(max(pagina, 1), paginas), paginas
 
 
+def _produto_da_linha(anuncio_id, instante) -> ColumnElement:
+    """Nome do produto de uma linha de log do anúncio no `instante`: o da oportunidade aberta naquela hora;
+    sem ela, o par do anúncio (o confirmado primeiro, senão o mexido por último). Assim a linha antiga
+    continua com produto depois de o par ser desfeito, ignorado ou trocado."""
+    da_oportunidade = (
+        select(Oportunidade.produto_id)
+        .where(
+            Oportunidade.anuncio_id == anuncio_id,
+            Oportunidade.aberta_em <= instante,
+            or_(Oportunidade.fechada_em.is_(None), Oportunidade.fechada_em >= instante),
+        )
+        .order_by(Oportunidade.aberta_em.desc(), Oportunidade.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    do_par = (
+        select(Casamento.produto_id)
+        .where(Casamento.anuncio_id == anuncio_id)
+        .order_by(
+            case((Casamento.status == StatusCasamento.CONFIRMADO, 0), else_=1),
+            func.greatest(Casamento.revisado_em, Casamento.visto_ultimo_em).desc(),
+            Casamento.produto_id,
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+    return (
+        select(ProdutoLiga.nome)
+        .where(ProdutoLiga.id == func.coalesce(da_oportunidade, do_par))
+        .scalar_subquery()
+    )
+
+
 @dataclass(frozen=True)
 class LinhaConferencia:
     conferencia: ConferenciaCheckout
@@ -257,10 +291,11 @@ def historico_conferencias(
     total = s.scalar(select(func.count()).select_from(ConferenciaCheckout).where(*condicoes)) or 0
     pagina, paginas = _pagina(total, pagina, por_pagina)
     consulta = (
-        select(ConferenciaCheckout, AnuncioAmazon.asin, ProdutoLiga.nome)
+        select(
+            ConferenciaCheckout, AnuncioAmazon.asin,
+            _produto_da_linha(ConferenciaCheckout.anuncio_id, ConferenciaCheckout.em),
+        )
         .join(AnuncioAmazon, AnuncioAmazon.id == ConferenciaCheckout.anuncio_id)
-        .outerjoin(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
-        .outerjoin(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .where(*condicoes)
         .order_by(ConferenciaCheckout.em.desc(), ConferenciaCheckout.id.desc())
         .offset((pagina - 1) * por_pagina)
@@ -299,12 +334,10 @@ def historico_monitor(
     pagina, paginas = _pagina(total, pagina, por_pagina)
     consulta = (
         select(
-            leituras.c.lida_em, AnuncioAmazon.asin, ProdutoLiga.nome, leituras.c.ofertas,
-            leituras.c.melhor_preco, leituras.c.melhor_vendedor,
+            leituras.c.lida_em, AnuncioAmazon.asin, _produto_da_linha(leituras.c.anuncio_id, leituras.c.lida_em),
+            leituras.c.ofertas, leituras.c.melhor_preco, leituras.c.melhor_vendedor,
         )
         .join(AnuncioAmazon, AnuncioAmazon.id == leituras.c.anuncio_id)
-        .outerjoin(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
-        .outerjoin(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .order_by(leituras.c.lida_em.desc(), AnuncioAmazon.id)
         .offset((pagina - 1) * por_pagina)
         .limit(por_pagina)
