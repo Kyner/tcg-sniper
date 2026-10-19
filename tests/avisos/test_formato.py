@@ -83,7 +83,7 @@ ESPERADOS = {
         "✅ *Amazon · busca concluída · ciclo 42*\n"
         "• Buscas: 37 ok · 1 falha\n"
         "• Duração: 2 h 5 min\n"
-        "_18/10 10:42 · coletor Amazon_"
+        "_18/10 10:42 · busca Amazon_"
     ),
     TipoAviso.AMAZON_MONITOR_CONCLUIDO: (
         "✅ *Amazon · rodada do monitor*\n"
@@ -99,7 +99,7 @@ ESPERADOS = {
         "• Duração: 2 h 10 min\n"
         "\n"
         "*O que fazer:* Nada urgente; se repetir, veja Admin → Logs → Amazon.\n"
-        "_18/10 10:42 · coletor Amazon_"
+        "_18/10 10:42 · busca Amazon_"
     ),
     TipoAviso.AMAZON_BUSCA_FALHOU: (
         "🔴 *Amazon · busca falhou · ciclo 42*\n"
@@ -107,24 +107,50 @@ ESPERADOS = {
         "• Duração: 1 h 40 min\n"
         "\n"
         "*O que fazer:* O layout da Amazon pode ter mudado: veja Admin → Logs → Amazon e os HTMLs na pasta falhas.\n"
-        "_18/10 10:42 · coletor Amazon_"
+        "_18/10 10:42 · busca Amazon_"
+    ),
+    TipoAviso.AMAZON_BUSCA_CAPTCHA: (
+        "🔴 *Amazon (busca) · CAPTCHA*\n"
+        "• Página: /s?k=aetherdrift+commander\n"
+        "• A busca fica pausada até você retomar; o monitor e a conferência seguem\n"
+        "\n"
+        "*O que fazer:* Resolva no noVNC da busca (porta 6082) e depois Admin → Serviços → Amazon (busca) → Retomar.\n"
+        "_18/10 10:42 · busca Amazon_"
+    ),
+    TipoAviso.AMAZON_BUSCA_PAUSADA: (
+        "🔴 *Amazon (busca) · pausada*\n"
+        "• Motivo: 10 páginas seguidas com falha (bloqueio ou layout novo?)\n"
+        "• Com a busca pausada, o monitor e a conferência seguem\n"
+        "\n"
+        "*O que fazer:* Veja os logs (docker compose logs coletor-amazon-busca) e depois "
+        "Admin → Serviços → Amazon (busca) → Retomar.\n"
+        "_18/10 10:42 · busca Amazon_"
+    ),
+    TipoAviso.AMAZON_BUSCA_ERRO: (
+        "🟡 *Amazon (busca) · erro inesperado*\n"
+        "• Erro: RuntimeError('navegador fechou')\n"
+        "\n"
+        "*O que fazer:* Nada a fazer se não repetir: nova tentativa em 15 min. Se repetir, veja os logs "
+        "(docker compose logs coletor-amazon-busca).\n"
+        "_18/10 10:42 · busca Amazon_"
     ),
     TipoAviso.AMAZON_CAPTCHA: (
-        "🔴 *Amazon · CAPTCHA*\n"
-        "• Página: /s?k=aetherdrift+commander\n"
-        "• Busca, monitor e conferência pausados até você retomar\n"
+        "🔴 *Amazon (monitor) · CAPTCHA*\n"
+        "• Página: /gp/cart/view.html\n"
+        "• Monitor e conferência pausados até você retomar; a busca segue\n"
         "• Uma conferência deixou 1× B0DNV55QBS no carrinho: sai sozinho se você retomar em até 30 min; "
         "senão confira à mão\n"
         "\n"
-        "*O que fazer:* Resolva no noVNC da Amazon (porta 6081) e depois Admin → Serviços → Amazon → Retomar.\n"
-        "_18/10 10:42 · coletor Amazon_"
+        "*O que fazer:* Resolva no noVNC do monitor (porta 6081) e depois "
+        "Admin → Serviços → Amazon (monitor e checkout) → Retomar.\n"
+        "_18/10 10:42 · monitor Amazon_"
     ),
     TipoAviso.AMAZON_SEM_LOGIN: (
         "🔴 *Amazon · conta sem login*\n"
         "• A conferência de checkout parou; o monitor de preço continua\n"
         "\n"
-        "*O que fazer:* Faça login na conta Amazon pelo noVNC da Amazon (porta 6081) e depois "
-        "Admin → Serviços → Amazon → Retomar conferência.\n"
+        "*O que fazer:* Faça login na conta Amazon pelo noVNC do monitor (porta 6081) e depois "
+        "Admin → Serviços → Amazon (monitor e checkout) → Retomar conferência.\n"
         "_18/10 10:42 · coletor Amazon_"
     ),
     TipoAviso.AMAZON_CARRINHO: (
@@ -137,27 +163,28 @@ ESPERADOS = {
         "_18/10 10:42 · coletor Amazon_"
     ),
     TipoAviso.AMAZON_PAUSADA: (
-        "🔴 *Amazon · pausada*\n"
+        "🔴 *Amazon (monitor) · pausada*\n"
         "• Motivo: 10 páginas seguidas com falha (bloqueio ou layout novo?)\n"
-        "• Com a Amazon pausada, a retirada automática de item do carrinho também para\n"
+        "• Com o monitor pausado, a retirada automática de item do carrinho também para\n"
         "\n"
-        "*O que fazer:* Veja os logs (docker compose logs coletor-amazon) e depois Admin → Serviços → Amazon → Retomar.\n"
-        "_18/10 10:42 · coletor Amazon_"
+        "*O que fazer:* Veja os logs (docker compose logs coletor-amazon) e depois "
+        "Admin → Serviços → Amazon (monitor e checkout) → Retomar.\n"
+        "_18/10 10:42 · monitor Amazon_"
     ),
     TipoAviso.AMAZON_ERRO: (
-        "🟡 *Amazon · erro inesperado*\n"
+        "🟡 *Amazon (monitor) · erro inesperado*\n"
         "• Erro: RuntimeError('navegador fechou')\n"
         "\n"
         "*O que fazer:* Nada a fazer se não repetir: nova tentativa em 15 min. Se repetir, veja os logs "
         "(docker compose logs coletor-amazon).\n"
-        "_18/10 10:42 · coletor Amazon_"
+        "_18/10 10:42 · monitor Amazon_"
     ),
     TipoAviso.AMAZON_INTERROMPIDA: (
-        "🟡 *Amazon · ciclo interrompido*\n"
-        "• 1 ciclo(s) marcado(s) como falha: o coletor reiniciou\n"
+        "🟡 *Amazon (busca) · ciclo interrompido*\n"
+        "• 1 ciclo(s) marcado(s) como falha: o serviço de busca reiniciou\n"
         "\n"
         "*O que fazer:* Nada a fazer: a fila continua sozinha.\n"
-        "_18/10 10:42 · coletor Amazon_"
+        "_18/10 10:42 · busca Amazon_"
     ),
     TipoAviso.IA_RODADA_CONCLUIDA: (
         "✅ *IA · rodada concluída*\n"
@@ -277,7 +304,7 @@ def texto_de(tipo, dados=None, host=HOST, estrito=True):
 
 def test_catalogo_cobre_todos_os_tipos():
     assert set(CATALOGO) == set(TipoAviso) == set(ESPERADOS)
-    assert len(TipoAviso) == 31
+    assert len(TipoAviso) == 34
 
 
 @pytest.mark.parametrize("tipo", list(TipoAviso))
@@ -301,7 +328,8 @@ def test_regras_do_catalogo():
     assert agrupam == {
         TipoAviso.LIGA_COLETA_FALHOU, TipoAviso.LIGA_DESAFIO, TipoAviso.LIGA_ERRO, TipoAviso.AMAZON_BUSCA_FALHOU,
         TipoAviso.AMAZON_CAPTCHA, TipoAviso.AMAZON_SEM_LOGIN, TipoAviso.AMAZON_CARRINHO, TipoAviso.AMAZON_PAUSADA,
-        TipoAviso.AMAZON_ERRO, TipoAviso.IA_PAUSADA, TipoAviso.IA_SEM_ORCAMENTO, TipoAviso.IA_FALHAS_SEGUIDAS,
+        TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_BUSCA_CAPTCHA, TipoAviso.AMAZON_BUSCA_PAUSADA,
+        TipoAviso.AMAZON_BUSCA_ERRO, TipoAviso.IA_PAUSADA, TipoAviso.IA_SEM_ORCAMENTO, TipoAviso.IA_FALHAS_SEGUIDAS,
         TipoAviso.BACKUP_ERRO, TipoAviso.SERVICO_SEM_SINAL, TipoAviso.MENSAGEM_NAO_ENVIADA,
         TipoAviso.SEGURANCA_LIMITE,
     }
@@ -310,7 +338,7 @@ def test_regras_do_catalogo():
 def test_escapa_formatacao_vinda_dos_dados():
     dados = Dados(titulo_extra="*x*", destaque="_y_", linhas=("Erro: *a* _b_ ~c~ `d`", ("Preço: ", Negrito("R$ *1*"))))
     texto = texto_de(TipoAviso.AMAZON_ERRO, dados)
-    assert texto.startswith("🟡 *Amazon · erro inesperado · ∗x∗*\n*ˍyˍ*\n")
+    assert texto.startswith("🟡 *Amazon (monitor) · erro inesperado · ∗x∗*\n*ˍyˍ*\n")
     assert "• Erro: ∗a∗ ˍbˍ ˜c˜ ˋdˋ\n" in texto
     assert "• Preço: *R$ ∗1∗*\n" in texto
     assert escapar("sem nada") == "sem nada"
@@ -326,16 +354,16 @@ def test_acao_dos_dados_substitui_a_padrao_e_none_some():
 def test_corta_mensagem_longa_mantendo_titulo_acao_e_rodape():
     texto = texto_de(TipoAviso.AMAZON_ERRO, Dados(linhas=tuple("x" * 100 for _ in range(50))))
     assert len(texto) <= LIMITE
-    assert texto.startswith("🟡 *Amazon · erro inesperado*\n")
+    assert texto.startswith("🟡 *Amazon (monitor) · erro inesperado*\n")
     assert "\n• …\n\n*O que fazer:* " in texto
-    assert texto.endswith("_18/10 10:42 · coletor Amazon_")
+    assert texto.endswith("_18/10 10:42 · monitor Amazon_")
 
 
 def test_trecho_gigante_e_cortado():
     texto = texto_de(TipoAviso.AMAZON_ERRO, Dados(linhas=("y" * 5000,), titulo_extra="z" * 500))
     linhas = texto.split("\n")
     assert linhas[1] == "• " + "y" * 299 + "…"
-    assert linhas[0] == "🟡 *Amazon · erro inesperado · " + "z" * 119 + "…*"
+    assert linhas[0] == "🟡 *Amazon (monitor) · erro inesperado · " + "z" * 119 + "…*"
 
 
 @pytest.mark.parametrize(
@@ -391,15 +419,15 @@ def test_conferir_urls_sem_host_so_olha_portas_e_dominios():
 def test_lembrete_no_mesmo_dia_e_em_outro_dia():
     aviso = aviso_de(TipoAviso.AMAZON_CAPTCHA, CATALOGO[TipoAviso.AMAZON_CAPTCHA].exemplo, QUANDO)
     mesmo = formatar_lembrete(aviso, 3, QUANDO - timedelta(hours=2), SP, HOST, estrito=True)
-    assert mesmo.startswith("🔴 *Amazon · CAPTCHA continua · 3 vezes desde 08:42*\n• Página: /s?k=")
-    assert mesmo.endswith("_18/10 10:42 · coletor Amazon_")
+    assert mesmo.startswith("🔴 *Amazon (monitor) · CAPTCHA continua · 3 vezes desde 08:42*\n• Página: /gp/cart/view.html")
+    assert mesmo.endswith("_18/10 10:42 · monitor Amazon_")
     outro = formatar_lembrete(aviso, 9, QUANDO - timedelta(days=1), SP, HOST, estrito=True)
-    assert outro.startswith("🔴 *Amazon · CAPTCHA continua · 9 vezes desde 17/10 10:42*\n")
+    assert outro.startswith("🔴 *Amazon (monitor) · CAPTCHA continua · 9 vezes desde 17/10 10:42*\n")
 
 
 def test_resolvido_com_e_sem_chave():
     geral = formatar_resolvido(TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL, 2, QUANDO - timedelta(minutes=30), QUANDO, SP)
-    assert geral == "✅ *Amazon · CAPTCHA resolvido · 2 vezes em 30 min*\n_18/10 10:42 · coletor Amazon_"
+    assert geral == "✅ *Amazon (monitor) · CAPTCHA resolvido · 2 vezes em 30 min*\n_18/10 10:42 · monitor Amazon_"
     carrinho = formatar_resolvido(TipoAviso.AMAZON_CARRINHO, "B0DNV55QBS", 1, QUANDO - timedelta(hours=2), QUANDO, SP)
     assert carrinho == "✅ *Amazon · conferir o carrinho · B0DNV55QBS resolvido · 1 vez em 2 h*\n_18/10 10:42 · coletor Amazon_"
 
@@ -431,3 +459,17 @@ def test_cabecalho_reconhece_o_tipo_tambem_no_lembrete():
     assert eh_do_tipo(formatar(aviso, SP, estrito=True), TipoAviso.MENSAGEM_NAO_ENVIADA)
     assert eh_do_tipo(formatar_lembrete(aviso, 2, QUANDO, SP, estrito=True), TipoAviso.MENSAGEM_NAO_ENVIADA)
     assert not eh_do_tipo("🔴 *Amazon · CAPTCHA*", TipoAviso.MENSAGEM_NAO_ENVIADA)
+
+
+def test_cada_origem_da_amazon_tem_titulo_proprio():
+    titulos = {CATALOGO[t].titulo for t in (
+        TipoAviso.AMAZON_CAPTCHA, TipoAviso.AMAZON_BUSCA_CAPTCHA, TipoAviso.AMAZON_PAUSADA,
+        TipoAviso.AMAZON_BUSCA_PAUSADA, TipoAviso.AMAZON_ERRO, TipoAviso.AMAZON_BUSCA_ERRO,
+    )}
+    assert len(titulos) == 6
+    assert all(t.startswith(("Amazon (busca) · ", "Amazon (monitor) · ")) for t in titulos)
+
+
+def test_porta_6082_tambem_e_endereco_do_sistema():
+    with pytest.raises(UrlProibida):
+        texto_de(TipoAviso.AMAZON_ERRO, Dados(linhas=("veja http://10.0.0.2:6082/vnc.html",)))

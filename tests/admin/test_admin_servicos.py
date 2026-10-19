@@ -6,7 +6,13 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db.models import COLETOR_AMAZON, COLETOR_LIGA, COLETOR_NOTIFICADOR, EstadoColetorTipo
+from tcg_sniper.db.models import (
+    COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
+    COLETOR_LIGA,
+    COLETOR_NOTIFICADOR,
+    EstadoColetorTipo,
+)
 
 
 def basic(usuario, senha):
@@ -64,7 +70,8 @@ def test_quatro_cards_ligados_com_chave_e_historico(cliente):
     texto = cliente.get("/servicos").text
     for servico, acao, historico in (
         ("liga", "/liga/pausar", "/logs?aba=liga"),
-        ("amazon", "/amazon/pausar", "/logs?aba=amazon"),
+        ("amazon_busca", "/amazon/busca/pausar", "/logs?aba=amazon"),
+        ("amazon", "/amazon/pausar", "/logs?aba=monitor"),
         ("casador", "/casador/pausar", "/logs?aba=ia"),
         ("notificador", "/notificador/pausar", "/mensagens"),
     ):
@@ -146,3 +153,78 @@ def test_ja_conferi_resolve_o_aviso_do_carrinho(cliente, sessoes):
     assert r.status_code == 303
     with sessoes() as s:
         assert s.get(EstadoAviso, ("amazon_carrinho", "B0CAND0001")).aberto is False
+
+
+def test_card_da_busca_e_o_do_monitor(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        from tcg_sniper.coletor_amazon.config import aplicar_config
+
+        aplicar_config(s, {"max_buscas_hora": 90, "monitor_max_paginas_hora": 180}, T0)
+    texto = cliente.get("/servicos").text
+    busca, monitor = card(texto, "amazon_busca"), card(texto, "amazon")
+    assert "Amazon (busca)" in busca and "Fila contínua de buscas" in busca and "até 90 por hora" in busca
+    assert "host.test:6082/vnc.html" in busca and "6081" not in busca
+    assert "Amazon (monitor e checkout)" in monitor and "Fila contínua de buscas" not in monitor
+    assert "até 180 páginas por hora" in monitor and "host.test:6081/vnc.html" in monitor
+
+
+def test_pausar_e_retomar_a_busca_nao_mexe_no_monitor(cliente, sessoes):
+    r = cliente.post("/amazon/busca/pausar", follow_redirects=False)
+    assert (r.status_code, r.headers["location"]) == (303, "/servicos?msg=amazon_busca_pausar")
+    with sessoes() as s:
+        busca = repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA)
+        assert (busca.estado, busca.motivo) == (EstadoColetorTipo.PAUSADO, "pausado no admin")
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
+    assert "Busca na Amazon pausada" in cliente.get(r.headers["location"]).text
+    r = cliente.post("/amazon/busca/retomar", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=amazon_busca_retomar"
+    with sessoes() as s:
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.ATIVO
+    assert "Busca na Amazon retomada" in cliente.get(r.headers["location"]).text
+
+
+def test_pausar_o_monitor_nao_mexe_na_busca(cliente, sessoes):
+    r = cliente.post("/amazon/pausar", follow_redirects=False)
+    with sessoes() as s:
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.ATIVO
+    assert "Monitor e checkout da Amazon pausados" in cliente.get(r.headers["location"]).text
+
+
+def test_desafio_da_busca_card_vermelho_com_novnc_6082_e_monitor_normal(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo.pausar_por_desafio(s, "desafio em /s?k=x", T0, COLETOR_AMAZON_BUSCA)
+    texto = cliente.get("/servicos").text
+    busca = card(texto, "amazon_busca")
+    assert "border-error" in busca and "host.test:6082/vnc.html" in busca
+    assert 'action="/amazon/busca/retomar"' in busca and "desafio pendente" in busca and "toggle" not in busca
+    assert "border-error" not in card(texto, "amazon")
+
+
+def test_desligar_a_busca_nao_apaga_um_desafio_pendente(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo.pausar_por_desafio(s, "desafio em /x", T0, COLETOR_AMAZON_BUSCA)
+    r = cliente.post("/amazon/busca/pausar", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=desafio_pendente"
+    with sessoes() as s:
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+
+
+def test_pausar_o_monitor_nao_apaga_um_desafio_pendente(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        repo.pausar_por_desafio(s, "desafio em /gp/cart", T0, COLETOR_AMAZON)
+    r = cliente.post("/amazon/pausar", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=desafio_pendente"
+    with sessoes() as s:
+        assert repo.obter_estado(s, coletor=COLETOR_AMAZON).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+
+
+def test_pausar_a_busca_avisa_com_o_nome_do_servico(cliente, sessoes):
+    from sqlalchemy import select
+
+    from tcg_sniper.db.models import MensagemSaida
+
+    cliente.post("/amazon/busca/pausar")
+    with sessoes() as s:
+        textos = [m.texto for m in s.scalars(select(MensagemSaida))]
+    assert any("Amazon (busca)" in t and "pausado" in t for t in textos)

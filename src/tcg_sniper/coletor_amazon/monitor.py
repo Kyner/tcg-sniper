@@ -2,7 +2,7 @@
 escolhe a melhor elegível (vira o preço atual do anúncio, origem `ofertas`), roda o motor com o preço
 conferido no checkout (itens + impostos, sem o frete) quando há conferência válida para essa oferta e
 avisa o grupo. Também aplica à oportunidade uma conferência de checkout ok recém-feita. Não conhece
-fila nem janela (ver varredura.py).
+fila nem janela (ver varredura_monitor.py).
 
 Sem conferência válida e com uma conferência a caminho (conferência ligada, conta logada, carrinho sem
 espera e a oferta é candidata ao checkout, sem falha nem ok da mesma oferta na validade), a leitura não

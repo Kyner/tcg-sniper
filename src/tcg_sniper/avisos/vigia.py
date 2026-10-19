@@ -1,4 +1,4 @@
-"""Vigia de serviços: a batida de vida dos coletores e do casador (`sinal_servico`) e a verificação, feita
+"""Vigia de serviços: a batida de vida dos coletores (Liga, Amazon monitor e Amazon busca) e do casador (`sinal_servico`) e a verificação, feita
 pelo serviço `manutencao` a cada minuto, que abre `SERVICO_SEM_SINAL` para serviço ativo mudo há mais de
 10 min e resolve quando o sinal volta. O notificador já registra o próprio ciclo (`estado_notificador`).
 Serviço pausado (manual ou por erros seguidos) é ignorado; pausado por desafio continua vigiado."""
@@ -18,6 +18,7 @@ from tcg_sniper.avisos.formato import formatar_duracao
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
     COLETOR_CASADOR,
     COLETOR_LIGA,
     COLETOR_NOTIFICADOR,
@@ -31,6 +32,7 @@ log = logging.getLogger(__name__)
 SERVICOS = {
     COLETOR_LIGA: "coletor-liga",
     COLETOR_AMAZON: "coletor-amazon",
+    COLETOR_AMAZON_BUSCA: "coletor-amazon-busca",
     COLETOR_CASADOR: "casador",
     COLETOR_NOTIFICADOR: "notificador",
 }

@@ -70,7 +70,8 @@ def test_pausar_e_retomar_no_admin_avisam(cliente, sessoes):
     ("rota", "nome"),
     [
         ("/liga/pausar", "LigaMagic"),
-        ("/amazon/pausar", "Amazon"),
+        ("/amazon/pausar", "Amazon (monitor e checkout)"),
+        ("/amazon/busca/pausar", "Amazon (busca)"),
         ("/notificador/pausar", "WhatsApp (notificador)"),
         ("/manutencao/pausar", "Backup (manutenção)"),
     ],

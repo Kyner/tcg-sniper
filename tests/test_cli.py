@@ -66,7 +66,7 @@ def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch, batidas):
 
 
 def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tmp_path, batidas):
-    from tcg_sniper.coletor_amazon import varredura
+    from tcg_sniper.coletor_amazon import varredura_monitor
 
     anterior = signal.getsignal(signal.SIGTERM)
     vistos = []
@@ -78,7 +78,7 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
 
-    monkeypatch.setattr(varredura, "VarreduraAmazon", VarreduraFalsa)
+    monkeypatch.setattr(varredura_monitor, "VarreduraMonitor", VarreduraFalsa)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     monkeypatch.setenv("DIR_DADOS", str(tmp_path))
@@ -473,3 +473,29 @@ def test_casamento_reabrir_ingles_aplicando(banco, capsys):
     saida = capsys.readouterr().out
     assert "Reabertos: 1" in saida and "simulação" not in saida
     assert _status(banco, *ids) == "pendente"
+
+
+def test_coletor_amazon_busca_usa_perfil_proprio_e_bate_como_amazon_busca(monkeypatch, tmp_path, batidas):
+    from tcg_sniper.coletor_amazon import varredura_busca
+
+    anterior = signal.getsignal(signal.SIGTERM)
+    vistos = []
+
+    class VarreduraFalsa:
+        def __init__(self, engine, sessoes, fabrica, avisador, config):
+            vistos.append(fabrica()._dir_perfil)
+
+        def rodar(self):
+            vistos.append(signal.getsignal(signal.SIGTERM))
+
+    monkeypatch.setattr(varredura_busca, "VarreduraBusca", VarreduraFalsa)
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("DIR_DADOS", str(tmp_path))
+    try:
+        cli.main(["coletor-amazon-busca"])
+        assert vistos[0] == tmp_path / "perfil-amazon-busca"
+        assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        assert batidas == ["amazon_busca"]
+    finally:
+        signal.signal(signal.SIGTERM, anterior)
