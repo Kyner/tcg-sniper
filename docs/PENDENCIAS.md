@@ -119,7 +119,7 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### Dashboard e Casamentos por produto (branch `feat/painel-produto`)
+### Dashboard e Casamentos por produto (merge `1a834b5`, em produção desde 2026-10-19 15:37)
 
 - [x] Casamentos e IA contados por produto ativo da LigaMagic, não por par nem por chamada: cada produto cai em uma situação só (casado, esperando sua decisão, só ignorados, sem candidato; somam o catálogo ativo), com % e barra no Dashboard e link para Casamentos filtrado. Linha com produtos com mais de uma sugestão e anúncios aguardando em quantos produtos. IA: produtos avaliados, avaliados hoje (fuso configurado), esperando a IA, avaliações e média por produto; gasto do mês igual.
 - [x] Casamentos: filtro "situação do produto" (`situacao_produto`) e coluna Sugestões (pares do produto). Atividade de hoje e aviso de rodada da IA dizem em quantos produtos ("12 anúncios em 5 produtos").
