@@ -17,8 +17,8 @@ printf '%s\n' "$VNC_SENHA" > "$ARQ_SENHA"
 umask 022
 
 # Restos de uma execução anterior (container reiniciado ou parado à força).
-# Só um coletor usa o volume, então os locks do perfil do Chromium são sempre obsoletos aqui.
-# DIR_PERFIL separa o perfil de cada coletor (Liga: <DIR_DADOS>/perfil; Amazon: <DIR_DADOS>/perfil-amazon).
+# Cada coletor tem o próprio perfil do Chromium (DIR_PERFIL), então os locks deste perfil são sempre
+# obsoletos aqui. Liga: <DIR_DADOS>/perfil; Amazon (monitor): perfil-amazon; Amazon (busca): perfil-amazon-busca.
 PERFIL="${DIR_PERFIL:-${DIR_DADOS:-/data}/perfil}"
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 \
     "$PERFIL/SingletonLock" "$PERFIL/SingletonSocket" "$PERFIL/SingletonCookie"
