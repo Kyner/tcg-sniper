@@ -80,3 +80,8 @@ def test_todo_campo_tem_rotulo():
 def test_janela_do_monitor_invertida():
     _, erros = validar_config(formulario(monitor_janela_inicio="22:00", monitor_janela_fim="08:00"))
     assert erros == {"monitor_janela_fim": "O fim da janela do monitor precisa ser depois do início."}
+
+
+def test_teto_de_fabrica_da_busca_e_90_e_o_do_monitor_150():
+    assert PADROES_CONFIG_AMAZON["max_buscas_hora"] == 90
+    assert PADROES_CONFIG_AMAZON["monitor_max_paginas_hora"] == 150

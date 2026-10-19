@@ -8,6 +8,7 @@ from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
     Coleta,
     EstadoColetorTipo,
     PrecoAtualLiga,
@@ -250,3 +251,13 @@ def test_produtos_ativos(s):
     criar_produto(s, "a", ativo=True)
     criar_produto(s, "b", ativo=False)
     assert [p.liga_id for p in repo.produtos_ativos(s)] == ["a"]
+
+
+def test_estado_da_busca_da_amazon_e_a_linha_6_e_independente_do_monitor(s):
+    busca = repo.obter_estado(s, T0, COLETOR_AMAZON_BUSCA)
+    assert (busca.id, busca.coletor, busca.estado) == (6, "amazon_busca", EstadoColetorTipo.ATIVO)
+    repo.pausar_por_desafio(s, "desafio em /s?k=x", T0, COLETOR_AMAZON_BUSCA)
+    assert repo.obter_estado(s, T0, COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+    assert repo.obter_estado(s, T0, COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
+    repo.retomar(s, T0, COLETOR_AMAZON_BUSCA)
+    assert repo.obter_estado(s, T0, COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.ATIVO
