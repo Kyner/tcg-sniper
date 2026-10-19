@@ -1,6 +1,8 @@
+import re
 import signal
 
 import pytest
+from sqlalchemy import select
 
 from tcg_sniper import cli
 
@@ -292,3 +294,142 @@ def test_manutencao_instala_sigterm_e_roda_o_servico_sem_r2(monkeypatch):
         assert criados == [None] and paradas == [True]
     finally:
         signal.signal(signal.SIGTERM, anterior)
+
+
+@pytest.fixture
+def segredo(monkeypatch):
+    """SEGREDO_API falsa e fixa (sobrepõe a do .env de quem roda o teste)."""
+    from fakes_api import SEGREDO_TESTE
+
+    monkeypatch.setenv("SEGREDO_API", SEGREDO_TESTE)
+    return SEGREDO_TESTE
+
+
+@pytest.fixture
+def banco(monkeypatch, sessoes, segredo):
+    """O CLI usa as sessões do teste (tudo é desfeito no fim)."""
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: sessoes)
+    return sessoes
+
+
+def test_api_sobe_o_uvicorn_so_no_localhost_por_padrao(monkeypatch, segredo):
+    import uvicorn
+
+    from tcg_sniper.api import app as modulo_app
+
+    chamadas = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: chamadas.append((app, kw)))
+    monkeypatch.setattr(modulo_app, "criar_app", lambda sessoes, config: "app")
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    cli.main(["api"])
+    cli.main(["api", "--host", "0.0.0.0", "--porta", "8101"])
+    assert chamadas == [("app", {"host": "127.0.0.1", "port": 8100}), ("app", {"host": "0.0.0.0", "port": 8101})]
+
+
+@pytest.mark.parametrize("valor", ["", "trocar-este-segredo", "curto"])
+def test_api_recusa_subir_sem_segredo(monkeypatch, valor):
+    import uvicorn
+
+    chamadas = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: chamadas.append(app))
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("SEGREDO_API", valor)
+    with pytest.raises(SystemExit, match="SEGREDO_API"):
+        cli.main(["api"])
+    with pytest.raises(SystemExit, match="SEGREDO_API"):
+        cli.main(["codigo-acesso", "11 90000-0002"])
+    assert chamadas == []
+
+
+def test_criar_superadmin_uma_vez_so(banco, capsys):
+    from tcg_sniper.db import repositorio_acesso as repo_acesso
+    from tcg_sniper.db.models import MensagemSaida, Papel
+
+    cli.main(["criar-superadmin", "Pessoa Superadmin", "(11) 90000-0001"])
+    saida = capsys.readouterr().out
+    assert "Superadmin Pessoa Superadmin criado (+55 11 9****-**01)" in saida and "900000001" not in saida
+    with banco() as s:
+        dono = repo_acesso.usuario_por_numero(s, "+5511900000001")
+        assert (dono.papel, dono.ativo, dono.superadmin) == (Papel.ADMIN, True, True)
+        [aviso] = s.scalars(select(MensagemSaida.texto).where(MensagemSaida.destino == "admin")).all()
+        assert "usuário criado" in aviso and "• Papel: Admin (superadmin)" in aviso
+        assert "• Por: terminal" in aviso and "900000001" not in aviso
+    with pytest.raises(SystemExit, match="já existe um superadmin"):
+        cli.main(["criar-superadmin", "Outra Pessoa", "11 90000-0004"])
+    with pytest.raises(SystemExit, match="número inválido"):
+        cli.main(["criar-superadmin", "Mais Uma", "123"])
+    with pytest.raises(SystemExit, match="nome vazio"):
+        cli.main(["criar-superadmin", "  ", "11 90000-0004"])
+
+
+def test_criar_superadmin_com_numero_de_outro_usuario(banco):
+    from tcg_sniper.db import repositorio_acesso as repo_acesso
+    from tcg_sniper.db.models import Papel
+    from tcg_sniper.db.repositorio import agora_utc
+
+    with banco() as s, s.begin():
+        repo_acesso.criar_usuario(s, "Pessoa Grupo", "+5511900000002", Papel.GRUPO, agora_utc())
+    with pytest.raises(SystemExit, match="trocar-superadmin"):
+        cli.main(["criar-superadmin", "Pessoa Grupo", "11 90000-0002"])
+    with banco() as s:
+        assert repo_acesso.superadmin_atual(s) is None
+
+
+def test_trocar_superadmin(banco, capsys):
+    from tcg_sniper.db import repositorio_acesso as repo_acesso
+    from tcg_sniper.db.models import MensagemSaida, Papel
+    from tcg_sniper.db.repositorio import agora_utc
+
+    with banco() as s, s.begin():
+        repo_acesso.criar_usuario(s, "Pessoa Grupo", "+5511900000002", Papel.GRUPO, agora_utc())
+        repo_acesso.criar_usuario(s, "Pessoa Inativa", "+5511900000005", Papel.ADMIN, agora_utc()).ativo = False
+    with pytest.raises(SystemExit, match="ainda não há superadmin"):
+        cli.main(["trocar-superadmin", "11 90000-0002"])
+    cli.main(["criar-superadmin", "Pessoa Superadmin", "11 90000-0001"])
+    with pytest.raises(SystemExit, match="nenhum usuário ativo"):
+        cli.main(["trocar-superadmin", "11 90000-0005"])
+    with pytest.raises(SystemExit, match="nenhum usuário ativo"):
+        cli.main(["trocar-superadmin", "11 90000-0009"])
+    with pytest.raises(SystemExit, match="já é o superadmin"):
+        cli.main(["trocar-superadmin", "11 90000-0001"])
+    capsys.readouterr()
+    cli.main(["trocar-superadmin", "(11) 90000-0002"])
+    saida = capsys.readouterr().out
+    assert "Superadmin agora é Pessoa Grupo (+55 11 9****-**02); Pessoa Superadmin continua admin." in saida
+    assert "900000002" not in saida
+    with banco() as s:
+        novo = repo_acesso.usuario_por_numero(s, "+5511900000002")
+        antigo = repo_acesso.usuario_por_numero(s, "+5511900000001")
+        assert (novo.papel, novo.superadmin) == (Papel.ADMIN, True)
+        assert (antigo.papel, antigo.ativo, antigo.superadmin) == (Papel.ADMIN, True, False)
+        textos = s.scalars(select(MensagemSaida.texto).where(MensagemSaida.destino == "admin")).all()
+        assert any("superadmin trocado" in t and "• Por: terminal" in t for t in textos)
+
+
+def test_codigo_de_emergencia(banco, segredo, capsys):
+    from tcg_sniper.api.segredos import hash_segredo
+    from tcg_sniper.db import repositorio_acesso as repo_acesso
+    from tcg_sniper.db.models import MensagemSaida, Papel
+    from tcg_sniper.db.repositorio import agora_utc
+
+    with banco() as s, s.begin():
+        repo_acesso.criar_usuario(s, "Pessoa Grupo", "+5511900000002", Papel.GRUPO, agora_utc())
+    cli.main(["codigo-acesso", "11 90000-0002"])
+    saida = capsys.readouterr().out
+    codigo = re.search(r"\): (\d{6})\n", saida).group(1)
+    assert "Código para Pessoa Grupo (+55 11 9****-**02)" in saida and "900000002" not in saida
+    with banco() as s:
+        usuario = repo_acesso.usuario_por_numero(s, "+5511900000002")
+        atual = repo_acesso.ultimo_codigo(s, usuario.id)
+        assert atual.hash_codigo == hash_segredo(segredo, codigo) and atual.usado_em is None
+        assert s.scalars(select(MensagemSaida)).all() == []  # não manda WhatsApp
+
+
+def test_codigo_de_emergencia_recusa(banco):
+    with pytest.raises(SystemExit, match="número inválido"):
+        cli.main(["codigo-acesso", "abc"])
+    with pytest.raises(SystemExit, match="nenhum usuário ativo"):
+        cli.main(["codigo-acesso", "11 90000-0009"])
