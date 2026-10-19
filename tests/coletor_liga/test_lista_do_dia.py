@@ -120,3 +120,18 @@ def test_embaralha_cada_grupo_separado(s):
 
 def test_sem_produtos_a_lista_e_vazia(s):
     assert montar_lista(s, QUARTA, SP, 100, fixo) == ListaDoDia((), 0, 0, 0, 0)
+
+
+def test_teto_de_novos_vale_para_o_dia_inteiro_e_renova_amanha(s):
+    novos = [produto(s, f"n{i}") for i in range(6)]
+    primeira = montar_lista(s, QUARTA, SP, 4, fixo)
+    assert ids(primeira) == [n.id for n in novos[:4]]
+    for pid in ids(primeira)[:3]:  # o job leu 3 e parou
+        c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, QUARTA)
+        repo.gravar_precos_produto(s, c.id, pid, Resumo(None, None, None, 1), QUARTA)
+    segunda = montar_lista(s, QUARTA + timedelta(hours=1), SP, 4, fixo)
+    assert ids(segunda) == [novos[3].id]  # 4 - 3 já lidos hoje; os 3 lidos saem da lista
+    assert segunda.novos == 1
+    amanha = montar_lista(s, QUARTA + timedelta(days=1), SP, 4, fixo)
+    assert amanha.novos == 3  # n3..n5: o teto de amanhã está cheio de novo
+    assert len(set(ids(segunda)) | set(ids(primeira)[:3])) <= 4

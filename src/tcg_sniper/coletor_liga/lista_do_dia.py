@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import Casamento, ProdutoLiga, ResumoPreco, StatusCasamento
@@ -62,6 +62,15 @@ def montar_lista(
     ).all()
     lidos_hoje = set(s.scalars(select(ResumoPreco.produto_id).where(ResumoPreco.coletado_em >= inicio).distinct()))
     com_resumo = set(s.scalars(select(ResumoPreco.produto_id).distinct()))
+    # Novos que já tiveram o primeiro resumo hoje contam no teto do dia (vale entre execuções do mesmo dia).
+    novos_de_hoje = s.scalar(
+        select(func.count()).select_from(
+            select(ResumoPreco.produto_id)
+            .group_by(ResumoPreco.produto_id)
+            .having(func.min(ResumoPreco.coletado_em) >= inicio)
+            .subquery()
+        )
+    )
     casados_ids = _com_par(s, StatusCasamento.CONFIRMADO)
     pendentes_ids = _com_par(s, StatusCasamento.PENDENTE)
 
@@ -78,7 +87,7 @@ def montar_lista(
         elif produto.id % DIAS_DO_RODIZIO == dia_da_semana:
             rodizio.append(produto)
     novos.sort(key=lambda p: (p.visto_primeiro_em, p.id))
-    novos = novos[:novos_por_dia]
+    novos = novos[: max(novos_por_dia - (novos_de_hoje or 0), 0)]
 
     grupos = [[(p.id, p.url) for p in grupo] for grupo in (casados, candidatos, novos, rodizio)]
     for grupo in grupos:
