@@ -67,6 +67,11 @@ def produtos_casados() -> Select:
     return select(Casamento.produto_id).where(Casamento.status == CONFIRMADO)
 
 
+def produto_casado(s: Session, produto_id: int) -> bool:
+    """O produto tem algum par confirmado."""
+    return s.scalar(produtos_casados().where(Casamento.produto_id == produto_id).limit(1)) is not None
+
+
 def obter_par(s: Session, anuncio_id: int, produto_id: int, *, travar: bool = False) -> Casamento | None:
     return s.get(
         Casamento, (anuncio_id, produto_id), with_for_update=True if travar else None, populate_existing=True

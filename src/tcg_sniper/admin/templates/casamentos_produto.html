@@ -23,7 +23,7 @@
   <div class="flex flex-wrap gap-2">
     <form method="post" action="/casamentos/produto/{{ d.produto.id }}/rebuscar"><input type="hidden" name="voltar" value="{{ voltar }}"><button class="btn btn-sm btn-outline">Rebuscar agora</button></form>
     <form method="post" action="/casamentos/produto/{{ d.produto.id }}/reavaliar"><input type="hidden" name="voltar" value="{{ voltar }}"><button class="btn btn-sm btn-outline">Reavaliar com a IA</button></form>
-    <form method="post" action="/casamentos/produto/{{ d.produto.id }}/termos"><input type="hidden" name="voltar" value="{{ voltar }}"><button class="btn btn-sm btn-outline">Gerar termos de busca</button></form>
+    {% if not d.confirmados %}<form method="post" action="/casamentos/produto/{{ d.produto.id }}/termos"><input type="hidden" name="voltar" value="{{ voltar }}"><button class="btn btn-sm btn-outline">Gerar termos de busca</button></form>{% endif %}
   </div>
   <p class="text-xs text-base-content/60">{{ explicacao_reavaliar }}</p>
   <div class="text-sm">
@@ -31,7 +31,7 @@
     {% if d.termos %}
     <ul class="list-disc pl-5">{% for t in d.termos %}<li>{{ t.termo }} <span class="badge badge-ghost badge-sm">{{ t.idioma }}</span></li>{% endfor %}</ul>
     {% else %}
-    <span class="text-base-content/60">nenhum (a IA gera depois de 7 dias sem anúncio novo, ou pelo botão acima)</span>
+    {% if d.confirmados %}<span class="text-base-content/60">nenhum (o produto já está casado: a busca alternativa só vale para produto sem casamento)</span>{% else %}<span class="text-base-content/60">nenhum (a IA gera depois de 7 dias sem anúncio novo, ou pelo botão acima)</span>{% endif %}
     {% endif %}
     {% if d.termos_pedidos_em %}<p class="text-xs text-base-content/60">Pedido em {{ d.termos_pedidos_em|data }}; a IA gera no próximo ciclo do casador.</p>{% endif %}
   </div>

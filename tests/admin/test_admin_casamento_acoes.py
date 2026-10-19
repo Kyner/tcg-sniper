@@ -183,6 +183,20 @@ def test_gerar_termos_registra_o_pedido_e_avisa_o_estado_da_ia(sessoes, config, 
     assert msg(r) == ["termos_fora_da_fila"]
 
 
+def test_gerar_termos_em_produto_ja_casado_nao_pede_nada_a_ia(cliente, sessoes, dois):
+    """Busca alternativa só vale para produto sem casamento: o botão some e a rota não gasta chamada."""
+    with sessoes() as s, s.begin():
+        repo_casamento.confirmar(s, dois["anuncio"], dois["jogo"], T0)
+    texto = cliente.get(f"/casamentos/produto/{dois['jogo']}").text
+    assert "Gerar termos de busca" not in texto and f"/casamentos/produto/{dois['jogo']}/termos" not in texto
+    r = cliente.post(f"/casamentos/produto/{dois['jogo']}/termos", data={"voltar": "/casamentos"}, follow_redirects=False)
+    assert msg(r) == ["termos_ja_casado"]
+    assert "termos_ja_casado" in MENSAGENS_CASAMENTO
+    with sessoes() as s, s.begin():
+        assert s.get(FilaAmazon, dois["jogo"]).termos_pedidos_em is None
+        assert repo.consumir_solicitacao(s, T0, COLETOR_CASADOR) is False
+
+
 def test_trocar_nao_sugere_o_produto_de_onde_veio(sessoes, dois):
     with sessoes() as s, s.begin():
         anuncio = s.get(AnuncioAmazon, dois["anuncio"])

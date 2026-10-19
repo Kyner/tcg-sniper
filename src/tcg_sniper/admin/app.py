@@ -151,6 +151,10 @@ MENSAGENS_CASAMENTO: dict[str, tuple[str, str]] = {
         "warning",
         "Pedido guardado, mas o casador está pausado (Serviços): os termos saem quando ele for retomado.",
     ),
+    "termos_ja_casado": (
+        "info",
+        "Nada pedido à IA: o produto já tem anúncio confirmado, e a busca alternativa só vale para produto sem casamento.",
+    ),
     "termos_fora_da_fila": ("warning", "O produto ainda não entrou na fila da Amazon; tente de novo em alguns minutos."),
 }
 
@@ -1143,11 +1147,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         agora = repo.agora_utc()
         with sessoes() as s, s.begin():
             _produto_ativo_ou_404(s, produto_id)
-            pedido = repo_termos.pedir_termos(s, produto_id, agora)
+            casado = repo_casamento.produto_casado(s, produto_id)
+            pedido = not casado and repo_termos.pedir_termos(s, produto_id, agora)
             if pedido:
                 repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
             parado = _casador_parado(s, agora)
-        if not pedido:
+        if casado:
+            chave = "termos_ja_casado"
+        elif not pedido:
             chave = "termos_fora_da_fila"
         else:
             chave = f"termos_{parado}" if parado else "termos_pedidos"
