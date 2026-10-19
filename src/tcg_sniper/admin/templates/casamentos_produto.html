@@ -45,6 +45,16 @@
 </form>
 {% endmacro %}
 
+{# Edição de idioma do anúncio lida pela IA (vazia nas avaliações de antes da regra de idioma). #}
+{% macro selo_idioma(ia) %}
+{%- if ia and ia.idioma_anuncio == "pt" %}<span class="badge badge-outline badge-sm">português</span>
+{%- elif ia and ia.idioma_anuncio == "en" %}<span class="badge badge-outline badge-sm">inglês</span>
+{%- elif ia and ia.idioma_anuncio == "ja" %}<span class="badge badge-error badge-outline badge-sm">japonês</span>
+{%- elif ia and ia.idioma_anuncio == "outro" %}<span class="badge badge-error badge-outline badge-sm">outro idioma</span>
+{%- elif ia and ia.idioma_anuncio == "indefinido" %}<span class="badge badge-ghost badge-sm">idioma não informado</span>
+{%- endif %}
+{%- endmacro %}
+
 {% macro titulo_anuncio(l) %}
 <a class="link link-hover font-medium break-words" href="{{ l.anuncio.url }}" target="_blank" rel="noopener">{{ l.anuncio.titulo_exibicao }}</a>
 <div class="font-mono text-xs text-base-content/60 break-words">{{ l.anuncio.asin }}</div>
@@ -59,7 +69,7 @@
       {{ titulo_anuncio(l) }}
       <div class="flex flex-wrap items-center gap-2"><span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}</div>
       {% if l.ia %}
-      <div class="flex flex-wrap items-center gap-2">{{ selo_ia(l.ia, cfg_ia) }}{% if l.ia.sem_imagem %}<span class="text-xs text-base-content/60">sem imagem</span>{% endif %}</div>
+      <div class="flex flex-wrap items-center gap-2">{{ selo_ia(l.ia, cfg_ia) }}{{ selo_idioma(l.ia) }}{% if l.ia.sem_imagem %}<span class="text-xs text-base-content/60">sem imagem</span>{% endif %}</div>
       <p class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</p>
       {% endif %}
       <div class="card-actions">
@@ -77,7 +87,7 @@
     {% for l in d.confirmados %}
     <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
       {{ titulo_anuncio(l) }}
-      <div class="flex flex-wrap items-center gap-2">{{ selo_origem(l.casamento.origem) }}{% if l.casamento.origem and l.casamento.origem.value == "automatico_ia" and l.ia %}<span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span>{% endif %}</div>
+      <div class="flex flex-wrap items-center gap-2">{{ selo_origem(l.casamento.origem) }}{{ selo_idioma(l.ia) }}{% if l.casamento.origem and l.casamento.origem.value == "automatico_ia" and l.ia %}<span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span>{% endif %}</div>
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="tabular-nums">{{ (l.atual.preco if l.atual else None)|brl }}</span>
         {% if l.atual %}{{ selo_vendedor(l.verificado, l.confiavel, l.atual.envio, l.vendedor) }}{% else %}{{ selo("nao_verificado", "sem leitura") }}{% endif %}
@@ -96,9 +106,9 @@
     <div class="card bg-base-100 shadow-sm"><div class="card-body gap-2 p-4">
       {{ titulo_anuncio(l) }}
       {% if l.casado_com %}
-      <div class="flex flex-wrap items-center gap-2 text-sm">{{ selo_origem(l.casamento.origem) }}<span>casado com <a class="link" href="/casamentos/produto/{{ l.casado_com.id }}">{{ l.casado_com.nome }}</a></span></div>
+      <div class="flex flex-wrap items-center gap-2 text-sm">{{ selo_origem(l.casamento.origem) }}{{ selo_idioma(l.ia) }}<span>casado com <a class="link" href="/casamentos/produto/{{ l.casado_com.id }}">{{ l.casado_com.nome }}</a></span></div>
       {% else %}
-      <div class="flex flex-wrap items-center gap-2">{{ selo_origem(l.casamento.origem) }}{% if l.casamento.origem and l.casamento.origem.value == "automatico_ia" and l.ia %}<span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span>{% endif %}</div>
+      <div class="flex flex-wrap items-center gap-2">{{ selo_origem(l.casamento.origem) }}{{ selo_idioma(l.ia) }}{% if l.casamento.origem and l.casamento.origem.value == "automatico_ia" and l.ia %}<span class="text-xs text-base-content/70 break-words">{{ l.ia.motivo }}</span>{% endif %}</div>
       <div class="card-actions">{{ botao(l.anuncio, "desfazer", "Desfazer", "btn-sm btn-outline") }}</div>
       {% endif %}
     </div></div>
