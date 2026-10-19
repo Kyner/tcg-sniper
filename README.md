@@ -67,7 +67,7 @@ Todo dia, por volta das 10:00:
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
 4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços.
 
-**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Quando a LigaMagic mostra o nome do produto em inglês, a busca alterna entre o nome em português e o nome em inglês a cada passada. Anúncios novos vão para a fila de revisão em **Casamentos**; só anúncios confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica abaixo do "À partir de" da Liga pelo menos o desconto mínimo de Configurações → Amazon (padrão 25%), o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Os anúncios confirmados têm o preço lido pelo **monitor de preço** a cada 15 min, e as melhores ofertas passam pela **conferência de checkout** (ver [Monitor de preço e conferência de checkout](#10-monitor-de-preço-e-conferência-de-checkout)). Tudo isso se ajusta em **Configurações** no admin (seções Geral, LigaMagic e Amazon; os valores ficam no banco, não no `.env`).
+**Amazon.** De 08:00 às 22:00 o `coletor-amazon` procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Quando a LigaMagic mostra o nome do produto em inglês, a busca alterna entre o nome em português e o nome em inglês a cada passada; um produto sem casamento que passa 7 dias sem achar anúncio novo ganha de 2 a 3 termos de busca alternativos sugeridos pela IA (uma vez, dentro do teto de gasto), que entram no rodízio até aparecer anúncio novo. Cada anúncio achado vira um par (anúncio × produto) pendente em **Casamentos**; ignorar vale só para aquele par (o mesmo anúncio achado na busca de outro produto volta a ser pendente para ele), e um anúncio é confirmado para no máximo um produto. Só pares confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica abaixo do "À partir de" da Liga pelo menos o desconto mínimo de Configurações → Amazon (padrão 25%), o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Os anúncios confirmados têm o preço lido pelo **monitor de preço** a cada 15 min, e as melhores ofertas passam pela **conferência de checkout** (ver [Monitor de preço e conferência de checkout](#10-monitor-de-preço-e-conferência-de-checkout)). Tudo isso se ajusta em **Configurações** no admin (seções Geral, LigaMagic e Amazon; os valores ficam no banco, não no `.env`).
 
 O `notificador` envia as mensagens da tabela de saída pela Evolution a cada 5 s; se a Evolution ou o WhatsApp estiverem fora, tenta de novo (1, 2, 4… até 30 min). Oportunidades que não saírem em até a validade de Configurações → Geral (padrão 6 h) ficam como expiradas; avisos do admin saem sempre.
 
@@ -188,6 +188,8 @@ Os anúncios achados só viram oportunidade depois de confirmados em **Casamento
 ### 9. Casamento com IA (opcional)
 
 O `casador` avalia com a IA (OpenAI) os anúncios da Amazon que ainda estão pendentes em **Casamentos**, olhando o texto e as imagens do anúncio e do produto da LigaMagic. Cada anúncio avaliado ganha um selo com a confiança e o motivo da IA; você continua decidindo, a menos que ligue o modo automático.
+
+A IA avalia cada par (anúncio × produto) pendente. **Desfazer** devolve o par para a IA, que o reavalia mesmo sem mudança no anúncio (com o automático ligado, ela pode decidir de novo; para tirar de vez, use **Ignorar**). O automático nunca muda uma decisão sua (manual ou tomada com o selo da IA). Na tela de um produto em **Casamentos** ficam três botões: **Rebuscar agora** (põe o produto na frente da fila da Amazon), **Reavaliar com a IA** (volta para a IA os pares pendentes e os ignorados pelo automático; suas decisões e os confirmados não mudam) e **Gerar termos de busca** (pede os termos alternativos agora; o casador gera em instantes, dentro do teto, se a IA estiver ligada e o casador ativo). Um anúncio confirmado em outro produto aparece como "casado com <produto>".
 
 1. Ponha a chave no `.env` (`OPENAI_API_KEY=...`) e recrie o serviço: `docker compose up -d casador`. Sempre que mudar a chave, recrie o `casador` de novo.
 2. Em **Configurações** → **IA**, ligue a IA e ajuste o modelo, os preços, os tetos por dia e por mês (em dólar), o máximo de chamadas por dia, o modo automático e as confianças mínimas.
@@ -312,6 +314,42 @@ docker compose up -d --build
 4. Faça login na conta Amazon pelo noVNC (`http://<IP deste PC>:6081/vnc.html`). Sem login, a primeira conferência fica `sem_login`, o grupo admin é avisado e o monitor segue.
 5. Na primeira hora: Logs → Monitor com leituras chegando; Dashboard sem o aviso de "monitor não cabe no intervalo"; Logs → Checkout com as primeiras conferências e nenhuma marcada "item no carrinho".
 
+### Implantar o casamento por par
+
+A migração `a9d4f2c6e8b1` cria a tabela `casamento` (um par por anúncio, com o mesmo status, origem e datas de antes) e a `termo_busca`, confere que nenhum anúncio ficou com dois confirmados (se ficar, aborta sem mudar nada) e remove as colunas antigas do casamento em `anuncio_amazon` (e `fila_amazon.ultimo_termo_en`). Tudo numa transação: um erro desfaz tudo. Voltar esta migração (downgrade) refaz as colunas antigas com um produto por anúncio (o confirmado ou, sem confirmado, o par mais antigo) e apaga `casamento`, `termo_busca` e os termos gerados; para voltar ao estado exato de antes, restaure o backup do passo 1.
+
+1. Backup do banco antes de tudo:
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-casamento-por-par-<data>.dump
+   ```
+
+2. Conferência antes de migrar. Anote as contagens por situação (são o número de referência do passo 5) e confira que nenhum anúncio está sem produto (anúncio sem produto não vira par; o resultado tem de ser 0; se não for, pare e investigue antes de seguir):
+
+   ```bash
+   docker compose exec -T postgres psql -U tcg -d tcg -c "SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL GROUP BY 1 ORDER BY 1"
+   docker compose exec -T postgres psql -U tcg -d tcg -c "SELECT count(*) FROM anuncio_amazon WHERE produto_id IS NULL"
+   ```
+
+3. Atualize e recrie todos os serviços de uma vez (o `migrate` atualiza o banco antes), como na regra acima:
+
+   ```bash
+   git pull
+   docker compose up -d --build
+   ```
+
+   Se o `migrate` falhar com "mais de um casamento confirmado", nada mudou no banco: anote os ids da mensagem e pare (os serviços com código novo não funcionam com o banco antigo; volte para o commit anterior e rode `docker compose up -d --build` de novo).
+
+4. Confira que a migração rodou: `docker compose logs migrate` termina sem erro.
+5. Compare com as contagens do passo 2 (têm de bater, situação por situação):
+
+   ```bash
+   docker compose exec -T postgres psql -U tcg -d tcg -c "SELECT status, count(*) FROM casamento GROUP BY 1 ORDER BY 1"
+   ```
+
+6. No admin: Dashboard e Casamentos com os mesmos números de antes; a tela de um produto em Casamentos mostra os botões Rebuscar agora, Reavaliar com a IA e Gerar termos de busca.
+
 ## Uso no dia a dia
 
 ### Página de admin
@@ -324,7 +362,7 @@ O menu fica na lateral (recolhe para ícones no computador; botão de menu no ce
 | **Serviços** (`/servicos`) | Rodar agora e Retomar (LigaMagic), Pausar e Retomar (Amazon), ligar e desligar o monitor de preço e a conferência de checkout, Retomar conferência, ligar e desligar o backup e a limpeza. |
 | **Catálogo** (`/catalogo`) | Todos os produtos, 100 por página. Busca por nome; filtros por situação (todos, ativos, inativos, novos nos últimos 7 dias), por categoria e "só com preço". Ativa ou desativa um produto ou todos os do filtro. |
 | **Produto** (`/produto/<id>`) | Preço "À partir de" atual, resumo de venda (mínimo, médio, máximo), número de lojas e o histórico de cada coleta. |
-| **Casamentos** | Produtos ativos da Liga com os anúncios da Amazon encontrados; confirmar, ignorar, trocar ou colar o link da Amazon à mão; filtros por situação, categoria e nome. |
+| **Casamentos** | Produtos ativos da Liga com os pares (anúncio × produto) da Amazon; confirmar, ignorar, desfazer, trocar ou colar o link à mão; rebuscar, reavaliar com a IA e gerar termos de busca; filtros por situação, categoria e nome. |
 | **Ofertas** | Melhor oferta da Amazon por produto contra a Liga; filtros por nome, categoria, desconto mínimo, vendedor e situação; ordenação por desconto, diferença em R$, leitura ou nome. |
 | **Mensagens** (`/mensagens`) | Mensagens do WhatsApp gravadas pelos serviços: pendentes, enviadas, com falha, expiradas e descartadas, com filtros. Reenviar (falha ou expirada) e Descartar. |
 | **Configurações** | Três seções (Geral, LigaMagic, Amazon); cada uma salva sozinha e vale a partir da próxima coleta ou ciclo. Senhas, banco e chave da Evolution continuam no `.env`. |
