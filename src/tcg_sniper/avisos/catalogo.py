@@ -41,6 +41,9 @@ class TipoAviso(StrEnum):
     AMAZON_MONITOR_CONCLUIDO = "amazon_monitor_concluido"
     AMAZON_BUSCA_PARCIAL = "amazon_busca_parcial"
     AMAZON_BUSCA_FALHOU = "amazon_busca_falhou"
+    AMAZON_BUSCA_CAPTCHA = "amazon_busca_captcha"
+    AMAZON_BUSCA_PAUSADA = "amazon_busca_pausada"
+    AMAZON_BUSCA_ERRO = "amazon_busca_erro"
     AMAZON_CAPTCHA = "amazon_captcha"
     AMAZON_SEM_LOGIN = "amazon_sem_login"
     AMAZON_CARRINHO = "amazon_carrinho"
@@ -101,6 +104,7 @@ class DefinicaoAviso:
 
 
 LIGA, AMAZON, MONITOR, IA = "coletor Liga", "coletor Amazon", "monitor Amazon", "casador (IA)"
+BUSCA = "busca Amazon"
 MANUTENCAO, VIGIA, ADMIN, NOTIFICADOR = "manutenção", "vigia", "admin", "notificador"
 ACESSO = "acesso"
 
@@ -172,33 +176,63 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
         Dados(linhas=("Onde: Coleta dos produtos ativos 41", "Erro: TimeoutError('página não carregou')")),
     ),
     TipoAviso.AMAZON_BUSCA_CONCLUIDA: _evento(
-        C, "Amazon · busca concluída", AMAZON, "Fim de um ciclo da busca de anúncios novos sem falha.", None,
+        C, "Amazon · busca concluída", BUSCA, "Fim de um ciclo da busca de anúncios novos sem falha.", None,
         Dados(titulo_extra="ciclo 42", linhas=("Buscas: 37 ok · 1 falha", "Duração: 2 h 5 min")),
     ),
     TipoAviso.AMAZON_MONITOR_CONCLUIDO: _evento(
-        C, "Amazon · rodada do monitor", MONITOR, "O monitor leu todos os anúncios vencidos (cerca de 4 por hora).",
+        C, "Amazon · rodada do monitor", MONITOR, "O monitor terminou uma volta: leu todos os anúncios que estavam vencidos quando ela começou.",
         None,
         Dados(
             linhas=("Anúncios lidos: 24", "Preços em queda: 2", "Conferências de checkout: 1", "Duração: 14 min")
         ),
     ),
     TipoAviso.AMAZON_BUSCA_PARCIAL: _evento(
-        A, "Amazon · busca parcial", AMAZON, "Fim de um ciclo da busca com algumas buscas falhando.",
+        A, "Amazon · busca parcial", BUSCA, "Fim de um ciclo da busca com algumas buscas falhando.",
         "Nada urgente; se repetir, veja Admin → Logs → Amazon.",
         Dados(titulo_extra="ciclo 42", linhas=("Buscas: 30 ok · 8 falhas", "Duração: 2 h 10 min")),
     ),
     TipoAviso.AMAZON_BUSCA_FALHOU: _problema(
-        F, "Amazon · busca falhou", AMAZON, "Um ciclo da busca falhou em mais buscas que o limite.",
+        F, "Amazon · busca falhou", BUSCA, "Um ciclo da busca falhou em mais buscas que o limite.",
         "O layout da Amazon pode ter mudado: veja Admin → Logs → Amazon e os HTMLs na pasta falhas.",
         Dados(titulo_extra="ciclo 42", linhas=("Buscas: 12 ok · 26 falhas", "Duração: 1 h 40 min")),
     ),
-    TipoAviso.AMAZON_CAPTCHA: _problema(
-        F, "Amazon · CAPTCHA", AMAZON, "A Amazon pediu verificação; busca, monitor e conferência ficam pausados.",
-        "Resolva no noVNC da Amazon (porta 6081) e depois Admin → Serviços → Amazon → Retomar.",
+    TipoAviso.AMAZON_BUSCA_CAPTCHA: _problema(
+        F, "Amazon (busca) · CAPTCHA", BUSCA,
+        "A Amazon pediu verificação no navegador da busca (sem login); só a busca fica pausada.",
+        "Resolva no noVNC da busca (porta 6082) e depois Admin → Serviços → Amazon (busca) → Retomar.",
         Dados(
             linhas=(
                 "Página: /s?k=aetherdrift+commander",
-                "Busca, monitor e conferência pausados até você retomar",
+                "A busca fica pausada até você retomar; o monitor e a conferência seguem",
+            )
+        ),
+    ),
+    TipoAviso.AMAZON_BUSCA_PAUSADA: _problema(
+        F, "Amazon (busca) · pausada", BUSCA,
+        "A busca foi pausada por páginas com falha ou erros inesperados seguidos; o monitor segue.",
+        "Veja os logs (docker compose logs coletor-amazon-busca) e depois Admin → Serviços → Amazon (busca) → Retomar.",
+        Dados(
+            linhas=(
+                "Motivo: 10 páginas seguidas com falha (bloqueio ou layout novo?)",
+                "Com a busca pausada, o monitor e a conferência seguem",
+            )
+        ),
+    ),
+    TipoAviso.AMAZON_BUSCA_ERRO: _problema(
+        A, "Amazon (busca) · erro inesperado", BUSCA, "Erro inesperado num passo da busca; tenta de novo em 15 min.",
+        "Nada a fazer se não repetir: nova tentativa em 15 min. Se repetir, veja os logs "
+        "(docker compose logs coletor-amazon-busca).",
+        Dados(linhas=("Erro: RuntimeError('navegador fechou')",)),
+    ),
+    TipoAviso.AMAZON_CAPTCHA: _problema(
+        F, "Amazon (monitor) · CAPTCHA", MONITOR,
+        "A Amazon pediu verificação no navegador logado; monitor, conferência e retirada do carrinho ficam "
+        "pausados (a busca segue).",
+        "Resolva no noVNC do monitor (porta 6081) e depois Admin → Serviços → Amazon (monitor e checkout) → Retomar.",
+        Dados(
+            linhas=(
+                "Página: /gp/cart/view.html",
+                "Monitor e conferência pausados até você retomar; a busca segue",
                 (
                     "Uma conferência deixou 1× B0DNV55QBS no carrinho: sai sozinho se você retomar em até 30 min; "
                     "senão confira à mão"
@@ -208,8 +242,8 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
     ),
     TipoAviso.AMAZON_SEM_LOGIN: _problema(
         F, "Amazon · conta sem login", AMAZON, "A conferência de checkout caiu no login; o monitor continua.",
-        "Faça login na conta Amazon pelo noVNC da Amazon (porta 6081) e depois "
-        "Admin → Serviços → Amazon → Retomar conferência.",
+        "Faça login na conta Amazon pelo noVNC do monitor (porta 6081) e depois "
+        "Admin → Serviços → Amazon (monitor e checkout) → Retomar conferência.",
         Dados(linhas=("A conferência de checkout parou; o monitor de preço continua",)),
     ),
     TipoAviso.AMAZON_CARRINHO: _problema(
@@ -226,25 +260,28 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
         ),
     ),
     TipoAviso.AMAZON_PAUSADA: _problema(
-        F, "Amazon · pausada", AMAZON, "A Amazon foi pausada por páginas com falha ou erros inesperados seguidos.",
-        "Veja os logs (docker compose logs coletor-amazon) e depois Admin → Serviços → Amazon → Retomar.",
+        F, "Amazon (monitor) · pausada", MONITOR,
+        "Monitor e checkout pausados por páginas com falha ou erros inesperados seguidos; a busca segue.",
+        "Veja os logs (docker compose logs coletor-amazon) e depois "
+        "Admin → Serviços → Amazon (monitor e checkout) → Retomar.",
         Dados(
             linhas=(
                 "Motivo: 10 páginas seguidas com falha (bloqueio ou layout novo?)",
-                "Com a Amazon pausada, a retirada automática de item do carrinho também para",
+                "Com o monitor pausado, a retirada automática de item do carrinho também para",
             )
         ),
     ),
     TipoAviso.AMAZON_ERRO: _problema(
-        A, "Amazon · erro inesperado", AMAZON, "Erro inesperado num passo da varredura; tenta de novo em 15 min.",
+        A, "Amazon (monitor) · erro inesperado", MONITOR,
+        "Erro inesperado num passo do monitor ou do checkout; tenta de novo em 15 min.",
         "Nada a fazer se não repetir: nova tentativa em 15 min. Se repetir, veja os logs "
         "(docker compose logs coletor-amazon).",
         Dados(linhas=("Erro: RuntimeError('navegador fechou')",)),
     ),
     TipoAviso.AMAZON_INTERROMPIDA: _evento(
-        A, "Amazon · ciclo interrompido", AMAZON, "O coletor da Amazon reiniciou no meio de um ciclo.",
+        A, "Amazon (busca) · ciclo interrompido", BUSCA, "O serviço de busca da Amazon reiniciou no meio de um ciclo.",
         "Nada a fazer: a fila continua sozinha.",
-        Dados(linhas=("1 ciclo(s) marcado(s) como falha: o coletor reiniciou",)),
+        Dados(linhas=("1 ciclo(s) marcado(s) como falha: o serviço de busca reiniciou",)),
     ),
     TipoAviso.IA_RODADA_CONCLUIDA: _evento(
         C, "IA · rodada concluída", IA, "Rodada do casador que avaliou pelo menos um anúncio.", None,

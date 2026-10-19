@@ -43,7 +43,7 @@ def desligar(sessoes, tipo=CAPTCHA, ligado=False):
 def test_primeira_ocorrencia_abre_e_envia(sessoes):
     avisar_em(sessoes, T)
     [m] = saidas(sessoes)
-    assert m.destino == "admin" and m.texto.startswith("🔴 *Amazon · CAPTCHA*\n") and m.criada_em == T
+    assert m.destino == "admin" and m.texto.startswith("🔴 *Amazon (monitor) · CAPTCHA*\n") and m.criada_em == T
     e = estado(sessoes)
     assert (e.aberto, e.ocorrencias, e.primeiro_em, e.ultimo_em, e.ultimo_envio_em) == (True, 1, T, T, T)
 
@@ -62,8 +62,8 @@ def test_lembrete_depois_de_2h(sessoes):
     avisar_em(sessoes, T + timedelta(minutes=30))
     avisar_em(sessoes, T + timedelta(hours=2))
     _, lembrete = saidas(sessoes)
-    assert lembrete.texto.startswith("🔴 *Amazon · CAPTCHA continua · 3 vezes desde 10:00*\n")
-    assert lembrete.texto.endswith("_18/10 12:00 · coletor Amazon_")
+    assert lembrete.texto.startswith("🔴 *Amazon (monitor) · CAPTCHA continua · 3 vezes desde 10:00*\n")
+    assert lembrete.texto.endswith("_18/10 12:00 · monitor Amazon_")
     assert estado(sessoes).ultimo_envio_em == T + timedelta(hours=2)
 
 
@@ -80,7 +80,7 @@ def test_resolver_com_envio_manda_resolvido(sessoes):
     avisar_em(sessoes, T + timedelta(minutes=10))
     resolver_em(sessoes, T + timedelta(minutes=30))
     *_, resolvido = saidas(sessoes)
-    assert resolvido.texto == "✅ *Amazon · CAPTCHA resolvido · 2 vezes em 30 min*\n_18/10 10:30 · coletor Amazon_"
+    assert resolvido.texto == "✅ *Amazon (monitor) · CAPTCHA resolvido · 2 vezes em 30 min*\n_18/10 10:30 · monitor Amazon_"
     assert estado(sessoes).aberto is False
 
 
@@ -105,14 +105,14 @@ def test_religado_com_problema_aberto_o_proximo_avisar_lembra(sessoes):
     desligar(sessoes, ligado=True)
     avisar_em(sessoes, T + timedelta(minutes=5))
     [m] = saidas(sessoes)
-    assert m.texto.startswith("🔴 *Amazon · CAPTCHA continua · 2 vezes desde 10:00*")
+    assert m.texto.startswith("🔴 *Amazon (monitor) · CAPTCHA continua · 2 vezes desde 10:00*")
 
 
 def test_reabre_depois_de_resolvido(sessoes):
     avisar_em(sessoes, T)
     resolver_em(sessoes, T + timedelta(minutes=1))
     avisar_em(sessoes, T + timedelta(minutes=2))
-    assert saidas(sessoes)[-1].texto.startswith("🔴 *Amazon · CAPTCHA*\n")
+    assert saidas(sessoes)[-1].texto.startswith("🔴 *Amazon (monitor) · CAPTCHA*\n")
     e = estado(sessoes)
     assert (e.aberto, e.ocorrencias, e.primeiro_em) == (True, 1, T + timedelta(minutes=2))
 
