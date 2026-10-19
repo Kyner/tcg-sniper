@@ -433,3 +433,43 @@ def test_codigo_de_emergencia_recusa(banco):
         cli.main(["codigo-acesso", "abc"])
     with pytest.raises(SystemExit, match="nenhum usuário ativo"):
         cli.main(["codigo-acesso", "11 90000-0009"])
+
+
+def _ignorado_ingles(sessoes):
+    from fakes import T0, criar_anuncio, criar_produto
+
+    from tcg_sniper.db import repositorio_ia as repo_ia
+    from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
+
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1")
+        a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.AUTOMATICO_IA)
+        repo_ia.gravar_avaliacao(
+            s, anuncio_id=a.id, produto_id=p.id, mesmo_produto=False, confianca=95, motivo="Anúncio em inglês",
+            modelo="x", assinatura="x", sem_imagem=True, chamada_id=None, agora=T0,
+        )
+        return a.id, p.id
+
+
+def _status(sessoes, anuncio_id, produto_id):
+    from tcg_sniper.db import repositorio_casamento as repo_casamento
+
+    with sessoes() as s:
+        return repo_casamento.obter_par(s, anuncio_id, produto_id).status.value
+
+
+def test_casamento_reabrir_ingles_sem_aplicar_so_mostra_as_contagens(banco, capsys):
+    ids = _ignorado_ingles(banco)
+    cli.main(["casamento", "reabrir-ingles"])
+    saida = capsys.readouterr().out
+    assert "Encontrados: 1" in saida and "Reabertos: 1" in saida and "Confirmados em outro produto: 0" in saida
+    assert "simulação" in saida and "--aplicar" in saida
+    assert _status(banco, *ids) == "ignorado"
+
+
+def test_casamento_reabrir_ingles_aplicando(banco, capsys):
+    ids = _ignorado_ingles(banco)
+    cli.main(["casamento", "reabrir-ingles", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert "Reabertos: 1" in saida and "simulação" not in saida
+    assert _status(banco, *ids) == "pendente"

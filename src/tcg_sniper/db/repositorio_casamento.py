@@ -19,6 +19,7 @@ vários anúncios numa transação só (a busca, `registrar_visto` em laço) tra
 travar mutuamente (deadlock). Este módulo só depende dos modelos: o repositorio_amazon importa este, nunca
 o contrário."""
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import ColumnElement, Select, and_, or_, select, update
@@ -298,22 +299,72 @@ def reavaliar_produto(s: Session, produto_id: int, agora: datetime) -> int:
         .order_by(Casamento.anuncio_id)
         .execution_options(populate_existing=True)
     ).all()
-    marcados = 0
-    for alvo in alvos:
-        # Trava o anúncio e relê o par: uma confirmação em andamento termina antes da decisão.
-        travar_anuncio(s, alvo.anuncio_id)
-        par = obter_par(s, alvo.anuncio_id, produto_id)
-        if par.status is CONFIRMADO or (par.status is IGNORADO and par.origem not in ORIGENS_REAVALIAVEIS):
-            continue
-        if confirmado_do_anuncio(s, par.anuncio_id) is not None:  # confirmado de outro produto
-            if par.origem is not OrigemCasamento.OUTRO_CONFIRMADO:
-                _outro_confirmado(par, agora)
-            continue
-        par.status, par.origem, par.revisado_em, par.reavaliar = PENDENTE, None, None, True
-        _zerar_aplicada(s, par.anuncio_id, produto_id)
-        marcados += 1
+    marcados = sum(_reabrir(s, alvo.anuncio_id, produto_id, agora, ORIGENS_REAVALIAVEIS) == REABERTO for alvo in alvos)
     s.flush()
     return marcados
+
+
+REABERTO, CONFIRMADO_EM_OUTRO, PULADO = "reaberto", "confirmado_em_outro", "pulado"
+
+
+def _reabrir(s: Session, anuncio_id: int, produto_id: int, agora: datetime, origens) -> str:
+    """Volta o par a pendente marcado para reavaliar (zera o "já aplicada" da avaliação) se ainda está
+    pendente ou ignorado com uma de `origens`. Anúncio confirmado de outro produto: o par vira ignorado
+    `outro_confirmado` (nunca pendente). Trava o anúncio e relê o par antes: uma confirmação em andamento
+    termina antes da decisão."""
+    travar_anuncio(s, anuncio_id)
+    par = obter_par(s, anuncio_id, produto_id)
+    if par.status is CONFIRMADO or (par.status is IGNORADO and par.origem not in origens):
+        return PULADO
+    if confirmado_do_anuncio(s, anuncio_id) is not None:  # confirmado de outro produto
+        if par.origem is not OrigemCasamento.OUTRO_CONFIRMADO:
+            _outro_confirmado(par, agora)
+        return CONFIRMADO_EM_OUTRO
+    par.status, par.origem, par.revisado_em, par.reavaliar = PENDENTE, None, None, True
+    _zerar_aplicada(s, anuncio_id, produto_id)
+    return REABERTO
+
+
+# Motivo de quem o automático ignorou por ser em inglês (regra de idioma antiga), sem os casos de japonês.
+_MOTIVO_INGLES = ("%inglês%", "%ingles%", "%english%", "%idioma%")
+_MOTIVO_JAPONES = ("%japon%", "%japanese%")
+
+
+@dataclass(frozen=True)
+class Reabertura:
+    encontrados: int  # ignorados pelo automático com motivo de inglês/idioma (sem japonês)
+    reabertos: int  # voltaram (ou voltariam) a pendente, marcados para a IA reavaliar
+    confirmados_em_outro: int  # anúncio confirmado de outro produto: ficam ignorados (`outro_confirmado`)
+
+
+def reabrir_ignorados_por_ingles(s: Session, agora: datetime, *, aplicar: bool) -> Reabertura:
+    """Regra de idioma revista (2026-10-19): reabre para a IA reavaliar os pares ignorados pelo automático
+    (só origem `automatico_ia`; decisões suas não mudam) cujo motivo da IA fala de inglês ou idioma e não de
+    japonês, com a mesma lógica do "Reavaliar com a IA". Sem `aplicar`, só conta (tudo num SAVEPOINT
+    desfeito). Trava os anúncios em ordem crescente de id."""
+    motivo = AvaliacaoIA.motivo
+    alvos = s.execute(
+        select(Casamento.anuncio_id, Casamento.produto_id)
+        .join(
+            AvaliacaoIA,
+            and_(AvaliacaoIA.anuncio_id == Casamento.anuncio_id, AvaliacaoIA.produto_id == Casamento.produto_id),
+        )
+        .where(
+            Casamento.status == IGNORADO,
+            Casamento.origem == OrigemCasamento.AUTOMATICO_IA,
+            or_(*(motivo.ilike(m) for m in _MOTIVO_INGLES)),
+            *(~motivo.ilike(m) for m in _MOTIVO_JAPONES),
+        )
+        .order_by(Casamento.anuncio_id, Casamento.produto_id)
+    ).all()
+    savepoint = s.begin_nested()
+    resultados = [_reabrir(s, anuncio_id, produto_id, agora, (OrigemCasamento.AUTOMATICO_IA,)) for anuncio_id, produto_id in alvos]
+    s.flush()
+    if aplicar:
+        savepoint.commit()
+    else:
+        savepoint.rollback()
+    return Reabertura(len(alvos), resultados.count(REABERTO), resultados.count(CONFIRMADO_EM_OUTRO))
 
 
 def marcar_reavaliado(s: Session, anuncio_id: int, produto_id: int) -> None:

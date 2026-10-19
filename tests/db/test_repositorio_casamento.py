@@ -434,3 +434,57 @@ def test_reavaliar_nunca_deixa_pendente_num_anuncio_confirmado_em_outro(s):
         par = repo_casamento.obter_par(s, anuncio.id, p.id)
         assert (par.status, par.origem, par.revisado_em, par.reavaliar) == (IGNORADO, OUTRO, depois, False)
         assert situacao(s, anuncio, q) == (CONFIRMADO, MANUAL)
+
+
+def _ignorado_com_motivo(s, asin, produto, motivo, origem=OrigemCasamento.AUTOMATICO_IA):
+    a = criar_anuncio(s, asin, produto=produto, status=StatusCasamento.IGNORADO, origem=origem)
+    av = repo_ia.gravar_avaliacao(
+        s, anuncio_id=a.id, produto_id=produto.id, mesmo_produto=False, confianca=95, motivo=motivo, modelo="x",
+        assinatura="x", sem_imagem=True, chamada_id=None, agora=T0,
+    )
+    av.aplicada_em = T0
+    return a
+
+
+def _cenario_ingles(s):
+    p, outro = criar_produto(s, "p1"), criar_produto(s, "p2")
+    ingles = _ignorado_com_motivo(s, "B1", p, "Anúncio em inglês; o produto é a edição em português")
+    english = _ignorado_com_motivo(s, "B2", p, "English edition, different language")
+    idioma = _ignorado_com_motivo(s, "B3", p, "Idioma diferente do produto")
+    japones = _ignorado_com_motivo(s, "B4", p, "Edição japonesa: idioma diferente (japonês)")
+    colecao = _ignorado_com_motivo(s, "B5", p, "Outra coleção")
+    manual = _ignorado_com_motivo(s, "B6", p, "Anúncio em inglês", origem=OrigemCasamento.MANUAL)
+    sugerido = _ignorado_com_motivo(s, "B7", p, "Anúncio em inglês", origem=OrigemCasamento.SUGERIDO_IA)
+    casado = _ignorado_com_motivo(s, "B8", p, "Anúncio em inglês")
+    criar_par(s, casado, outro, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+    s.flush()
+    return p, {"reabrir": [ingles, english, idioma], "fica": [japones, colecao, manual, sugerido], "casado": casado}
+
+
+def test_reabrir_ingles_sem_aplicar_so_conta(s):
+    p, ids = _cenario_ingles(s)
+    r = repo_casamento.reabrir_ignorados_por_ingles(s, T0 + timedelta(days=1), aplicar=False)
+    assert (r.encontrados, r.reabertos, r.confirmados_em_outro) == (4, 3, 1)
+    for a in [*ids["reabrir"], *ids["fica"], ids["casado"]]:
+        assert repo_casamento.obter_par(s, a.id, p.id).status is StatusCasamento.IGNORADO
+    assert repo_casamento.obter_par(s, ids["casado"].id, p.id).origem is OrigemCasamento.AUTOMATICO_IA
+
+
+def test_reabrir_ingles_aplicando(s):
+    p, ids = _cenario_ingles(s)
+    r = repo_casamento.reabrir_ignorados_por_ingles(s, T0 + timedelta(days=1), aplicar=True)
+    assert (r.encontrados, r.reabertos, r.confirmados_em_outro) == (4, 3, 1)
+    for a in ids["reabrir"]:
+        par = repo_casamento.obter_par(s, a.id, p.id)
+        assert (par.status, par.origem, par.reavaliar) == (StatusCasamento.PENDENTE, None, True)
+        assert repo_casamento_avaliacao(s, a.id, p.id).aplicada_em is None
+    for a in ids["fica"]:
+        assert repo_casamento.obter_par(s, a.id, p.id).status is StatusCasamento.IGNORADO
+    par = repo_casamento.obter_par(s, ids["casado"].id, p.id)
+    assert (par.status, par.origem) == (StatusCasamento.IGNORADO, OrigemCasamento.OUTRO_CONFIRMADO)
+    # de novo: nada mais a reabrir
+    assert repo_casamento.reabrir_ignorados_por_ingles(s, T0 + timedelta(days=1), aplicar=True).encontrados == 0
+
+
+def repo_casamento_avaliacao(s, anuncio_id, produto_id):
+    return repo_ia.avaliacoes_dos_pares(s, [(anuncio_id, produto_id)])[(anuncio_id, produto_id)]
