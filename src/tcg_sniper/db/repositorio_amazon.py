@@ -15,6 +15,7 @@ from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     DATA,
     AnuncioAmazon,
+    Casamento,
     ConferenciaCheckout,
     ConfigAmazon,
     Envio,
@@ -231,15 +232,16 @@ def registrar_preco(
 
 
 def confirmados_com_referencia(s: Session, anuncio_ids: Sequence[int]) -> list[LinhaConfirmada]:
-    """Dos anúncios dados, os confirmados, com o produto casado, o preço atual e o preço da Liga."""
+    """Dos anúncios dados, os com par confirmado, com o produto do par, o preço atual e o preço da Liga."""
     if not anuncio_ids:
         return []
     consulta = (
         select(AnuncioAmazon, ProdutoLiga, PrecoAtualAmazon, PrecoAtualLiga)
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .join(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
-        .where(AnuncioAmazon.id.in_(anuncio_ids), AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO)
+        .where(AnuncioAmazon.id.in_(anuncio_ids))
         .order_by(AnuncioAmazon.id)
         .execution_options(populate_existing=True)
     )
@@ -516,10 +518,12 @@ def _leitura_do_monitor():
 
 
 def _confirmados_ativos(consulta):
+    """Anúncios com par confirmado de produto ativo (o par confirmado é um só por anúncio)."""
     return (
-        consulta.join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        consulta.join(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
+        .where(ProdutoLiga.ativo.is_(True))
     )
 
 
@@ -797,10 +801,10 @@ def candidatas_ao_checkout(
         select(AnuncioAmazon.id, AnuncioAmazon.asin, OfertaAmazon.vendedor_nome, OfertaAmazon.preco, PrecoAtualLiga.preco_a_partir)
         .join(OfertaAmazon, OfertaAmazon.anuncio_id == AnuncioAmazon.id)
         .join(PrecoAtualAmazon, _leitura_atual_das_ofertas())
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .join(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .join(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .where(
-            AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO,
             ProdutoLiga.ativo.is_(True),
             OfertaAmazon.melhor.is_(True),
             OfertaAmazon.elegivel.is_(True),

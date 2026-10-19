@@ -6,8 +6,10 @@ from decimal import Decimal
 from sqlalchemy import ColumnElement, case, func, or_, select, update
 from sqlalchemy.orm import Session
 
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     AnuncioAmazon,
+    Casamento,
     ChamadaIA,
     Coleta,
     ConferenciaCheckout,
@@ -257,7 +259,8 @@ def historico_conferencias(
     consulta = (
         select(ConferenciaCheckout, AnuncioAmazon.asin, ProdutoLiga.nome)
         .join(AnuncioAmazon, AnuncioAmazon.id == ConferenciaCheckout.anuncio_id)
-        .outerjoin(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .outerjoin(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .outerjoin(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .where(*condicoes)
         .order_by(ConferenciaCheckout.em.desc(), ConferenciaCheckout.id.desc())
         .offset((pagina - 1) * por_pagina)
@@ -300,7 +303,8 @@ def historico_monitor(
             leituras.c.melhor_preco, leituras.c.melhor_vendedor,
         )
         .join(AnuncioAmazon, AnuncioAmazon.id == leituras.c.anuncio_id)
-        .outerjoin(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .outerjoin(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .outerjoin(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .order_by(leituras.c.lida_em.desc(), AnuncioAmazon.id)
         .offset((pagina - 1) * por_pagina)
         .limit(por_pagina)
