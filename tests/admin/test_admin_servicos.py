@@ -1,4 +1,6 @@
 import base64
+from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fakes import T0
@@ -12,6 +14,8 @@ from tcg_sniper.db.models import (
     COLETOR_LIGA,
     COLETOR_NOTIFICADOR,
     EstadoColetorTipo,
+    StatusColeta,
+    TipoColeta,
 )
 
 
@@ -228,3 +232,75 @@ def test_pausar_a_busca_avisa_com_o_nome_do_servico(cliente, sessoes):
     with sessoes() as s:
         textos = [m.texto for m in s.scalars(select(MensagemSaida))]
     assert any("Amazon (busca)" in t and "pausado" in t for t in textos)
+
+
+SP = ZoneInfo("America/Sao_Paulo")
+
+
+def desafio_da_liga(sessoes, quando):
+    with sessoes() as s, s.begin():
+        c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, quando)
+        repo.finalizar_coleta(s, c.id, StatusColeta.PAUSADA_DESAFIO, 1, 0, quando, erro="desafio em /x")
+        repo.pausar_por_desafio(s, "desafio em /x", quando)
+
+
+def retomada(sessoes, quando, solicitar=False):
+    with sessoes() as s, s.begin():
+        repo.retomar(s, quando, solicitar=solicitar)
+
+
+def test_liga_esfriando_mostra_ate_quando(cliente, sessoes):
+    agora = repo.agora_utc()
+    desafio_da_liga(sessoes, agora - timedelta(seconds=2))
+    retomada(sessoes, agora - timedelta(seconds=1))
+    ate = (agora - timedelta(seconds=1) + timedelta(minutes=30)).astimezone(SP)
+    liga = card(cliente.get("/servicos").text, "liga")
+    assert f"Esfriando até {ate:%H:%M}" in liga and "pausas em dobro" in liga
+    assert 'action="/rodar-agora"' in liga
+
+
+def test_liga_parada_ate_amanha_sem_rodar_agora(cliente, sessoes):
+    agora = repo.agora_utc()
+    desafio_da_liga(sessoes, agora - timedelta(seconds=3))
+    desafio_da_liga(sessoes, agora - timedelta(seconds=2))
+    retomada(sessoes, agora - timedelta(seconds=1))
+    liga = card(cliente.get("/servicos").text, "liga")
+    assert "Parada até amanhã (2º desafio)" in liga and 'action="/rodar-agora"' not in liga
+
+
+def test_rodar_agora_parada_nao_pede_execucao(cliente, sessoes):
+    agora = repo.agora_utc()
+    desafio_da_liga(sessoes, agora - timedelta(seconds=3))
+    desafio_da_liga(sessoes, agora - timedelta(seconds=2))
+    retomada(sessoes, agora - timedelta(seconds=1))
+    r = cliente.post("/rodar-agora", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=liga_parada_hoje"
+    with sessoes() as s:
+        assert repo.obter_estado(s).execucao_solicitada is False
+    assert "fica parada até amanhã" in cliente.get(r.headers["location"]).text
+
+
+def test_rodar_agora_esfriando_pede_e_diz_que_espera(cliente, sessoes):
+    agora = repo.agora_utc()
+    desafio_da_liga(sessoes, agora - timedelta(seconds=2))
+    retomada(sessoes, agora - timedelta(seconds=1))
+    r = cliente.post("/rodar-agora", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=liga_esfriando"
+    with sessoes() as s:
+        assert repo.obter_estado(s).execucao_solicitada is True
+    assert "quando o esfriamento terminar" in cliente.get(r.headers["location"]).text
+
+
+def test_retomar_do_primeiro_desafio_diz_que_esfria(cliente, sessoes):
+    desafio_da_liga(sessoes, repo.agora_utc() - timedelta(seconds=1))
+    r = cliente.post("/retomar", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=retomar_esfriando"
+
+
+def test_retomar_do_segundo_desafio_diz_que_volta_amanha(cliente, sessoes):
+    agora = repo.agora_utc()
+    desafio_da_liga(sessoes, agora - timedelta(seconds=2))
+    desafio_da_liga(sessoes, agora - timedelta(seconds=1))
+    r = cliente.post("/retomar", follow_redirects=False)
+    assert r.headers["location"] == "/servicos?msg=retomar_parada"
+    assert "só volta amanhã" in cliente.get(r.headers["location"]).text

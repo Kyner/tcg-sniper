@@ -32,6 +32,7 @@ from tcg_sniper.avisos.catalogo import CATALOGO, EMOJI, Dados, TipoAviso
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
+from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
@@ -84,6 +85,13 @@ ROTULOS_DESTINO = {
 MENSAGENS_SERVICOS = {
     "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
     "retomar": "Coleta da LigaMagic retomada.",
+    "retomar_esfriando": (
+        "Desafio resolvido. A coleta volta sozinha depois do esfriamento (o card mostra até quando), "
+        "com pausas em dobro até o fim do dia."
+    ),
+    "retomar_parada": "Desafio resolvido. Foi o 2º de hoje: a coleta da LigaMagic só volta amanhã, no horário de sempre.",
+    "liga_esfriando": "Execução da LigaMagic solicitada; começa quando o esfriamento terminar (o card mostra até quando).",
+    "liga_parada_hoje": "A LigaMagic teve o 2º desafio hoje e fica parada até amanhã; nada foi solicitado.",
     "liga_pausar": "Coleta da LigaMagic desligada. Volta quando você ligar de novo.",
     "liga_retomar": "Coleta da LigaMagic ligada; segue o horário diário.",
     "notificador_pausar": (
@@ -375,10 +383,15 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         efetiva = request.state.config
         with sessoes() as s, s.begin():
             cfg_amazon = repo_amz.obter_config(s)
+            desafio = situacao_desafio(s, repo.agora_utc(), efetiva.zona, efetiva.esfriar_desafio_min)
             return templates.TemplateResponse(
                 request,
                 "servicos.html",
                 {
+                    "liga_parada": desafio.parada_hoje,
+                    "liga_esfriando_ate": (
+                        f"{desafio.esfriando_ate.astimezone(efetiva.zona):%H:%M}" if desafio.esfriando_ate else None
+                    ),
                     "estado": repo.obter_estado(s),
                     "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
                     "ultima_liga": consultas.ultima_coleta_sucesso(s, TIPOS_LIGA),
@@ -413,18 +426,34 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         avisos.avisar(s, TipoAviso.SERVICO_PAUSADO_MANUAL, coletor, dados, agora)
 
     @app.post("/retomar")
-    def retomar():
+    def retomar(request: Request):
+        efetiva = request.state.config
         agora = repo.agora_utc()
         with sessoes() as s, s.begin():
             repo.retomar(s, agora)
             _avisar_mudanca(s, COLETOR_LIGA, "ativo", agora)
-        return RedirectResponse("/servicos?msg=retomar", status_code=status.HTTP_303_SEE_OTHER)
+            desafio = situacao_desafio(s, agora, efetiva.zona, efetiva.esfriar_desafio_min)
+        if desafio.parada_hoje:
+            msg = "retomar_parada"
+        elif desafio.esfriando_ate is not None:
+            msg = "retomar_esfriando"
+        else:
+            msg = "retomar"
+        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/rodar-agora")
-    def rodar_agora():
+    def rodar_agora(request: Request):
+        """Respeita o esfriamento (o pedido espera) e a parada do 2º desafio (nada é pedido)."""
+        efetiva = request.state.config
+        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.solicitar_execucao(s, repo.agora_utc())
-        return RedirectResponse("/servicos?msg=rodar", status_code=status.HTTP_303_SEE_OTHER)
+            desafio = situacao_desafio(s, agora, efetiva.zona, efetiva.esfriar_desafio_min)
+            if desafio.parada_hoje:
+                msg = "liga_parada_hoje"
+            else:
+                repo.solicitar_execucao(s, agora)
+                msg = "liga_esfriando" if desafio.esfriando_ate is not None else "rodar"
+        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
 
     def _desligar(coletor: str, msg: str) -> RedirectResponse:
         """Pausa manual; um desafio pendente não é sobrescrito (só sai com Retomar, depois de resolvido)."""

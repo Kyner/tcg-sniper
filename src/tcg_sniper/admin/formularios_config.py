@@ -53,6 +53,8 @@ CAMPOS_LIGA = (
     "categorias",
     "url_listagem",
     "max_cliques",
+    "produtos_novos_dia",
+    "esfriar_desafio_min",
 )
 ROTULOS_LIGA = {
     "coleta_hora": "Horário da coleta diária",
@@ -63,6 +65,8 @@ ROTULOS_LIGA = {
     "categorias": "Categorias",
     "url_listagem": "URL da listagem",
     "max_cliques": "Máximo de cliques em \"Exibir mais\"",
+    "produtos_novos_dia": "Produtos novos por dia",
+    "esfriar_desafio_min": "Esfriar após desafio (min)",
 }
 EXPLICACOES_LIGA = {
     "coleta_hora": "Hora (HH:MM), no fuso da seção Geral.",
@@ -73,6 +77,11 @@ EXPLICACOES_LIGA = {
     "categorias": "IDs das categorias de selados, separados por vírgula. Tire daqui uma categoria que falha todo dia.",
     "url_listagem": "Modelo da URL de uma categoria; {categ} é trocado pelo ID.",
     "max_cliques": "Cada clique mostra mais 40 produtos. Atingir o limite conta como falha da categoria.",
+    "produtos_novos_dia": "Produtos ativos ainda sem resumo de preço abertos por dia, os mais antigos primeiro. 0: nenhum.",
+    "esfriar_desafio_min": (
+        "Depois de um desafio resolvido, a coleta espera esses minutos e segue com pausas em dobro até o fim do dia. "
+        "Um 2º desafio no mesmo dia para a coleta até o dia seguinte."
+    ),
 }
 
 
@@ -123,7 +132,7 @@ def validar_liga(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[str
     else:
         valores["coleta_hora"] = hora
 
-    for campo in ("coleta_jitter_min", "limite_falha_pct", "max_cliques"):
+    for campo in ("coleta_jitter_min", "limite_falha_pct", "max_cliques", "produtos_novos_dia", "esfriar_desafio_min"):
         minimo, maximo = LIMITES_CONFIG_LIGA[campo]
         texto = (campos.get(campo) or "").strip()
         if not (texto.isascii() and texto.isdecimal()) or len(texto) > 6:

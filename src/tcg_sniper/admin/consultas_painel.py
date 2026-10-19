@@ -18,6 +18,7 @@ from tcg_sniper.admin.consultas_catalogo import (
     situacao_catalogo,
 )
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
+from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
@@ -167,6 +168,16 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
     if rodando is not None:
         texto = f"Coleta em andamento desde {_quando(rodando.iniciada_em, agora, zona)}"
         return SaudeServico("LigaMagic", "rodando", texto, detalhe, link_logs)
+    desafio = situacao_desafio(s, agora, zona, cfg.esfriar_desafio_min)
+    if desafio.parada_hoje:
+        return SaudeServico(
+            "LigaMagic", "parcial", "Parada até amanhã (2º desafio)", f"Próxima amanhã {horario} · {com_preco} de {ativos} com preço",
+            link_logs, selo="parada até amanhã",
+        )
+    if desafio.esfriando_ate is not None:
+        texto = f"Esfriando até {desafio.esfriando_ate.astimezone(zona):%H:%M}"
+        espera = f"Volta sozinha nessa hora, com pausas em dobro até o fim do dia · {com_preco} de {ativos} com preço"
+        return SaudeServico("LigaMagic", "parcial", texto, espera, link_logs, selo="esfriando")
     ultima_ok = consultas.ultima_coleta_sucesso(s, TIPOS_LIGA)
     texto_ok = f"Última coleta ok {_quando(ultima_ok.iniciada_em, agora, zona)}" if ultima_ok else "Nenhuma coleta ainda"
     ultima = consultas.ultima_coleta_finalizada(s, TIPOS_LIGA)
