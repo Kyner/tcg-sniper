@@ -8,7 +8,14 @@ from tcg_sniper.avisos import vigia
 from tcg_sniper.avisos.catalogo import TipoAviso
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import COLETOR_AMAZON, COLETOR_CASADOR, COLETOR_LIGA, EstadoColetorTipo, MensagemSaida
+from tcg_sniper.db.models import (
+    COLETOR_AMAZON,
+    COLETOR_AMAZON_BUSCA,
+    COLETOR_CASADOR,
+    COLETOR_LIGA,
+    EstadoColetorTipo,
+    MensagemSaida,
+)
 
 AGORA = datetime(2026, 10, 18, 13, 0, tzinfo=UTC)  # 10:00 em São Paulo
 INICIO = AGORA - timedelta(hours=1)
@@ -16,7 +23,7 @@ INICIO = AGORA - timedelta(hours=1)
 
 def todos_vivos(sessoes, quando, menos=()):
     with sessoes() as s, s.begin():
-        for servico in (COLETOR_LIGA, COLETOR_AMAZON, COLETOR_CASADOR):
+        for servico in (COLETOR_LIGA, COLETOR_AMAZON, COLETOR_AMAZON_BUSCA, COLETOR_CASADOR):
             if servico not in menos:
                 vigia.registrar_sinal(s, servico, quando)
         repo_msg.registrar_ciclo(s, quando)
@@ -123,3 +130,17 @@ def test_batimento_em_thread_bate_e_para(sessoes):
     assert batidas, "a thread não bateu em 2 s"
     t.join(timeout=2)
     assert not t.is_alive() and t.daemon
+
+
+def test_busca_da_amazon_muda_abre_com_o_nome_do_servico(sessoes):
+    todos_vivos(sessoes, AGORA - timedelta(minutes=1), menos=(COLETOR_AMAZON_BUSCA,))
+    verificar(sessoes, AGORA)
+    assert abertos(sessoes) == ["coletor-amazon-busca"]
+
+
+def test_busca_pausada_e_ignorada_e_o_monitor_continua_vigiado(sessoes):
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", AGORA, COLETOR_AMAZON_BUSCA)
+    todos_vivos(sessoes, AGORA - timedelta(minutes=1), menos=(COLETOR_AMAZON_BUSCA, COLETOR_AMAZON))
+    verificar(sessoes, AGORA)
+    assert abertos(sessoes) == ["coletor-amazon"]
