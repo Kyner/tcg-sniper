@@ -220,11 +220,12 @@ def test_reavaliar_produto_so_mexe_nos_pares_dele_e_nao_nas_decisoes_manuais(s):
     av = avaliacao(s, pela_ia, p)
     av.aplicada_em = T0
     s.flush()
-    assert repo_casamento.reavaliar_produto(s, p.id, T0) == 4
-    for anuncio in (pend, pela_ia, sugerido, sobra):
+    assert repo_casamento.reavaliar_produto(s, p.id, T0) == 3
+    for anuncio in (pend, pela_ia, sobra):
         par = repo_casamento.obter_par(s, anuncio.id, p.id)
         assert (par.status, par.origem, par.revisado_em, par.reavaliar) == (PENDENTE, None, None, True)
     assert situacao(s, manual, p) == (IGNORADO, MANUAL)
+    assert situacao(s, sugerido, p) == (IGNORADO, OrigemCasamento.SUGERIDO_IA)  # decisão sua no admin
     assert situacao(s, confirmado, p) == (CONFIRMADO, OrigemCasamento.AUTOMATICO_IA)
     assert situacao(s, casado_em_q, p) == (IGNORADO, OUTRO)
     assert situacao(s, de_outro, outro) == (IGNORADO, OrigemCasamento.AUTOMATICO_IA)
@@ -383,3 +384,27 @@ def test_reavaliar_produto_espera_a_confirmacao_em_andamento(engine):
             c.execute(text("DELETE FROM casamento WHERE anuncio_id = :a"), {"a": anuncio_id})
             c.execute(text("DELETE FROM anuncio_amazon WHERE id = :a"), {"a": anuncio_id})
             c.execute(text("DELETE FROM produto_liga WHERE liga_id LIKE 'travr-%'"))
+
+
+def test_desfazer_ignorado_por_voce_com_o_anuncio_confirmado_em_outro_vira_outro_confirmado(s):
+    p, q = criar_produto(s, "p"), criar_produto(s, "q")
+    anuncio = criar_anuncio(s, "B0DESO0001", produto=q, status=CONFIRMADO, origem=MANUAL)
+    criar_par(s, anuncio, p, status=IGNORADO, origem=MANUAL, revisado_em=T0)
+    depois = T0 + timedelta(hours=1)
+    par = repo_casamento.desfazer(s, anuncio.id, p.id, depois)
+    assert (par.status, par.origem, par.revisado_em, par.reavaliar) == (IGNORADO, OUTRO, depois, False)
+    assert situacao(s, anuncio, q) == (CONFIRMADO, MANUAL)
+
+
+def test_reavaliar_nunca_deixa_pendente_num_anuncio_confirmado_em_outro(s):
+    p, q = criar_produto(s, "p"), criar_produto(s, "q")
+    pela_ia = criar_anuncio(s, "B0REAO0001", produto=q, status=CONFIRMADO, origem=MANUAL)
+    criar_par(s, pela_ia, p, status=IGNORADO, origem=OrigemCasamento.AUTOMATICO_IA, revisado_em=T0)
+    pendente = criar_anuncio(s, "B0REAO0002", produto=q, status=CONFIRMADO, origem=MANUAL)
+    criar_par(s, pendente, p)  # sobra inconsistente: pendente num anúncio confirmado em q
+    depois = T0 + timedelta(hours=1)
+    assert repo_casamento.reavaliar_produto(s, p.id, depois) == 0
+    for anuncio in (pela_ia, pendente):
+        par = repo_casamento.obter_par(s, anuncio.id, p.id)
+        assert (par.status, par.origem, par.revisado_em, par.reavaliar) == (IGNORADO, OUTRO, depois, False)
+        assert situacao(s, anuncio, q) == (CONFIRMADO, MANUAL)

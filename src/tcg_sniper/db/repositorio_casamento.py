@@ -9,8 +9,14 @@ Regras (spec 2026-10-19-casamento-por-par-design.md):
 - o automático da IA (origem `automatico_ia`) nunca passa por cima de uma decisão sua (`manual`): confirmar,
   ignorar e trocar devolvem o par como está, sem mudar nada (`decidido_por_voce` diz se foi o caso).
 
-Toda escrita trava antes a linha do anúncio (confirmações do mesmo anúncio viram fila). Este módulo só
-depende dos modelos: o repositorio_amazon importa este, nunca o contrário."""
+- nunca fica par pendente num anúncio confirmado para outro produto: desfazer e reavaliar o deixam
+  ignorado com origem `outro_confirmado`.
+
+Toda escrita trava antes a linha do anúncio (confirmações do mesmo anúncio viram fila). Quem registra
+vários anúncios numa transação só (a busca, `registrar_visto` em laço) trava em ordem crescente de
+`anuncio_id` — como `reavaliar_produto` — ou faz commit por anúncio; senão duas transações podem se
+travar mutuamente (deadlock). Este módulo só depende dos modelos: o repositorio_amazon importa este, nunca
+o contrário."""
 
 from datetime import datetime
 
@@ -22,8 +28,9 @@ from sqlalchemy.orm import Session
 from tcg_sniper.db.models import AnuncioAmazon, AvaliacaoIA, Casamento, Oportunidade, OrigemCasamento, StatusCasamento
 
 PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO
-# Ignorados que "Reavaliar com a IA" devolve a pendente (decisões `manual` e confirmados não mudam).
-ORIGENS_REAVALIAVEIS = (OrigemCasamento.SUGERIDO_IA, OrigemCasamento.AUTOMATICO_IA, OrigemCasamento.OUTRO_CONFIRMADO)
+# Ignorados que "Reavaliar com a IA" devolve a pendente. `manual` e `sugerido_ia` são decisões suas (no
+# admin) e não mudam, nem os confirmados; `outro_confirmado` só se o anúncio não é confirmado de ninguém.
+ORIGENS_REAVALIAVEIS = (OrigemCasamento.AUTOMATICO_IA, OrigemCasamento.OUTRO_CONFIRMADO)
 
 
 def decidido_por_voce(par: Casamento | None) -> bool:
@@ -101,6 +108,11 @@ def _reabrir_outro_confirmado(s: Session, anuncio_id: int) -> None:
         .values(status=PENDENTE, origem=None, revisado_em=None)
         .execution_options(synchronize_session="fetch")
     )
+
+
+def _outro_confirmado(par: Casamento, agora: datetime) -> None:
+    """O anúncio do par é confirmado para outro produto: o par não pode ficar pendente."""
+    par.status, par.origem, par.revisado_em, par.reavaliar = IGNORADO, OrigemCasamento.OUTRO_CONFIRMADO, agora, False
 
 
 def _inserir_par(s: Session, anuncio_id: int, produto_id: int, agora: datetime, **valores) -> bool:
@@ -194,13 +206,19 @@ def ignorar(
 def desfazer(s: Session, anuncio_id: int, produto_id: int, agora: datetime) -> Casamento | None:
     """Volta o par a pendente (origem e revisão zeradas) e o marca para a IA reavaliar mesmo com os dados
     iguais. Se era o confirmado: fecha as oportunidades do anúncio e reabre os `outro_confirmado`. Par
-    `outro_confirmado` com o anúncio ainda confirmado: JaConfirmado. Sem o par: None."""
+    `outro_confirmado` com o anúncio ainda confirmado: JaConfirmado. Outro par com o anúncio confirmado para
+    outro produto: vira ignorado `outro_confirmado` (nunca pendente). Sem o par: None."""
     if obter_par(s, anuncio_id, produto_id) is None:
         return None
     travar_anuncio(s, anuncio_id)
     par = obter_par(s, anuncio_id, produto_id)
-    if par.origem is OrigemCasamento.OUTRO_CONFIRMADO and (outro := confirmado_do_anuncio(s, anuncio_id)) is not None:
-        raise JaConfirmado(anuncio_id, outro.produto_id)
+    outro = confirmado_do_anuncio(s, anuncio_id)
+    if outro is not None and outro.produto_id != produto_id:
+        if par.origem is OrigemCasamento.OUTRO_CONFIRMADO:
+            raise JaConfirmado(anuncio_id, outro.produto_id)
+        _outro_confirmado(par, agora)
+        s.flush()
+        return par
     era_confirmado = par.status is CONFIRMADO
     par.status, par.origem, par.revisado_em, par.reavaliar = PENDENTE, None, None, True
     s.flush()
@@ -251,8 +269,10 @@ def casar_asin(s: Session, produto_id: int, asin: str, agora: datetime, titulo_p
 
 def reavaliar_produto(s: Session, produto_id: int, agora: datetime) -> int:
     """"Reavaliar com a IA": volta a pendente (marcados para reavaliar) os pares do produto pendentes ou
-    ignorados pela IA (`sugerido_ia`, `automatico_ia`, `outro_confirmado` cujo anúncio não é mais confirmado
-    de ninguém). Decisões `manual` e confirmados não mudam. Devolve quantos pares marcou."""
+    ignorados pelo automático (`automatico_ia`) ou `outro_confirmado` cujo anúncio não é mais confirmado de
+    ninguém. Decisões suas (`manual`, `sugerido_ia`) e confirmados não mudam. Par desses cujo anúncio é
+    confirmado de outro produto vira ignorado `outro_confirmado` (nunca pendente; não conta). Trava os
+    anúncios em ordem crescente de id. Devolve quantos pares marcou para reavaliar."""
     alvos = s.scalars(
         select(Casamento)
         .where(
@@ -272,7 +292,9 @@ def reavaliar_produto(s: Session, produto_id: int, agora: datetime) -> int:
         par = obter_par(s, alvo.anuncio_id, produto_id)
         if par.status is CONFIRMADO or (par.status is IGNORADO and par.origem not in ORIGENS_REAVALIAVEIS):
             continue
-        if par.origem is OrigemCasamento.OUTRO_CONFIRMADO and confirmado_do_anuncio(s, par.anuncio_id) is not None:
+        if confirmado_do_anuncio(s, par.anuncio_id) is not None:  # confirmado de outro produto
+            if par.origem is not OrigemCasamento.OUTRO_CONFIRMADO:
+                _outro_confirmado(par, agora)
             continue
         par.status, par.origem, par.revisado_em, par.reavaliar = PENDENTE, None, None, True
         _zerar_aplicada(s, par.anuncio_id, produto_id)
