@@ -51,6 +51,8 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes na fase 3.
 - [ ] Índice em `resumo_preco.coletado_em` para a lista do dia (hoje varre a tabela inteira; ela cresce ~800 mil linhas/ano).
 - [ ] Produto novo cuja página sempre falha ocupa uma das vagas de novos do dia (o mais antigo primeiro); pular depois de N falhas.
+- [ ] LigaMagic: desligar e religar pelo liga/desliga de Serviços reinicia a espera de 30 min após um desafio; o card diz "volta sozinha", mas nenhum job roda se o do dia já rodou. Nunca fica mais agressivo, só o texto engana. Contar a espera só do "Retomar" após desafio.
+- [ ] LigaMagic: 1º desafio tarde da noite com a espera terminando depois da meia-noite roda o job da madrugada com pausas normais ("desafios hoje" zera à meia-noite). Avaliar contar as pausas em dobro pelas últimas 24 h.
 - [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
 
 ## 3. Acompanhar (sem código)
