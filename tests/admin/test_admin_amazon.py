@@ -110,7 +110,7 @@ def test_configuracoes_recusa_valor_invalido_e_nao_grava_nada(cliente, sessoes):
     assert 'name="max_buscas_hora" value="150"' in r.text  # o formulário volta com o que foi digitado
     with sessoes() as s:
         config = repo_amz.obter_config(s)
-    assert (config.desconto_min_pct, config.max_buscas_hora) == (25, 200)
+    assert (config.desconto_min_pct, config.max_buscas_hora) == (25, 90)
 
 
 SP = ZoneInfo("America/Sao_Paulo")

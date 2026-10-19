@@ -106,6 +106,7 @@ COLETOR_AMAZON = "amazon"
 COLETOR_CASADOR = "casador"
 COLETOR_NOTIFICADOR = "notificador"
 COLETOR_MANUTENCAO = "manutencao"
+COLETOR_AMAZON_BUSCA = "amazon_busca"  # busca de anúncios novos (serviço coletor-amazon-busca, navegador sem login)
 
 
 def _enum(cls: type[enum.Enum], nome: str) -> Enum:
@@ -202,12 +203,12 @@ class PrecoAtualLiga(Base):
 
 
 class EstadoColetor(Base):
-    """Uma linha por serviço: id 1 = Liga, id 2 = Amazon, id 3 = casador, id 4 = notificador,
-    id 5 = manutenção (ver `repositorio.ID_COLETOR`)."""
+    """Uma linha por serviço: id 1 = Liga, id 2 = Amazon (monitor, checkout e retirada), id 3 = casador,
+    id 4 = notificador, id 5 = manutenção, id 6 = Amazon (busca) (ver `repositorio.ID_COLETOR`)."""
 
     __tablename__ = "estado_coletor"
     __table_args__ = (
-        CheckConstraint("id IN (1, 2, 3, 4, 5)", name="ck_estado_coletor_linhas"),
+        CheckConstraint("id IN (1, 2, 3, 4, 5, 6)", name="ck_estado_coletor_linhas"),
         UniqueConstraint("coletor", name="uq_estado_coletor_coletor"),
     )
 
@@ -450,7 +451,7 @@ PADROES_CONFIG_AMAZON: dict[str, object] = {
     "pausa_max_s": 20,
     "resultados_por_busca": 10,
     "intervalo_busca_min": 60,
-    "max_buscas_hora": 200,
+    "max_buscas_hora": 90,
     "limite_falha_pct": 50,
     "desconto_min_pct": 25,
     "realerta_queda_pct": 5,

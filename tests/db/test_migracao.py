@@ -30,7 +30,7 @@ def test_migracao_igual_aos_modelos(engine):
 
 def test_estado_coletor_aceita_so_as_linhas_dos_coletores(s):
     agora = datetime.now(UTC)
-    s.add(EstadoColetor(id=6, coletor="outro", estado=EstadoColetorTipo.ATIVO, atualizado_em=agora))
+    s.add(EstadoColetor(id=7, coletor="outro", estado=EstadoColetorTipo.ATIVO, atualizado_em=agora))
     with pytest.raises(IntegrityError):
         s.flush()
 
@@ -44,6 +44,11 @@ def test_migracao_cria_estado_da_manutencao_ativo_e_o_estado_vivo(s):
     estado = s.get(EstadoColetor, 5)
     assert (estado.coletor, estado.estado) == ("manutencao", EstadoColetorTipo.ATIVO)
     assert s.get(EstadoManutencao, 1).ultimo_ciclo_em is None
+
+
+def test_migracao_cria_estado_da_busca_da_amazon_ativo(s):
+    estado = s.get(EstadoColetor, 6)
+    assert (estado.coletor, estado.estado) == ("amazon_busca", EstadoColetorTipo.ATIVO)
 
 
 def test_insert_do_codigo_antigo_sem_coletor_nao_quebra(s):
@@ -139,6 +144,7 @@ def test_migracao_amazon_preserva_os_dados_da_liga(engine):
             (2, "amazon", "ativo", None),
             (4, "notificador", "ativo", None),
             (5, "manutencao", "ativo", None),
+            (6, "amazon_busca", "ativo", None),
         ]
         assert tuple(coleta) == ("produtos", "ok", 7, 1)
         assert configs == 1
