@@ -1,0 +1,26 @@
+# Serviço `web`: serve o build do front (Vite) e repassa /api para o serviço api (mesma origem: sem CORS).
+# API_ALVO muda o destino (padrão: api:8100, o nome do serviço na rede do compose).
+{
+	admin off
+	auto_https off
+}
+
+:8090 {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy {$API_ALVO:api:8100}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+	}
+}
