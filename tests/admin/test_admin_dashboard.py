@@ -51,7 +51,9 @@ def card(texto, nome):
 
 
 def test_dashboard_sem_atalho_de_configuracoes_no_bloco_da_amazon(cliente):
-    assert "/configuracoes" not in card(cliente.get("/").text, "Amazon")
+    texto = cliente.get("/").text
+    assert "/configuracoes" not in card(texto, "Amazon (busca)")
+    assert "/configuracoes" not in card(texto, "Amazon (monitor e checkout)")
 
 
 def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes, monkeypatch):
@@ -65,14 +67,14 @@ def test_dashboard_mostra_ultimas_execucoes_e_horario(cliente, sessoes, monkeypa
     texto = cliente.get("/").text
     liga = card(texto, "LigaMagic")
     assert "Última coleta ok" in liga and "10:00" in liga and 'badge-success">funcionando' in liga
-    assert "Último ciclo" in card(texto, "Amazon") and "(parcial)" in card(texto, "Amazon")
+    assert "Último ciclo" in card(texto, "Amazon (busca)") and "(parcial)" in card(texto, "Amazon (busca)")
 
 
 def test_dashboard_amazon_fora_da_janela(cliente, monkeypatch):
     monkeypatch.setattr(modulo_app.repo, "agora_utc", lambda: datetime(2026, 10, 15, 23, 30, tzinfo=SP))
-    assert "fora do horário (08:00–22:00)" in card(cliente.get("/").text, "Amazon")
+    assert "fora do horário (08:00–22:00)" in card(cliente.get("/").text, "Amazon (busca)")
     monkeypatch.setattr(modulo_app.repo, "agora_utc", lambda: datetime(2026, 10, 15, 12, 0, tzinfo=SP))
-    assert "fora do horário" not in card(cliente.get("/").text, "Amazon")
+    assert "fora do horário" not in card(cliente.get("/").text, "Amazon (busca)")
 
 
 def test_dashboard_nao_tem_mais_o_historico(cliente, sessoes):
@@ -86,7 +88,7 @@ def test_dashboard_nao_tem_mais_o_historico(cliente, sessoes):
 
 def test_dashboard_tem_servicos_numeros_e_atividade(cliente):
     texto = cliente.get("/").text
-    for nome in ("LigaMagic", "Amazon", "Casador (IA)", "WhatsApp", "Backup"):
+    for nome in ("LigaMagic", "Amazon (busca)", "Amazon (monitor e checkout)", "Casador (IA)", "WhatsApp", "Backup"):
         assert f'data-servico="{nome}"' in texto
     for rotulo in ("Casamentos", "Casados", "Sem candidato", "Produtos avaliados", "Esperando a IA",
                    "Gasto do mês", "Oportunidades", "Alertas na semana", "Atividade de hoje", "Mensagens do WhatsApp"):
@@ -174,3 +176,9 @@ def test_notificador_desligado_nao_avisa_pendentes_paradas(cliente, sessoes):
     texto = cliente.get("/").text
     assert "Mensagens do WhatsApp paradas" not in texto
     assert "WhatsApp — Envio desligado" in texto and "ofertas vencidas expiram" in texto
+
+
+def test_dashboard_tem_os_dois_cards_da_amazon(cliente):
+    texto = cliente.get("/").text
+    assert 'data-servico="Amazon (busca)"' in texto and 'data-servico="Amazon (monitor e checkout)"' in texto
+    assert "buscas na última hora" in texto and "produtos ativos nunca buscados" in texto
