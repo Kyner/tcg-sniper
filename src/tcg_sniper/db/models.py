@@ -94,6 +94,12 @@ class StatusManutencao(enum.StrEnum):
     INTERROMPIDA = "interrompida"  # o serviço reiniciou no meio; não conta como a execução do dia
 
 
+class Papel(enum.StrEnum):
+    GRUPO = "grupo"  # área de negócio
+    OPERADOR = "operador"  # área de negócio e de gestão (o que mais, a grade de Acessos diz)
+    ADMIN = "admin"  # tudo, sempre (não editável na grade)
+
+
 COLETOR_LIGA = "liga"
 COLETOR_AMAZON = "amazon"
 COLETOR_CASADOR = "casador"
@@ -532,7 +538,8 @@ class MensagemSaida(Base):
 
     __tablename__ = "mensagem_saida"
     __table_args__ = (
-        CheckConstraint("destino IN ('admin', 'oportunidades')", name="ck_mensagem_saida_destino"),
+        CheckConstraint("destino IN ('admin', 'oportunidades', 'individual')", name="ck_mensagem_saida_destino"),
+        CheckConstraint("(destino = 'individual') = (numero IS NOT NULL)", name="ck_mensagem_saida_numero"),
         CheckConstraint("texto <> ''", name="ck_mensagem_saida_texto"),
         CheckConstraint("tentativas >= 0", name="ck_mensagem_saida_tentativas"),
         Index("ix_mensagem_saida_fila", "status", "proxima_tentativa_em"),
@@ -549,6 +556,8 @@ class MensagemSaida(Base):
     criada_em: Mapped[datetime] = mapped_column(DATA)
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
     enviada_em: Mapped[datetime | None] = mapped_column(DATA)
+    numero: Mapped[str | None] = mapped_column(Text)  # E.164, só destino "individual"; nunca em log
+    expira_em: Mapped[datetime | None] = mapped_column(DATA)  # validade própria (código de acesso: 5 min)
 
 
 class EstadoNotificador(Base):
@@ -724,3 +733,93 @@ class AvaliacaoIA(Base):
     avaliado_em: Mapped[datetime] = mapped_column(DATA)
     aplicada_em: Mapped[datetime | None] = mapped_column(DATA)
     chamada_id: Mapped[int | None] = mapped_column(ForeignKey("chamada_ia.id"))
+
+
+class Usuario(Base):
+    """Pessoa que entra no front. `numero` em E.164 fica só no banco: nunca em log, tela (só mascarado) ou grupo.
+    `superadmin`: o dono do sistema (um só, sempre admin e ativo; a API nunca o rebaixa, desativa ou encerra)."""
+
+    __tablename__ = "usuario"
+    __table_args__ = (
+        UniqueConstraint("numero", name="uq_usuario_numero"),
+        CheckConstraint("nome <> ''", name="ck_usuario_nome"),
+        CheckConstraint("numero ~ '^[+][1-9][0-9]{9,14}$'", name="ck_usuario_numero"),
+        CheckConstraint("NOT superadmin OR (papel = 'admin' AND ativo)", name="ck_usuario_superadmin"),
+        # no máximo um superadmin (o dono do sistema): criado e trocado só pelos comandos locais
+        Index("uq_usuario_superadmin", "superadmin", unique=True, postgresql_where=text("superadmin")),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nome: Mapped[str] = mapped_column(Text)
+    numero: Mapped[str] = mapped_column(Text)
+    papel: Mapped[Papel] = mapped_column(_enum(Papel, "papel"))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    superadmin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    criado_em: Mapped[datetime] = mapped_column(DATA)
+
+
+class CodigoAcesso(Base):
+    """Código de 6 dígitos pedido no login (só o hash). Só o último do usuário vale; 5 tentativas erradas o invalidam."""
+
+    __tablename__ = "codigo_acesso"
+    __table_args__ = (
+        CheckConstraint("tentativas >= 0", name="ck_codigo_acesso_tentativas"),
+        Index("ix_codigo_acesso_usuario", "usuario_id", "criado_em"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"))
+    hash_codigo: Mapped[str] = mapped_column(Text)
+    criado_em: Mapped[datetime] = mapped_column(DATA)
+    expira_em: Mapped[datetime] = mapped_column(DATA)
+    tentativas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    usado_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
+class Sessao(Base):
+    """Sessão do front (cookie `sessao`; no banco só o hash do token). Vence em 30 dias, renovada a cada uso."""
+
+    __tablename__ = "sessao"
+    __table_args__ = (
+        UniqueConstraint("hash_token", name="uq_sessao_hash_token"),
+        Index("ix_sessao_usuario", "usuario_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"))
+    hash_token: Mapped[str] = mapped_column(Text)
+    aparelho: Mapped[str] = mapped_column(Text)  # "Chrome · Windows"
+    criada_em: Mapped[datetime] = mapped_column(DATA)
+    ultimo_uso_em: Mapped[datetime] = mapped_column(DATA)
+    expira_em: Mapped[datetime] = mapped_column(DATA)
+    encerrada_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
+class PermissaoPapel(Base):
+    """Grade papel × permissão (Gestão → Acessos). Linha ausente = padrão do código (`api/permissoes.py`);
+    `permissao` é texto livre de propósito: cada fase acrescenta as suas sem migração. Linhas do admin são ignoradas."""
+
+    __tablename__ = "permissao_papel"
+
+    papel: Mapped[Papel] = mapped_column(_enum(Papel, "papel"), primary_key=True)
+    permissao: Mapped[str] = mapped_column(Text, primary_key=True)
+    permitido: Mapped[bool] = mapped_column(Boolean)
+
+
+class PedidoCodigo(Base):
+    """Cada pedido de código, para os limites (3 por número em 15 min, 20 por hora no total). Sem o número: só o hash,
+    também de números sem cadastro (o limite vale para eles, senão o 429 revelaria quem tem cadastro)."""
+
+    __tablename__ = "pedido_codigo"
+    __table_args__ = (
+        CheckConstraint(
+            "resultado IN ('aceito', 'limite_numero', 'limite_total')", name="ck_pedido_codigo_resultado"
+        ),
+        Index("ix_pedido_codigo_em", "em"),
+        Index("ix_pedido_codigo_numero", "numero_hash", "em"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    em: Mapped[datetime] = mapped_column(DATA)
+    numero_hash: Mapped[str] = mapped_column(Text)
+    resultado: Mapped[str] = mapped_column(Text)
