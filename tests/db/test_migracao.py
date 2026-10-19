@@ -43,12 +43,12 @@ def test_migracao_cria_estado_do_notificador_ativo(s):
 def test_migracao_cria_estado_da_manutencao_ativo_e_o_estado_vivo(s):
     estado = s.get(EstadoColetor, 5)
     assert (estado.coletor, estado.estado) == ("manutencao", EstadoColetorTipo.ATIVO)
+    assert s.get(EstadoManutencao, 1).ultimo_ciclo_em is None
 
 
 def test_migracao_cria_estado_da_busca_da_amazon_ativo(s):
     estado = s.get(EstadoColetor, 6)
     assert (estado.coletor, estado.estado) == ("amazon_busca", EstadoColetorTipo.ATIVO)
-    assert s.get(EstadoManutencao, 1).ultimo_ciclo_em is None
 
 
 def test_insert_do_codigo_antigo_sem_coletor_nao_quebra(s):
