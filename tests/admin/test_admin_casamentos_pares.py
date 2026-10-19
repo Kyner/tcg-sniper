@@ -77,8 +77,7 @@ def test_ofertas_e_produto_usam_o_par_confirmado_e_a_origem_dele(s):
 def test_tela_do_produto_mostra_a_origem_do_par(sessoes, cliente):
     with sessoes() as s, s.begin():
         p = criar_produto(s, "tela", nome="Produto Tela")
-        anuncio = criar_anuncio(s, "B0TELA0001", produto=p, status=CONFIRMADO, origem=OrigemCasamento.AUTOMATICO_IA)
-        anuncio.origem_casamento = OrigemCasamento.SUGERIDO_IA  # coluna antiga diferente do par
+        criar_anuncio(s, "B0TELA0001", produto=p, status=CONFIRMADO, origem=OrigemCasamento.AUTOMATICO_IA)
         produto_id = p.id
     resposta = cliente.get(f"/produto/{produto_id}")
     assert resposta.status_code == 200 and "automático pela IA" in resposta.text

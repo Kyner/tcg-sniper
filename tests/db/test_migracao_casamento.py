@@ -174,3 +174,24 @@ def test_migracao_aborta_com_dois_confirmados_no_mesmo_anuncio(engine):
                 modulo.conferir_um_confirmado_por_anuncio(c)
         finally:
             transacao.rollback()  # o DROP INDEX também volta
+
+
+ANTIGAS = {"anuncio_amazon": {"produto_id", "status_casamento", "origem_casamento", "revisado_em"},
+           "fila_amazon": {"ultimo_termo_en"}}
+
+
+def _colunas(proprio, tabela):
+    with proprio.connect() as c:
+        return set(c.execute(
+            text("SELECT column_name FROM information_schema.columns WHERE table_name = :t"), {"t": tabela}
+        ).scalars())
+
+
+def test_colunas_antigas_saem_e_voltam_no_downgrade(banco):
+    """Por tabela: `fila_amazon` tem o seu próprio `produto_id` (a chave), que fica."""
+    cfg, proprio = banco
+    for tabela, antigas in ANTIGAS.items():
+        assert not _colunas(proprio, tabela) & antigas
+    command.downgrade(cfg, ANTES)
+    for tabela, antigas in ANTIGAS.items():
+        assert antigas <= _colunas(proprio, tabela)

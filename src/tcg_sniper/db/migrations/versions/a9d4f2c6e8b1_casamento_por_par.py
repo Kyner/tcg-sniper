@@ -6,7 +6,8 @@ Create Date: 2026-10-19 12:00:00
 
 Tudo numa transação (o env.py roda as migrações numa só): cria `casamento`, copia um par por anúncio com
 produto, confere que nenhum anúncio ficou com dois confirmados (senão aborta sem mudar nada) e cria o
-índice único parcial. As colunas antigas de `anuncio_amazon` saem na Task 7 do plano (nesta mesma revisão).
+índice único parcial. Depois remove as colunas antigas do casamento em `anuncio_amazon` e
+`fila_amazon.ultimo_termo_en`; o downgrade as refaz a partir dos pares.
 """
 from typing import Sequence, Union
 
@@ -87,8 +88,6 @@ def upgrade() -> None:
         "uq_casamento_confirmado", "casamento", ["anuncio_id"], unique=True,
         postgresql_where=sa.text("status = 'confirmado'"),
     )
-    # Transição: o código novo cria anúncios sem as colunas antigas (saem na Task 7).
-    op.alter_column("anuncio_amazon", "status_casamento", existing_type=sa.String(20), nullable=True)
 
     op.create_table(
         "termo_busca",
@@ -122,8 +121,25 @@ def upgrade() -> None:
         "(SELECT max(c.visto_primeiro_em) FROM casamento c WHERE c.produto_id = f.produto_id)"
     )
 
+    # A fonte do casamento é a tabela `casamento`: saem as colunas antigas (CHECKs e FK saem junto).
+    for coluna in ("origem_casamento", "revisado_em", "status_casamento", "produto_id"):
+        op.drop_column("anuncio_amazon", coluna)
+    op.drop_column("fila_amazon", "ultimo_termo_en")
+
 
 def downgrade() -> None:
+    op.add_column("anuncio_amazon", sa.Column("produto_id", sa.Integer(), nullable=True))
+    op.create_foreign_key("anuncio_amazon_produto_id_fkey", "anuncio_amazon", "produto_liga", ["produto_id"], ["id"])
+    op.add_column("anuncio_amazon", sa.Column("status_casamento", sa.String(20), nullable=True))
+    op.create_check_constraint(
+        "status_casamento", "anuncio_amazon", "status_casamento IN ('pendente', 'confirmado', 'ignorado')"
+    )
+    op.add_column("anuncio_amazon", sa.Column("revisado_em", DATA, nullable=True))
+    op.add_column("anuncio_amazon", sa.Column("origem_casamento", sa.String(20), nullable=True))
+    op.create_check_constraint(
+        "origem_casamento", "anuncio_amazon", "origem_casamento IN ('manual', 'sugerido_ia', 'automatico_ia')"
+    )
+    op.add_column("fila_amazon", sa.Column("ultimo_termo_en", sa.Boolean(), server_default="false", nullable=False))
     op.execute("UPDATE fila_amazon SET ultimo_termo_en = (ultima_busca_em IS NOT NULL AND indice_termo = 0)")
     op.drop_constraint("ck_fila_amazon_indice_termo", "fila_amazon", type_="check")
     for coluna in ("termos_pedidos_em", "termos_tentados_em", "ultimo_par_novo_em", "indice_termo"):

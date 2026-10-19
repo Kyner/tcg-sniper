@@ -226,7 +226,7 @@ def test_migracao_preenche_a_origem_do_casamento(engine):
             avaliacao(automatico, quando)
             avaliacao(sugerido, None)
             avaliacao(pendente, None)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "f8d2a6c4e1b3")  # as colunas antigas do casamento só existem até aqui
         with proprio.connect() as c:
             origens = dict(
                 c.execute(text("SELECT asin, origem_casamento FROM anuncio_amazon WHERE asin LIKE 'BMIG%'")).all()

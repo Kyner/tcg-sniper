@@ -22,7 +22,6 @@ from tcg_sniper.db.models import (
     FilaAmazon,
     OfertaAmazon,
     Oportunidade,
-    OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
     PrecoAtualAmazon,
@@ -138,7 +137,10 @@ def gravar_busca(
     Travas (ver repositorio_casamento): os ASINs novos entram em ordem de ASIN sem tocar nos existentes
     (`ON CONFLICT DO NOTHING` não trava a linha); depois todos os anúncios da busca são travados de uma vez
     em ordem crescente de id e só então atualizados, com preço e par. Assim duas buscas, ou uma busca e
-    uma ação de casamento, nunca se travam mutuamente."""
+    uma ação de casamento, nunca se travam mutuamente. A linha do produto em `fila_amazon` é travada por
+    último (o `UPDATE` de `ultimo_par_novo_em`), depois dos anúncios, como em `casar_link_manual`; quem
+    travar a fila antes de um anúncio inverte a ordem. Anúncio que sumiu no meio (ninguém apaga anúncios
+    hoje) fica fora da lista devolvida."""
     unicos: dict[str, ResultadoBusca] = {}
     for item in itens:
         unicos.setdefault(item.asin, item)
@@ -189,7 +191,7 @@ def gravar_busca(
             select(AnuncioAmazon).where(AnuncioAmazon.asin.in_(unicos)).execution_options(populate_existing=True)
         )
     }
-    return GravacaoBusca([por_asin[asin] for asin in unicos], pares_novos)
+    return GravacaoBusca([por_asin[asin] for asin in unicos if asin in por_asin], pares_novos)
 
 
 def _validade_da_leitura(intervalo_min: int) -> timedelta:
@@ -365,16 +367,6 @@ def fechar_oportunidade(s: Session, op: Oportunidade, agora: datetime) -> None:
     s.flush()
 
 
-def fechar_oportunidades_do_anuncio(s: Session, anuncio_id: int, agora: datetime) -> int:
-    resultado = s.execute(
-        update(Oportunidade)
-        .where(Oportunidade.anuncio_id == anuncio_id, Oportunidade.fechada_em.is_(None))
-        .values(fechada_em=agora)
-    )
-    s.flush()
-    return resultado.rowcount
-
-
 def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 24) -> int:
     """Fecha as abertas cujo anúncio não aparece em nenhuma busca há `horas` horas."""
     velhos = select(AnuncioAmazon.id).where(AnuncioAmazon.visto_ultimo_em < agora - timedelta(hours=horas))
@@ -386,52 +378,6 @@ def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 2
     )
     s.flush()
     return resultado.rowcount
-
-
-# --- casamento ------------------------------------------------------------------------------
-
-
-def confirmar_casamento(
-    s: Session, anuncio_id: int, produto_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
-) -> bool:
-    """Confirma (ou troca) o produto da Liga do anúncio. Trocar fecha as oportunidades abertas."""
-    anuncio = s.get(AnuncioAmazon, anuncio_id)
-    if anuncio is None:
-        return False
-    if anuncio.produto_id != produto_id:
-        fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
-    anuncio.produto_id = produto_id
-    anuncio.status_casamento = StatusCasamento.CONFIRMADO
-    anuncio.revisado_em = agora
-    anuncio.origem_casamento = origem
-    s.flush()
-    return True
-
-
-def ignorar_anuncio(
-    s: Session, anuncio_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
-) -> bool:
-    anuncio = s.get(AnuncioAmazon, anuncio_id)
-    if anuncio is None:
-        return False
-    fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
-    anuncio.status_casamento = StatusCasamento.IGNORADO
-    anuncio.revisado_em = agora
-    anuncio.origem_casamento = origem
-    s.flush()
-    return True
-
-
-def desfazer_casamento(s: Session, anuncio_id: int, agora: datetime) -> bool:
-    anuncio = s.get(AnuncioAmazon, anuncio_id)
-    if anuncio is None:
-        return False
-    fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
-    anuncio.status_casamento = StatusCasamento.PENDENTE
-    anuncio.revisado_em = None
-    anuncio.origem_casamento = None
-    s.flush()
-    return True
 
 
 # --- link manual ----------------------------------------------------------------------------
@@ -450,10 +396,6 @@ def casar_link_manual(s: Session, produto_id: int, asin: str, agora: datetime) -
     """Casa o ASIN informado à mão com o produto (par confirmado `manual`, trocando o confirmado anterior
     do anúncio se houver) e põe o produto na frente da fila."""
     anuncio = repo_casamento.casar_asin(s, produto_id, asin, agora, TITULO_MANUAL)
-    # Transição (sai na Task 7): colunas antigas iguais ao par confirmado, para as telas ainda não portadas.
-    anuncio.produto_id, anuncio.status_casamento = produto_id, StatusCasamento.CONFIRMADO
-    anuncio.revisado_em, anuncio.origem_casamento = agora, OrigemCasamento.MANUAL
-    s.flush()
     priorizar_na_fila(s, produto_id, agora)
     return anuncio
 

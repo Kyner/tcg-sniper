@@ -17,7 +17,6 @@ from tcg_sniper.db.models import (
     AnuncioAmazon,
     Envio,
     FilaAmazon,
-    Oportunidade,
     OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
@@ -145,14 +144,26 @@ def test_reagendar_guarda_o_indice_do_proximo_termo(s):
     assert s.get(FilaAmazon, p.id).indice_termo == 2
 
 
-def _esperar_espera_de_trava(engine, tarefa: threading.Thread) -> None:
-    """Espera a outra transação parar numa trava (ou terminar)."""
-    limite = time.monotonic() + 5
-    while tarefa.is_alive() and time.monotonic() < limite:
+# Uma sessão deste banco (não de outro banco de teste no mesmo Postgres) esperando uma trava num comando
+# sobre `anuncio_amazon` (o `SELECT … FOR UPDATE` de `travar_anuncio`).
+ESPERANDO_TRAVA_DO_ANUNCIO = """
+SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE NOT l.granted AND a.datname = current_database() AND a.query ILIKE '%anuncio_amazon%'
+"""
+
+
+def _esperar_espera_de_trava(engine, tarefa: threading.Thread, segundos: float = 10) -> None:
+    """Espera a outra transação parar na trava de um anúncio; falha se ela terminar antes ou se o tempo
+    acabar (o teste não estaria exercitando a ordem das travas)."""
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
         with engine.connect() as c:
-            if c.scalar(text("SELECT count(*) FROM pg_locks WHERE NOT granted")):
+            if c.scalar(text(ESPERANDO_TRAVA_DO_ANUNCIO)):
                 return
+        if not tarefa.is_alive():
+            pytest.fail("a outra transação terminou sem esperar a trava do anúncio")
         time.sleep(0.01)
+    pytest.fail(f"a outra transação não parou na trava do anúncio em {segundos:g} s")
 
 
 def test_busca_trava_os_anuncios_em_ordem_crescente_de_id_e_nao_causa_deadlock(engine):
@@ -300,29 +311,6 @@ def test_fechar_oportunidades_sem_leitura_ha_24h(s):
     assert repo.oportunidade_aberta(s, novo.id) is not None
 
 
-def test_casamento_confirmar_trocar_ignorar_desfazer(s):
-    a = criar_produto(s, "a")
-    b = criar_produto(s, "b")
-    anuncio = criar_anuncio(s, produto=a)
-    assert repo.confirmar_casamento(s, anuncio.id, a.id, T0) is True
-    assert (anuncio.status_casamento, anuncio.produto_id, anuncio.revisado_em) == (StatusCasamento.CONFIRMADO, a.id, T0)
-
-    op = repo.abrir_oportunidade(
-        s, anuncio_id=anuncio.id, produto_id=a.id, preco_amazon=Decimal(1), preco_liga=Decimal(2),
-        desconto_pct=Decimal(50), vendedor_id=None, envio=Envio.AMAZON, agora=T0, conferido=False,
-    )
-    assert repo.confirmar_casamento(s, anuncio.id, b.id, T0) is True  # trocar fecha a oportunidade do produto antigo
-    s.refresh(op)
-    assert op.fechada_em == T0 and anuncio.produto_id == b.id
-
-    assert repo.ignorar_anuncio(s, anuncio.id, T0) is True
-    assert anuncio.status_casamento is StatusCasamento.IGNORADO
-    assert repo.desfazer_casamento(s, anuncio.id, T0) is True
-    assert (anuncio.status_casamento, anuncio.revisado_em) == (StatusCasamento.PENDENTE, None)
-    assert repo.confirmar_casamento(s, 999_999, a.id, T0) is False
-    assert s.scalar(select(func.count()).select_from(Oportunidade).where(Oportunidade.fechada_em.is_(None))) == 0
-
-
 def test_confirmados_com_referencia_reflete_preco_registrado_na_mesma_sessao(s):
     produto = criar_produto(s)
     criar_preco_liga(s, produto, "1000.00")
@@ -351,11 +339,8 @@ def test_casar_link_manual_cria_confirmado_e_prioriza_na_fila(s):
         "Informado manualmente",
         "https://www.amazon.com.br/dp/B0MANUAL01",
     )
-    assert (anuncio.produto_id, anuncio.status_casamento, anuncio.revisado_em) == (
-        produto.id,
-        StatusCasamento.CONFIRMADO,
-        agora,
-    )
+    par = repo_casamento.obter_par(s, anuncio.id, produto.id)
+    assert (par.status, par.origem, par.revisado_em) == (StatusCasamento.CONFIRMADO, OrigemCasamento.MANUAL, agora)
     assert (anuncio.visto_primeiro_em, anuncio.visto_ultimo_em) == (agora, agora)
     assert s.get(FilaAmazon, produto.id).proxima_busca_em == agora
 
@@ -384,14 +369,15 @@ def test_casar_link_manual_de_asin_conhecido_troca_o_produto_e_fecha_oportunidad
     resultado = repo.casar_link_manual(s, novo.id, "B0CONHEC01", T0 + timedelta(hours=1))
     s.refresh(op)
     assert resultado.id == anuncio.id
-    assert (resultado.produto_id, resultado.status_casamento) == (novo.id, StatusCasamento.CONFIRMADO)
+    assert repo_casamento.obter_par(s, anuncio.id, novo.id).status is StatusCasamento.CONFIRMADO
+    assert repo_casamento.confirmado_do_anuncio(s, anuncio.id).produto_id == novo.id
     assert op.fechada_em == T0 + timedelta(hours=1)
 
 
 def test_casar_link_manual_sem_linha_na_fila_nao_quebra(s):
     produto = criar_produto(s, "recem_ativado")
     anuncio = repo.casar_link_manual(s, produto.id, "B0SEMFILA1", T0)
-    assert anuncio.status_casamento is StatusCasamento.CONFIRMADO
+    assert repo_casamento.obter_par(s, anuncio.id, produto.id).status is StatusCasamento.CONFIRMADO
     repo.sincronizar_fila(s, T0 + timedelta(minutes=1))
     assert s.get(FilaAmazon, produto.id).proxima_busca_em == T0 + timedelta(minutes=1)
 
@@ -437,26 +423,12 @@ def test_busca_so_preenche_imagem_vazia_e_produto_troca(s):
     assert a.imagem_url == "https://img/grande.jpg"
 
 
-def test_origem_do_casamento_em_cada_decisao(s):
-    produto = criar_produto(s, "p1")
-    a = criar_anuncio(s, "B0ORIG0001", produto=produto)
-    b = criar_anuncio(s, "B0ORIG0002", produto=produto)
-    assert a.origem_casamento is None
-    repo.confirmar_casamento(s, a.id, produto.id, T0)
-    assert a.origem_casamento is OrigemCasamento.MANUAL
-    repo.ignorar_anuncio(s, b.id, T0, OrigemCasamento.SUGERIDO_IA)
-    assert b.origem_casamento is OrigemCasamento.SUGERIDO_IA
-    repo.confirmar_casamento(s, b.id, produto.id, T0, OrigemCasamento.AUTOMATICO_IA)
-    assert b.origem_casamento is OrigemCasamento.AUTOMATICO_IA
-    repo.desfazer_casamento(s, b.id, T0)
-    assert b.origem_casamento is None
-
-
 def test_link_manual_tem_origem_manual(s):
     produto = criar_produto(s, "p1")
     novo = repo.casar_link_manual(s, produto.id, "B0ORIG0003", T0)
     existente = criar_anuncio(s, "B0ORIG0004", produto=produto)
-    repo.ignorar_anuncio(s, existente.id, T0, OrigemCasamento.SUGERIDO_IA)
+    repo_casamento.ignorar(s, existente.id, produto.id, T0, OrigemCasamento.SUGERIDO_IA)
     repo.casar_link_manual(s, produto.id, "B0ORIG0004", T0)
-    assert novo.origem_casamento is OrigemCasamento.MANUAL
-    assert existente.origem_casamento is OrigemCasamento.MANUAL
+    assert repo_casamento.obter_par(s, novo.id, produto.id).origem is OrigemCasamento.MANUAL
+    par = repo_casamento.obter_par(s, existente.id, produto.id)
+    assert (par.status, par.origem) == (StatusCasamento.CONFIRMADO, OrigemCasamento.MANUAL)

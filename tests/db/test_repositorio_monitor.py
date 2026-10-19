@@ -6,6 +6,7 @@ from fakes import T0, criar_anuncio, criar_par, criar_preco_liga, criar_produto,
 
 from tcg_sniper.db import repositorio_amazon as repo
 from tcg_sniper.db.models import (
+    AnuncioAmazon,
     Envio,
     OfertaAmazon,
     OrigemCasamento,
@@ -281,3 +282,30 @@ def test_confirmado_de_produto_inativo_sai_do_monitor_mesmo_com_par_pendente_ati
     criar_par(s, anuncio, criar_produto(s, "ativo-par"))  # corrida: pendente para um produto ativo
     assert repo.situacao_monitor(s, T0, 15).confirmados == 0
     assert repo.proximo_do_monitor(s, T0, 15) is None
+
+
+def test_anuncio_so_com_pares_pendentes_ou_ignorados_fica_fora_do_monitor_e_do_checkout(s):
+    """Sem as colunas antigas no anúncio, só o par confirmado põe o anúncio no monitor e no checkout:
+    pendente para vários produtos ou ignorado (por você, pela sugestão da IA ou pelo automático) não conta."""
+    assert "status_casamento" not in AnuncioAmazon.__table__.c
+    cfg = repo.obter_config(s)
+    casado = confirmado(s, "B0PURO0001")
+    ler(s, casado, T0, oferta_lista("950.00"))  # lido agora e sem desconto: o monitor e o checkout não o pegam
+    p, q = criar_produto(s, "puro-p"), criar_produto(s, "puro-q")
+    for produto in (p, q):
+        criar_preco_liga(s, produto, "1000.00", listagem_em=T0)
+    pendente = criar_anuncio(s, "B0PURO0002", produto=p)
+    criar_par(s, pendente, q)
+    ignorado = criar_anuncio(s, "B0PURO0003", produto=p, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.MANUAL)
+    criar_par(s, ignorado, q, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.SUGERIDO_IA, revisado_em=T0)
+    pelo_automatico = criar_anuncio(
+        s, "B0PURO0004", produto=q, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.AUTOMATICO_IA
+    )
+    for anuncio in (pendente, ignorado, pelo_automatico):
+        ler(s, anuncio, T0 - timedelta(days=1), oferta_lista("100.00"))  # baratos e com leitura vencida
+    situacao = repo.situacao_monitor(s, T0, 15)
+    assert (situacao.confirmados, situacao.nunca_lidos, situacao.vencidos) == (1, 0, 0)
+    assert repo.proximo_do_monitor(s, T0, 15) is None
+    ids = [casado.id, pendente.id, ignorado.id, pelo_automatico.id]
+    assert [linha.produto.liga_id for linha in repo.confirmados_com_referencia(s, ids)] == ["p-B0PURO0001"]
+    assert repo.candidatas_ao_checkout(s, T0, cfg) == []

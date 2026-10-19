@@ -11,7 +11,6 @@ from tcg_sniper.db.models import (
     AnuncioAmazon,
     Casamento,
     Envio,
-    OrigemCasamento,
     PrecoAtualLiga,
     ProdutoLiga,
     StatusCasamento,
@@ -116,18 +115,11 @@ class NavegadorFake:
 def criar_anuncio(
     s, asin="B000000001", produto=None, status=StatusCasamento.PENDENTE, agora=T0, origem=None
 ) -> AnuncioAmazon:
-    """Anúncio e, com `produto`, o par (anúncio, produto) com `status` e `origem`.
-
-    Transição (sai na Task 7): também grava as colunas antigas do anúncio, para as áreas ainda não
-    portadas. `outro_confirmado` não existe na coluna antiga (vira `manual` lá)."""
-    origem_antiga = OrigemCasamento.MANUAL if origem is OrigemCasamento.OUTRO_CONFIRMADO else origem
+    """Anúncio e, com `produto`, o par (anúncio, produto) com `status` e `origem`."""
     anuncio = AnuncioAmazon(
         asin=asin,
         titulo=f"Anúncio {asin}",
         url=f"https://www.amazon.com.br/dp/{asin}",
-        produto_id=produto.id if produto is not None else None,
-        status_casamento=status,
-        origem_casamento=origem_antiga,
         visto_primeiro_em=agora,
         visto_ultimo_em=agora,
     )

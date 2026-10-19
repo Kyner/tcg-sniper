@@ -221,10 +221,7 @@ class EstadoColetor(Base):
 
 
 class AnuncioAmazon(Base):
-    """Um anúncio (ASIN) da amazon.com.br. O casamento com os produtos da Liga fica em `Casamento` (por par).
-
-    `produto_id`, `status_casamento`, `revisado_em` e `origem_casamento` são as colunas antigas do
-    casamento: nenhum código novo as lê; saem na Task 7 do plano de casamento por par."""
+    """Um anúncio (ASIN) da amazon.com.br. O casamento com os produtos da Liga fica em `Casamento` (por par)."""
 
     __tablename__ = "anuncio_amazon"
 
@@ -236,10 +233,6 @@ class AnuncioAmazon(Base):
     # Imagem principal: a busca só preenche quando vazia; a página do produto pode trocar.
     imagem_url: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)
-    produto_id: Mapped[int | None] = mapped_column(ForeignKey("produto_liga.id"))
-    status_casamento: Mapped[StatusCasamento | None] = mapped_column(_enum(StatusCasamento, "status_casamento"))
-    revisado_em: Mapped[datetime | None] = mapped_column(DATA)
-    origem_casamento: Mapped[OrigemCasamento | None] = mapped_column(_enum(OrigemCasamento, "origem_casamento"))
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
 
@@ -302,8 +295,6 @@ class FilaAmazon(Base):
     proxima_busca_em: Mapped[datetime] = mapped_column(DATA)
     ultima_busca_em: Mapped[datetime | None] = mapped_column(DATA)
     ultimo_candidato_em: Mapped[datetime | None] = mapped_column(DATA)
-    # Coluna antiga (sai na Task 7): o termo agora é `indice_termo`.
-    ultimo_termo_en: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Próximo termo da sequência (nome, nome em inglês, termos alternativos na seca), usado módulo o tamanho.
     indice_termo: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # Última vez que a busca deste produto criou um par pendente novo (a seca conta daqui; nulo: desde entrou_em).
