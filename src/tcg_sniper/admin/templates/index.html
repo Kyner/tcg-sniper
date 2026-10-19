@@ -29,7 +29,7 @@
     <div class="stats stats-vertical sm:stats-horizontal">
       <div class="stat px-3"><div class="stat-title">Confirmados</div><div class="stat-value text-2xl tabular-nums text-success">{{ n.confirmados|milhar }}</div></div>
       <div class="stat px-3"><div class="stat-title">Pendentes</div><div class="stat-value text-2xl tabular-nums text-warning">{{ n.pendentes|milhar }}</div></div>
-      <div class="stat px-3"><div class="stat-title">Ignorados</div><div class="stat-value text-2xl tabular-nums">{{ n.ignorados|milhar }}</div></div>
+      <div class="stat px-3"><div class="stat-title">Ignorados</div><div class="stat-value text-2xl tabular-nums">{{ n.ignorados|milhar }}</div>{% if n.casados_em_outro %}<div class="stat-desc whitespace-normal">+ {{ n.casados_em_outro|milhar }} {{ "casado" if n.casados_em_outro == 1 else "casados" }} em outro produto</div>{% endif %}</div>
     </div>
     <div class="space-y-1">
       <div class="flex justify-between text-sm"><span>Produtos ativos com par na Amazon</span><span class="tabular-nums">{{ n.produtos_com_par|milhar }} de {{ n.produtos_ativos|milhar }}</span></div>

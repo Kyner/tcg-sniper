@@ -154,6 +154,8 @@ def test_aba_ia_filtra_as_chamadas_dos_termos_de_busca(cliente, sessoes):
     so_termos = aba(cliente.get("/logs?aba=ia&finalidade=termos").text, "IA")
     assert "OpenAI 503" in so_termos and 'badge-success">ok</span>' not in so_termos
     assert 'value="termos" selected' in so_termos
+    assert 'value="termos" selected>termos de busca</option>' in so_termos  # rótulo legível no filtro
+    assert "<td>termos de busca</td>" in so_termos and "· termos de busca</span>" in so_termos  # tabela e cartão
 
 
 def test_aba_ia_paginada(cliente, sessoes):

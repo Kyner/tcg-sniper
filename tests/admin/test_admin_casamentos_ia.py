@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import Casamento, OrigemCasamento, StatusCasamento
 
 
 def basic(usuario, senha):
@@ -26,8 +26,9 @@ def avaliar(s, anuncio, produto, mesmo, confianca, motivo, aplicada=False, revis
     )
     if aplicada:
         av.aplicada_em = T0
-        anuncio.revisado_em = revisado  # o automático grava os dois no mesmo instante
-        anuncio.origem_casamento = OrigemCasamento.AUTOMATICO_IA if revisado == T0 else OrigemCasamento.MANUAL
+        par = s.get(Casamento, (anuncio.id, produto.id))
+        par.revisado_em = revisado  # o automático grava os dois no mesmo instante
+        par.origem = OrigemCasamento.AUTOMATICO_IA if revisado == T0 else OrigemCasamento.MANUAL
         s.flush()
     return av
 

@@ -54,7 +54,8 @@ def test_dashboard_conta_pares(s, config):
     criar_par(s, anuncio, q, status=IGNORADO, origem=OrigemCasamento.OUTRO_CONFIRMADO, revisado_em=T0)
     criar_anuncio(s, "B0PAINEL02", produto=q)
     n = painel.numeros(s, T0, config)
-    assert (n.confirmados, n.pendentes, n.ignorados, n.produtos_com_par) == (1, 1, 1, 1)
+    # "ignorados" mantém o sentido de antes (decisão sobre o anúncio); casado em outro produto vem à parte
+    assert (n.confirmados, n.pendentes, n.ignorados, n.casados_em_outro, n.produtos_com_par) == (1, 1, 0, 1, 1)
 
 
 def test_ofertas_e_produto_usam_o_par_confirmado_e_a_origem_dele(s):
@@ -76,7 +77,24 @@ def test_ofertas_e_produto_usam_o_par_confirmado_e_a_origem_dele(s):
 def test_tela_do_produto_mostra_a_origem_do_par(sessoes, cliente):
     with sessoes() as s, s.begin():
         p = criar_produto(s, "tela", nome="Produto Tela")
-        criar_anuncio(s, "B0TELA0001", produto=p, status=CONFIRMADO, origem=OrigemCasamento.AUTOMATICO_IA)
+        anuncio = criar_anuncio(s, "B0TELA0001", produto=p, status=CONFIRMADO, origem=OrigemCasamento.AUTOMATICO_IA)
+        anuncio.origem_casamento = OrigemCasamento.SUGERIDO_IA  # coluna antiga diferente do par
         produto_id = p.id
     resposta = cliente.get(f"/produto/{produto_id}")
     assert resposta.status_code == 200 and "automático pela IA" in resposta.text
+    assert "sugerido pela IA" not in resposta.text
+
+
+def test_lista_e_dashboard_mostram_casado_em_outro_produto_a_parte(sessoes, cliente):
+    with sessoes() as s, s.begin():
+        jogo, colec = criar_produto(s, "jogo", nome="Caixa de Jogo"), criar_produto(s, "colec", nome="Caixa Colecionador")
+        anuncio = criar_anuncio(s, "B0OUTRO001", produto=colec, status=CONFIRMADO, origem=OrigemCasamento.MANUAL)
+        criar_par(s, anuncio, jogo, status=IGNORADO, origem=OrigemCasamento.OUTRO_CONFIRMADO, revisado_em=T0)
+        criar_anuncio(s, "B0OUTRO002", produto=jogo, status=IGNORADO, origem=OrigemCasamento.MANUAL)
+        [linha] = consultas_amazon.produtos_para_casar(
+            s, busca="Jogo", categoria=None, situacao="todos", com_preco=False, desconto_min_pct=25
+        )
+        assert (linha.pendentes, linha.confirmados, linha.ignorados, linha.em_outro, linha.sem_par) == (0, 0, 1, 1, True)
+    lista = cliente.get("/casamentos", params={"situacao": "todos"}).text
+    assert "1 casado em outro produto" in lista
+    assert "casado em outro produto" in cliente.get("/").text

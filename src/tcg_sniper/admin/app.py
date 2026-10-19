@@ -35,9 +35,11 @@ from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db import repositorio_mensagens as repo_msg
+from tcg_sniper.db import repositorio_termos as repo_termos
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_CASADOR,
@@ -47,6 +49,7 @@ from tcg_sniper.db.models import (
     AnuncioAmazon,
     ConferenciaCheckout,
     EstadoColetorTipo,
+    OrigemCasamento,
     ProdutoLiga,
     TipoColeta,
 )
@@ -103,7 +106,36 @@ MENSAGENS_SERVICOS = {
 
 ABAS_LOGS = ("liga", "amazon", "monitor", "checkout", "ia", "manutencao")
 
-MENSAGENS_CASAMENTO = {"link_salvo": "Link salvo; o anúncio será lido em alguns minutos."}
+# O que "Reavaliar com a IA" devolve para ela (regra em repositorio_casamento.reavaliar_produto).
+EXPLICACAO_REAVALIAR = (
+    "Reavaliar com a IA: voltam para ela os pendentes, os ignorados pelo automático e os casados em outro "
+    "produto que deixaram de ser; suas decisões (manual ou sugerido pela IA) e os confirmados não mudam."
+)
+
+MENSAGENS_CASAMENTO: dict[str, tuple[str, str]] = {
+    "link_salvo": ("success", "Link salvo; o anúncio será lido em alguns minutos."),
+    "ja_confirmado": ("error", "Este anúncio já está confirmado para outro produto; nada mudou."),
+    "rebuscar": ("success", "Produto na frente da fila da Amazon; a busca roda em alguns minutos."),
+    "reavaliar": ("success", "Pares marcados para a IA reavaliar; o casador roda em instantes."),
+    "reavaliar_nada": (
+        "info",
+        (
+            "Nada para reavaliar: só voltam para a IA os pendentes, os ignorados pelo automático e os casados em "
+            "outro produto que deixaram de ser."
+        ),
+    ),
+    "termos_pedidos": ("success", "Pedido enviado: a IA gera os termos de busca em instantes, dentro do teto de gasto."),
+    "termos_ia_desligada": (
+        "warning",
+        "Pedido guardado, mas a IA está desligada (Configurações → IA) ou sem chave: os termos saem quando ela for ligada.",
+    ),
+    "termos_fora_da_fila": ("warning", "O produto ainda não entrou na fila da Amazon; tente de novo em alguns minutos."),
+}
+
+
+def com_mensagem(destino: str, chave: str) -> str:
+    """Acrescenta `msg=<chave>` ao destino (que pode já ter parâmetros)."""
+    return destino + ("&" if "?" in destino else "?") + urlencode({"msg": chave})
 
 
 def destino_seguro(voltar: str, prefixo: str = "/casamentos") -> str:
@@ -924,7 +956,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             )
 
     def _tela_produto_casamento(
-        request: Request, s: Session, produto_id: int, voltar: str, mensagem: str | None, erro: str | None,
+        request: Request, s: Session, produto_id: int, voltar: str, mensagem: tuple[str, str] | None, erro: str | None,
         link_digitado: str, codigo: int,
     ):
         cfg = repo_amz.obter_config(s)
@@ -941,6 +973,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 "voltar": voltar,
                 "aqui": f"/casamentos/produto/{produto_id}?" + urlencode({"voltar": voltar}),
                 "mensagem": mensagem,
+                "explicacao_reavaliar": EXPLICACAO_REAVALIAR,
                 "erro": erro,
                 "link_digitado": link_digitado,
             },
@@ -973,48 +1006,116 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         destino = f"/casamentos/produto/{produto_id}?" + urlencode({"voltar": voltar, "msg": "link_salvo"})
         return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
+    def _id_do_formulario(texto: str, campo: str) -> int:
+        texto = texto.strip()
+        if not (texto.isdecimal() and len(texto) <= 9):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{campo} inválido")
+        return int(texto)
+
     @app.post("/casamentos/{anuncio_id}")
     async def revisar_casamento(request: Request, anuncio_id: int):
+        """Ação sobre o par (anúncio, produto_id). A regra fica em `repositorio_casamento`. Em `trocar`, `de`
+        (opcional) é o produto de onde você veio por "É de outro produto": o par dele fica ignorado `manual`."""
         formulario = await ler_formulario(request)
         acao = formulario.get("acao", "")
-        if acao not in ("confirmar", "ignorar", "desfazer"):
+        if acao not in ("confirmar", "ignorar", "desfazer", "trocar"):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ação inválida: {acao}")
+        produto_id = _id_do_formulario(formulario.get("produto_id", ""), "produto_id")
+        de = formulario.get("de", "").strip()
+        de_id = _id_do_formulario(de, "de") if acao == "trocar" and de else None
+        destino = destino_seguro(formulario.get("voltar", "/casamentos"))
         agora = repo.agora_utc()
         with sessoes() as s, s.begin():
             if s.get(AnuncioAmazon, anuncio_id) is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND)
-            if acao == "confirmar":
-                texto = formulario.get("produto_id", "").strip()
-                if not (texto.isdecimal() and len(texto) <= 9):
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "produto_id inválido")
-                destino_produto = s.get(ProdutoLiga, int(texto))
-                if destino_produto is None or not destino_produto.ativo:
+            if acao in ("confirmar", "trocar"):
+                alvo = s.get(ProdutoLiga, produto_id)
+                if alvo is None or not alvo.ativo:
                     raise HTTPException(status.HTTP_404_NOT_FOUND)
-                origem = repo_ia.origem_da_decisao(s, anuncio_id, int(texto))
-                repo_amz.confirmar_casamento(s, anuncio_id, int(texto), agora, origem)
-            elif acao == "ignorar":
-                sugerido = s.get(AnuncioAmazon, anuncio_id).produto_id
-                repo_amz.ignorar_anuncio(s, anuncio_id, agora, repo_ia.origem_da_decisao(s, anuncio_id, sugerido))
-            else:
-                repo_amz.desfazer_casamento(s, anuncio_id, agora)
-        destino = destino_seguro(formulario.get("voltar", "/casamentos"))
+            elif repo_casamento.obter_par(s, anuncio_id, produto_id) is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND)
+            origem = repo_ia.origem_da_decisao(s, anuncio_id, produto_id)
+            try:
+                if acao == "confirmar":
+                    repo_casamento.confirmar(s, anuncio_id, produto_id, agora, origem)
+                elif acao == "trocar":
+                    repo_casamento.trocar(s, anuncio_id, produto_id, agora, origem)
+                    if de_id is not None and de_id != produto_id:
+                        # "É de outro produto": não é o produto de onde você veio (decisão sua sobre o par).
+                        repo_casamento.ignorar(s, anuncio_id, de_id, agora, OrigemCasamento.MANUAL)
+                elif acao == "ignorar":
+                    repo_casamento.ignorar(s, anuncio_id, produto_id, agora, origem)
+                else:
+                    repo_casamento.desfazer(s, anuncio_id, produto_id, agora)
+            except repo_casamento.JaConfirmado:
+                destino = com_mensagem(destino, "ja_confirmado")
         return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/casamentos/{anuncio_id}/trocar", response_class=HTMLResponse)
-    def trocar_casamento(request: Request, anuncio_id: int, busca: str = ""):
+    def trocar_casamento(request: Request, anuncio_id: int, busca: str = "", de: int | None = None):
         with sessoes() as s, s.begin():
             anuncio = s.get(AnuncioAmazon, anuncio_id)
             if anuncio is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND)
+            confirmado = repo_casamento.confirmado_do_anuncio(s, anuncio_id)
+            excluir = {i for i in (de, confirmado.produto_id if confirmado else None) if i is not None}
             return templates.TemplateResponse(
                 request,
                 "trocar.html",
                 {
                     "anuncio": anuncio,
                     "busca": busca,
-                    "sugestoes": consultas_amazon.sugestoes_para(s, anuncio),
+                    "de": de,
+                    "confirmado_em": s.get(ProdutoLiga, confirmado.produto_id) if confirmado else None,
+                    "sugestoes": consultas_amazon.sugestoes_para(s, anuncio, excluir=excluir),
                     "produtos": consultas_amazon.buscar_produtos(s, busca) if busca.strip() else [],
                 },
             )
+
+    def _produto_ativo_ou_404(s: Session, produto_id: int) -> ProdutoLiga:
+        produto = s.get(ProdutoLiga, produto_id)
+        if produto is None or not produto.ativo:
+            raise HTTPException(status.HTTP_404_NOT_FOUND)
+        return produto
+
+    def _volta_ao_produto(produto_id: int, voltar: str, chave: str) -> RedirectResponse:
+        destino = f"/casamentos/produto/{produto_id}?" + urlencode({"voltar": destino_seguro(voltar), "msg": chave})
+        return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.post("/casamentos/produto/{produto_id}/rebuscar")
+    async def rebuscar_produto(request: Request, produto_id: int):
+        formulario = await ler_formulario(request)
+        with sessoes() as s, s.begin():
+            _produto_ativo_ou_404(s, produto_id)
+            repo_amz.priorizar_na_fila(s, produto_id, repo.agora_utc())
+        return _volta_ao_produto(produto_id, formulario.get("voltar", "/casamentos"), "rebuscar")
+
+    @app.post("/casamentos/produto/{produto_id}/reavaliar")
+    async def reavaliar_produto(request: Request, produto_id: int):
+        formulario = await ler_formulario(request)
+        agora = repo.agora_utc()
+        with sessoes() as s, s.begin():
+            _produto_ativo_ou_404(s, produto_id)
+            marcados = repo_casamento.reavaliar_produto(s, produto_id, agora)
+            if marcados:
+                repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
+        chave = "reavaliar" if marcados else "reavaliar_nada"
+        return _volta_ao_produto(produto_id, formulario.get("voltar", "/casamentos"), chave)
+
+    @app.post("/casamentos/produto/{produto_id}/termos")
+    async def gerar_termos_produto(request: Request, produto_id: int):
+        formulario = await ler_formulario(request)
+        agora = repo.agora_utc()
+        with sessoes() as s, s.begin():
+            _produto_ativo_ou_404(s, produto_id)
+            pedido = repo_termos.pedir_termos(s, produto_id, agora)
+            if pedido:
+                repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
+            ligada = repo_ia.obter_config_ia(s).ligado and bool((config.openai_api_key or "").strip())
+        if not pedido:
+            chave = "termos_fora_da_fila"
+        else:
+            chave = "termos_pedidos" if ligada else "termos_ia_desligada"
+        return _volta_ao_produto(produto_id, formulario.get("voltar", "/casamentos"), chave)
 
     return app
