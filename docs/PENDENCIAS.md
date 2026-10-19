@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico
 
-Nada aberto (2026-10-19).
+- [ ] **Busca da Amazon parada pelo monitor** (achado em 2026-10-19): um navegador só, prioridade estrita; com 49 anúncios a cada 15 min o monitor ocupa 100% e a busca quase não roda (1941 de 1969 produtos sem candidato nunca buscados). Spec aprovada: `docs/superpowers/specs/2026-10-19-amazon-busca-separada-design.md` (serviço `coletor-amazon-busca` sem login, busca 90/h + monitor 180/h).
 
 - [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
 
