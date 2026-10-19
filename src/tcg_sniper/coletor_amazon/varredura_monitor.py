@@ -85,6 +85,7 @@ class _Rodada:
     lidos: int = 0
     quedas: int = 0
     conferencias: int = 0
+    falhas: int = 0  # leituras postas de lado por falha durante a volta
 
 
 class _NavegadorContado:
@@ -141,6 +142,7 @@ class VarreduraMonitor(VarreduraBase):
             self.fechar_navegador()
             return ESPERA_OCIOSA_S
         if estado is not EstadoColetorTipo.ATIVO:
+            self._rodada = None  # pausado: a volta aberta ficaria velha (início e duração errados)
             return ESPERA_OCIOSA_S
         self._limpar_uma_vez_por_dia(agora)
         if self._teto.liberado_em(agora, cfg.monitor_max_paginas_hora) is not None:
@@ -188,16 +190,17 @@ class VarreduraMonitor(VarreduraBase):
 
     def _fechar_rodada(self) -> None:
         rodada, self._rodada = self._rodada, None
-        if rodada is None or rodada.lidos == 0:
+        if rodada is None or (rodada.lidos == 0 and rodada.falhas == 0):
             return
-        dados = Dados(
-            linhas=(
-                f"Anúncios lidos: {rodada.lidos}",
-                f"Preços em queda: {rodada.quedas}",
-                f"Conferências de checkout: {rodada.conferencias}",
-                f"Duração: {formatar_duracao(self._relogio() - rodada.inicio)}",
-            )
-        )
+        linhas = [
+            f"Anúncios lidos: {rodada.lidos}",
+            f"Preços em queda: {rodada.quedas}",
+            f"Conferências de checkout: {rodada.conferencias}",
+        ]
+        if rodada.falhas:
+            linhas.append(f"Falhas: {rodada.falhas}")
+        linhas.append(f"Duração: {formatar_duracao(self._relogio() - rodada.inicio)}")
+        dados = Dados(linhas=tuple(linhas))
         self._avisador.avisar(TipoAviso.AMAZON_MONITOR_CONCLUIDO, CHAVE_GERAL, dados)
 
     def _por_de_lado(self, anuncio_id: int, cfg: ConfigAmazon) -> None:
@@ -205,6 +208,7 @@ class VarreduraMonitor(VarreduraBase):
         self._espera[anuncio_id] = self._relogio() + timedelta(minutes=cfg.monitor_intervalo_min)
         if self._rodada is not None:
             self._rodada.faltam.discard(anuncio_id)
+            self._rodada.falhas += 1
 
     # --- monitor, conferência e retirada ---------------------------------------------------------
 

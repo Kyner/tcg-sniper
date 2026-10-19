@@ -743,6 +743,52 @@ def test_anuncio_que_falha_sai_da_volta(engine, sessoes, config):
     assert dados.linhas[0] == "Anúncios lidos: 1"
 
 
+def test_rodada_com_falha_avisa_a_contagem_de_falhas(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    confirmado(sessoes, "b", "B0BBBB0001")
+    paginas = {
+        url_ofertas("B0AAAA0001"): pagina_html("<html><body>layout novo</body></html>", url=url_ofertas("B0AAAA0001")),
+        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 990,00"),
+    }
+    v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas == (
+        "Anúncios lidos: 1", "Preços em queda: 0", "Conferências de checkout: 0", "Falhas: 1", "Duração: menos de 1 min",
+    )
+
+
+def test_rodada_sem_nenhuma_leitura_mas_com_falha_nao_fecha_calada(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    paginas = {url_ofertas("B0AAAA0001"): pagina_html("<html><body>layout novo</body></html>", url=url_ofertas("B0AAAA0001"))}
+    v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[0] == "Anúncios lidos: 0" and "Falhas: 1" in dados.linhas
+
+
+def test_rodada_sem_falha_nao_tem_linha_de_falhas(engine, sessoes, config):
+    confirmado(sessoes, "a", "B0AAAA0001")
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 990,00")})
+    assert v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert not any(linha.startswith("Falhas") for linha in dados.linhas)
+
+
+def test_monitor_pausado_descarta_a_rodada_aberta(engine, sessoes, config):
+    for asin in ("B0AAAA0001", "B0BBBB0001"):
+        confirmado(sessoes, asin, asin)
+    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001")}
+    v, _, avisador, relogio = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0  # lê um dos dois: volta aberta
+    assert v._rodada is not None
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado no admin", relogio.agora, COLETOR_AMAZON)
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert v._rodada is None
+    assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
+
+
 def test_falhas_seguidas_pausam_so_o_monitor(engine, sessoes, config):
     asins = [f"B0FALH{i:04d}" for i in range(MAX_FALHAS_SEGUIDAS)]
     for asin in asins:
