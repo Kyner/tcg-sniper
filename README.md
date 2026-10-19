@@ -229,6 +229,57 @@ docker compose start coletor-amazon
 
 As páginas ficam em `dados/capturas/` (fora do git) e só entram em `tests/fixtures/amazon` depois de `scripts/anonimizar_fixture.py`.
 
+### 11. Site novo (front) e login pelo WhatsApp
+
+O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (o site, em `http://localhost:8090`). O admin antigo continua em `:8000` até as telas mudarem para cá.
+
+Para implantar (numa instalação que já roda), nesta ordem:
+
+1. Backup do banco antes de tudo:
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-front-<data>.dump
+   ```
+
+2. Atualize o código: `git pull`.
+3. Ponha uma `SEGREDO_API` de 32 caracteres ou mais no `.env` (gere com o comando abaixo e cole o resultado em `SEGREDO_API=`). Sem ela (ou com o valor de exemplo `trocar-este-segredo`) a `api` não sobe e diz o que fazer. Trocar essa chave depois derruba todas as sessões: todos entram de novo pelo código.
+
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+4. Recrie **todos** os serviços de uma vez (o `migrate` atualiza o banco antes), como na regra de [Atualizar uma instalação existente](#atualizar-uma-instalação-existente). Nunca só `api` e `web`: o `notificador` antigo não conhece o destino novo das mensagens individuais e mandaria o código de acesso para o grupo de oportunidades.
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+5. Crie o superadmin (você):
+
+   ```bash
+   docker compose exec api tcg-sniper criar-superadmin "<Nome>" "<número>"
+   ```
+
+6. Confira no admin antigo (`:8000`): em Configurações → Avisos, o aviso "Código de acesso" ligado (desligado, ninguém recebe código); em Serviços, o `notificador` rodando (ou `docker compose ps notificador`).
+7. Abra `http://localhost:8090` neste PC.
+
+Para entrar, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Você é o superadmin: o único que cria, edita, rebaixa ou desativa admins, e ninguém (nem você) o rebaixa ou desativa pelo site. Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); admins comuns gerenciam só operadores e grupo. Em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin. Para passar o superadmin a outra pessoa já cadastrada (ex.: número novo): `docker compose exec api tcg-sniper trocar-superadmin "(DDD) número"` (o antigo continua admin).
+
+Permissões de cada papel (padrão; Gestão → Acessos muda as de grupo e operador, e vale na próxima ação de quem já está logado):
+
+| Permissão | Grupo | Operador | Admin |
+| --- | --- | --- | --- |
+| Entrar na área de negócio (`ver_area_negocio`) | sim | sim | sempre |
+| Entrar na área de gestão (`ver_area_gestao`) | não | sim | sempre |
+| Gerir usuários (`gerir_usuarios`) | não | não | sempre |
+| Gerir acessos (`gerir_acessos`) | não | não | sempre |
+| Ver a documentação da API (`ver_documentacao_api`, `/api/docs`) | não | não | sempre |
+
+Quem ganhar `gerir_usuarios` sem ser o superadmin não cria nem mexe em admins, nem muda o próprio papel ou a própria situação (ativo/inativo).
+
+Sem WhatsApp (notificador pausado, Evolution fora), gere um código no terminal: `docker compose exec api tcg-sniper codigo-acesso "(DDD) número"` (acesso de emergência: vale 5 minutos e uma vez, como o do WhatsApp).
+
 ## Atualizar uma instalação existente
 
 ```bash
@@ -307,6 +358,8 @@ O coletor nunca tenta de novo sozinho. Se a janela do Chromium for fechada, a pr
 
 O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as portas 8000, 6080 e 6081 para a internet. A Evolution API (8080) e o Postgres (5432) só escutam em `127.0.0.1`.
 
+No site novo cada pessoa entra com o próprio número: o código de acesso vai só para o WhatsApp dela, vale 5 minutos e uma vez; 5 tentativas erradas o invalidam; no máximo 3 códigos por número a cada 15 minutos e 20 pedidos por hora no total (acima disso a tela pede para esperar e o grupo admin é avisado). O banco guarda só o HMAC (com a chave `SEGREDO_API` do `.env`) do código, do token da sessão e do número dos pedidos; o número nunca vai para log nem para o grupo (aparece mascarado, `+55 11 9****-**34`). A sessão dura 30 dias, renovada a cada uso; desativar um usuário encerra as sessões dele na hora. A `api` (8100) e o `web` (8090) só escutam em `127.0.0.1`.
+
 ### Backup do banco
 
 O serviço `manutencao` faz, todo dia às 04:00 (fuso de Configurações → Geral), um `pg_dump` do banco e depois apaga o histórico antigo. Se o PC estava desligado às 04:00, ao subir ele roda na hora quando o último backup ok tem mais de 24 h. Reiniciar não repete o backup do dia.
@@ -371,6 +424,28 @@ uv run pytest -q
 uv run ruff check
 ```
 
+Front (`web/`, React + Vite + TypeScript + Tailwind + DaisyUI 5):
+
+```bash
+uv run tcg-sniper api          # API local em 127.0.0.1:8100 (usa o DATABASE_URL e a SEGREDO_API do .env)
+cd web
+npm ci
+npm run dev                     # http://127.0.0.1:5173, com /api repassado para a API local
+npm test                        # Vitest + Testing Library
+npm run build                   # tsc + build em web/dist
+```
+
+Teste ponta a ponta (sobe a API e o `vite preview` contra o banco de teste e para os dois no fim):
+
+```bash
+(cd web && npm ci && npm run build)
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/.playwright-navegadores"   # no Git Bash do Windows: "$(pwd -W)/.playwright-navegadores"
+uv run playwright install chromium
+TCG_E2E=1 DATABASE_URL_TESTE=postgresql+psycopg://tcg:tcg@127.0.0.1:5433/tcg_test uv run pytest tests/e2e -q
+```
+
+Layout do site novo: `docker compose exec api tcg-sniper codigo-acesso "<número>"` e depois `docker compose exec -T -e WEB_NUMERO="<número>" -e WEB_CODIGO=<código> admin python - < scripts/verificar_layout.py` (`SO_WEB=1` pula as telas do admin).
+
 Os testes usam `tcg_test` no `postgres-teste` (`127.0.0.1:5433`), nunca o Postgres de produção: a suíte recusa rodar em banco que não comece com `tcg_test` ou na porta 5432. Para outro banco (por exemplo um por trabalho paralelo), crie-o com `docker compose exec -T postgres-teste createdb -U tcg tcg_test_<nome>` e aponte `DATABASE_URL_TESTE` para ele. O `postgres-teste` guarda os dados em memória (tmpfs): ao reiniciar o container ou o Docker, tudo some. O `tcg_test` padrão volta sozinho (o container o cria e as migrações recriam as tabelas no próximo `pytest`), mas os bancos extras (`tcg_test_<nome>`) precisam ser criados de novo com o `createdb` acima.
 
 Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
@@ -389,16 +464,19 @@ O admin usa DaisyUI 5 sobre Tailwind CSS 4, com os temas winter (claro) e night 
 
 ```
 src/tcg_sniper/
-  cli.py              comandos migrate, admin, coletor-liga, coletor-amazon, notificador, casador, manutencao e ia
+  cli.py              comandos migrate, admin, api, codigo-acesso, criar-superadmin, trocar-superadmin, coletor-liga,
+                      coletor-amazon, notificador, casador, manutencao e ia
   config.py           leitura do .env
   coletor_liga/       agendador, navegador (Playwright), parsers e as duas etapas da coleta
   coletor_amazon/     monitor de preço, conferência de checkout, fila de buscas, parsers da Amazon e cliques permitidos
   casador/            casamento com IA: pergunta, serviço e avaliação
   ia/                 transporte OpenAI, modelos e custos
   admin/              página de admin (FastAPI + Jinja2 + HTMX)
+  api/                API do site novo (FastAPI, JSON): login pelo WhatsApp, sessões, permissões por papel
   db/                 modelos, repositório e migrações (SQLAlchemy + Alembic)
   notificador/        tabela de saída do WhatsApp e o serviço que envia pela Evolution API
   manutencao/         backup diário do banco (pg_dump, rodízio, cópia no R2) e o serviço que também limpa o histórico
+web/                  site novo (React + Vite + DaisyUI), servido pelo Caddy no container web
 docker/               entrypoint do coletor (Xvfb, VNC, noVNC) e script inicial do Postgres
 scripts/              captura de páginas reais para as fixtures
 tests/                testes (pytest)

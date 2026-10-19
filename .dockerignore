@@ -10,3 +10,4 @@ docs
 .ruff_cache
 .superpowers
 *.md
+web

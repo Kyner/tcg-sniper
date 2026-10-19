@@ -6,10 +6,12 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import EstadoNotificador, MensagemSaida, StatusMensagem
+from tcg_sniper.notificador.base import Destino
 
 RESOLVIDAS = (StatusMensagem.ENVIADA, StatusMensagem.EXPIRADA, StatusMensagem.DESCARTADA)
 REENVIAVEIS = (StatusMensagem.FALHA, StatusMensagem.EXPIRADA)
 DESCARTAVEIS = (StatusMensagem.PENDENTE, StatusMensagem.FALHA, StatusMensagem.EXPIRADA)
+TEXTO_APAGADO = "(mensagem individual: texto apagado depois de sair da fila)"
 
 
 class MensagemNaoEncontrada(Exception):
@@ -20,7 +22,16 @@ class AcaoInvalida(Exception):
     """A ação não vale para a situação atual da mensagem (ex.: reenviar uma já enviada)."""
 
 
-def enfileirar(s: Session, destino: str, texto: str, agora: datetime) -> MensagemSaida:
+def enfileirar(
+    s: Session,
+    destino: str,
+    texto: str,
+    agora: datetime,
+    *,
+    numero: str | None = None,
+    expira_em: datetime | None = None,
+) -> MensagemSaida:
+    """`numero` só no destino "individual" (o banco confere); `expira_em` é a validade própria da mensagem."""
     mensagem = MensagemSaida(
         destino=destino,
         texto=texto,
@@ -30,10 +41,34 @@ def enfileirar(s: Session, destino: str, texto: str, agora: datetime) -> Mensage
         ignorar_validade=False,
         criada_em=agora,
         atualizado_em=agora,
+        numero=numero,
+        expira_em=expira_em,
     )
     s.add(mensagem)
     s.flush()
     return mensagem
+
+
+def expirar_individuais_vencidas(s: Session, agora: datetime) -> int:
+    """Individual pendente já vencida vira expirada e perde o texto (o código), mesmo com o notificador parado.
+    Devolve quantas mudaram."""
+    resultado = s.execute(
+        update(MensagemSaida)
+        .where(
+            MensagemSaida.destino == Destino.INDIVIDUAL.value,
+            MensagemSaida.status == StatusMensagem.PENDENTE,
+            MensagemSaida.expira_em <= agora,
+        )
+        .values(status=StatusMensagem.EXPIRADA, texto=TEXTO_APAGADO, atualizado_em=agora)
+    )
+    return resultado.rowcount
+
+
+def apagar_texto_individual(mensagem: MensagemSaida) -> None:
+    """Mensagem individual (código de acesso) não guarda o texto depois de sair da fila: enviada, expirada,
+    falha ou descartada."""
+    if mensagem.destino == Destino.INDIVIDUAL.value:
+        mensagem.texto = TEXTO_APAGADO
 
 
 def lote_pendente(s: Session, agora: datetime, limite: int = 20) -> list[MensagemSaida]:
@@ -93,6 +128,8 @@ def _obter(s: Session, mensagem_id: int) -> MensagemSaida:
 def reenviar(s: Session, mensagem_id: int, agora: datetime) -> None:
     """Falha ou expirada volta para a fila agora, sem tentativas e ignorando a validade."""
     mensagem = _obter(s, mensagem_id)
+    if mensagem.destino == Destino.INDIVIDUAL.value:
+        raise AcaoInvalida("mensagem individual (código de acesso) não é reenviada: peça um código novo")
     if mensagem.status not in REENVIAVEIS:
         raise AcaoInvalida(f"não dá para reenviar uma mensagem {mensagem.status.value}")
     mensagem.status = StatusMensagem.PENDENTE
@@ -109,6 +146,7 @@ def descartar(s: Session, mensagem_id: int, agora: datetime) -> None:
     if mensagem.status not in DESCARTAVEIS:
         raise AcaoInvalida(f"não dá para descartar uma mensagem {mensagem.status.value}")
     mensagem.status = StatusMensagem.DESCARTADA
+    apagar_texto_individual(mensagem)
     mensagem.atualizado_em = agora
     s.flush()
 

@@ -68,6 +68,13 @@ NOMES_SERVICOS = {
 MENSAGEM_AVISOS = "Salvo; vale a partir do próximo aviso."
 
 
+ROTULOS_DESTINO = {
+    Destino.ADMIN: "grupo admin",
+    Destino.OPORTUNIDADES: "grupo oportunidades",
+    Destino.INDIVIDUAL: "só para a pessoa",
+}
+
+
 MENSAGENS_SERVICOS = {
     "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
     "retomar": "Coleta da LigaMagic retomada.",
@@ -575,7 +582,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 "titulo": d.titulo,
                 "emoji": EMOJI[d.severidade],
                 "severidade": d.severidade.value,
-                "grupo": "oportunidades" if d.grupo is Destino.OPORTUNIDADES else "admin",
+                "grupo": ROTULOS_DESTINO[d.grupo],
                 "descricao": d.descricao,
                 "agrupa": d.agrupa,
                 "exemplo": formato.formatar(formato.aviso_de(tipo, d.exemplo, agora), zona, estrito=False),

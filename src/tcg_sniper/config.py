@@ -24,6 +24,9 @@ class Config(BaseSettings):
 
     database_url: str = "postgresql+psycopg://tcg:tcg@127.0.0.1:5432/tcg"
     admin_senha: str = "trocar-esta-senha"
+    # Chave do HMAC do login do site novo (código, token de sessão e número do pedido). Obrigatória para o serviço
+    # `api` e o `codigo-acesso`; ver .env.example.
+    segredo_api: SecretStr | None = None
     coleta_hora: time = time(10, 0)
     coleta_jitter_min: int = Field(30, ge=0, le=180)
     pausa_min_s: float = Field(8.0, ge=0)

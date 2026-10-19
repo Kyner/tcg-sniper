@@ -243,6 +243,31 @@ ESPERADOS = {
         "https://www.amazon.com.br/dp/B0TESTE123\n"
         "_18/10 10:42 · monitor Amazon_"
     ),
+    TipoAviso.CODIGO_ACESSO: (
+        "🔑 *Código de acesso*\n"
+        "*123456*\n"
+        "• Vale por 5 minutos.\n"
+        "• Não passe este código para ninguém.\n"
+        "_18/10 10:42 · acesso_"
+    ),
+    TipoAviso.SEGURANCA_USUARIO: (
+        "🟡 *Segurança · acesso alterado · papel alterado*\n"
+        "• Usuário: Pessoa Exemplo\n"
+        "• Papel: Grupo → Operador\n"
+        "• Por: Pessoa Admin\n"
+        "\n"
+        "*O que fazer:* Se não foi alguém do grupo, desative o usuário em Gestão → Usuários.\n"
+        "_18/10 10:42 · acesso_"
+    ),
+    TipoAviso.SEGURANCA_LIMITE: (
+        "🟡 *Segurança · limite de códigos*\n"
+        "• Limite: 3 códigos por número em 15 min\n"
+        "• Número com final 34\n"
+        "\n"
+        "*O que fazer:* Se ninguém do grupo está tentando entrar, alguém pode estar testando números; "
+        "o site recusa novos pedidos até a janela passar.\n"
+        "_18/10 10:42 · acesso_"
+    ),
 }
 
 
@@ -252,7 +277,7 @@ def texto_de(tipo, dados=None, host=HOST, estrito=True):
 
 def test_catalogo_cobre_todos_os_tipos():
     assert set(CATALOGO) == set(TipoAviso) == set(ESPERADOS)
-    assert len(TipoAviso) == 28
+    assert len(TipoAviso) == 31
 
 
 @pytest.mark.parametrize("tipo", list(TipoAviso))
@@ -264,18 +289,21 @@ def test_regras_do_catalogo():
     for tipo, d in CATALOGO.items():
         assert d.ligado_padrao is True, tipo
         assert (d.lembrete is not None) == d.agrupa, tipo
-        assert d.grupo is (Destino.OPORTUNIDADES if tipo is TipoAviso.OPORTUNIDADE else Destino.ADMIN), tipo
+        destino = {TipoAviso.OPORTUNIDADE: Destino.OPORTUNIDADES, TipoAviso.CODIGO_ACESSO: Destino.INDIVIDUAL}
+        assert d.grupo is destino.get(tipo, Destino.ADMIN), tipo
         if d.agrupa and tipo is not TipoAviso.MENSAGEM_NAO_ENVIADA:
             assert d.lembrete == timedelta(hours=2), tipo
         assert d.descricao, tipo
     assert CATALOGO[TipoAviso.MENSAGEM_NAO_ENVIADA].lembrete == timedelta(hours=1)
     assert CATALOGO[TipoAviso.OPORTUNIDADE].severidade is Severidade.OPORTUNIDADE
+    assert CATALOGO[TipoAviso.CODIGO_ACESSO].severidade is Severidade.ACESSO
     agrupam = {t for t, d in CATALOGO.items() if d.agrupa}
     assert agrupam == {
         TipoAviso.LIGA_COLETA_FALHOU, TipoAviso.LIGA_DESAFIO, TipoAviso.LIGA_ERRO, TipoAviso.AMAZON_BUSCA_FALHOU,
         TipoAviso.AMAZON_CAPTCHA, TipoAviso.AMAZON_SEM_LOGIN, TipoAviso.AMAZON_CARRINHO, TipoAviso.AMAZON_PAUSADA,
         TipoAviso.AMAZON_ERRO, TipoAviso.IA_PAUSADA, TipoAviso.IA_SEM_ORCAMENTO, TipoAviso.IA_FALHAS_SEGUIDAS,
         TipoAviso.BACKUP_ERRO, TipoAviso.SERVICO_SEM_SINAL, TipoAviso.MENSAGEM_NAO_ENVIADA,
+        TipoAviso.SEGURANCA_LIMITE,
     }
 
 

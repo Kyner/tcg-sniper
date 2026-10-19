@@ -29,6 +29,25 @@ def _preco(texto: str) -> Decimal:
     return valor
 
 
+def _numero_ou_sair(texto: str) -> str:
+    from tcg_sniper.formatacao import normalizar_numero
+
+    try:
+        return normalizar_numero(texto)
+    except ValueError:
+        raise SystemExit('número inválido: use DDD e número, ex.: "(11) 9XXXX-XXXX"') from None
+
+
+def _segredo_ou_sair(config: Config) -> str:
+    """SEGREDO_API do .env (a API e o código de emergência não começam sem ela)."""
+    from tcg_sniper.api.segredos import SegredoAusente, exigir_segredo
+
+    try:
+        return exigir_segredo(config)
+    except SegredoAusente as erro:
+        raise SystemExit(str(erro)) from None
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tcg-sniper")
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -58,6 +77,22 @@ def main(argv: list[str] | None = None) -> None:
     capturar_p.add_argument("--login", action="store_true", help="também salva a página de login (perfil temporário)")
     admin = sub.add_parser("admin", help="inicia a página de admin")
     admin.add_argument("--porta", type=int, default=8000)
+    api_p = sub.add_parser("api", help="inicia a API do front novo (JSON, login pelo WhatsApp)")
+    api_p.add_argument("--host", default="127.0.0.1", help="no container: 0.0.0.0 (o compose publica só no 127.0.0.1)")
+    api_p.add_argument("--porta", type=int, default=8100)
+    codigo_p = sub.add_parser(
+        "codigo-acesso", help="acesso de emergência: mostra no terminal um código válido (5 min) para o usuário"
+    )
+    codigo_p.add_argument("numero", help='número de WhatsApp do usuário, ex.: "(11) 9XXXX-XXXX"')
+    criar_super_p = sub.add_parser(
+        "criar-superadmin", help="cria o superadmin do site novo (o dono do sistema; um só, recusa se já houver)"
+    )
+    criar_super_p.add_argument("nome")
+    criar_super_p.add_argument("numero", help='número de WhatsApp, ex.: "(11) 9XXXX-XXXX"')
+    trocar_super_p = sub.add_parser(
+        "trocar-superadmin", help="passa o superadmin para outro usuário ativo (o antigo continua admin)"
+    )
+    trocar_super_p.add_argument("numero", help='número de WhatsApp do usuário, ex.: "(11) 9XXXX-XXXX"')
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -190,3 +225,79 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.admin.app import criar_app
 
         uvicorn.run(criar_app(sessoes, config), host="0.0.0.0", port=args.porta)
+    elif args.comando == "api":
+        import uvicorn
+
+        from tcg_sniper.api.app import criar_app
+
+        _segredo_ou_sair(config)  # mensagem clara no terminal antes de montar o app
+        uvicorn.run(criar_app(sessoes, config), host=args.host, port=args.porta)
+    elif args.comando == "codigo-acesso":
+        from tcg_sniper.api import acesso
+        from tcg_sniper.db import repositorio_acesso as repo_acesso
+        from tcg_sniper.db.repositorio import agora_utc
+        from tcg_sniper.formatacao import mascarar_numero
+
+        segredo = _segredo_ou_sair(config)
+        numero = _numero_ou_sair(args.numero)
+        with sessoes() as s, s.begin():
+            usuario = repo_acesso.usuario_por_numero(s, numero)
+            if usuario is None or not usuario.ativo:
+                raise SystemExit("nenhum usuário ativo com esse número")
+            nome = usuario.nome
+            codigo = acesso.emitir_codigo(s, usuario.id, agora_utc(), segredo)
+        # no terminal de propósito (é o acesso de emergência); nunca no log
+        print(f"Código para {nome} ({mascarar_numero(numero)}): {codigo}")
+        print("Vale por 5 minutos, uma vez. Digite na tela Entrar.")
+    elif args.comando == "criar-superadmin":
+        from tcg_sniper.api import avisos_acesso
+        from tcg_sniper.db import repositorio_acesso as repo_acesso
+        from tcg_sniper.db.repositorio import agora_utc
+        from tcg_sniper.formatacao import mascarar_numero
+
+        nome = args.nome.strip()
+        if not nome:
+            raise SystemExit("nome vazio")
+        numero = _numero_ou_sair(args.numero)
+        agora = agora_utc()
+        with sessoes() as s, s.begin():
+            try:
+                usuario = repo_acesso.criar_superadmin(s, nome, numero, agora)
+            except repo_acesso.SuperadminJaExiste:
+                raise SystemExit(
+                    "já existe um superadmin; para trocar use tcg-sniper trocar-superadmin <número>"
+                ) from None
+            except repo_acesso.NumeroJaCadastrado:
+                raise SystemExit(
+                    "este número já é de um usuário; para torná-lo superadmin use tcg-sniper trocar-superadmin <número>"
+                ) from None
+            avisos_acesso.usuario_criado(s, usuario, "terminal", agora)
+        print(
+            f"Superadmin {nome} criado ({mascarar_numero(numero)}). Para entrar: peça o código na tela Entrar "
+            "ou rode tcg-sniper codigo-acesso com o número."
+        )
+    elif args.comando == "trocar-superadmin":
+        from tcg_sniper.api import avisos_acesso
+        from tcg_sniper.db import repositorio_acesso as repo_acesso
+        from tcg_sniper.db.repositorio import agora_utc
+        from tcg_sniper.formatacao import mascarar_numero
+
+        numero = _numero_ou_sair(args.numero)
+        agora = agora_utc()
+        with sessoes() as s, s.begin():
+            # Trava as duas linhas (o atual e o novo) contra uma edição pela API ao mesmo tempo.
+            atual = repo_acesso.superadmin_atual(s, travar=True)
+            if atual is None:
+                raise SystemExit("ainda não há superadmin; use tcg-sniper criar-superadmin <nome> <número>")
+            novo = repo_acesso.usuario_por_numero(s, numero, travar=True)
+            if novo is None or not novo.ativo:
+                raise SystemExit("nenhum usuário ativo com esse número")
+            if novo.id == atual.id:
+                raise SystemExit("este usuário já é o superadmin")
+            try:
+                antigo = repo_acesso.trocar_superadmin(s, novo)
+            except repo_acesso.TrocaInvalida as erro:
+                raise SystemExit(str(erro)) from None
+            avisos_acesso.superadmin_trocado(s, novo, antigo, "terminal", agora)
+            nome_novo, nome_antigo = novo.nome, antigo.nome
+        print(f"Superadmin agora é {nome_novo} ({mascarar_numero(numero)}); {nome_antigo} continua admin.")

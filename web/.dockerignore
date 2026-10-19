@@ -1,0 +1,9 @@
+node_modules
+dist
+*.test.ts
+*.test.tsx
+.env*
+.npm-cache
+.playwright-navegadores
+*.log
+coverage

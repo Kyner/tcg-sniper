@@ -16,6 +16,7 @@ class Severidade(StrEnum):
     ATENCAO = "atencao"
     CONCLUIDO = "concluido"
     OPORTUNIDADE = "oportunidade"
+    ACESSO = "acesso"
 
 
 EMOJI = {
@@ -23,6 +24,7 @@ EMOJI = {
     Severidade.ATENCAO: "🟡",
     Severidade.CONCLUIDO: "✅",
     Severidade.OPORTUNIDADE: "💰",
+    Severidade.ACESSO: "🔑",
 }
 EMOJI_RESOLVIDO = "✅"
 
@@ -56,6 +58,9 @@ class TipoAviso(StrEnum):
     SERVICO_PAUSADO_MANUAL = "servico_pausado_manual"
     MENSAGEM_NAO_ENVIADA = "mensagem_nao_enviada"
     OPORTUNIDADE = "oportunidade"
+    CODIGO_ACESSO = "codigo_acesso"
+    SEGURANCA_USUARIO = "seguranca_usuario"
+    SEGURANCA_LIMITE = "seguranca_limite"
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,7 @@ class DefinicaoAviso:
 
 LIGA, AMAZON, MONITOR, IA = "coletor Liga", "coletor Amazon", "monitor Amazon", "casador (IA)"
 MANUTENCAO, VIGIA, ADMIN, NOTIFICADOR = "manutenção", "vigia", "admin", "notificador"
+ACESSO = "acesso"
 
 
 def _problema(
@@ -317,5 +323,29 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
             ),
             link_produto="https://www.amazon.com.br/dp/B0TESTE123",
         ),
+    ),
+    TipoAviso.CODIGO_ACESSO: DefinicaoAviso(
+        Severidade.ACESSO, Destino.INDIVIDUAL, "Código de acesso", ACESSO,
+        "Código de 6 dígitos para entrar no site, mandado só para o número da pessoa (vale 5 min). "
+        "Desligado, ninguém recebe código: fica só o acesso de emergência pelo terminal.",
+        Dados(destaque="123456", linhas=("Vale por 5 minutos.", "Não passe este código para ninguém.")),
+    ),
+    TipoAviso.SEGURANCA_USUARIO: _evento(
+        A, "Segurança · acesso alterado", ACESSO,
+        "Usuário criado, papel alterado, usuário desativado ou reativado, ou permissão de um papel alterada.",
+        "Se não foi alguém do grupo, desative o usuário em Gestão → Usuários.",
+        Dados(
+            titulo_extra="papel alterado",
+            linhas=("Usuário: Pessoa Exemplo", "Papel: Grupo → Operador", "Por: Pessoa Admin"),
+        ),
+    ),
+    TipoAviso.SEGURANCA_LIMITE: _problema(
+        A, "Segurança · limite de códigos", ACESSO,
+        "Pedidos de código acima do limite (3 por número em 15 min ou 20 por hora no total) ou 5 códigos errados "
+        "seguidos (o código é invalidado); agrupa por número. Resolve quando o número entra no site (o limite "
+        "total, quando um pedido volta a ser aceito).",
+        "Se ninguém do grupo está tentando entrar, alguém pode estar testando números; "
+        "o site recusa novos pedidos até a janela passar.",
+        Dados(linhas=("Limite: 3 códigos por número em 15 min", "Número com final 34")),
     ),
 }

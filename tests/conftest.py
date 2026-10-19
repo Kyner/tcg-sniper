@@ -1,13 +1,13 @@
 import os
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from tcg_sniper.avisos import formato
 from tcg_sniper.config import Config
-from tcg_sniper.db.session import migrar
+from tcg_sniper.db.session import criar_engine, migrar
 
 # Nos testes, endereço do sistema numa mensagem é erro (em produção é removido e vai para o log).
 formato.ESTRITO = True
@@ -42,13 +42,14 @@ def config(tmp_path):
         pausa_min_s=8,
         pausa_max_s=20,
         limite_falha_pct=50,
+        segredo_api="segredo-de-teste-falso-0123456789abcdefghij",
     )
 
 
 @pytest.fixture(scope="session")
 def engine():
     _checar_banco_de_teste(URL_TESTE)
-    eng = create_engine(URL_TESTE)
+    eng = criar_engine(URL_TESTE)  # a mesma dos serviços (erros sem valores)
     with eng.begin() as conexao:
         conexao.execute(text("DROP SCHEMA public CASCADE"))
         conexao.execute(text("CREATE SCHEMA public"))

@@ -158,6 +158,26 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # API do front novo (JSON, login pelo WhatsApp). Só no 127.0.0.1: quem fala com ela de fora é o Caddy (web).
+  api:
+    <<: *app
+    command: tcg-sniper api --host 0.0.0.0 --porta 8100
+    ports:
+      - "127.0.0.1:8100:8100"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Front novo (React): Caddy serve o build e repassa /api para o serviço api.
+  web:
+    build: ./web
+    image: tcg-sniper-web
+    ports:
+      - "127.0.0.1:8090:8090"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   pgdata:
   dados:

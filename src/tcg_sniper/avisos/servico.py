@@ -13,7 +13,7 @@ Nada aqui propaga exceção (cada chamada roda num SAVEPOINT; falha vira log), m
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -26,10 +26,12 @@ from tcg_sniper.avisos.catalogo import CATALOGO, Dados, TipoAviso
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import ConfigAviso, ConfigGeral, EstadoAviso
 from tcg_sniper.db.repositorio import agora_utc
+from tcg_sniper.notificador.base import Destino
 
 log = logging.getLogger(__name__)
 
 FUSO_PADRAO = "America/Sao_Paulo"
+VALIDADE_INDIVIDUAL = timedelta(minutes=5)
 
 
 def _deixar_subir(erro: Exception) -> bool:
@@ -92,6 +94,9 @@ def _travar(s: Session, tipo: TipoAviso, chave: str, agora: datetime) -> EstadoA
 
 def _avisar(s: Session, tipo: TipoAviso, chave: str, dados: Dados, agora: datetime) -> None:
     definicao = CATALOGO[tipo]
+    if definicao.grupo is Destino.INDIVIDUAL:
+        log.error("aviso %s é individual: use avisar_individual", tipo.value)
+        return
     zona, host = zona_e_host(s)
     aviso = formato.aviso_de(tipo, dados, agora)
     liga = ligado(s, tipo)
@@ -162,6 +167,30 @@ def resolver_todos(s: Session, tipo: TipoAviso, agora: datetime) -> None:
         return
     for chave in chaves:
         resolver(s, tipo, chave, agora)
+
+
+def avisar_individual(
+    s: Session, tipo: TipoAviso, numero: str, dados: Dados, agora: datetime, validade: timedelta = VALIDADE_INDIVIDUAL
+) -> bool:
+    """Mensagem só para o número da pessoa (tipos com grupo INDIVIDUAL, ex.: CODIGO_ACESSO). Não agrupa; vence em
+    `validade` (vencida, o notificador não envia). Devolve True se enfileirou. Nunca propaga exceção (menos
+    `UrlProibida` no modo estrito) e nunca loga o número."""
+    if CATALOGO[tipo].grupo is not Destino.INDIVIDUAL:
+        log.error("aviso %s não é individual: use avisar", tipo.value)
+        return False
+    try:
+        with s.begin_nested():
+            if not ligado(s, tipo):
+                return False
+            zona, host = zona_e_host(s)
+            texto = formato.formatar(formato.aviso_de(tipo, dados, agora), zona, host)
+            repo_msg.enfileirar(s, Destino.INDIVIDUAL.value, texto, agora, numero=numero, expira_em=agora + validade)
+            return True
+    except Exception as erro:
+        if _deixar_subir(erro):
+            raise
+        log.exception("aviso individual %s não registrado", tipo.value)
+        return False
 
 
 class Avisador(Protocol):

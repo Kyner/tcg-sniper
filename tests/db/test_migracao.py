@@ -241,3 +241,46 @@ def test_migracao_preenche_a_origem_do_casamento(engine):
             c.execute(text("DELETE FROM anuncio_amazon WHERE asin LIKE 'BMIG%'"))
             c.execute(text("DELETE FROM produto_liga WHERE liga_id = 'mig-origem'"))
         proprio.dispose()
+
+
+def test_migracao_acesso_preserva_mensagens_e_desce(engine):
+    """Fora da transação do `sessoes`: desce para antes do login, grava uma mensagem da fila, sobe e confere
+    que ela segue intacta; desce de novo (apaga só as individuais). Sempre deixa o banco em head."""
+    url = engine.url.render_as_string(hide_password=False)
+    cfg = config_alembic(url)
+    proprio = create_engine(url, poolclass=pool.NullPool)
+    mensagem_id = None
+    try:
+        command.downgrade(cfg, "e4b7c2d9a1f6")
+        with proprio.begin() as c:
+            mensagem_id = c.scalar(
+                text(
+                    "INSERT INTO mensagem_saida (destino, texto, status, tentativas, proxima_tentativa_em, "
+                    "ignorar_validade, criada_em, atualizado_em) "
+                    "VALUES ('admin', 'oi', 'pendente', 0, now(), false, now(), now()) RETURNING id"
+                )
+            )
+        command.upgrade(cfg, "f8d2a6c4e1b3")
+        with proprio.begin() as c:
+            linha = c.execute(
+                text("SELECT destino, texto, numero, expira_em FROM mensagem_saida WHERE id = :i"), {"i": mensagem_id}
+            ).one()
+            assert tuple(linha) == ("admin", "oi", None, None)
+            c.execute(
+                text(
+                    "INSERT INTO mensagem_saida (destino, texto, status, tentativas, proxima_tentativa_em, "
+                    "ignorar_validade, criada_em, atualizado_em, numero) "
+                    "VALUES ('individual', 'x', 'pendente', 0, now(), false, now(), now(), '+5511900000001')"
+                )
+            )
+        command.downgrade(cfg, "e4b7c2d9a1f6")
+        with proprio.connect() as c:
+            destinos = c.execute(text("SELECT destino FROM mensagem_saida WHERE id = :i"), {"i": mensagem_id}).all()
+            individuais = c.scalar(text("SELECT count(*) FROM mensagem_saida WHERE texto = 'x'"))
+        assert [d[0] for d in destinos] == ["admin"]
+        assert individuais == 0
+    finally:
+        command.upgrade(cfg, "head")
+        with proprio.begin() as c:
+            c.execute(text("DELETE FROM mensagem_saida WHERE id = :i"), {"i": mensagem_id})
+        proprio.dispose()
