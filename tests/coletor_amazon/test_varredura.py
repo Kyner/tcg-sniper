@@ -25,6 +25,7 @@ from tcg_sniper.coletor_amazon.varredura import (
 )
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_termos as repo_termos
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     AnuncioAmazon,
@@ -288,10 +289,10 @@ def test_produto_que_quebra_nao_trava_a_fila(engine, sessoes, config, monkeypatc
     (a, b), urls = produtos(sessoes, "a", "b")
     real = modulo.processar_produto
 
-    def quebra_so_a(contexto, produto, usar_nome_en=False):
+    def quebra_so_a(contexto, produto, termo=None):
         if produto.id == a.id:
             raise RuntimeError("bug no parser")
-        return real(contexto, produto, usar_nome_en)
+        return real(contexto, produto, termo)
 
     monkeypatch.setattr(modulo, "processar_produto", quebra_so_a)
     v, navegador, _, _ = varredura(engine, sessoes, config, {urls[b.id]: vazia(urls[b.id])})
@@ -416,10 +417,10 @@ def test_busca_alterna_portugues_e_ingles_quando_ha_nome_en(engine, sessoes, con
     for _ in range(3):
         assert v.passo() == 0
         with sessoes() as s:
-            flags.append(s.get(FilaAmazon, a.id).ultimo_termo_en)
+            flags.append(s.get(FilaAmazon, a.id).indice_termo)
         relogio.agora += timedelta(hours=3)
     assert navegador.visitadas == [url_pt, url_en, url_pt]
-    assert flags == [False, True, False]
+    assert flags == [1, 0, 1]
 
 
 def test_busca_sem_nome_en_sempre_em_portugues_e_flag_continua_falso(engine, sessoes, config):
@@ -432,7 +433,7 @@ def test_busca_sem_nome_en_sempre_em_portugues_e_flag_continua_falso(engine, ses
         relogio.agora += timedelta(hours=3)
     assert navegador.visitadas == [url, url]
     with sessoes() as s:
-        assert s.get(FilaAmazon, a.id).ultimo_termo_en is False
+        assert s.get(FilaAmazon, a.id).indice_termo == 0
 
 
 @pytest.mark.parametrize("nome_en", ["Caixa de Booster: Alfa", "  -  "])
@@ -446,7 +447,7 @@ def test_nome_en_igual_ao_portugues_ou_vazio_nao_vira_busca_em_ingles(engine, se
     for _ in range(3):
         assert v.passo() == 0
         with sessoes() as s:
-            assert s.get(FilaAmazon, a.id).ultimo_termo_en is False
+            assert s.get(FilaAmazon, a.id).indice_termo == 0
         relogio.agora += timedelta(hours=3)
     assert navegador.visitadas == [url, url, url]
 
@@ -466,10 +467,10 @@ def test_flag_do_termo_tambem_alterna_quando_a_busca_falha_no_parser(engine, ses
     for _ in range(2):
         v.passo()
         with sessoes() as s:
-            flags.append(s.get(FilaAmazon, a.id).ultimo_termo_en)
+            flags.append(s.get(FilaAmazon, a.id).indice_termo)
         relogio.agora += timedelta(hours=3)
     assert navegador.visitadas == [url_pt, url_en]
-    assert flags == [False, True]
+    assert flags == [1, 0]
 
 
 def test_ciclo_ok_avisa_busca_concluida_e_resolve_a_falha(engine, sessoes, config):
@@ -548,3 +549,74 @@ def test_executar_passo_avisa_erro_e_o_passo_ok_seguinte_resolve(engine, sessoes
     monkeypatch.setattr(v, "passo", lambda: 0)
     assert v.executar_passo() == 0
     assert (TipoAviso.AMAZON_ERRO, CHAVE_GERAL) in avisador.resolvidos
+
+
+def _em_seca(sessoes, produto_id, termos, nome_en=None):
+    """Produto 8 dias na fila sem par novo, com `termos` guardados. Devolve {termo: url}."""
+    with sessoes() as s, s.begin():
+        produto = s.get(ProdutoLiga, produto_id)
+        produto.nome_en = nome_en
+        repo_amz.sincronizar_fila(s, MEIO_DIA - timedelta(days=8))
+        if termos:
+            repo_termos.guardar_termos(s, produto_id, termos, MEIO_DIA - timedelta(days=1))
+        cfg = repo_amz.obter_config(s)
+        nomes = [produto.nome, *([nome_en] if nome_en else []), *(termo for termo, _ in termos)]
+        return {nome: url_busca(cfg, nome) for nome in nomes}
+
+
+DUAS_HORAS = timedelta(hours=2, minutes=1)  # sem candidato há 7 dias o intervalo dobra (120 min)
+
+
+def test_em_seca_a_fila_alterna_nome_ingles_e_termos(engine, sessoes, config):
+    (a,), _ = produtos(sessoes, "Caixa de Booster - Alfa")
+    urls = _em_seca(sessoes, a.id, [("alfa booster box", "en"), ("caixa alfa lacrada", "pt")], "Booster Box - Alpha")
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio=relogio)
+    for _ in range(5):
+        assert v.passo() == 0
+        relogio.agora += DUAS_HORAS
+    assert navegador.visitadas == [
+        urls["Caixa de Booster - Alfa"], urls["Booster Box - Alpha"], urls["alfa booster box"],
+        urls["caixa alfa lacrada"], urls["Caixa de Booster - Alfa"],
+    ]
+
+
+def test_em_seca_sem_termos_segue_com_o_nome_normal(engine, sessoes, config):
+    (a,), _ = produtos(sessoes, "Caixa de Booster - Alfa")
+    urls = _em_seca(sessoes, a.id, [], "Booster Box - Alpha")
+    relogio = Relogio(MEIO_DIA)
+    v, navegador, _, _ = varredura(engine, sessoes, config, {u: vazia(u) for u in urls.values()}, relogio=relogio)
+    for _ in range(3):
+        assert v.passo() == 0
+        relogio.agora += DUAS_HORAS
+    pt, en = urls["Caixa de Booster - Alfa"], urls["Booster Box - Alpha"]
+    assert navegador.visitadas == [pt, en, pt]
+
+
+def test_candidato_novo_na_seca_volta_ao_nome_normal(engine, sessoes, config):
+    (a,), _ = produtos(sessoes, "Caixa de Booster - Alfa")
+    urls = _em_seca(sessoes, a.id, [("alfa booster box", "en")], "Booster Box - Alpha")
+    pt, en, alternativo = urls["Caixa de Booster - Alfa"], urls["Booster Box - Alpha"], urls["alfa booster box"]
+    com_anuncio = pagina_html(html_busca(cartao_busca("B0NOVO0001", "Caixa Alfa", "R$ 900,00")), url=pt)
+    relogio = Relogio(MEIO_DIA)
+    paginas = {pt: com_anuncio, en: vazia(en), alternativo: vazia(alternativo)}
+    v, navegador, _, _ = varredura(engine, sessoes, config, paginas, relogio=relogio)
+    for _ in range(3):
+        assert v.passo() == 0
+        relogio.agora += DUAS_HORAS
+    assert navegador.visitadas == [pt, en, pt]  # o termo alternativo não entra mais
+    with sessoes() as s:
+        assert s.get(FilaAmazon, a.id).ultimo_par_novo_em == MEIO_DIA
+        assert [t.termo for t in repo_termos.termos_do_produto(s, a.id)] == ["alfa booster box"]  # guardados
+
+
+def test_indice_maior_que_a_sequencia_nao_quebra(engine, sessoes, config):
+    (a,), urls = produtos(sessoes, "Caixa de Booster - Alfa")
+    with sessoes() as s, s.begin():
+        repo_amz.sincronizar_fila(s, MEIO_DIA)
+        s.get(FilaAmazon, a.id).indice_termo = 4  # sobra de uma seca que acabou
+    url = urls[a.id]
+    v, navegador, _, _ = varredura(engine, sessoes, config, {url: vazia(url)})
+    assert v.passo() == 0 and navegador.visitadas == [url]
+    with sessoes() as s:
+        assert s.get(FilaAmazon, a.id).indice_termo == 0

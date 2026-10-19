@@ -70,15 +70,12 @@ def sincronizar_fila(s: Session, agora: datetime) -> None:
 
 
 def _descoberta_liberada(agora: datetime | None, casados_dias: int | None):
-    """Sem casamento confirmado: sempre (no ritmo da fila). Casado: só se nunca buscado ou se a
+    """Sem par confirmado: sempre (no ritmo da fila). Com par confirmado: só se nunca buscado ou se a
     última busca tem `casados_dias` dias ou mais (busca semanal)."""
     if agora is None or casados_dias is None:
         return literal(True)
-    casados = select(AnuncioAmazon.produto_id).where(
-        AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, AnuncioAmazon.produto_id.is_not(None)
-    )
     return or_(
-        FilaAmazon.produto_id.not_in(casados),
+        FilaAmazon.produto_id.not_in(repo_casamento.produtos_casados()),
         FilaAmazon.ultima_busca_em.is_(None),
         FilaAmazon.ultima_busca_em <= agora - timedelta(days=casados_dias),
     )
@@ -106,13 +103,13 @@ def proximo_da_fila(s: Session, agora: datetime, casados_dias: int | None = None
 
 
 def reagendar(
-    s: Session, produto_id: int, agora: datetime, proxima: datetime, teve_candidato: bool, termo_en: bool = False
+    s: Session, produto_id: int, agora: datetime, proxima: datetime, teve_candidato: bool, indice_termo: int = 0
 ) -> None:
-    """`termo_en`: a busca que acabou usou o nome em inglês (a próxima usa o português, e vice-versa)."""
-    valores: dict[str, datetime | bool] = {
+    """`indice_termo`: o próximo termo da sequência do produto (a varredura calcula; ver `sequencia_de_termos`)."""
+    valores: dict[str, datetime | int] = {
         "ultima_busca_em": agora,
         "proxima_busca_em": proxima,
-        "ultimo_termo_en": termo_en,
+        "indice_termo": indice_termo,
     }
     if teve_candidato:
         valores["ultimo_candidato_em"] = agora
@@ -123,38 +120,68 @@ def reagendar(
 # --- anúncios e preços ----------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class GravacaoBusca:
+    anuncios: list[AnuncioAmazon]  # na ordem da busca, sem ASIN repetido
+    pares_novos: int  # pares (anúncio, produto buscado) criados pendentes nesta busca: os candidatos
+
+
 def gravar_busca(
     s: Session, itens: Sequence[ResultadoBusca], produto_id: int, agora: datetime, zona: ZoneInfo
-) -> list[AnuncioAmazon]:
-    """Upsert dos anúncios da busca (ASIN novo entra pendente com o produto buscado como sugestão;
-    a sugestão de um ASIN já conhecido nunca é trocada) e do preço de origem `busca`. ASIN repetido
-    na mesma busca vale uma vez (o primeiro cartão). Devolve os anúncios na ordem da busca."""
+) -> GravacaoBusca:
+    """Upsert dos anúncios da busca, do preço de origem `busca` e do par (anúncio, produto buscado): par
+    novo fica pendente (ou ignorado `outro_confirmado`, se o anúncio já é confirmado de outro produto);
+    par existente só ganha `visto_ultimo_em` (status não muda). Par pendente novo marca
+    `fila_amazon.ultimo_par_novo_em` (a seca da busca alternativa conta daí). ASIN repetido na mesma busca
+    vale uma vez (o primeiro cartão). Devolve os anúncios na ordem da busca.
+
+    Travas (ver repositorio_casamento): os ASINs novos entram em ordem de ASIN sem tocar nos existentes
+    (`ON CONFLICT DO NOTHING` não trava a linha); depois todos os anúncios da busca são travados de uma vez
+    em ordem crescente de id e só então atualizados, com preço e par. Assim duas buscas, ou uma busca e
+    uma ação de casamento, nunca se travam mutuamente."""
     unicos: dict[str, ResultadoBusca] = {}
     for item in itens:
         unicos.setdefault(item.asin, item)
-    for item in unicos.values():
-        stmt = pg_insert(AnuncioAmazon).values(
-            asin=item.asin,
-            titulo=item.titulo,
-            url=item.url,
-            produto_id=produto_id,
-            status_casamento=StatusCasamento.PENDENTE,
-            visto_primeiro_em=agora,
-            visto_ultimo_em=agora,
-            imagem_url=item.imagem_url,
+    for asin in sorted(unicos):
+        item = unicos[asin]
+        s.execute(
+            pg_insert(AnuncioAmazon)
+            .values(
+                asin=item.asin,
+                titulo=item.titulo,
+                url=item.url,
+                visto_primeiro_em=agora,
+                visto_ultimo_em=agora,
+                imagem_url=item.imagem_url,
+            )
+            .on_conflict_do_nothing(index_elements=[AnuncioAmazon.asin])
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[AnuncioAmazon.asin],
-            set_={
-                "titulo": stmt.excluded.titulo,
-                "url": stmt.excluded.url,
-                "visto_ultimo_em": agora,
+    travados = s.execute(
+        select(AnuncioAmazon.id, AnuncioAmazon.asin)
+        .where(AnuncioAmazon.asin.in_(unicos))
+        .order_by(AnuncioAmazon.id)
+        .with_for_update()
+    ).all()
+    pares_novos = 0
+    for anuncio_id, asin in travados:
+        item = unicos[asin]
+        s.execute(
+            update(AnuncioAmazon)
+            .where(AnuncioAmazon.id == anuncio_id)
+            .values(
+                titulo=item.titulo,
+                url=item.url,
+                visto_ultimo_em=agora,
                 # a busca só preenche a imagem vazia; a página do produto pode trocar
-                "imagem_url": func.coalesce(AnuncioAmazon.imagem_url, stmt.excluded.imagem_url),
-            },
-        ).returning(AnuncioAmazon.id)
-        anuncio_id = s.execute(stmt).scalar_one()
+                imagem_url=func.coalesce(AnuncioAmazon.imagem_url, item.imagem_url),
+            )
+        )
         registrar_preco(s, anuncio_id, item.preco, OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, agora, zona)
+        par, criado = repo_casamento.registrar_visto(s, anuncio_id, produto_id, agora)
+        if criado and par.status is StatusCasamento.PENDENTE:
+            pares_novos += 1
+    if pares_novos:
+        s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(ultimo_par_novo_em=agora))
     s.flush()
     por_asin = {
         a.asin: a
@@ -162,7 +189,7 @@ def gravar_busca(
             select(AnuncioAmazon).where(AnuncioAmazon.asin.in_(unicos)).execution_options(populate_existing=True)
         )
     }
-    return [por_asin[asin] for asin in unicos]
+    return GravacaoBusca([por_asin[asin] for asin in unicos], pares_novos)
 
 
 def _validade_da_leitura(intervalo_min: int) -> timedelta:
