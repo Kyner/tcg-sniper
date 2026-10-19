@@ -222,7 +222,7 @@ A Amazon roda em dois serviços, cada um com o próprio navegador. O `coletor-am
 
 O `coletor-amazon-busca` (navegador próprio, sem login, noVNC 6082) faz só a **descoberta**: a busca de anúncios novos, para produtos sem anúncio confirmado (e uma vez por semana para os casados), dentro da janela da busca e com o teto de buscas por hora (padrão 90). Um CAPTCHA, um erro ou uma pausa num serviço não para o outro: cada um tem o próprio card e o próprio Retomar em Serviços, e os avisos dizem a origem ("Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA").
 
-A conferência e o monitor dividem um teto de páginas por hora (padrão 150; a retirada de item do carrinho também conta). Ao chegar no teto, o monitor espera; a busca segue no próprio teto, no outro navegador. A Amazon vê a soma dos dois tetos no mesmo endereço (até 90 + 180 = 270 por hora com os tetos no máximo recomendado). Se o monitor não cabe no intervalo, o Dashboard avisa (aumente o intervalo ou o teto). A **rodada do monitor** (aviso no grupo admin) sai uma vez por volta: quando ele leu todos os anúncios que estavam vencidos no começo da volta.
+A conferência e o monitor dividem um teto de páginas por hora (padrão 150; a retirada de item do carrinho também conta). Ao chegar no teto, o monitor espera; a busca segue no próprio teto, no outro navegador. A Amazon vê a soma dos dois tetos no mesmo endereço (até 90 + 180 = 270 por hora com os tetos no máximo recomendado). Se o monitor não cabe no intervalo, o Dashboard avisa (aumente o intervalo ou o teto). A **rodada do monitor** (aviso no grupo admin) sai uma vez por volta: quando ele leu todos os anúncios acompanhados no começo da volta.
 
 **Preço conferido = itens + impostos, sem o frete.** O alerta e o admin mostram esse valor, com os impostos inclusos e o frete à parte ("frete R$ X à parte"). Com a conferência ligada, o aviso de uma oferta que vai ao checkout espera a conferência e sai com o preço conferido; uma conferência vencida também não fecha nem realerta a oportunidade aberta antes da nova conferência. Só quando não há conferência possível (desligada, conta sem login, seu carrinho com itens ou a conferência dessa oferta falhou) o alerta sai com "preço anunciado, não conferido" e o motivo. O resumo do checkout precisa fechar no centavo (itens + frete + impostos = total); se não fechar, a conferência falha. Cupons e descontos de cartão aparecem só como informação.
 
@@ -328,6 +328,8 @@ docker compose up -d --build
 ### Implantar a busca da Amazon separada
 
 Faça o backup de sempre antes (ver [Backup do banco](#backup-do-banco)). A migração `c6a2f8e4d1b9` cria o estado do serviço `amazon_busca` (ativo), baixa os tetos para no máximo 90 buscas por hora (busca) e 180 páginas por hora (monitor) — um valor seu menor fica — e fecha como interrompido um ciclo de busca que estiver rodando. Suba tudo junto (`docker compose up -d --build`) e confira: `docker compose ps` com `coletor-amazon` e `coletor-amazon-busca` de pé, os dois cards da Amazon em Serviços, e `http://<IP deste PC>:6082/vnc.html` abrindo (informe o CEP também nesse navegador). O primeiro CAPTCHA do navegador novo é provável: o grupo admin recebe "Amazon (busca) · CAPTCHA"; resolva no noVNC 6082 e clique em Retomar no card Amazon (busca). O monitor não para.
+
+- [ ] Depois do deploy, confira Serviços → Amazon (monitor e checkout): se aparecer pausado (um CAPTCHA de antes da separação), resolva pelo noVNC 6081 e clique em Retomar.
 
 ### Implantar o casamento por par
 

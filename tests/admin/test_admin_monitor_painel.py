@@ -131,6 +131,15 @@ def test_card_da_amazon_mostra_monitor_e_conferencia(s, config):
     assert detalhe.endswith("conferência parada: conta sem login")
 
 
+def test_card_da_amazon_com_o_monitor_desligado_diz_desligado(s, config):
+    def card():
+        return {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon (monitor e checkout)"]
+
+    assert "Até" in card().texto
+    aplicar_config(s, {"monitor_ligado": False}, AGORA)
+    assert card().texto == "Monitor desligado" and card().situacao == "inativo" and "Até" not in card().texto
+
+
 def test_dashboard_avisa_conta_sem_login(s, config):
     aplicar_config(s, {"checkout_sem_login_em": AGORA - timedelta(hours=1)}, AGORA)
     [aviso] = avisos_de(s, config)
