@@ -1,5 +1,7 @@
+import re
 from pathlib import Path
 
+import psycopg
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import Engine, create_engine, event
@@ -11,27 +13,34 @@ DIR_MIGRACOES = Path(__file__).parent / "migrations"
 
 def criar_engine(url: str) -> Engine:
     """Engine de todos os serviços. Erros do banco nunca levam valores para o log (números, códigos):
-    `hide_parameters` esconde os parâmetros do SQL e `_sem_detalhe` tira o DETAIL do Postgres."""
+    `hide_parameters` esconde os parâmetros do SQL e `_sem_detalhe` tira o DETAIL do Postgres (que repete o valor)."""
     engine = create_engine(url, pool_pre_ping=True, hide_parameters=True)
     event.listen(engine, "handle_error", _sem_detalhe)
     return engine
 
 
-def _so_a_primeira_linha(texto: str) -> str:
-    return texto.split("\n", 1)[0]
+# A linha "DETAIL:  ..." e as que a continuam, até o próximo campo do Postgres (HINT:, CONTEXT:, LINE 1: ...),
+# a parte do SQLAlchemy ("[SQL: ...]", "(Background ...") ou o fim.
+_DETAIL = re.compile(r"^DETAIL:  .*(?:\n(?![A-Z]+:  |LINE \d|\[|\(Background).*)*\n?", re.MULTILINE)
+
+
+def _tirar_detail(args: tuple) -> tuple:
+    if args and isinstance(args[0], str):
+        return (_DETAIL.sub("", args[0]), *args[1:])
+    return args
 
 
 def _sem_detalhe(contexto: ExceptionContext) -> None:
     """O Postgres repete o valor no DETAIL ("Key (numero)=(...) already exists", "Failing row contains (...)"):
-    fica só a primeira linha da mensagem, no erro do driver e no do SQLAlchemy (que já a copiou). O resto do erro
-    (restrição em `orig.diag.constraint_name`, SQL sem parâmetros) continua igual."""
+    tira só o DETAIL, do erro do driver e do do SQLAlchemy (que já copiou o texto). A primeira linha, o HINT, o
+    CONTEXT e `orig.diag` (inclusive `constraint_name`) ficam. Só mexe em erro do psycopg que tem DETAIL no diag:
+    o `handle_error` dispara para qualquer exceção durante a execução, e essas ficam como estão."""
     original = contexto.original_exception
-    if original.args and isinstance(original.args[0], str):
-        original.args = (_so_a_primeira_linha(original.args[0]), *original.args[1:])
-    erro = contexto.sqlalchemy_exception
-    if erro is not None and erro.args and isinstance(erro.args[0], str) and erro.args[0].startswith("("):
-        tipo, _, mensagem = erro.args[0].partition(") ")
-        erro.args = (f"{tipo}) {_so_a_primeira_linha(mensagem)}", *erro.args[1:])
+    if not isinstance(original, psycopg.Error) or not original.diag.message_detail:
+        return
+    original.args = _tirar_detail(original.args)
+    if contexto.sqlalchemy_exception is not None:
+        contexto.sqlalchemy_exception.args = _tirar_detail(contexto.sqlalchemy_exception.args)
 
 
 def criar_sessoes(engine: Engine) -> sessionmaker[Session]:
