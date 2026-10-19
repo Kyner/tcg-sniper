@@ -32,6 +32,9 @@ class Config(BaseSettings):
     pausa_min_s: float = Field(8.0, ge=0)
     pausa_max_s: float = Field(20.0, ge=0)
     limite_falha_pct: int = Field(50, ge=0, le=100)
+    # Valem da tela (config_liga); o .env não semeia estes dois.
+    esfriar_desafio_min: int = Field(30, ge=0, le=240)
+    produtos_novos_dia: int = Field(100, ge=0, le=2000)
     fuso: str = "America/Sao_Paulo"
     liga_categorias: str = ",".join(CATEGORIAS_SELADOS)
     liga_url_listagem: str = URL_LISTAGEM_PADRAO
