@@ -9,6 +9,8 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 - [ ] **Busca da Amazon parada pelo monitor** (achado em 2026-10-19): um navegador só, prioridade estrita; com 49 anúncios a cada 15 min o monitor ocupa 100% e a busca quase não roda (1941 de 1969 produtos sem candidato nunca buscados). Spec aprovada: `docs/superpowers/specs/2026-10-19-amazon-busca-separada-design.md` (serviço `coletor-amazon-busca` sem login, busca 90/h + monitor 180/h).
 
+- [ ] **Coletor da LigaMagic provocando o Cloudflare** (2026-10-19): a leitura de todos os 2165 produtos ativos (~10 h seguidas) gerou o desafio; a cada "Retomar" o job recomeçava a lista e o desafio voltava (pausado desde 16:01). Desenho aprovado: leitura por interesse (casados e candidatos todo dia, novos até 100/dia, resto em rodízio de 7 dias) e esfriar 30 min após desafio (2º desafio no dia encerra o dia). Spec: `docs/superpowers/specs/2026-10-19-liga-leitura-por-interesse-design.md` (aguardando revisão do usuário). Até lá, não retomar a Liga.
+
 - [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
 
 ## 1. Segurança antes da internet (prioridade alta)
