@@ -180,7 +180,9 @@ class Agendador:
             if listagens.status is StatusColeta.PAUSADA_DESAFIO:
                 return True
             pausa_humana(self._config, self._dormir)
-        produtos = coletar_produtos(self._sessoes, navegador, self._avisador, self._config, self._dormir)
+        produtos = coletar_produtos(
+            self._sessoes, navegador, self._avisador, self._config, self._dormir, agora=self._relogio()
+        )
         if produtos is None:
             return False
         if produtos.status is StatusColeta.PAUSADA_DESAFIO:

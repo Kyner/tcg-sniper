@@ -38,6 +38,8 @@ class ResultadoColeta:
     novos: int = 0
     # Fechada por erro inesperado (o admin já foi avisado por `encerrar_por_erro`).
     interrompida: bool = False
+    # Grupos da lista do dia ("casados 52, candidatos 18, novos 100, rodízio 312"); só na etapa dos produtos.
+    grupos: str | None = None
 
 
 def pausa_humana(config: Config, dormir: Dormir) -> None:
@@ -87,7 +89,7 @@ def dados_resumo(
     dia: date, listagens: ResultadoColeta | None, produtos: ResultadoColeta, duracao: timedelta
 ) -> Dados:
     """Resumo de um job concluído. `listagens` é None quando o job rodou só os produtos. Nas listagens,
-    ok/falha contam categorias."""
+    ok/falha contam categorias; nos produtos, "<ok> de <lidos>" e os grupos da lista do dia."""
     linhas = []
     if listagens is not None:
         total = listagens.produtos_ok + listagens.produtos_falha
@@ -95,7 +97,13 @@ def dados_resumo(
             f"Listagens: {listagens.status.value} · {listagens.produtos_ok} de {total} categorias · "
             f"{listagens.novos} produtos novos"
         )
-    linhas.append(f"Produtos: {produtos.status.value} · {produtos.produtos_ok} ok · {produtos.produtos_falha} falhas")
+    linha = (
+        f"Produtos: {produtos.status.value} · {produtos.produtos_ok} de "
+        f"{produtos.produtos_ok + produtos.produtos_falha}"
+    )
+    if produtos.grupos:
+        linha += f" · {produtos.grupos}"
+    linhas.append(linha)
     linhas.append(f"Duração: {formatar_duracao(duracao)}")
     return Dados(titulo_extra=f"{dia:%d/%m}", linhas=tuple(linhas))
 

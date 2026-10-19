@@ -133,8 +133,8 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
             titulo_extra="18/10",
             linhas=(
                 "Listagens: ok · 20 de 20 categorias · 3 produtos novos",
-                "Produtos: ok · 412 ok · 0 falhas",
-                "Duração: 1 h 12 min",
+                "Produtos: ok · 482 de 482 · casados 52, candidatos 18, novos 100, rodízio 312",
+                "Duração: 2 h 41 min",
             ),
         ),
     ),
@@ -145,8 +145,8 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
             titulo_extra="18/10",
             linhas=(
                 "Listagens: ok · 20 de 20 categorias · 0 produtos novos",
-                "Produtos: parcial · 380 ok · 32 falhas",
-                "Duração: 1 h 5 min",
+                "Produtos: parcial · 450 de 482 · casados 52, candidatos 18, novos 100, rodízio 312",
+                "Duração: 2 h 35 min",
             ),
         ),
     ),

@@ -673,7 +673,7 @@ def test_job_completo_envia_resumo(engine, sessoes, config):
                 titulo_extra="13/10",
                 linhas=(
                     f"Listagens: ok · 1 de 1 categorias · {novos} produtos novos",
-                    "Produtos: ok · 0 ok · 0 falhas",
+                    "Produtos: ok · 0 de 0 · casados 0, candidatos 0, novos 0, rodízio 0",
                     "Duração: menos de 1 min",
                 ),
             ),
@@ -689,7 +689,7 @@ def test_job_so_produtos_envia_resumo_sem_listagens(engine, sessoes, config):
     assert resumos(avisador) == [
         (
             TipoAviso.LIGA_COLETA_CONCLUIDA,
-            Dados(titulo_extra="13/10", linhas=("Produtos: ok · 0 ok · 0 falhas", "Duração: menos de 1 min")),
+            Dados(titulo_extra="13/10", linhas=("Produtos: ok · 0 de 0 · casados 0, candidatos 0, novos 0, rodízio 0", "Duração: menos de 1 min")),
         )
     ]
 
@@ -709,7 +709,7 @@ def test_job_com_etapa_parcial_avisa_coleta_parcial(engine, sessoes, config, mon
     a, avisador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
     a.executar_job(incluir_listagens=False)
     [(tipo, dados)] = resumos(avisador)
-    assert tipo is TipoAviso.LIGA_COLETA_PARCIAL and dados.linhas[0] == "Produtos: parcial · 3 ok · 1 falhas"
+    assert tipo is TipoAviso.LIGA_COLETA_PARCIAL and dados.linhas[0] == "Produtos: parcial · 3 de 4"
     assert (TipoAviso.LIGA_COLETA_FALHOU, CHAVE_GERAL) in avisador.resolvidos
 
 
@@ -794,3 +794,29 @@ def test_job_usa_as_categorias_salvas_na_tela(engine, sessoes, config):
     a.inicializar()
     a.tick()
     assert vistas == [["21", "22"]]
+
+
+def test_resumo_mostra_a_lista_do_dia(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_liga import agendador as modulo
+
+    resultado = ResultadoColeta(1, StatusColeta.PARCIAL, 480, 2, grupos="casados 52, candidatos 18, novos 100, rodízio 312")
+    monkeypatch.setattr(modulo, "coletar_produtos", lambda *_a, **_k: resultado)
+    a, avisador = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a.executar_job(incluir_listagens=False)
+    [(_, dados)] = resumos(avisador)
+    assert dados.linhas[0] == "Produtos: parcial · 480 de 482 · casados 52, candidatos 18, novos 100, rodízio 312"
+
+
+def test_lista_do_dia_usa_o_relogio_do_agendador(engine, sessoes, config, monkeypatch):
+    from tcg_sniper.coletor_liga import agendador as modulo
+
+    vistos = []
+
+    def falso(*_a, **k):
+        vistos.append(k["agora"])
+        return ResultadoColeta(1, StatusColeta.OK, 0, 0)
+
+    monkeypatch.setattr(modulo, "coletar_produtos", falso)
+    a, _ = agendador_resumo(engine, sessoes, config, NavegadorFake({}))
+    a.executar_job(incluir_listagens=False)
+    assert vistos == [local(TERCA, 10, 40)]

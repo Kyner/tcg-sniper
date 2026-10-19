@@ -28,15 +28,15 @@ ESPERADOS = {
     TipoAviso.LIGA_COLETA_CONCLUIDA: (
         "✅ *Liga · coleta concluída · 18/10*\n"
         "• Listagens: ok · 20 de 20 categorias · 3 produtos novos\n"
-        "• Produtos: ok · 412 ok · 0 falhas\n"
-        "• Duração: 1 h 12 min\n"
+        "• Produtos: ok · 482 de 482 · casados 52, candidatos 18, novos 100, rodízio 312\n"
+        "• Duração: 2 h 41 min\n"
         "_18/10 10:42 · coletor Liga_"
     ),
     TipoAviso.LIGA_COLETA_PARCIAL: (
         "🟡 *Liga · coleta parcial · 18/10*\n"
         "• Listagens: ok · 20 de 20 categorias · 0 produtos novos\n"
-        "• Produtos: parcial · 380 ok · 32 falhas\n"
-        "• Duração: 1 h 5 min\n"
+        "• Produtos: parcial · 450 de 482 · casados 52, candidatos 18, novos 100, rodízio 312\n"
+        "• Duração: 2 h 35 min\n"
         "\n"
         "*O que fazer:* Nada urgente; se repetir, veja Admin → Logs → LigaMagic.\n"
         "_18/10 10:42 · coletor Liga_"
