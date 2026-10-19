@@ -11,6 +11,7 @@ from tcg_sniper.db.models import (
     AnuncioAmazon,
     Casamento,
     Envio,
+    OrigemCasamento,
     PrecoAtualLiga,
     ProdutoLiga,
     StatusCasamento,
@@ -141,6 +142,25 @@ def criar_par(
     s.add(par)
     s.flush()
     return par
+
+
+def catalogo_exemplo(s):
+    """Um produto em cada situação, mais um inativo (fora de tudo)."""
+    inativo = criar_produto(s, "inativo", ativo=False)
+    criar_anuncio(s, "B0INATIVO1", inativo, StatusCasamento.CONFIRMADO)
+    criar_anuncio(s, "B0INATIVO2", inativo, StatusCasamento.PENDENTE)
+    duplo = criar_produto(s, "duplo")  # 2 confirmados + 1 pendente: casado, contado uma vez
+    criar_anuncio(s, "B0DUPLO001", duplo, StatusCasamento.CONFIRMADO)
+    criar_anuncio(s, "B0DUPLO002", duplo, StatusCasamento.CONFIRMADO)
+    criar_anuncio(s, "B0DUPLO003", duplo, StatusCasamento.PENDENTE)
+    simples = criar_produto(s, "simples")
+    casado = criar_anuncio(s, "B0SIMPLES1", simples, StatusCasamento.CONFIRMADO)
+    esperando = criar_produto(s, "esperando")
+    criar_anuncio(s, "B0ESPERA01", esperando, StatusCasamento.PENDENTE)
+    criar_anuncio(s, "B0ESPERA02", esperando, StatusCasamento.IGNORADO)
+    ignorado = criar_produto(s, "ignorado")
+    criar_par(s, casado, ignorado, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.OUTRO_CONFIRMADO)
+    criar_produto(s, "sem")
 
 
 def criar_preco_liga(s, produto, preco, listagem_em=T0, num_lojas=None, preco_medio=None) -> PrecoAtualLiga:
