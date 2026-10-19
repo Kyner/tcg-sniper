@@ -233,15 +233,38 @@ As páginas ficam em `dados/capturas/` (fora do git) e só entram em `tests/fixt
 
 O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (o site, em `http://localhost:8090`). O admin antigo continua em `:8000` até as telas mudarem para cá.
 
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"   # cole o resultado em SEGREDO_API no .env
-docker compose up -d --build api web
-docker compose exec api tcg-sniper criar-superadmin "Seu nome" "(DDD) seu número"
-```
+Para implantar (numa instalação que já roda), nesta ordem:
 
-Sem `SEGREDO_API` no `.env` (ou com o valor de exemplo) a `api` não sobe e diz o que fazer. Trocar essa chave derruba todas as sessões: todos entram de novo pelo código.
+1. Backup do banco antes de tudo:
 
-Abra `http://localhost:8090`, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Você é o superadmin: o único que cria, edita, rebaixa ou desativa admins, e ninguém (nem você) o rebaixa ou desativa pelo site. Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); admins comuns gerenciam só operadores e grupo. Em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin. Para passar o superadmin a outra pessoa já cadastrada (ex.: número novo): `docker compose exec api tcg-sniper trocar-superadmin "(DDD) número"` (o antigo continua admin).
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-front-<data>.dump
+   ```
+
+2. Atualize o código: `git pull`.
+3. Ponha uma `SEGREDO_API` de 32 caracteres ou mais no `.env` (gere com o comando abaixo e cole o resultado em `SEGREDO_API=`). Sem ela (ou com o valor de exemplo `trocar-este-segredo`) a `api` não sobe e diz o que fazer. Trocar essa chave depois derruba todas as sessões: todos entram de novo pelo código.
+
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+4. Recrie **todos** os serviços de uma vez (o `migrate` atualiza o banco antes), como na regra de [Atualizar uma instalação existente](#atualizar-uma-instalação-existente). Nunca só `api` e `web`: o `notificador` antigo não conhece o destino novo das mensagens individuais e mandaria o código de acesso para o grupo de oportunidades.
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+5. Crie o superadmin (você):
+
+   ```bash
+   docker compose exec api tcg-sniper criar-superadmin "<Nome>" "<número>"
+   ```
+
+6. Confira no admin antigo (`:8000`): em Configurações → Avisos, o aviso "Código de acesso" ligado (desligado, ninguém recebe código); em Serviços, o `notificador` rodando (ou `docker compose ps notificador`).
+7. Abra `http://localhost:8090` neste PC.
+
+Para entrar, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Você é o superadmin: o único que cria, edita, rebaixa ou desativa admins, e ninguém (nem você) o rebaixa ou desativa pelo site. Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); admins comuns gerenciam só operadores e grupo. Em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin. Para passar o superadmin a outra pessoa já cadastrada (ex.: número novo): `docker compose exec api tcg-sniper trocar-superadmin "(DDD) número"` (o antigo continua admin).
 
 Permissões de cada papel (padrão; Gestão → Acessos muda as de grupo e operador, e vale na próxima ação de quem já está logado):
 
