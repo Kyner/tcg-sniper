@@ -42,6 +42,14 @@ Direção futura (não faz parte desta fase): **vender acesso às oportunidades*
   - `/api/docs` (OpenAPI) com `ver_documentacao_api`.
 - Cada rota declara a **permissão** que exige (dependência FastAPI `exige("<permissao>")`); o back sempre confere, lendo a grade do banco (cache curto, invalidado ao salvar).
 
+### Superadmin
+
+- Existe **um só** (o dono do sistema). Coluna `usuario.superadmin` (bool, no máximo uma linha `true`, garantido por índice único parcial).
+- Criado **só pelo comando local** `tcg-sniper criar-superadmin <nome> <numero>`; recusa se já existir. Trocar o superadmin (ex.: número novo) também só por comando local (`tcg-sniper trocar-superadmin <numero>`).
+- Nunca pode ser rebaixado, desativado ou ter sessões encerradas por ninguém pela API/tela; só ele mesmo encerra as próprias sessões. Papel sempre `admin` e todas as permissões, sempre.
+- **Só o superadmin cria, edita, rebaixa ou desativa admins** e encerra sessões de admins; admins comuns gerenciam só operadores e grupo (403 `so_superadmin`).
+- Admins comuns podem ser rebaixados/desativados (pelo superadmin); não existe regra de "último admin" — o superadmin garante o acesso.
+
 ### Permissões
 
 - Lista fechada definida no código (`api/permissoes.py`, enum `Permissao` com rótulo e descrição para a tela); cada fase acrescenta as suas. Fase 1:
@@ -75,9 +83,11 @@ Envio individual: hoje o notificador só manda para grupos. A fila (`mensagem_sa
 
 Limites: até 3 códigos por número a cada 15 min; até 20 pedidos por hora no total; acima disso responde 429, registra e gera aviso `SEGURANCA_LIMITE` (grupo admin, agrupado).
 
-Acesso de emergência: `tcg-sniper codigo-acesso <numero>` (só no PC/containers) gera e mostra no terminal um código válido para aquele usuário; `tcg-sniper criar-admin <nome> <numero>` cria o primeiro admin (falha se já houver admin, salvo `--forcar`).
+Acesso de emergência: `tcg-sniper codigo-acesso <numero>` (só no PC/containers) gera e mostra no terminal um código válido para aquele usuário; `tcg-sniper criar-superadmin <nome> <numero>` cria o superadmin (ver Superadmin).
 
 Avisos novos no catálogo (desligáveis na aba Avisos): `CODIGO_ACESSO` (individual, não agrupa), `SEGURANCA_USUARIO` (usuário criado, papel alterado, desativado, permissão alterada; grupo admin), `SEGURANCA_LIMITE` (limite de pedidos atingido; agrupa por número).
+
+Hashes: código, token de sessão e número (para contagem de limites) são guardados como **HMAC-SHA256 com chave secreta** `SEGREDO_API` do `.env` (obrigatória; o serviço `api` não sobe sem ela; documentada no `.env.example`), nunca SHA-256 puro.
 
 Dados pessoais: números ficam só no banco; nunca em log (mascarados: `+55 11 9****-**34`), nunca no repositório, nunca no grupo. Código e token nunca em log, banco (só hash) ou mensagem de grupo.
 
@@ -118,6 +128,6 @@ Coletores, casador, notificador (exceto aceitar destino individual), manutençã
 ## Critério de pronto da fase 1
 
 1. `docker compose up -d` sobe `api` e `web`; admin antigo continua em `:8000`.
-2. O usuário cria o próprio admin pelo comando, entra pelo código no WhatsApp e cadastra um usuário grupo e um operador.
+2. O usuário cria o superadmin pelo comando, entra pelo código no WhatsApp e cadastra um usuário grupo e um operador.
 3. Cada papel vê só o que suas permissões permitem (conferido também direto na API), e mudar a grade em Gestão → Acessos muda isso na hora.
 4. Área de negócio: esqueleto com menu e link para o admin antigo.
