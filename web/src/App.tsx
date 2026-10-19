@@ -1,12 +1,14 @@
 // Rotas do site. /entrar é aberta; o resto exige sessão e, cada tela, a sua permissão.
 import { BrowserRouter, Outlet, Route, Routes } from "react-router";
 import { Exige, RotaProtegida } from "./componentes/RotaProtegida";
+import { Acessos } from "./paginas/Acessos";
 import { AreaNegocio } from "./paginas/AreaNegocio";
 import { Entrar } from "./paginas/Entrar";
 import { Gestao } from "./paginas/Gestao";
 import { Indisponivel } from "./paginas/Indisponivel";
 import { NaoEncontrada } from "./paginas/NaoEncontrada";
 import { SemAcesso } from "./paginas/SemAcesso";
+import { Usuarios } from "./paginas/Usuarios";
 import { SessaoProvider, useSessao } from "./sessao";
 
 export function Rotas() {
@@ -33,6 +35,22 @@ export function Rotas() {
           }
         >
           <Route index element={<Gestao />} />
+          <Route
+            path="usuarios"
+            element={
+              <Exige permissao="gerir_usuarios">
+                <Usuarios />
+              </Exige>
+            }
+          />
+          <Route
+            path="acessos"
+            element={
+              <Exige permissao="gerir_acessos">
+                <Acessos />
+              </Exige>
+            }
+          />
         </Route>
         <Route path="/sem-acesso" element={<SemAcesso />} />
       </Route>
