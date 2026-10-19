@@ -7,6 +7,7 @@ from fakes import (
     AvisadorFake,
     NavegadorInterativoFake,
     criar_anuncio,
+    criar_par,
     criar_preco_liga,
     criar_produto,
     fixture_amazon,
@@ -22,11 +23,13 @@ from tcg_sniper.coletor_amazon.busca import ContextoBusca, DesafioAmazon
 from tcg_sniper.coletor_amazon.monitor import aplicar_conferencia, ler_anuncio
 from tcg_sniper.coletor_amazon.parsers import url_ofertas, url_produto, url_vendedor
 from tcg_sniper.db import repositorio_amazon as repo
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     Envio,
     OfertaAmazon,
     Oportunidade,
+    OrigemCasamento,
     OrigemPreco,
     PrecoAtualAmazon,
     SituacaoCheckout,
@@ -522,3 +525,30 @@ def test_conferencia_aplicada_usa_o_preco_conferido_no_titulo(sessoes, config, a
     [dados] = avisador.dados(TipoAviso.OPORTUNIDADE)
     assert dados.titulo_extra == "26% abaixo da Liga"
     assert "Amazon: *R$ 740,00* (conferido" in avisador.mensagens[0][1]
+
+
+def test_oportunidade_usa_o_produto_do_par_confirmado(sessoes, config, anuncio):
+    with sessoes() as s, s.begin():
+        outro = criar_produto(s, "outro", nome="Outro produto")
+        criar_preco_liga(s, outro, "100.00", listagem_em=AGORA - timedelta(hours=2))
+        criar_par(
+            s, s.get(AnuncioAmazon, anuncio.id), outro, status=StatusCasamento.IGNORADO,
+            origem=OrigemCasamento.OUTRO_CONFIRMADO, revisado_em=AGORA,
+        )
+        certo = repo_casamento.confirmado_do_anuncio(s, anuncio.id).produto_id
+    ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    with sessoes() as s:
+        op = s.scalar(select(Oportunidade))
+    assert (op.produto_id, op.preco_liga) == (certo, Decimal("1000.00"))
+
+
+def test_par_desfeito_nao_abre_oportunidade(sessoes, config, anuncio):
+    with sessoes() as s, s.begin():
+        par = repo_casamento.confirmado_do_anuncio(s, anuncio.id)
+        repo_casamento.desfazer(s, anuncio.id, par.produto_id, AGORA)
+    ctx, _, avisador = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    assert avisador.mensagens == []
+    with sessoes() as s:
+        assert s.scalar(select(Oportunidade)) is None

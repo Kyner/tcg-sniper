@@ -2,6 +2,7 @@
 {% from "_componentes.html" import selo, cabecalho, paginacao %}
 {% block titulo %}Logs · TCG Sniper{% endblock %}
 {% block conteudo %}
+{% set rotulos_finalidade = {"avaliacao": "avaliação", "termos": "termos de busca"} %}
 {{ cabecalho("Logs", "Histórico das coletas, dos ciclos, do monitor, das conferências de checkout, das chamadas da IA e do backup.") }}
 
 {# Campos ocultos de um filtro: os parâmetros das outras abas e a própria aba; a página do filtro volta para 1. #}
@@ -155,7 +156,7 @@
       </fieldset>
       <fieldset class="fieldset"><legend class="fieldset-legend">Finalidade</legend>
         <select name="finalidade" class="select select-sm w-auto" aria-label="Finalidade">
-          {% for v in finalidades_ia %}<option value="{{ v }}" {% if v == finalidade %}selected{% endif %}>{{ "avaliação" if v == "avaliacao" else v }}</option>{% endfor %}
+          {% for v in finalidades_ia %}<option value="{{ v }}" {% if v == finalidade %}selected{% endif %}>{{ rotulos_finalidade.get(v, v) }}</option>{% endfor %}
         </select>
       </fieldset>
       <button type="submit" class="btn btn-sm btn-primary mb-1">Filtrar</button>
@@ -167,7 +168,7 @@
         {% for c in chamadas %}
           <tr>
             <td class="whitespace-nowrap tabular-nums">{{ c.em|data }}</td>
-            <td>{{ "avaliação" if c.finalidade == "avaliacao" else c.finalidade }}</td>
+            <td>{{ rotulos_finalidade.get(c.finalidade, c.finalidade) }}</td>
             <td>{{ c.modelo }}</td>
             <td class="text-right tabular-nums">{{ c.tokens_entrada|milhar }} / {{ c.tokens_saida|milhar }}</td>
             <td class="text-right whitespace-nowrap tabular-nums">{{ c.custo_usd|usd4 }}</td>
@@ -182,7 +183,7 @@
     <div class="space-y-2 md:hidden">
       {% for c in chamadas %}
       <div class="card bg-base-100 shadow-sm"><div class="card-body gap-1 p-4">
-        <div class="flex items-center justify-between gap-2"><span class="font-medium">{{ c.em|data }} · {{ "avaliação" if c.finalidade == "avaliacao" else c.finalidade }}</span>{% if c.ok %}{{ selo("ok") }}{% else %}{{ selo("falha", "erro") }}{% endif %}</div>
+        <div class="flex items-center justify-between gap-2"><span class="font-medium">{{ c.em|data }} · {{ rotulos_finalidade.get(c.finalidade, c.finalidade) }}</span>{% if c.ok %}{{ selo("ok") }}{% else %}{{ selo("falha", "erro") }}{% endif %}</div>
         <div class="text-sm tabular-nums">{{ c.modelo }} · {{ c.tokens_entrada|milhar }} / {{ c.tokens_saida|milhar }} tokens · {{ c.custo_usd|usd4 }}</div>
         {% if c.erro %}<div class="text-xs text-error">{{ c.erro }}</div>{% endif %}
       </div></div>

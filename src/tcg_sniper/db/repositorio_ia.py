@@ -14,6 +14,7 @@ from tcg_sniper.db.models import (
     PADROES_CONFIG_IA,
     AnuncioAmazon,
     AvaliacaoIA,
+    Casamento,
     ChamadaIA,
     ConfigIA,
     OrigemCasamento,
@@ -87,6 +88,7 @@ class ParPendente:
     avaliacao: AvaliacaoIA | None
     preco_liga: Decimal | None
     preco_amazon: Decimal | None
+    reavaliar: bool = False  # Desfazer ou "Reavaliar com a IA": avalia de novo mesmo com a assinatura igual
 
 
 def origem_da_decisao(s: Session, anuncio_id: int, produto_id: int | None) -> OrigemCasamento:
@@ -100,31 +102,43 @@ def origem_da_decisao(s: Session, anuncio_id: int, produto_id: int | None) -> Or
 
 
 def pares_pendentes(s: Session, so_descoberta: bool = False) -> list[ParPendente]:
-    """Anúncios pendentes com produto sugerido, com a avaliação desse par (se houver) e os preços atuais.
-    Produtos ativos primeiro; depois os vistos mais recentemente. Com `so_descoberta` (o casador), pula
-    os de produto já casado, exceto os vistos pela primeira vez depois do primeiro casamento do produto
-    (os anúncios novos da busca semanal)."""
+    """Pares pendentes de produtos ativos cujo anúncio não é confirmado de nenhum produto, com a avaliação
+    do par (se houver) e os preços atuais; os vistos mais recentemente primeiro. Com `so_descoberta` (o
+    casador), pula os pares de produto já casado, exceto os que a busca do produto viu pela primeira vez
+    depois do primeiro casamento dele (a busca semanal) e os marcados para reavaliar."""
+    confirmado = aliased(Casamento)
+    anuncio_confirmado = (
+        select(confirmado.anuncio_id)
+        .where(confirmado.anuncio_id == Casamento.anuncio_id, confirmado.status == StatusCasamento.CONFIRMADO)
+        .exists()
+    )
     consulta = (
-        select(AnuncioAmazon, ProdutoLiga, AvaliacaoIA, PrecoAtualLiga.preco_a_partir, PrecoAtualAmazon.preco)
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        select(Casamento, AnuncioAmazon, ProdutoLiga, AvaliacaoIA, PrecoAtualLiga.preco_a_partir, PrecoAtualAmazon.preco)
+        .join(AnuncioAmazon, AnuncioAmazon.id == Casamento.anuncio_id)
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .outerjoin(
             AvaliacaoIA,
-            and_(AvaliacaoIA.anuncio_id == AnuncioAmazon.id, AvaliacaoIA.produto_id == AnuncioAmazon.produto_id),
+            and_(AvaliacaoIA.anuncio_id == Casamento.anuncio_id, AvaliacaoIA.produto_id == Casamento.produto_id),
         )
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE)
-        .order_by(ProdutoLiga.ativo.desc(), AnuncioAmazon.visto_ultimo_em.desc(), AnuncioAmazon.id)
+        .where(Casamento.status == StatusCasamento.PENDENTE, ProdutoLiga.ativo.is_(True), ~anuncio_confirmado)
+        .order_by(Casamento.visto_ultimo_em.desc(), Casamento.anuncio_id, Casamento.produto_id)
     )
     if so_descoberta:
-        casado = aliased(AnuncioAmazon)
+        casado = aliased(Casamento)
         casado_desde = (
             select(func.min(casado.revisado_em))
-            .where(casado.produto_id == AnuncioAmazon.produto_id, casado.status_casamento == StatusCasamento.CONFIRMADO)
+            .where(casado.produto_id == Casamento.produto_id, casado.status == StatusCasamento.CONFIRMADO)
             .scalar_subquery()
         )
-        consulta = consulta.where(or_(casado_desde.is_(None), AnuncioAmazon.visto_primeiro_em > casado_desde))
-    return [ParPendente(*linha) for linha in s.execute(consulta)]
+        consulta = consulta.where(
+            or_(casado_desde.is_(None), Casamento.visto_primeiro_em > casado_desde, Casamento.reavaliar.is_(True))
+        )
+    return [
+        ParPendente(anuncio, produto, avaliacao, liga, amazon, par.reavaliar)
+        for par, anuncio, produto, avaliacao, liga, amazon in s.execute(consulta)
+    ]
 
 
 def gravar_avaliacao(
@@ -140,16 +154,47 @@ def gravar_avaliacao(
     sem_imagem: bool,
     chamada_id: int | None,
     agora: datetime,
+    idioma_anuncio: str | None = None,
 ) -> AvaliacaoIA:
     """Cria ou substitui a avaliação do par. `aplicada_em` nunca é apagada aqui."""
     valores = {
         "mesmo_produto": mesmo_produto, "confianca": confianca, "motivo": motivo, "modelo": modelo,
         "assinatura": assinatura, "sem_imagem": sem_imagem, "chamada_id": chamada_id, "avaliado_em": agora,
+        "idioma_anuncio": idioma_anuncio,
     }
     stmt = pg_insert(AvaliacaoIA).values(anuncio_id=anuncio_id, produto_id=produto_id, **valores)
     stmt = stmt.on_conflict_do_update(constraint="uq_avaliacao_ia_par", set_=valores).returning(AvaliacaoIA.id)
     avaliacao_id = s.execute(stmt).scalar_one()
     return s.get(AvaliacaoIA, avaliacao_id, populate_existing=True)
+
+
+# Idiomas que a IA lê com certeza no anúncio (`indefinido` e vazio não contam como conhecidos).
+IDIOMAS_CONHECIDOS = ("pt", "en", "ja", "outro")
+
+
+def portugues_confirmado(s: Session, produto_id: int) -> bool | None:
+    """O produto tem anúncio em português confirmado? True: algum confirmado é `pt`. None: não se sabe (algum
+    confirmado sem idioma conhecido, ex.: decidido antes da regra de idioma). False: nenhum confirmado ou só
+    de outros idiomas. O idioma é do anúncio: vale a avaliação dele contra qualquer produto."""
+    confirmados = select(Casamento.anuncio_id).where(
+        Casamento.produto_id == produto_id, Casamento.status == StatusCasamento.CONFIRMADO
+    )
+    portugues = select(AvaliacaoIA.id).where(
+        AvaliacaoIA.anuncio_id.in_(confirmados), AvaliacaoIA.idioma_anuncio == "pt"
+    ).limit(1)
+    if s.scalar(portugues) is not None:
+        return True
+    conhecido = (
+        select(AvaliacaoIA.id)
+        .where(AvaliacaoIA.anuncio_id == Casamento.anuncio_id, AvaliacaoIA.idioma_anuncio.in_(IDIOMAS_CONHECIDOS))
+        .exists()
+    )
+    desconhecido = (
+        select(Casamento.anuncio_id)
+        .where(Casamento.produto_id == produto_id, Casamento.status == StatusCasamento.CONFIRMADO, ~conhecido)
+        .limit(1)
+    )
+    return None if s.scalar(desconhecido) is not None else False
 
 
 def avaliacoes_dos_pares(s: Session, pares: Sequence[tuple[int, int]]) -> dict[tuple[int, int], AvaliacaoIA]:
@@ -169,30 +214,33 @@ class ParDecidido:
 
 
 def pares_decididos(s: Session, limite: int | None) -> list[ParDecidido]:
-    """Anúncios confirmados ou ignorados pelo usuário (não pelo automático), para a avaliação. A decisão é
-    do automático só se ainda for a dele (`aplicada_em == revisado_em`): corrigida pelo usuário, conta."""
+    """Pares confirmados ou ignorados por você (não pelo automático nem pelo sistema: `outro_confirmado` fica
+    de fora), para a avaliação. A decisão é do automático só se ainda for a dele (`aplicada_em ==
+    revisado_em` do par): corrigida por você, conta."""
     aplicada = (
         select(AvaliacaoIA.id)
         .where(
-            AvaliacaoIA.anuncio_id == AnuncioAmazon.id,
-            AvaliacaoIA.produto_id == AnuncioAmazon.produto_id,
-            AvaliacaoIA.aplicada_em == AnuncioAmazon.revisado_em,
+            AvaliacaoIA.anuncio_id == Casamento.anuncio_id,
+            AvaliacaoIA.produto_id == Casamento.produto_id,
+            AvaliacaoIA.aplicada_em == Casamento.revisado_em,
         )
         .exists()
     )
     consulta = (
-        select(AnuncioAmazon, ProdutoLiga, PrecoAtualLiga.preco_a_partir, PrecoAtualAmazon.preco)
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        select(Casamento, AnuncioAmazon, ProdutoLiga, PrecoAtualLiga.preco_a_partir, PrecoAtualAmazon.preco)
+        .join(AnuncioAmazon, AnuncioAmazon.id == Casamento.anuncio_id)
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
         .where(
-            AnuncioAmazon.status_casamento.in_([StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO]),
+            Casamento.status.in_([StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO]),
+            Casamento.origem.is_distinct_from(OrigemCasamento.OUTRO_CONFIRMADO),
             ~aplicada,
         )
-        .order_by(AnuncioAmazon.id)
+        .order_by(Casamento.anuncio_id, Casamento.produto_id)
         .limit(limite)
     )
     return [
-        ParDecidido(anuncio, produto, anuncio.status_casamento is StatusCasamento.CONFIRMADO, liga, amazon)
-        for anuncio, produto, liga, amazon in s.execute(consulta)
+        ParDecidido(anuncio, produto, par.status is StatusCasamento.CONFIRMADO, liga, amazon)
+        for par, anuncio, produto, liga, amazon in s.execute(consulta)
     ]

@@ -3861,7 +3861,9 @@ git commit -m "chore: drop the old listing match columns; regression of numbers;
 
 ## Implantação (depois do merge, com ok do usuário; o controlador faz, não um subagente)
 
-1. Backup do banco de produção (procedimento de sempre, README → Backup do banco) e conferir o arquivo.
-2. `docker compose run --rm migrate` aplica `a9d4f2c6e8b1` numa transação (cria `casamento` e `termo_busca`, copia, confere, remove as colunas antigas). Se abortar com "mais de um casamento confirmado", nada mudou: anote os ids e pare.
-3. Rebuild e restart de `coletor-amazon`, `casador` e `admin` (os três importam os repositórios novos). O `api` e o `web` não mudam.
-4. Conferir: `SELECT status, count(*) FROM casamento GROUP BY status` bate com os números de antes (em 2026-10-19: 51 confirmados, 5 pendentes, 1269 ignorados); o Dashboard e Casamentos mostram os mesmos números; uma tela de produto mostra os três botões.
+Revisado na Task 7 (ruling F2): segue o CLAUDE.md e o README → "Implantar o casamento por par".
+
+1. Backup do banco de produção em `dados/backups/` (`tcg-antes-casamento-por-par-<data>.dump`) e conferir o arquivo.
+2. Antes de migrar: `SELECT count(*) FROM anuncio_amazon WHERE produto_id IS NULL` tem de dar 0; anotar `SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL GROUP BY 1` (os números de referência; em 2026-10-19 eram 50 confirmados, 6 pendentes e 1269 ignorados, mas vale a contagem tirada na hora).
+3. `docker compose up -d --build` (todos os serviços juntos; o `migrate` aplica `a9d4f2c6e8b1` numa transação antes). Se abortar com "mais de um casamento confirmado", nada mudou no banco: anote os ids e pare (volte o código e suba de novo).
+4. Conferir: `SELECT status, count(*) FROM casamento GROUP BY status` bate com as contagens do passo 2; o Dashboard e Casamentos mostram os mesmos números; uma tela de produto mostra os três botões.

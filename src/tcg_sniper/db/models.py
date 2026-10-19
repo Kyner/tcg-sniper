@@ -62,6 +62,7 @@ class OrigemCasamento(enum.StrEnum):
     MANUAL = "manual"  # o usuário decidiu sem avaliação da IA para o par, ou colou o link
     SUGERIDO_IA = "sugerido_ia"  # o usuário decidiu um par que a IA tinha avaliado
     AUTOMATICO_IA = "automatico_ia"  # o automático do casador decidiu
+    OUTRO_CONFIRMADO = "outro_confirmado"  # o anúncio foi confirmado para outro produto (decisão do sistema)
 
 
 class SituacaoCheckout(enum.StrEnum):
@@ -220,10 +221,7 @@ class EstadoColetor(Base):
 
 
 class AnuncioAmazon(Base):
-    """Um anúncio (ASIN) da amazon.com.br e o casamento com um produto da Liga.
-
-    Enquanto `pendente`, `produto_id` é a sugestão (o produto cuja busca achou o ASIN); quando
-    `confirmado`, é o casamento. Um ASIN casa com no máximo um produto da Liga."""
+    """Um anúncio (ASIN) da amazon.com.br. O casamento com os produtos da Liga fica em `Casamento` (por par)."""
 
     __tablename__ = "anuncio_amazon"
 
@@ -235,11 +233,6 @@ class AnuncioAmazon(Base):
     # Imagem principal: a busca só preenche quando vazia; a página do produto pode trocar.
     imagem_url: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str] = mapped_column(Text)
-    produto_id: Mapped[int | None] = mapped_column(ForeignKey("produto_liga.id"))
-    status_casamento: Mapped[StatusCasamento] = mapped_column(_enum(StatusCasamento, "status_casamento"))
-    revisado_em: Mapped[datetime | None] = mapped_column(DATA)
-    # Quem decidiu o casamento (confirmado ou ignorado); nula enquanto pendente.
-    origem_casamento: Mapped[OrigemCasamento | None] = mapped_column(_enum(OrigemCasamento, "origem_casamento"))
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
 
@@ -292,17 +285,66 @@ class PrecoAtualAmazon(Base):
 
 
 class FilaAmazon(Base):
-    """Uma linha por produto ativo da Liga: quando buscar de novo na Amazon."""
+    """Uma linha por produto ativo da Liga: quando buscar de novo na Amazon e com que termo."""
 
     __tablename__ = "fila_amazon"
+    __table_args__ = (CheckConstraint("indice_termo >= 0", name="ck_fila_amazon_indice_termo"),)
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     entrou_em: Mapped[datetime] = mapped_column(DATA)
     proxima_busca_em: Mapped[datetime] = mapped_column(DATA)
     ultima_busca_em: Mapped[datetime | None] = mapped_column(DATA)
     ultimo_candidato_em: Mapped[datetime | None] = mapped_column(DATA)
-    # A última busca usou o nome em inglês; a próxima volta ao português (só alterna se o produto tem `nome_en`).
-    ultimo_termo_en: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Próximo termo da sequência (nome, nome em inglês, termos alternativos na seca), usado módulo o tamanho.
+    indice_termo: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Última vez que a busca deste produto criou um par pendente novo (a seca conta daqui; nulo: desde entrou_em).
+    ultimo_par_novo_em: Mapped[datetime | None] = mapped_column(DATA)
+    # Última tentativa da IA de gerar termos (sem termo válido: espera 7 dias) e pedido do admin.
+    termos_tentados_em: Mapped[datetime | None] = mapped_column(DATA)
+    termos_pedidos_em: Mapped[datetime | None] = mapped_column(DATA)
+
+
+class Casamento(Base):
+    """Par (anúncio da Amazon, produto da Liga): a fonte única do casamento. Um anúncio pode estar pendente
+    ou ignorado para vários produtos e confirmado para no máximo um (índice único parcial). `visto_*`: quando
+    a busca deste produto viu o anúncio (par criado por link, troca ou migração: a criação). `reavaliar`:
+    Desfazer ou "Reavaliar com a IA" pediram nova avaliação mesmo com os dados iguais."""
+
+    __tablename__ = "casamento"
+    __table_args__ = (
+        Index("uq_casamento_confirmado", "anuncio_id", unique=True, postgresql_where=text("status = 'confirmado'")),
+        Index("ix_casamento_produto_status", "produto_id", "status"),
+        Index("ix_casamento_status", "status"),
+    )
+
+    anuncio_id: Mapped[int] = mapped_column(ForeignKey("anuncio_amazon.id"), primary_key=True)
+    produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
+    status: Mapped[StatusCasamento] = mapped_column(_enum(StatusCasamento, "status_casamento"))
+    origem: Mapped[OrigemCasamento | None] = mapped_column(_enum(OrigemCasamento, "origem_casamento"))
+    revisado_em: Mapped[datetime | None] = mapped_column(DATA)
+    visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
+    visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
+    reavaliar: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class TermoBusca(Base):
+    """Termos de busca alternativos de um produto (busca alternativa): gerados pela IA, no máximo 3."""
+
+    __tablename__ = "termo_busca"
+    __table_args__ = (
+        UniqueConstraint("produto_id", "termo", name="uq_termo_busca_produto_termo"),
+        UniqueConstraint("produto_id", "ordem", name="uq_termo_busca_produto_ordem"),
+        CheckConstraint("char_length(termo) BETWEEN 1 AND 80", name="ck_termo_busca_termo"),
+        CheckConstraint("idioma IN ('pt', 'en')", name="ck_termo_busca_idioma"),
+        CheckConstraint("ordem BETWEEN 1 AND 3", name="ck_termo_busca_ordem"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"))
+    termo: Mapped[str] = mapped_column(Text)
+    idioma: Mapped[str] = mapped_column(Text)
+    ordem: Mapped[int] = mapped_column(Integer)
+    criado_em: Mapped[datetime] = mapped_column(DATA)
 
 
 class Oportunidade(Base):
@@ -700,7 +742,7 @@ class ChamadaIA(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     em: Mapped[datetime] = mapped_column(DATA)
-    finalidade: Mapped[str] = mapped_column(Text)  # "casamento" | "avaliacao"
+    finalidade: Mapped[str] = mapped_column(Text)  # "casamento" | "avaliacao" | "termos"
     modelo: Mapped[str] = mapped_column(Text)
     tokens_entrada: Mapped[int] = mapped_column(Integer)
     tokens_saida: Mapped[int] = mapped_column(Integer)
@@ -709,15 +751,23 @@ class ChamadaIA(Base):
     erro: Mapped[str | None] = mapped_column(Text)
 
 
+# Edição de idioma do anúncio que a IA devolve no veredito (`indefinido`: o anúncio não deixa claro).
+IDIOMAS_ANUNCIO = ("pt", "en", "ja", "outro", "indefinido")
+
+
 class AvaliacaoIA(Base):
     """Veredito da IA para um par (anúncio, produto da Liga). `assinatura` = hash dos dados enviados:
     mudou, reavalia. `aplicada_em` preenchida quando o automático confirmou ou ignorou o anúncio
-    (fica mesmo se o usuário desfizer, para o automático não reaplicar)."""
+    (fica mesmo se o usuário desfizer, para o automático não reaplicar). `idioma_anuncio`: a edição de
+    idioma do anúncio lida pela IA (`IDIOMAS_ANUNCIO`); vazia nas avaliações de antes da regra de idioma."""
 
     __tablename__ = "avaliacao_ia"
     __table_args__ = (
         UniqueConstraint("anuncio_id", "produto_id", name="uq_avaliacao_ia_par"),
         CheckConstraint("confianca BETWEEN 0 AND 100", name="ck_avaliacao_ia_confianca"),
+        CheckConstraint(
+            "idioma_anuncio IN ('pt', 'en', 'ja', 'outro', 'indefinido')", name="ck_avaliacao_ia_idioma_anuncio"
+        ),
         Index("ix_avaliacao_ia_chamada", "chamada_id"),  # limpeza das chamadas antigas
     )
 
@@ -733,6 +783,7 @@ class AvaliacaoIA(Base):
     avaliado_em: Mapped[datetime] = mapped_column(DATA)
     aplicada_em: Mapped[datetime | None] = mapped_column(DATA)
     chamada_id: Mapped[int | None] = mapped_column(ForeignKey("chamada_ia.id"))
+    idioma_anuncio: Mapped[str | None] = mapped_column(Text)
 
 
 class Usuario(Base):

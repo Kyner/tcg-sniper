@@ -12,9 +12,11 @@ from sqlalchemy import select, update
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app, destino_seguro
 from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import (
     AnuncioAmazon,
+    Casamento,
     Envio,
     FilaAmazon,
     OrigemCasamento,
@@ -136,7 +138,8 @@ def test_link_manual_valido(cliente, sessoes, cenario):
     assert "Link salvo" in cliente.get(r.headers["location"]).text
     with sessoes() as s:
         anuncio = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B0MANUAL01"))
-        assert (anuncio.produto_id, anuncio.status_casamento) == (c.id, StatusCasamento.CONFIRMADO)
+        assert s.get(Casamento, (anuncio.id, c.id)).status is StatusCasamento.CONFIRMADO
+        assert repo_casamento.confirmado_do_anuncio(s, anuncio.id).produto_id == c.id
         assert s.get(FilaAmazon, c.id).proxima_busca_em < T0 + timedelta(days=3650)
 
 
@@ -152,7 +155,7 @@ def test_link_manual_invalido_nao_grava(cliente, sessoes, cenario, link, trecho)
     r = cliente.post(f"/casamentos/produto/{cenario['c'].id}/link", data={"link": link})
     assert r.status_code == 400 and trecho in r.text
     with sessoes() as s:
-        assert s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.produto_id == cenario["c"].id)) is None
+        assert s.scalar(select(Casamento).where(Casamento.produto_id == cenario["c"].id)) is None
 
 
 def test_link_manual_em_produto_inativo_404(cliente, cenario):
@@ -164,10 +167,10 @@ def test_acoes_voltam_para_o_destino(cliente, sessoes, cenario):
     with sessoes() as s:
         alfa = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B0ALFA0001"))
     voltar = f"/casamentos/produto/{cenario['a'].id}"
-    r = cliente.post(f"/casamentos/{alfa.id}", data={"acao": "ignorar", "voltar": voltar}, follow_redirects=False)
+    r = cliente.post(f"/casamentos/{alfa.id}", data={"acao": "ignorar", "produto_id": str(cenario["a"].id), "voltar": voltar}, follow_redirects=False)
     assert (r.status_code, r.headers["location"]) == (303, voltar)
     with sessoes() as s:
-        assert s.get(AnuncioAmazon, alfa.id).status_casamento is StatusCasamento.IGNORADO
+        assert s.get(Casamento, (alfa.id, cenario["a"].id)).status is StatusCasamento.IGNORADO
 
 
 @pytest.mark.parametrize(
@@ -197,7 +200,7 @@ def test_acoes_invalidas(cliente, sessoes, cenario, dados, codigo):
 
 
 def test_anuncio_inexistente_404(cliente):
-    assert cliente.post("/casamentos/999999", data={"acao": "ignorar"}).status_code == 404
+    assert cliente.post("/casamentos/999999", data={"acao": "ignorar", "produto_id": "1"}).status_code == 404
 
 
 def test_trocar_mostra_links_da_liga_e_escolher_volta_para_o_produto_escolhido(cliente, sessoes, cenario):
@@ -218,7 +221,7 @@ def test_sugestoes_para_acha_parecidos_e_exclui_o_atual(s):
     anuncio = criar_anuncio(s, "B0ZULU0001", produto=atual)
     anuncio.titulo = "Magic Zulu Colecionador Plus Booster Box"
     s.flush()
-    sugestoes = consultas_amazon.sugestoes_para(s, anuncio)
+    sugestoes = consultas_amazon.sugestoes_para(s, anuncio, excluir={atual.id})
     assert sugestoes[0][0].id == alvo.id
     assert all(p.id != atual.id for p, _ in sugestoes) and len(sugestoes) <= 3
 
@@ -242,8 +245,8 @@ def test_confirmar_para_produto_inativo_404_e_nao_grava(cliente, sessoes, cenari
     r = cliente.post(f"/casamentos/{alfa.id}", data={"acao": "confirmar", "produto_id": str(cenario["e"].id)})
     assert r.status_code == 404
     with sessoes() as s:
-        assert s.get(AnuncioAmazon, alfa.id).status_casamento is StatusCasamento.PENDENTE
-        assert s.get(AnuncioAmazon, alfa.id).produto_id == cenario["a"].id
+        assert s.get(Casamento, (alfa.id, cenario["a"].id)).status is StatusCasamento.PENDENTE
+        assert s.get(Casamento, (alfa.id, cenario["e"].id)) is None
 
 
 def test_busca_com_nul_nao_quebra(cliente, cenario):
@@ -325,7 +328,7 @@ def test_decisao_no_admin_grava_sugerido_ia_ou_manual(cliente, sessoes):
         ids = (p.id, avaliado.id, sem_ia.id)
     produto_id, avaliado_id, sem_ia_id = ids
     cliente.post(f"/casamentos/{avaliado_id}", data={"acao": "confirmar", "produto_id": str(produto_id)})
-    cliente.post(f"/casamentos/{sem_ia_id}", data={"acao": "ignorar"})
+    cliente.post(f"/casamentos/{sem_ia_id}", data={"acao": "ignorar", "produto_id": str(produto_id)})
     with sessoes() as s:
-        assert s.get(AnuncioAmazon, avaliado_id).origem_casamento is OrigemCasamento.SUGERIDO_IA
-        assert s.get(AnuncioAmazon, sem_ia_id).origem_casamento is OrigemCasamento.MANUAL
+        assert s.get(Casamento, (avaliado_id, produto_id)).origem is OrigemCasamento.SUGERIDO_IA
+        assert s.get(Casamento, (sem_ia_id, produto_id)).origem is OrigemCasamento.MANUAL

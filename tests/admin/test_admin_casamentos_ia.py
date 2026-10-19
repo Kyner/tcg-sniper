@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import Casamento, OrigemCasamento, StatusCasamento
 
 
 def basic(usuario, senha):
@@ -26,8 +26,9 @@ def avaliar(s, anuncio, produto, mesmo, confianca, motivo, aplicada=False, revis
     )
     if aplicada:
         av.aplicada_em = T0
-        anuncio.revisado_em = revisado  # o automático grava os dois no mesmo instante
-        anuncio.origem_casamento = OrigemCasamento.AUTOMATICO_IA if revisado == T0 else OrigemCasamento.MANUAL
+        par = s.get(Casamento, (anuncio.id, produto.id))
+        par.revisado_em = revisado  # o automático grava os dois no mesmo instante
+        par.origem = OrigemCasamento.AUTOMATICO_IA if revisado == T0 else OrigemCasamento.MANUAL
         s.flush()
     return av
 
@@ -85,3 +86,20 @@ def test_selo_pela_ia_some_quando_o_usuario_decidiu_depois(cliente, sessoes):
     html = cliente.get(f"/casamentos/produto/{produto_id}").text
     assert html.count(">automático pela IA<") == 1 and "carta avulsa" in html
     assert "motivo velho um" not in html and "motivo velho dois" not in html
+
+
+def test_idioma_do_anuncio_aparece_nos_pares(cliente, sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "p1", nome="Caixa Alfa")
+        pend = criar_anuncio(s, "B1", produto=p)
+        conf = criar_anuncio(s, "B2", produto=p, status=StatusCasamento.CONFIRMADO)
+        ign = criar_anuncio(s, "B3", produto=p, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.AUTOMATICO_IA)
+        sem = criar_anuncio(s, "B4", produto=p)
+        for anuncio, idioma in ((pend, "en"), (conf, "pt"), (ign, "ja"), (sem, None)):
+            avaliar(s, anuncio, p, True, 90, "m").idioma_anuncio = idioma
+        produto_id = p.id
+    html = cliente.get(f"/casamentos/produto/{produto_id}").text
+    assert '<span class="badge badge-outline badge-sm">inglês</span>' in html
+    assert '<span class="badge badge-outline badge-sm">português</span>' in html
+    assert '<span class="badge badge-error badge-outline badge-sm">japonês</span>' in html
+    assert html.count("badge-outline badge-sm\">") == 3  # sem idioma (avaliação antiga): sem selo

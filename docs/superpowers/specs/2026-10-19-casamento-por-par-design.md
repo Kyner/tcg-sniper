@@ -18,6 +18,8 @@ Produção em 2026-10-19: 1269 ignorados (96%), 51 confirmados, 5 pendentes; 50 
 - **Botões no admin antigo** (Jinja), com a regra em código comum (repositórios/serviços) para a fase 3 reaproveitar.
 - **Modelo:** tabela `casamento` como fonte única.
 
+**Regra de idioma (revista em 2026-10-19).** A edição em português é a preferida para o produto da Liga; um anúncio em inglês também casa quando o produto não tem anúncio em português confirmado (coleções antigas juntam os dois num produto só). Inglês já confirmado continua confirmado se o português aparecer depois (sem desfazer automático). Japonês e outros idiomas nunca casam. A IA devolve o idioma do anúncio (`avaliacao_ia.idioma_anuncio`: pt/en/ja/outro/indefinido, migração `b3e8d1f5c7a2`) e a pergunta diz se o produto já tem português confirmado (sim/não/não se sabe), fora da assinatura (sem reavaliação em massa). O automático nunca confirma ja/outro e só confirma inglês em produto sem português confirmado nem confirmado de idioma não registrado; senão o par fica pendente. Os termos da busca alternativa miram primeiro a edição em português e podem incluir a inglesa. `tcg-sniper casamento reabrir-ingles [--aplicar]` devolve à IA os ignorados pelo automático por inglês.
+
 ## Modelo
 
 ### Tabela `casamento`

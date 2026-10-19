@@ -28,7 +28,7 @@
           {{ nome_en(l.produto) }}
           <div class="mt-1 flex flex-wrap gap-1">{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}{% if l.sem_par %}{{ selo("ignorado", "sem par") }}{% endif %}</div></td>
         <td class="text-right tabular-nums whitespace-nowrap">{{ l.preco_liga|brl }}</td>
-        <td class="text-right tabular-nums">{{ l.pendentes }}</td><td class="text-right">{% if l.ia_sugere %}<span class="badge badge-sm badge-success badge-outline whitespace-nowrap">{{ l.ia_sugere }} pela IA</span>{% endif %}</td><td class="text-right tabular-nums">{{ l.confirmados }}</td><td class="text-right tabular-nums">{{ l.ignorados }}</td>
+        <td class="text-right tabular-nums">{{ l.pendentes }}</td><td class="text-right">{% if l.ia_sugere %}<span class="badge badge-sm badge-success badge-outline whitespace-nowrap">{{ l.ia_sugere }} pela IA</span>{% endif %}</td><td class="text-right tabular-nums">{{ l.confirmados }}</td><td class="text-right tabular-nums">{{ l.ignorados }}{% if l.em_outro %}<div class="text-xs text-base-content/60 whitespace-nowrap">{{ l.em_outro }} {{ "casado" if l.em_outro == 1 else "casados" }} em outro produto</div>{% endif %}</td>
         <td class="text-right"><a class="btn btn-sm btn-primary" href="/casamentos/produto/{{ l.produto.id }}?voltar={{ voltar_atual|urlencode }}">Abrir</a></td>
       </tr>
     {% else %}
@@ -43,7 +43,7 @@
     <a class="link link-hover font-medium" href="{{ l.produto.url }}" target="_blank" rel="noopener">{{ l.produto.nome }}</a>
     {{ nome_en(l.produto) }}
     <div class="flex flex-wrap gap-1">{% if l.oportunidade %}{{ selo("ok", "oportunidade") }}{% endif %}{% if l.sem_par %}{{ selo("ignorado", "sem par") }}{% endif %}</div>
-    <div class="text-sm tabular-nums">{{ l.preco_liga|brl }} · {{ l.pendentes }} pendentes · {{ l.confirmados }} confirmados · {{ l.ignorados }} ignorados{% if l.ia_sugere %} <span class="badge badge-sm badge-success badge-outline whitespace-nowrap">IA sugere: {{ l.ia_sugere }}</span>{% endif %}</div>
+    <div class="text-sm tabular-nums">{{ l.preco_liga|brl }} · {{ l.pendentes }} pendentes · {{ l.confirmados }} confirmados · {{ l.ignorados }} ignorados{% if l.em_outro %} · {{ l.em_outro }} {{ "casado" if l.em_outro == 1 else "casados" }} em outro produto{% endif %}{% if l.ia_sugere %} <span class="badge badge-sm badge-success badge-outline whitespace-nowrap">IA sugere: {{ l.ia_sugere }}</span>{% endif %}</div>
     <div class="card-actions justify-end"><a class="btn btn-sm btn-primary" href="/casamentos/produto/{{ l.produto.id }}?voltar={{ voltar_atual|urlencode }}">Abrir</a></div>
   </div></div>
   {% else %}

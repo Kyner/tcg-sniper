@@ -1,4 +1,5 @@
-"""Serviço `casador`: avalia com a IA os anúncios pendentes e, com o automático ligado, decide os claros."""
+"""Serviço `casador`: avalia com a IA os pares (anúncio × produto) pendentes, com o automático ligado decide
+os claros e, numa etapa própria do ciclo, gera os termos da busca alternativa."""
 
 import logging
 import threading
@@ -12,11 +13,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.casador.pergunta import assinatura, avaliar_par
+from tcg_sniper.casador.termos import gerar_termos
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import COLETOR_CASADOR, AnuncioAmazon, EstadoColetorTipo, OrigemCasamento, StatusCasamento
+from tcg_sniper.db import repositorio_termos as repo_termos
+from tcg_sniper.db.models import COLETOR_CASADOR, EstadoColetorTipo, OrigemCasamento, StatusCasamento
 from tcg_sniper.ia.modelos import (
     ChaveInvalida,
     ConfiguracaoInvalida,
@@ -32,6 +35,8 @@ PASSO_S = 30  # de quanto em quanto tempo olha se pediram "Rodar agora"
 FALHAS_SEGUIDAS_MAX = 3  # falhas seguidas de chamada (rede, 5xx, 429) que encerram a rodada
 ESPERAS_FALHA = (timedelta(hours=1), timedelta(hours=6), timedelta(hours=24))  # par que falhou espera; teto 24 h
 TIMEOUT_IMAGEM_S = 15
+IDIOMAS_NUNCA_CONFIRMAR = ("ja", "outro")  # sempre outro produto: o automático nunca os confirma
+TERMOS_POR_CICLO = 5  # produtos por ciclo na busca alternativa (uma chamada barata cada, sem imagem)
 
 
 class ServicoCasador:
@@ -55,6 +60,9 @@ class ServicoCasador:
         self._parar = threading.Event()
         # (anúncio, produto) -> (assinatura, falhas seguidas, espera até): o par que falhou não trava a fila
         self._falhas: dict[tuple[int, int], tuple[str, int, datetime]] = {}
+        # produto -> (falhas seguidas, espera até): termos que falharam (rede, 5xx, erro inesperado) esperam
+        # como os pares (1 h, 6 h, 24 h) e não ocupam a vaga do próximo ciclo
+        self._falhas_termos: dict[int, tuple[int, datetime]] = {}
 
     def parar(self) -> None:
         self._parar.set()
@@ -78,7 +86,7 @@ class ServicoCasador:
             ja_avaliados = []  # avaliação em dia que o automático ainda não aplicou (ex.: ligado depois)
             for p in pendentes:
                 atual = assinatura(p.anuncio, p.produto)
-                if p.avaliacao is not None and p.avaliacao.assinatura == atual:
+                if p.avaliacao is not None and p.avaliacao.assinatura == atual and not p.reavaliar:
                     if automatico and p.avaliacao.aplicada_em is None:
                         ja_avaliados.append((p.anuncio.id, p.produto.id))
                     continue
@@ -86,6 +94,8 @@ class ServicoCasador:
                     continue
                 candidatos.append((p, atual))
             pares = candidatos[:lote]
+            # o que a pergunta diz do português confirmado (fora da assinatura: muda sem reavaliar)
+            portugues = {p.produto.id: repo_ia.portugues_confirmado(s, p.produto.id) for p, _ in pares}
             # vários anúncios podem sugerir o mesmo produto: cada objeto sai da sessão uma vez só
             for obj in {*(p.anuncio for p, _ in pares), *(p.produto for p, _ in pares)}:
                 s.expunge(obj)
@@ -96,6 +106,7 @@ class ServicoCasador:
                 if av is not None and av.aplicada_em is None:
                     self._aplicar(s, av, limites, self._relogio())
         avaliados = falhas = confirmados = ignorados = 0
+        interrompido = False  # orçamento, chave/configuração ou falhas seguidas: a etapa dos termos não roda
         chamada_ok = False
         for par, atual in pares:
             if self._parar.is_set():
@@ -105,16 +116,16 @@ class ServicoCasador:
                 veredito, resposta, sem_imagem = avaliar_par(
                     self._sessoes, self._transporte, self._http, par.anuncio, par.produto, par.preco_liga,
                     par.preco_amazon, finalidade="casamento", zona=zona, relogio=self._relogio,
+                    portugues_confirmado=portugues[par.produto.id],
                 )
                 decisao = self._gravar(par, veredito, resposta, sem_imagem, automatico, limites)
             except SemOrcamento as erro:
+                interrompido = True
                 self._avisar_orcamento(str(erro), zona)
                 break
             except (ChaveInvalida, ConfiguracaoInvalida) as erro:
-                with self._sessoes() as s, s.begin():
-                    repo.pausar(s, str(erro), self._relogio(), COLETOR_CASADOR)
-                self._avisador.avisar(TipoAviso.IA_PAUSADA, CHAVE_GERAL, Dados(linhas=(f"Motivo: {erro}",)))
-                log.error("casador pausado: %s", erro)
+                interrompido = True
+                self._pausar_por_configuracao(erro)
                 break
             except RespostaForaDoFormato as erro:  # a chamada funcionou: só o par espera
                 falhas = 0
@@ -130,6 +141,7 @@ class ServicoCasador:
                         linhas=(f"{FALHAS_SEGUIDAS_MAX} chamadas seguidas falharam; a rodada parou", f"Última: {erro}")
                     )
                     self._avisador.avisar(TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL, dados)
+                    interrompido = True
                     break
                 continue
             except Exception:
@@ -157,7 +169,15 @@ class ServicoCasador:
                 acao="Revise os pendentes em Admin → Casamentos." if esperando else None,
             )
             self._avisador.avisar(TipoAviso.IA_RODADA_CONCLUIDA, CHAVE_GERAL, dados)
+        if not interrompido and not self._parar.is_set():
+            self._gerar_termos(zona)
         return avaliados
+
+    def _pausar_por_configuracao(self, erro: Exception) -> None:
+        with self._sessoes() as s, s.begin():
+            repo.pausar(s, str(erro), self._relogio(), COLETOR_CASADOR)
+        self._avisador.avisar(TipoAviso.IA_PAUSADA, CHAVE_GERAL, Dados(linhas=(f"Motivo: {erro}",)))
+        log.error("casador pausado: %s", erro)
 
     def _em_espera(self, chave: tuple[int, int], atual: str, agora: datetime) -> bool:
         falha = self._falhas.get(chave)
@@ -187,30 +207,112 @@ class ServicoCasador:
                 s, anuncio_id=par.anuncio.id, produto_id=par.produto.id, mesmo_produto=veredito.mesmo_produto,
                 confianca=veredito.confianca, motivo=veredito.motivo, modelo=resposta.modelo,
                 assinatura=assinatura(par.anuncio, par.produto), sem_imagem=sem_imagem,
-                chamada_id=resposta.chamada_id, agora=agora,
+                chamada_id=resposta.chamada_id, agora=agora, idioma_anuncio=veredito.idioma_anuncio,
             )
+            repo_casamento.marcar_reavaliado(s, par.anuncio.id, par.produto.id)
             if automatico and not ja_aplicada:
                 return self._aplicar(s, av, limites, agora)
         return None
 
     @staticmethod
     def _aplicar(s: Session, av, limites: tuple[int, int], agora: datetime) -> StatusCasamento | None:
-        """Automático: confirma ou ignora o anúncio se a confiança passa do limite. Só age se o anúncio
-        ainda está pendente com o mesmo produto (decisão do usuário vale)."""
+        """Automático: confirma ou ignora o par se a confiança passa do limite. Só age se o par ainda está
+        pendente (decisão sua vale) e o anúncio não foi confirmado para outro produto nesse meio-tempo.
+        Regra de idioma: nunca confirma anúncio japonês ou de outro idioma, e confirma o inglês só se o
+        produto não tem anúncio em português confirmado (nem confirmado de idioma não registrado); senão o
+        par fica pendente para você. Avaliação sem idioma (de antes da regra) segue como antes."""
         confirmar, ignorar = limites
-        anuncio = s.get(AnuncioAmazon, av.anuncio_id, with_for_update=True, populate_existing=True)
-        if anuncio.status_casamento is not StatusCasamento.PENDENTE or anuncio.produto_id != av.produto_id:
-            return None  # o usuário decidiu enquanto a IA respondia
-        if av.mesmo_produto and av.confianca >= confirmar:
-            repo_amz.confirmar_casamento(s, anuncio.id, av.produto_id, agora, OrigemCasamento.AUTOMATICO_IA)
-            decisao = StatusCasamento.CONFIRMADO
-        elif not av.mesmo_produto and av.confianca >= ignorar:
-            repo_amz.ignorar_anuncio(s, anuncio.id, agora, OrigemCasamento.AUTOMATICO_IA)
-            decisao = StatusCasamento.IGNORADO
-        else:
+        repo_casamento.travar_anuncio(s, av.anuncio_id)
+        par = repo_casamento.obter_par(s, av.anuncio_id, av.produto_id)
+        if par is None or par.status is not StatusCasamento.PENDENTE:
+            return None  # você decidiu enquanto a IA respondia
+        try:
+            if av.mesmo_produto and av.confianca >= confirmar:
+                if not ServicoCasador._idioma_permite_confirmar(s, av):
+                    return None
+                repo_casamento.confirmar(s, av.anuncio_id, av.produto_id, agora, OrigemCasamento.AUTOMATICO_IA)
+                decisao = StatusCasamento.CONFIRMADO
+            elif not av.mesmo_produto and av.confianca >= ignorar:
+                repo_casamento.ignorar(s, av.anuncio_id, av.produto_id, agora, OrigemCasamento.AUTOMATICO_IA)
+                decisao = StatusCasamento.IGNORADO
+            else:
+                return None
+        except repo_casamento.JaConfirmado as erro:
+            log.info("anúncio %s já confirmado para o produto %s: o automático não age", av.anuncio_id, erro.produto_id)
             return None
         av.aplicada_em = agora
         return decisao
+
+    @staticmethod
+    def _idioma_permite_confirmar(s: Session, av) -> bool:
+        if av.idioma_anuncio in IDIOMAS_NUNCA_CONFIRMAR:
+            return False
+        if av.idioma_anuncio == "en":
+            return repo_ia.portugues_confirmado(s, av.produto_id) is False
+        return True
+
+    def _gerar_termos(self, zona: ZoneInfo) -> int:
+        """Busca alternativa: gera os termos dos produtos pedidos no admin e dos em seca sem termos, no máximo
+        `TERMOS_POR_CICLO`. Para no primeiro SemOrcamento (o pedido fica para o próximo período, com o aviso de
+        teto de sempre). Sem termo válido ou resposta fora do formato: marca a tentativa (7 dias). Falha da
+        chamada ou erro inesperado (também ao gravar): o produto espera (1 h, 6 h, 24 h, só em memória) sem
+        marcar a tentativa; `FALHAS_SEGUIDAS_MAX` falhas seguidas da chamada encerram a etapa com o aviso."""
+        agora = self._relogio()
+        em_espera = {produto_id for produto_id, (_, ate) in self._falhas_termos.items() if agora < ate}
+        with self._sessoes() as s, s.begin():
+            produtos = repo_termos.produtos_para_gerar_termos(s, agora, TERMOS_POR_CICLO, excluir=em_espera)
+            for produto in produtos:
+                s.expunge(produto)
+        gerados = falhas = 0
+        for produto in produtos:
+            if self._parar.is_set():
+                break
+            try:
+                try:
+                    termos = gerar_termos(self._sessoes, self._transporte, produto, zona=zona, relogio=self._relogio)
+                except RespostaForaDoFormato as erro:  # a chamada funcionou: conta como tentativa sem termo
+                    log.warning("termos do produto %s fora do formato: %s", produto.id, erro)
+                    termos = []
+                with self._sessoes() as s, s.begin():
+                    if termos:
+                        repo_termos.guardar_termos(s, produto.id, termos, self._relogio())
+                    else:
+                        repo_termos.marcar_tentativa(s, produto.id, self._relogio())
+            except SemOrcamento as erro:
+                self._avisar_orcamento(str(erro), zona)
+                break
+            except (ChaveInvalida, ConfiguracaoInvalida) as erro:
+                self._pausar_por_configuracao(erro)
+                break
+            except ErroIA as erro:
+                falhas += 1
+                self._marcar_falha_termos(produto.id)
+                log.warning("IA falhou ao gerar termos do produto %s: %s", produto.id, erro)
+                if falhas >= FALHAS_SEGUIDAS_MAX:
+                    dados = Dados(
+                        linhas=(
+                            f"{FALHAS_SEGUIDAS_MAX} chamadas seguidas falharam; a geração de termos parou",
+                            f"Última: {erro}",
+                        )
+                    )
+                    self._avisador.avisar(TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL, dados)
+                    break
+                continue
+            except Exception:
+                self._marcar_falha_termos(produto.id)
+                log.exception("erro inesperado ao gerar termos do produto %s; segue para o próximo", produto.id)
+                continue
+            falhas = 0
+            self._falhas_termos.pop(produto.id, None)
+            gerados += bool(termos)
+        if gerados:
+            log.info("busca alternativa: termos gerados para %d produto(s)", gerados)
+        return gerados
+
+    def _marcar_falha_termos(self, produto_id: int) -> None:
+        anterior = self._falhas_termos.get(produto_id)
+        n = anterior[0] + 1 if anterior is not None else 1
+        self._falhas_termos[produto_id] = (n, self._relogio() + ESPERAS_FALHA[min(n, len(ESPERAS_FALHA)) - 1])
 
     def _avisar_orcamento(self, motivo: str, zona) -> None:
         local = self._relogio().astimezone(zona)

@@ -11,16 +11,17 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, OfertaLista, ResultadoBusca
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     DATA,
     AnuncioAmazon,
+    Casamento,
     ConferenciaCheckout,
     ConfigAmazon,
     Envio,
     FilaAmazon,
     OfertaAmazon,
     Oportunidade,
-    OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
     PrecoAtualAmazon,
@@ -68,15 +69,12 @@ def sincronizar_fila(s: Session, agora: datetime) -> None:
 
 
 def _descoberta_liberada(agora: datetime | None, casados_dias: int | None):
-    """Sem casamento confirmado: sempre (no ritmo da fila). Casado: só se nunca buscado ou se a
+    """Sem par confirmado: sempre (no ritmo da fila). Com par confirmado: só se nunca buscado ou se a
     última busca tem `casados_dias` dias ou mais (busca semanal)."""
     if agora is None or casados_dias is None:
         return literal(True)
-    casados = select(AnuncioAmazon.produto_id).where(
-        AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, AnuncioAmazon.produto_id.is_not(None)
-    )
     return or_(
-        FilaAmazon.produto_id.not_in(casados),
+        FilaAmazon.produto_id.not_in(repo_casamento.produtos_casados()),
         FilaAmazon.ultima_busca_em.is_(None),
         FilaAmazon.ultima_busca_em <= agora - timedelta(days=casados_dias),
     )
@@ -104,13 +102,13 @@ def proximo_da_fila(s: Session, agora: datetime, casados_dias: int | None = None
 
 
 def reagendar(
-    s: Session, produto_id: int, agora: datetime, proxima: datetime, teve_candidato: bool, termo_en: bool = False
+    s: Session, produto_id: int, agora: datetime, proxima: datetime, teve_candidato: bool, indice_termo: int = 0
 ) -> None:
-    """`termo_en`: a busca que acabou usou o nome em inglês (a próxima usa o português, e vice-versa)."""
-    valores: dict[str, datetime | bool] = {
+    """`indice_termo`: o próximo termo da sequência do produto (a varredura calcula; ver `sequencia_de_termos`)."""
+    valores: dict[str, datetime | int] = {
         "ultima_busca_em": agora,
         "proxima_busca_em": proxima,
-        "ultimo_termo_en": termo_en,
+        "indice_termo": indice_termo,
     }
     if teve_candidato:
         valores["ultimo_candidato_em"] = agora
@@ -121,38 +119,71 @@ def reagendar(
 # --- anúncios e preços ----------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class GravacaoBusca:
+    anuncios: list[AnuncioAmazon]  # na ordem da busca, sem ASIN repetido
+    pares_novos: int  # pares (anúncio, produto buscado) criados pendentes nesta busca: os candidatos
+
+
 def gravar_busca(
     s: Session, itens: Sequence[ResultadoBusca], produto_id: int, agora: datetime, zona: ZoneInfo
-) -> list[AnuncioAmazon]:
-    """Upsert dos anúncios da busca (ASIN novo entra pendente com o produto buscado como sugestão;
-    a sugestão de um ASIN já conhecido nunca é trocada) e do preço de origem `busca`. ASIN repetido
-    na mesma busca vale uma vez (o primeiro cartão). Devolve os anúncios na ordem da busca."""
+) -> GravacaoBusca:
+    """Upsert dos anúncios da busca, do preço de origem `busca` e do par (anúncio, produto buscado): par
+    novo fica pendente (ou ignorado `outro_confirmado`, se o anúncio já é confirmado de outro produto);
+    par existente só ganha `visto_ultimo_em` (status não muda). Par pendente novo marca
+    `fila_amazon.ultimo_par_novo_em` (a seca da busca alternativa conta daí). ASIN repetido na mesma busca
+    vale uma vez (o primeiro cartão). Devolve os anúncios na ordem da busca.
+
+    Travas (ver repositorio_casamento): os ASINs novos entram em ordem de ASIN sem tocar nos existentes
+    (`ON CONFLICT DO NOTHING` não trava a linha); depois todos os anúncios da busca são travados de uma vez
+    em ordem crescente de id e só então atualizados, com preço e par. Assim duas buscas, ou uma busca e
+    uma ação de casamento, nunca se travam mutuamente. A linha do produto em `fila_amazon` é travada por
+    último (o `UPDATE` de `ultimo_par_novo_em`), depois dos anúncios, como em `casar_link_manual`; quem
+    travar a fila antes de um anúncio inverte a ordem. Anúncio que sumiu no meio (ninguém apaga anúncios
+    hoje) fica fora da lista devolvida."""
     unicos: dict[str, ResultadoBusca] = {}
     for item in itens:
         unicos.setdefault(item.asin, item)
-    for item in unicos.values():
-        stmt = pg_insert(AnuncioAmazon).values(
-            asin=item.asin,
-            titulo=item.titulo,
-            url=item.url,
-            produto_id=produto_id,
-            status_casamento=StatusCasamento.PENDENTE,
-            visto_primeiro_em=agora,
-            visto_ultimo_em=agora,
-            imagem_url=item.imagem_url,
+    for asin in sorted(unicos):
+        item = unicos[asin]
+        s.execute(
+            pg_insert(AnuncioAmazon)
+            .values(
+                asin=item.asin,
+                titulo=item.titulo,
+                url=item.url,
+                visto_primeiro_em=agora,
+                visto_ultimo_em=agora,
+                imagem_url=item.imagem_url,
+            )
+            .on_conflict_do_nothing(index_elements=[AnuncioAmazon.asin])
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[AnuncioAmazon.asin],
-            set_={
-                "titulo": stmt.excluded.titulo,
-                "url": stmt.excluded.url,
-                "visto_ultimo_em": agora,
+    travados = s.execute(
+        select(AnuncioAmazon.id, AnuncioAmazon.asin)
+        .where(AnuncioAmazon.asin.in_(unicos))
+        .order_by(AnuncioAmazon.id)
+        .with_for_update()
+    ).all()
+    pares_novos = 0
+    for anuncio_id, asin in travados:
+        item = unicos[asin]
+        s.execute(
+            update(AnuncioAmazon)
+            .where(AnuncioAmazon.id == anuncio_id)
+            .values(
+                titulo=item.titulo,
+                url=item.url,
+                visto_ultimo_em=agora,
                 # a busca só preenche a imagem vazia; a página do produto pode trocar
-                "imagem_url": func.coalesce(AnuncioAmazon.imagem_url, stmt.excluded.imagem_url),
-            },
-        ).returning(AnuncioAmazon.id)
-        anuncio_id = s.execute(stmt).scalar_one()
+                imagem_url=func.coalesce(AnuncioAmazon.imagem_url, item.imagem_url),
+            )
+        )
         registrar_preco(s, anuncio_id, item.preco, OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, agora, zona)
+        par, criado = repo_casamento.registrar_visto(s, anuncio_id, produto_id, agora)
+        if criado and par.status is StatusCasamento.PENDENTE:
+            pares_novos += 1
+    if pares_novos:
+        s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(ultimo_par_novo_em=agora))
     s.flush()
     por_asin = {
         a.asin: a
@@ -160,7 +191,7 @@ def gravar_busca(
             select(AnuncioAmazon).where(AnuncioAmazon.asin.in_(unicos)).execution_options(populate_existing=True)
         )
     }
-    return [por_asin[asin] for asin in unicos]
+    return GravacaoBusca([por_asin[asin] for asin in unicos if asin in por_asin], pares_novos)
 
 
 def _validade_da_leitura(intervalo_min: int) -> timedelta:
@@ -230,15 +261,16 @@ def registrar_preco(
 
 
 def confirmados_com_referencia(s: Session, anuncio_ids: Sequence[int]) -> list[LinhaConfirmada]:
-    """Dos anúncios dados, os confirmados, com o produto casado, o preço atual e o preço da Liga."""
+    """Dos anúncios dados, os com par confirmado, com o produto do par, o preço atual e o preço da Liga."""
     if not anuncio_ids:
         return []
     consulta = (
         select(AnuncioAmazon, ProdutoLiga, PrecoAtualAmazon, PrecoAtualLiga)
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .join(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
-        .where(AnuncioAmazon.id.in_(anuncio_ids), AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO)
+        .where(AnuncioAmazon.id.in_(anuncio_ids))
         .order_by(AnuncioAmazon.id)
         .execution_options(populate_existing=True)
     )
@@ -335,16 +367,6 @@ def fechar_oportunidade(s: Session, op: Oportunidade, agora: datetime) -> None:
     s.flush()
 
 
-def fechar_oportunidades_do_anuncio(s: Session, anuncio_id: int, agora: datetime) -> int:
-    resultado = s.execute(
-        update(Oportunidade)
-        .where(Oportunidade.anuncio_id == anuncio_id, Oportunidade.fechada_em.is_(None))
-        .values(fechada_em=agora)
-    )
-    s.flush()
-    return resultado.rowcount
-
-
 def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 24) -> int:
     """Fecha as abertas cujo anúncio não aparece em nenhuma busca há `horas` horas."""
     velhos = select(AnuncioAmazon.id).where(AnuncioAmazon.visto_ultimo_em < agora - timedelta(hours=horas))
@@ -358,86 +380,25 @@ def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 2
     return resultado.rowcount
 
 
-# --- casamento ------------------------------------------------------------------------------
-
-
-def confirmar_casamento(
-    s: Session, anuncio_id: int, produto_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
-) -> bool:
-    """Confirma (ou troca) o produto da Liga do anúncio. Trocar fecha as oportunidades abertas."""
-    anuncio = s.get(AnuncioAmazon, anuncio_id)
-    if anuncio is None:
-        return False
-    if anuncio.produto_id != produto_id:
-        fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
-    anuncio.produto_id = produto_id
-    anuncio.status_casamento = StatusCasamento.CONFIRMADO
-    anuncio.revisado_em = agora
-    anuncio.origem_casamento = origem
-    s.flush()
-    return True
-
-
-def ignorar_anuncio(
-    s: Session, anuncio_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
-) -> bool:
-    anuncio = s.get(AnuncioAmazon, anuncio_id)
-    if anuncio is None:
-        return False
-    fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
-    anuncio.status_casamento = StatusCasamento.IGNORADO
-    anuncio.revisado_em = agora
-    anuncio.origem_casamento = origem
-    s.flush()
-    return True
-
-
-def desfazer_casamento(s: Session, anuncio_id: int, agora: datetime) -> bool:
-    anuncio = s.get(AnuncioAmazon, anuncio_id)
-    if anuncio is None:
-        return False
-    fechar_oportunidades_do_anuncio(s, anuncio_id, agora)
-    anuncio.status_casamento = StatusCasamento.PENDENTE
-    anuncio.revisado_em = None
-    anuncio.origem_casamento = None
-    s.flush()
-    return True
-
-
 # --- link manual ----------------------------------------------------------------------------
 
 
-def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> None:
-    """Põe o produto na frente da fila da Amazon (sem linha na fila, não faz nada: a próxima
-    sincronização o insere já vencido)."""
+def priorizar_na_fila(s: Session, produto_id: int, agora: datetime) -> bool:
+    """Põe o produto na frente da fila da Amazon. Sem linha na fila, não faz nada e devolve False (a
+    próxima sincronização o insere já vencido)."""
     primeiro = s.scalar(select(func.min(FilaAmazon.proxima_busca_em)).where(FilaAmazon.produto_id != produto_id))
     quando = agora if primeiro is None else min(agora, primeiro - timedelta(seconds=1))
-    s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(proxima_busca_em=quando))
+    resultado = s.execute(
+        update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(proxima_busca_em=quando)
+    )
     s.flush()
+    return resultado.rowcount > 0
 
 
 def casar_link_manual(s: Session, produto_id: int, asin: str, agora: datetime) -> AnuncioAmazon:
-    """Casa o ASIN informado à mão com o produto: confirma o anúncio existente (trocando de produto
-    se preciso) ou cria um já confirmado; e põe o produto na frente da fila."""
-    anuncio = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == asin))
-    if anuncio is None:
-        anuncio = AnuncioAmazon(
-            asin=asin,
-            titulo=TITULO_MANUAL,
-            url=f"https://www.amazon.com.br/dp/{asin}",
-            produto_id=produto_id,
-            status_casamento=StatusCasamento.CONFIRMADO,
-            revisado_em=agora,
-            origem_casamento=OrigemCasamento.MANUAL,
-            visto_primeiro_em=agora,
-            visto_ultimo_em=agora,
-        )
-        s.add(anuncio)
-        s.flush()
-    else:
-        confirmar_casamento(s, anuncio.id, produto_id, agora, OrigemCasamento.MANUAL)
-        anuncio.visto_ultimo_em = agora
-        s.flush()
+    """Casa o ASIN informado à mão com o produto (par confirmado `manual`, trocando o confirmado anterior
+    do anúncio se houver) e põe o produto na frente da fila."""
+    anuncio = repo_casamento.casar_asin(s, produto_id, asin, agora, TITULO_MANUAL)
     priorizar_na_fila(s, produto_id, agora)
     return anuncio
 
@@ -529,10 +490,12 @@ def _leitura_do_monitor():
 
 
 def _confirmados_ativos(consulta):
+    """Anúncios com par confirmado de produto ativo (o par confirmado é um só por anúncio)."""
     return (
-        consulta.join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        consulta.join(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .outerjoin(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
+        .where(ProdutoLiga.ativo.is_(True))
     )
 
 
@@ -810,10 +773,10 @@ def candidatas_ao_checkout(
         select(AnuncioAmazon.id, AnuncioAmazon.asin, OfertaAmazon.vendedor_nome, OfertaAmazon.preco, PrecoAtualLiga.preco_a_partir)
         .join(OfertaAmazon, OfertaAmazon.anuncio_id == AnuncioAmazon.id)
         .join(PrecoAtualAmazon, _leitura_atual_das_ofertas())
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
+        .join(Casamento, repo_casamento.condicao_confirmado(AnuncioAmazon.id))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
         .join(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .where(
-            AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO,
             ProdutoLiga.ativo.is_(True),
             OfertaAmazon.melhor.is_(True),
             OfertaAmazon.elegivel.is_(True),

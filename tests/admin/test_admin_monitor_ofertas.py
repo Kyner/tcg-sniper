@@ -33,8 +33,7 @@ def cenario(sessoes):
     with sessoes() as s, s.begin():
         p = criar_produto(s, "p1", nome="Aetherdrift Commander")
         criar_preco_liga(s, p, "400.00", listagem_em=T0)
-        a = criar_anuncio(s, "B0DNV55QBS", produto=p, status=StatusCasamento.CONFIRMADO)
-        a.origem_casamento = OrigemCasamento.AUTOMATICO_IA
+        a = criar_anuncio(s, "B0DNV55QBS", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.AUTOMATICO_IA)
         antiga = oferta_lista("300.00", vendedor="Loja Antiga")
         repo_amz.gravar_ofertas(s, a.id, T0 - timedelta(minutes=30), [repo_amz.OfertaAvaliada(antiga, None, True, True)])
         shazaar = oferta_lista("275.91", importada=True, origem_envio="Estados Unidos", prime=True)
@@ -95,8 +94,7 @@ def test_ofertas_sem_conferencia_diz_nao_conferido(sessoes, cliente):
     with sessoes() as s, s.begin():
         p = criar_produto(s, "p2", nome="Caixa Beta")
         criar_preco_liga(s, p, "1000.00", listagem_em=T0)
-        a = criar_anuncio(s, "B0BETA0001", produto=p, status=StatusCasamento.CONFIRMADO)
-        a.origem_casamento = OrigemCasamento.MANUAL
+        a = criar_anuncio(s, "B0BETA0001", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
         o = oferta_lista("700.00", vendedor="Amazon.com.br", seller_id="amazon", envio=Envio.AMAZON, posicao=0)
         repo_amz.gravar_ofertas(s, a.id, T0, [repo_amz.OfertaAvaliada(o, None, True, True)])
         repo_amz.registrar_preco(s, a.id, Decimal("700.00"), OrigemPreco.OFERTAS, None, Envio.AMAZON, T0, SP)

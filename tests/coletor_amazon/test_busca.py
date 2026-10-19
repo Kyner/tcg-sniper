@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from tcg_sniper.coletor_amazon.busca import Conferencia, ContextoBusca, DesafioAmazon, processar_produto, url_busca
 from tcg_sniper.db import repositorio_amazon as repo
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import AnuncioAmazon, ProdutoLiga, StatusCasamento
 from tcg_sniper.parsing import ErroParser
 
@@ -68,11 +69,11 @@ def test_asin_novo_fica_pendente_e_so_a_busca_e_aberta(sessoes, config, produto)
         url = url_busca(repo.obter_config(s), NOME)
     dormidas = []
     ctx, navegador, avisador = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 100,00"))}, dormidas)
-    assert processar_produto(ctx, produto) == Conferencia(0)
+    assert processar_produto(ctx, produto) == Conferencia(0, 1)
     assert navegador.visitadas == [url] and len(dormidas) == 1
     with sessoes() as s:
         anuncio = s.scalar(select(AnuncioAmazon).where(AnuncioAmazon.asin == "B01"))
-    assert (anuncio.status_casamento, anuncio.produto_id) == (StatusCasamento.PENDENTE, produto.id)
+        assert repo_casamento.obter_par(s, anuncio.id, produto.id).status is StatusCasamento.PENDENTE
     assert avisador.mensagens == []
 
 
@@ -81,7 +82,7 @@ def test_confirmado_barato_conta_candidato_sem_abrir_o_produto_nem_alertar(sesso
         criar_anuncio(s, "B01", produto=produto, status=StatusCasamento.CONFIRMADO)
         url = url_busca(repo.obter_config(s), NOME)
     ctx, navegador, avisador = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 700,00"))})
-    assert processar_produto(ctx, produto) == Conferencia(1)
+    assert processar_produto(ctx, produto) == Conferencia(1, 0)
     assert navegador.visitadas == [url] and avisador.mensagens == []  # o preço e o alerta são do monitor
 
 
@@ -90,7 +91,7 @@ def test_confirmado_acima_do_limite_nao_e_candidato(sessoes, config, produto):
         criar_anuncio(s, "B01", produto=produto, status=StatusCasamento.CONFIRMADO)
         url = url_busca(repo.obter_config(s), NOME)
     ctx, _, _ = contexto(sessoes, config, {url: busca(url, cartao_busca("B01", "Caixa FF", "R$ 750,01"))})
-    assert processar_produto(ctx, produto) == Conferencia(0)
+    assert processar_produto(ctx, produto) == Conferencia(0, 0)
 
 
 def test_asin_casado_com_outro_produto_compara_com_o_preco_dele(sessoes, config, produto):
@@ -101,7 +102,7 @@ def test_asin_casado_com_outro_produto_compara_com_o_preco_dele(sessoes, config,
         url = url_busca(repo.obter_config(s), NOME)
     # R$ 700 é 30% abaixo do produto buscado (R$ 1.000), mas acima do produto casado (R$ 100).
     ctx, _, _ = contexto(sessoes, config, {url: busca(url, cartao_busca("B09", "Outro", "R$ 700,00"))})
-    assert processar_produto(ctx, produto) == Conferencia(0)
+    assert processar_produto(ctx, produto) == Conferencia(0, 0)
 
 
 def test_captcha_na_busca_levanta_desafio(sessoes, config, produto):
@@ -122,9 +123,8 @@ def test_pagina_que_nao_le_salva_o_html_e_levanta(sessoes, config, produto):
     assert (config.dir_dados / "falhas" / "amazon-1-1-busca.html").exists()
 
 
-def test_usar_nome_en_busca_pelo_termo_em_ingles(sessoes, config, produto):
+def test_busca_pelo_termo_informado(sessoes, config, produto):
     with sessoes() as s, s.begin():
-        s.get(ProdutoLiga, produto.id).nome_en = "Booster Box - Final Fantasy"
         cfg = repo.obter_config(s)
         url_pt, url_en = url_busca(cfg, NOME), url_busca(cfg, "Booster Box - Final Fantasy")
     assert "Booster+Box+Final+Fantasy" in url_en
@@ -132,14 +132,6 @@ def test_usar_nome_en_busca_pelo_termo_em_ingles(sessoes, config, produto):
         p = s.get(ProdutoLiga, produto.id)
         ctx, navegador, _ = contexto(sessoes, config, {url_pt: busca(url_pt), url_en: busca(url_en)})
         processar_produto(ctx, p)
-        processar_produto(ctx, p, usar_nome_en=True)
-        processar_produto(ctx, p, usar_nome_en=False)
+        processar_produto(ctx, p, "Booster Box - Final Fantasy")
+        processar_produto(ctx, p, None)
     assert navegador.visitadas == [url_pt, url_en, url_pt]
-
-
-def test_usar_nome_en_sem_nome_en_busca_em_portugues(sessoes, config, produto):
-    with sessoes() as s:
-        url_pt = url_busca(repo.obter_config(s), NOME)
-    ctx, navegador, _ = contexto(sessoes, config, {url_pt: busca(url_pt)})
-    processar_produto(ctx, produto, usar_nome_en=True)
-    assert navegador.visitadas == [url_pt]

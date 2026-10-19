@@ -3,15 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-19 (inclui a auditoria conversa × lista e as respostas do usuário do mesmo dia).
+Última revisão: 2026-10-19 (casamento por par pronto no código, falta implantar; antes: auditoria conversa × lista e respostas do usuário do mesmo dia).
 
 ## 0. Crítico (em andamento)
 
-- [ ] **Casamento por par (anúncio × produto)** — spec **aprovada** em 2026-10-19 (`docs/superpowers/specs/2026-10-19-casamento-por-par-design.md`); plano em escrita (`docs/superpowers/plans/2026-10-19-casamento-por-par.md`), execução a seguir. Problema: cada anúncio da Amazon fica ligado ao primeiro produto da Liga para o qual foi sugerido (`gravar_busca` nunca troca `produto_id`/status de um ASIN conhecido); se foi ignorado para o produto errado, nunca vira pendente para o produto certo e a oportunidade se perde. Decidido: **ignorado vale só para aquele par** (tabela `casamento`, um confirmado por anúncio, recuperação natural dos ignorados). Escopo **C, tudo junto**, nesta mesma entrega:
-  - "Desfazer" faz a IA reavaliar o par, mesmo com anúncio igual;
-  - **busca alternativa** com 2 a 3 termos gerados pela IA e guardados, para produto ativo sem candidato há **7 dias** (prazo confirmado pelo usuário), dentro do teto de gasto;
-  - botões "Rebuscar agora", "Reavaliar com a IA" e "Gerar termos de busca" no **admin antigo** (regra em código comum, para a fase 3 reaproveitar).
-- [x] **Avaliação da IA (2026-10-19):** `ia avaliar --modelo gpt-5-mini` nos 266 pares decididos à mão: 260 acertos (98%), 3 falsos "sim" e 3 falsos "não", US$ 0,14. Na faixa em que o automático age (confiança ≥ 90): 217 de 218. O único erro ≥ 90 era um caso de idioma (caixa em inglês confirmada à mão para o produto em português); pela regra de idioma decidida (inglês, português e japonês são produtos diferentes) a IA estava certa e esse casamento foi desfeito. Automático segue ligado com 90/90. Os 24 ignorados pelo automático por idioma estão corretos.
+- [ ] **Implantar o casamento por par** (com ok do usuário), seguindo o README → "Implantar o casamento por par": backup em `dados/backups/`, conferir antes que `SELECT count(*) FROM anuncio_amazon WHERE produto_id IS NULL` dá 0 e anotar as contagens por situação (`SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL GROUP BY 1`), `docker compose up -d --build` (todos os serviços) e comparar com `SELECT status, count(*) FROM casamento GROUP BY 1`: têm de bater com as contagens tiradas logo antes (não com números antigos: conferir as contagens do dia).
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -25,6 +21,9 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
+- [ ] Idioma: produtos com casamento confirmado antes da regra de idioma (todos os ~50 de 2026-10-19) ficam como "não se sabe se tem português confirmado", então anúncios novos em inglês deles ficam pendentes para você em vez de o automático confirmar. Seguro para produtos em português; para quem tem a edição em inglês confirmada à mão, os irmãos em inglês nunca confirmam sozinhos. Corrigir com um preenchimento único do idioma dos anúncios confirmados (IA ou à mão, botão "definir idioma").
+- [ ] Idioma: anúncio com idioma "indefinido" ainda pode ser confirmado pelo automático mesmo com português confirmado no produto (pequena brecha na regra "inglês só sem português").
+- [ ] `reabrir-ingles`: o filtro por motivo é aproximado (pega "idioma" que não é sobre idioma; descarta motivo em inglês que só cita japonês). Conferir o número do dry-run (esperado perto de 24) antes do `--aplicar`.
 - [ ] Login: celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. **Decidido (2026-10-19):** aceitar a variante sem o 9 no login, normalizando para o número cadastrado.
 - [ ] Login: `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
 - [ ] Usuários: `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
@@ -35,7 +34,10 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
 - [ ] Aviso "mensagem não enviada" nunca é resolvido, então o lembrete de 2 h mostra uma contagem que só cresce.
 - [ ] Notificador, casos raros aceitos: (a) uma mensagem cujo registro sempre falha pode travar a fila; (b) se o banco cair entre gravar a oportunidade e gravar a mensagem, o alerta fica só no log.
-- [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio.
+- [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio. Vale também para a espera dos termos de busca cuja chamada falhou.
+- [ ] Casamento por par: um anúncio confirmado para um produto que foi **desativado** continua confirmado nele (como antes): sai do monitor, mas não aparece como pendente para outros produtos e não pode ser confirmado em outro até você reativar o produto ou desfazer o par. Decidir se desativar um produto deve soltar os confirmados dele.
+- [ ] Casamento por par: `marcar_reavaliado` pode tirar a marca de reavaliar com uma resposta da IA que já estava a caminho, mais antiga que o pedido de reavaliar (inofensivo: a avaliação gravada vale para os mesmos dados; para reavaliar de novo, é só clicar outra vez).
+- [ ] Casamento por par: a guarda global contra as colunas antigas (`tests/test_sem_casamento_no_anuncio.py`) só pega os prefixos `anuncio.` e `AnuncioAmazon.`; uma variável com outro nome (`a.produto_id`, `item.status_casamento`) passaria. As colunas já saíram do banco, então o erro apareceria em execução.
 - [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
 - [ ] Teste de Ofertas com produto sem preço na Liga.
 - [ ] `openai` fixada em `<3` no `pyproject.toml`: a 3.x troca a biblioteca de rede e exige refazer os testes do pacote `ia`.
@@ -49,7 +51,8 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 - [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: coleta da Liga passa de ~1 h para ~10 h; a busca da Amazon (200/h na janela 08–22h) alcança cada produto sem par ~1 vez por dia; mais anúncios novos e a busca alternativa = mais gasto com a IA.
 - [ ] Frequência de CAPTCHA da Amazon com o monitor no teto de produção de **1000 páginas/h**. Se os CAPTCHAs aumentarem, baixar para ~220 páginas/h (o suficiente para os anúncios confirmados a cada 15 min).
-- [ ] Primeira semana do casamento por par: quantos ignorados viraram confirmados para outro produto e quantos produtos entraram na busca alternativa. Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
+- [ ] Primeira semana do casamento por par: quantos ignorados foram recuperados (anúncios confirmados para um produto que antes estavam ignorados para outro: `SELECT count(*) FROM casamento c WHERE c.status = 'confirmado' AND EXISTS (SELECT 1 FROM casamento o WHERE o.anuncio_id = c.anuncio_id AND o.produto_id <> c.produto_id AND o.status = 'ignorado' AND o.origem <> 'outro_confirmado')`) e quantos produtos entraram na busca alternativa (`SELECT count(DISTINCT produto_id) FROM termo_busca`; com tentativa sem termo válido: `SELECT count(*) FROM fila_amazon WHERE termos_tentados_em IS NOT NULL`). Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
+- [ ] Fila e gasto da IA nos primeiros dias depois de implantar o casamento por par (volume aceito; o teto de gasto protege): pares pendentes esperando a IA (Dashboard → "esperando você" e Casamentos), gasto do dia e do mês em Logs → IA (filtro "termos de busca" para a busca alternativa, 5 produtos por ciclo) e se o teto do dia está sendo atingido cedo. Se a fila não baixar, ajustar o lote ou os tetos em Configurações → IA.
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
 - [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare. No fim, revisar o máximo de cliques em "Exibir mais" (Configurações → LigaMagic) com os números reais.
 - [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio local para em 7 diários + 4 semanais. No R2, as regras de ciclo de vida foram criadas no painel (`diario/` 7 dias, `semanal/` 35 dias): conferir que os arquivos antigos somem.
@@ -60,7 +63,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 ## 4. Próximas funcionalidades (decisão do grupo)
 
 - [ ] **Site novo, fase 2 — área de negócio**: dashboard do grupo (oportunidades, funil, resultados), com as permissões ver_oportunidades e ver_resultados.
-- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo.
+- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem.
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
 - [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
 - [ ] **Vender acesso às oportunidades**: assinantes na área de negócio, no mesmo sistema (sem multi-cliente). Assinatura, pagamento e planos ficam num projeto próprio; a base de permissões finas já veio na fase 1.
@@ -84,7 +87,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Decisões registradas
 
-- **Idioma (2026-10-19):** inglês, português e japonês (e outros idiomas) são **produtos diferentes**; um anúncio em inglês não casa com o produto em português da Liga.
+- **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário. Após o deploy: `tcg-sniper casamento reabrir-ingles` (simulação) e `--aplicar` para devolver à IA os ignorados pelo automático por serem em inglês.
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
 - 2026-10-19: teto do monitor da Amazon em produção é 1000 páginas/h; baixar para ~220 só se os CAPTCHAs aumentarem.
 - 2026-10-19: busca alternativa entra depois de 7 dias sem candidato.
@@ -101,7 +104,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Ordem sugerida
 
-0. Seção 0: casamento por par (spec aprovada, plano em escrita, execução a seguir) e o resultado da avaliação da IA.
+0. Seção 0: implantar o casamento por par (código pronto) e acompanhar a primeira semana (seção 3).
 1. Site novo, fase 2 (área de negócio).
 2. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
 3. Seção 1 (segurança do login), antes de publicar na internet.
@@ -110,6 +113,20 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### Casamento por par e busca alternativa (2026-10-19; hashes a preencher no merge)
+
+Spec `docs/superpowers/specs/2026-10-19-casamento-por-par-design.md`, plano `docs/superpowers/plans/2026-10-19-casamento-por-par.md`. Resolve o anúncio da Amazon preso ao primeiro produto da Liga para o qual foi sugerido (ignorado para o produto errado nunca voltava para o certo).
+
+- [x] Tabela `casamento` (anúncio × produto) como fonte única: ignorado vale só para o par; confirmado para no máximo um produto (índice único parcial, trava do anúncio); confirmar ignora os outros pendentes do anúncio (`outro_confirmado`) e desfazer/ignorar o confirmado os reabre. O automático nunca muda uma decisão sua (`manual` ou `sugerido_ia`).
+- [x] Busca cria o par com o produto buscado; casador avalia pares; Desfazer e "Reavaliar com a IA" fazem a IA reavaliar mesmo com o anúncio igual.
+- [x] Busca alternativa: 7 dias sem anúncio novo → a IA sugere 2–3 termos (uma vez, no teto de gasto), que entram no rodízio da fila; volta ao nome normal com anúncio novo. Chamada que falha espera 1 h, 6 h, 24 h; 3 falhas seguidas encerram a etapa com aviso.
+- [x] Monitor, checkout, oportunidades, Logs, Dashboard, Ofertas e telas de Casamentos sobre os pares; botões Rebuscar agora, Reavaliar com a IA e Gerar termos de busca (com mensagens honestas quando o produto não está na fila, a IA está desligada ou o casador pausado).
+- [x] Migração `a9d4f2c6e8b1` com conferência (aborta com dois confirmados no mesmo anúncio) e downgrade; regressão: mesmas contagens antes e depois de migrar; colunas antigas do casamento removidas do anúncio e guarda global que impede ler o casamento pelo anúncio.
+
+### Avaliação da IA (2026-10-19)
+
+- [x] `ia avaliar --modelo gpt-5-mini` nos 266 pares decididos à mão: 260 acertos (98%), 3 falsos "sim" e 3 falsos "não", US$ 0,14. Na faixa em que o automático age (confiança ≥ 90): 217 de 218. O único erro ≥ 90 era um caso de idioma (caixa em inglês do Senhor dos Anéis confirmada à mão para o produto em português); o usuário a reconfirmou em 2026-10-19 10:24 e, pela regra de idioma revista (português preferido, inglês casa quando o produto não tem português confirmado), ela está certa e continua confirmada. Automático segue ligado com 90/90. Os 24 ignorados pelo automático por idioma voltam para a IA com `tcg-sniper casamento reabrir-ingles --aplicar` depois do deploy.
 
 ### Site novo, fase 1 — base (merge `ccb2b98`, em produção desde 2026-10-19; superadmin criado e login pelo WhatsApp funcionando)
 

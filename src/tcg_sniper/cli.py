@@ -64,6 +64,13 @@ def main(argv: list[str] | None = None) -> None:
     avaliar_p.add_argument("--limite", type=int, default=None, help="no máximo N anúncios")
     avaliar_p.add_argument("--preco-entrada", type=_preco, default=None, help="US$ por milhão de tokens de entrada (padrão: o de Configurações, aba IA)")
     avaliar_p.add_argument("--preco-saida", type=_preco, default=None, help="US$ por milhão de tokens de saída (padrão: o de Configurações, aba IA)")
+    casamento = sub.add_parser("casamento", help="ferramentas do casamento")
+    casamento_sub = casamento.add_subparsers(dest="acao_casamento", required=True)
+    reabrir_p = casamento_sub.add_parser(
+        "reabrir-ingles",
+        help="reabre para a IA reavaliar os pares ignorados pelo automático por serem em inglês (regra de idioma revista)",
+    )
+    reabrir_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só mostra as contagens)")
     amazon = sub.add_parser("amazon", help="ferramentas da Amazon")
     amazon_sub = amazon.add_subparsers(dest="acao_amazon", required=True)
     capturar_p = amazon_sub.add_parser(
@@ -184,6 +191,17 @@ def main(argv: list[str] | None = None) -> None:
         relatorio = relatorio_markdown(resultados, agora, preco_entrada=args.preco_entrada, preco_saida=args.preco_saida)
         destino.write_text(relatorio, encoding="utf-8")
         print(f"relatório em {destino}")
+    elif args.comando == "casamento":
+        from tcg_sniper.db import repositorio_casamento as repo_casamento
+        from tcg_sniper.db.repositorio import agora_utc
+
+        with sessoes() as s, s.begin():
+            r = repo_casamento.reabrir_ignorados_por_ingles(s, agora_utc(), aplicar=args.aplicar)
+        if not args.aplicar:
+            print("simulação: nada mudou (use --aplicar para reabrir)")
+        print(f"Encontrados: {r.encontrados}")
+        print(f"Reabertos: {r.reabertos}")
+        print(f"Confirmados em outro produto: {r.confirmados_em_outro}")
     elif args.comando == "amazon":
         import random
         import tempfile

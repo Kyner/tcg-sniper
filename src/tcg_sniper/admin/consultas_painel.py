@@ -22,13 +22,14 @@ from tcg_sniper.db.models import (
     COLETOR_CASADOR,
     COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
-    AnuncioAmazon,
     AvaliacaoIA,
+    Casamento,
     ChamadaIA,
     Coleta,
     EstadoColetorTipo,
     MensagemSaida,
     Oportunidade,
+    OrigemCasamento,
     PrecoAtualAmazon,
     PrecoAtualLiga,
     ProdutoLiga,
@@ -86,7 +87,8 @@ class Aviso:
 class Numeros:
     confirmados: int
     pendentes: int
-    ignorados: int
+    ignorados: int  # sem os `outro_confirmado` (contados em `casados_em_outro`)
+    casados_em_outro: int  # ignorados porque o anúncio é confirmado para outro produto
     produtos_com_par: int
     produtos_ativos: int
     produtos_total: int
@@ -471,27 +473,26 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
 
 
 def numeros(s: Session, agora: datetime, config_efetiva: Config) -> Numeros:
+    # "Ignorados" mantém o sentido de antes (sua decisão ou da IA sobre o par); `outro_confirmado` vem à parte.
+    em_outro = Casamento.origem == OrigemCasamento.OUTRO_CONFIRMADO
+    sem_outro = Casamento.origem.is_distinct_from(OrigemCasamento.OUTRO_CONFIRMADO)
     por_status = dict(
-        s.execute(
-            select(AnuncioAmazon.status_casamento, func.count())
-            .where(AnuncioAmazon.produto_id.is_not(None))
-            .group_by(AnuncioAmazon.status_casamento)
-        ).all()
+        s.execute(select(Casamento.status, func.count()).where(sem_outro).group_by(Casamento.status)).all()
     )
     produtos_com_par = s.scalar(
-        select(func.count(func.distinct(AnuncioAmazon.produto_id)))
-        .join(ProdutoLiga, ProdutoLiga.id == AnuncioAmazon.produto_id)
-        .where(AnuncioAmazon.status_casamento == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
+        select(func.count(func.distinct(Casamento.produto_id)))
+        .join(ProdutoLiga, ProdutoLiga.id == Casamento.produto_id)
+        .where(Casamento.status == StatusCasamento.CONFIRMADO, ProdutoLiga.ativo.is_(True))
     ) or 0
     esperando = s.scalar(
         select(func.count())
         .select_from(AvaliacaoIA)
         .join(
-            AnuncioAmazon,
-            and_(AnuncioAmazon.id == AvaliacaoIA.anuncio_id, AnuncioAmazon.produto_id == AvaliacaoIA.produto_id),
+            Casamento,
+            and_(Casamento.anuncio_id == AvaliacaoIA.anuncio_id, Casamento.produto_id == AvaliacaoIA.produto_id),
         )
         .where(
-            AnuncioAmazon.status_casamento == StatusCasamento.PENDENTE,
+            Casamento.status == StatusCasamento.PENDENTE,
             AvaliacaoIA.mesmo_produto.is_(True),
             AvaliacaoIA.aplicada_em.is_(None),
         )
@@ -502,6 +503,7 @@ def numeros(s: Session, agora: datetime, config_efetiva: Config) -> Numeros:
         confirmados=por_status.get(StatusCasamento.CONFIRMADO, 0),
         pendentes=por_status.get(StatusCasamento.PENDENTE, 0),
         ignorados=por_status.get(StatusCasamento.IGNORADO, 0),
+        casados_em_outro=_contar(s, Casamento, em_outro),
         produtos_com_par=produtos_com_par,
         produtos_ativos=_contar(s, ProdutoLiga, ProdutoLiga.ativo.is_(True)),
         produtos_total=_contar(s, ProdutoLiga),

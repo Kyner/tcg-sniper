@@ -82,8 +82,8 @@
 
 {% macro selo_origem(origem) -%}
 {%- if origem -%}
-{%- set rotulos = {"manual": "manual", "sugerido_ia": "sugerido pela IA", "automatico_ia": "automático pela IA"} -%}
-{%- set cores = {"manual": "badge-ghost", "sugerido_ia": "badge-info badge-outline", "automatico_ia": "badge-primary badge-outline"} -%}
+{%- set rotulos = {"manual": "manual", "sugerido_ia": "sugerido pela IA", "automatico_ia": "automático pela IA", "outro_confirmado": "outro produto"} -%}
+{%- set cores = {"manual": "badge-ghost", "sugerido_ia": "badge-info badge-outline", "automatico_ia": "badge-primary badge-outline", "outro_confirmado": "badge-warning badge-outline"} -%}
 <span class="badge badge-sm whitespace-nowrap {{ cores[origem.value] }}">{{ rotulos[origem.value] }}</span>
 {%- endif -%}
 {%- endmacro %}
