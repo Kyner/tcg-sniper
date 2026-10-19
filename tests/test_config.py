@@ -83,3 +83,17 @@ def test_r2_configurado_so_com_as_quatro_variaveis_e_segredos_nao_aparecem(monke
     assert "CHAVE-ID-FALSA" not in repr(c)
     monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "  ")
     assert not Config(_env_file=None).r2_configurado
+
+
+def test_padroes_da_leitura_por_interesse():
+    c = Config(_env_file=None)
+    assert (c.esfriar_desafio_min, c.produtos_novos_dia) == (30, 100)
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [("esfriar_desafio_min", 241), ("esfriar_desafio_min", -1), ("produtos_novos_dia", 2001), ("produtos_novos_dia", -1)],
+)
+def test_limites_da_leitura_por_interesse(campo, valor):
+    with pytest.raises(ValidationError):
+        Config(_env_file=None, **{campo: valor})

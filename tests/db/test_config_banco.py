@@ -69,6 +69,10 @@ def test_carregar_config_sobrepoe_o_banco_ao_env(sessoes, config):
         ("url_listagem", "https://liga.test/x"),
         ("categorias", "10,,11"),
         ("categorias", "abc"),
+        ("esfriar_desafio_min", 241),
+        ("esfriar_desafio_min", -1),
+        ("produtos_novos_dia", 2001),
+        ("produtos_novos_dia", -1),
     ],
 )
 def test_config_liga_recusa_valores_fora_dos_limites(s, config, campo, valor):
@@ -87,3 +91,12 @@ def test_config_geral_recusa_host_vazio(s, config):
     repo.obter_config_geral(s, config)
     with pytest.raises(IntegrityError):
         s.execute(update(ConfigGeral).where(ConfigGeral.id == 1).values(host_publico=""))
+
+
+def test_esfriar_e_novos_por_dia_nascem_com_o_padrao_e_vao_para_o_config(sessoes, config):
+    with sessoes() as s, s.begin():
+        liga = repo.obter_config_liga(s, config)
+        assert (liga.esfriar_desafio_min, liga.produtos_novos_dia) == (30, 100)
+        repo.salvar_config_liga(s, {"esfriar_desafio_min": 45, "produtos_novos_dia": 250}, AGORA)
+    efetiva = carregar_config(sessoes, config)
+    assert (efetiva.esfriar_desafio_min, efetiva.produtos_novos_dia) == (45, 250)

@@ -23,6 +23,8 @@ def sobrepor(config: Config, geral: ConfigGeral, liga: ConfigLiga) -> Config:
             "liga_categorias": liga.categorias,
             "liga_url_listagem": liga.url_listagem,
             "liga_max_cliques": liga.max_cliques,
+            "esfriar_desafio_min": liga.esfriar_desafio_min,
+            "produtos_novos_dia": liga.produtos_novos_dia,
         }
     )
 

@@ -522,6 +522,8 @@ LIMITES_CONFIG_LIGA: dict[str, tuple[int, int]] = {
     "pausa_max_s": (0, 120),
     "limite_falha_pct": (0, 100),
     "max_cliques": (1, 500),
+    "esfriar_desafio_min": (0, 240),
+    "produtos_novos_dia": (0, 2000),
 }
 
 
@@ -572,6 +574,10 @@ class ConfigLiga(Base):
     categorias: Mapped[str] = mapped_column(Text)
     url_listagem: Mapped[str] = mapped_column(Text)
     max_cliques: Mapped[int] = mapped_column(Integer)
+    # Minutos de espera depois de retomar um desafio do Cloudflare (coletor_liga.esfriamento).
+    esfriar_desafio_min: Mapped[int] = mapped_column(Integer, server_default="30")
+    # Teto de produtos ainda sem resumo abertos por dia (coletor_liga.lista_do_dia).
+    produtos_novos_dia: Mapped[int] = mapped_column(Integer, server_default="100")
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
 
 
