@@ -751,15 +751,23 @@ class ChamadaIA(Base):
     erro: Mapped[str | None] = mapped_column(Text)
 
 
+# Edição de idioma do anúncio que a IA devolve no veredito (`indefinido`: o anúncio não deixa claro).
+IDIOMAS_ANUNCIO = ("pt", "en", "ja", "outro", "indefinido")
+
+
 class AvaliacaoIA(Base):
     """Veredito da IA para um par (anúncio, produto da Liga). `assinatura` = hash dos dados enviados:
     mudou, reavalia. `aplicada_em` preenchida quando o automático confirmou ou ignorou o anúncio
-    (fica mesmo se o usuário desfizer, para o automático não reaplicar)."""
+    (fica mesmo se o usuário desfizer, para o automático não reaplicar). `idioma_anuncio`: a edição de
+    idioma do anúncio lida pela IA (`IDIOMAS_ANUNCIO`); vazia nas avaliações de antes da regra de idioma."""
 
     __tablename__ = "avaliacao_ia"
     __table_args__ = (
         UniqueConstraint("anuncio_id", "produto_id", name="uq_avaliacao_ia_par"),
         CheckConstraint("confianca BETWEEN 0 AND 100", name="ck_avaliacao_ia_confianca"),
+        CheckConstraint(
+            "idioma_anuncio IN ('pt', 'en', 'ja', 'outro', 'indefinido')", name="ck_avaliacao_ia_idioma_anuncio"
+        ),
         Index("ix_avaliacao_ia_chamada", "chamada_id"),  # limpeza das chamadas antigas
     )
 
@@ -775,6 +783,7 @@ class AvaliacaoIA(Base):
     avaliado_em: Mapped[datetime] = mapped_column(DATA)
     aplicada_em: Mapped[datetime | None] = mapped_column(DATA)
     chamada_id: Mapped[int | None] = mapped_column(ForeignKey("chamada_ia.id"))
+    idioma_anuncio: Mapped[str | None] = mapped_column(Text)
 
 
 class Usuario(Base):

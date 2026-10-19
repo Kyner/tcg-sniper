@@ -154,16 +154,47 @@ def gravar_avaliacao(
     sem_imagem: bool,
     chamada_id: int | None,
     agora: datetime,
+    idioma_anuncio: str | None = None,
 ) -> AvaliacaoIA:
     """Cria ou substitui a avaliação do par. `aplicada_em` nunca é apagada aqui."""
     valores = {
         "mesmo_produto": mesmo_produto, "confianca": confianca, "motivo": motivo, "modelo": modelo,
         "assinatura": assinatura, "sem_imagem": sem_imagem, "chamada_id": chamada_id, "avaliado_em": agora,
+        "idioma_anuncio": idioma_anuncio,
     }
     stmt = pg_insert(AvaliacaoIA).values(anuncio_id=anuncio_id, produto_id=produto_id, **valores)
     stmt = stmt.on_conflict_do_update(constraint="uq_avaliacao_ia_par", set_=valores).returning(AvaliacaoIA.id)
     avaliacao_id = s.execute(stmt).scalar_one()
     return s.get(AvaliacaoIA, avaliacao_id, populate_existing=True)
+
+
+# Idiomas que a IA lê com certeza no anúncio (`indefinido` e vazio não contam como conhecidos).
+IDIOMAS_CONHECIDOS = ("pt", "en", "ja", "outro")
+
+
+def portugues_confirmado(s: Session, produto_id: int) -> bool | None:
+    """O produto tem anúncio em português confirmado? True: algum confirmado é `pt`. None: não se sabe (algum
+    confirmado sem idioma conhecido, ex.: decidido antes da regra de idioma). False: nenhum confirmado ou só
+    de outros idiomas. O idioma é do anúncio: vale a avaliação dele contra qualquer produto."""
+    confirmados = select(Casamento.anuncio_id).where(
+        Casamento.produto_id == produto_id, Casamento.status == StatusCasamento.CONFIRMADO
+    )
+    portugues = select(AvaliacaoIA.id).where(
+        AvaliacaoIA.anuncio_id.in_(confirmados), AvaliacaoIA.idioma_anuncio == "pt"
+    ).limit(1)
+    if s.scalar(portugues) is not None:
+        return True
+    conhecido = (
+        select(AvaliacaoIA.id)
+        .where(AvaliacaoIA.anuncio_id == Casamento.anuncio_id, AvaliacaoIA.idioma_anuncio.in_(IDIOMAS_CONHECIDOS))
+        .exists()
+    )
+    desconhecido = (
+        select(Casamento.anuncio_id)
+        .where(Casamento.produto_id == produto_id, Casamento.status == StatusCasamento.CONFIRMADO, ~conhecido)
+        .limit(1)
+    )
+    return None if s.scalar(desconhecido) is not None else False
 
 
 def avaliacoes_dos_pares(s: Session, pares: Sequence[tuple[int, int]]) -> dict[tuple[int, int], AvaliacaoIA]:

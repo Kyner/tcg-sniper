@@ -2,7 +2,9 @@ from datetime import timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pytest
 from fakes import T0, criar_anuncio, criar_par, criar_preco_liga, criar_produto
+from sqlalchemy.exc import IntegrityError
 
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_casamento as repo_casamento
@@ -188,3 +190,48 @@ def test_pares_pendentes_so_descoberta_pula_os_antigos_de_produto_casado(s):
     repo_casamento.reavaliar_produto(s, casado.id, T0)  # pedido de reavaliar vale mesmo no produto casado
     pares = {p.anuncio.id: p for p in repo_ia.pares_pendentes(s, so_descoberta=True)}
     assert antigo.id in pares and pares[antigo.id].reavaliar is True
+
+
+def _avaliar(s, anuncio, produto, idioma, mesmo=True):
+    return repo_ia.gravar_avaliacao(
+        s, anuncio_id=anuncio.id, produto_id=produto.id, mesmo_produto=mesmo, confianca=95, motivo="m",
+        modelo="gpt-5", assinatura="x", sem_imagem=False, chamada_id=None, agora=T0, idioma_anuncio=idioma,
+    )
+
+
+def test_gravar_avaliacao_guarda_o_idioma_do_anuncio(s):
+    p = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B1", produto=p)
+    assert _avaliar(s, a, p, "en").idioma_anuncio == "en"
+    assert _avaliar(s, a, p, None).idioma_anuncio is None  # avaliação nova sem idioma substitui
+
+
+def test_idioma_do_anuncio_so_aceita_os_valores_conhecidos(s):
+    p = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B1", produto=p)
+    with pytest.raises(IntegrityError), s.begin_nested():
+        _avaliar(s, a, p, "fr")
+
+
+def test_portugues_confirmado_tres_estados(s):
+    p = criar_produto(s, "p1")
+    assert repo_ia.portugues_confirmado(s, p.id) is False  # sem confirmado
+    en = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+    _avaliar(s, en, p, "en")
+    assert repo_ia.portugues_confirmado(s, p.id) is False  # só inglês confirmado
+    criar_anuncio(s, "B2", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+    assert repo_ia.portugues_confirmado(s, p.id) is None  # confirmado de idioma não registrado
+    pt = criar_anuncio(s, "B3", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+    outro = criar_produto(s, "p2")
+    criar_par(s, pt, outro, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.OUTRO_CONFIRMADO)
+    _avaliar(s, pt, outro, "pt")  # o idioma é do anúncio: vale a avaliação contra qualquer produto
+    assert repo_ia.portugues_confirmado(s, p.id) is True
+
+
+def test_portugues_pendente_ou_ignorado_nao_conta(s):
+    p = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.IGNORADO, origem=OrigemCasamento.MANUAL)
+    _avaliar(s, a, p, "pt")
+    b = criar_anuncio(s, "B2", produto=p)
+    _avaliar(s, b, p, "pt")
+    assert repo_ia.portugues_confirmado(s, p.id) is False
