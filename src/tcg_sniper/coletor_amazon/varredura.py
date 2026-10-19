@@ -50,12 +50,13 @@ from tcg_sniper.coletor_amazon.config import aplicar_config
 from tcg_sniper.coletor_amazon.fila import Janela, TetoPorHora, intervalo_busca, janela_do_dia
 from tcg_sniper.coletor_amazon.parsers import URL_CARRINHO
 from tcg_sniper.coletor_amazon.parsers_checkout import Carrinho, parse_carrinho
-from tcg_sniper.coletor_amazon.termo import termo_busca
+from tcg_sniper.coletor_amazon.termo import sequencia_de_termos
 from tcg_sniper.coletor_liga.agendador import lock_coleta
 from tcg_sniper.config import Config
 from tcg_sniper.config_banco import carregar_config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_termos as repo_termos
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     ConfigAmazon,
@@ -598,16 +599,17 @@ class VarreduraAmazon:
             item = repo_amz.proximo_da_fila(s, agora, cfg.descoberta_casados_dias)
             produto = s.get(ProdutoLiga, item.produto_id) if item else None
             entrou_em = item.entrou_em if item else None
-            # Português na primeira busca, depois alterna; sem nome em inglês é sempre português.
-            # O inglês só vale se o termo existir e for diferente do português.
-            usar_en = bool(
-                item
-                and produto
-                and produto.nome_en
-                and termo_busca(produto.nome_en) not in ("", termo_busca(produto.nome))
-                and item.ultima_busca_em is not None
-                and not item.ultimo_termo_en
-            )
+            termo, proximo_indice = None, 0
+            if item and produto:
+                # Português, inglês (se houver) e, na seca (7 dias sem par novo), os termos guardados da IA.
+                alternativos = (
+                    [t.termo for t in repo_termos.termos_do_produto(s, produto.id)]
+                    if repo_termos.em_seca(s, produto.id, agora)
+                    else []
+                )
+                sequencia = sequencia_de_termos(produto.nome, produto.nome_en, alternativos)
+                indice = item.indice_termo % len(sequencia)
+                termo, proximo_indice = sequencia[indice], (indice + 1) % len(sequencia)
             ultimo_candidato_em = item.ultimo_candidato_em if item else None
         self._pendentes &= na_fila  # produto desativado na Liga (ou casado) sai do ciclo
         if self._ciclo is not None and not self._pendentes:
@@ -620,7 +622,7 @@ class VarreduraAmazon:
         contexto = self._contexto(cfg, f"amazon-{self._ciclo}-{produto.id}", self._cota_falhas)
         teve_candidato = False
         try:
-            teve_candidato = processar_produto(contexto, produto, usar_en).candidatos > 0
+            teve_candidato = processar_produto(contexto, produto, termo).candidatos > 0
             self._ok += 1
             self._falhas_seguidas = 0
             self._pagina_ok()
@@ -638,7 +640,7 @@ class VarreduraAmazon:
             try:
                 with self._sessoes() as s, s.begin():
                     repo_amz.reagendar(
-                        s, produto.id, depois, depois + timedelta(minutes=cfg.intervalo_busca_min), False, usar_en
+                        s, produto.id, depois, depois + timedelta(minutes=cfg.intervalo_busca_min), False, proximo_indice
                     )
             except Exception:
                 log.exception("não foi possível reagendar o produto %s da Amazon", produto.id)
@@ -653,7 +655,7 @@ class VarreduraAmazon:
         candidato_em = depois if teve_candidato else ultimo_candidato_em
         proxima = depois + intervalo_busca(cfg.intervalo_busca_min, depois, candidato_em, entrou_em)
         with self._sessoes() as s, s.begin():
-            repo_amz.reagendar(s, produto.id, depois, proxima, teve_candidato, usar_en)
+            repo_amz.reagendar(s, produto.id, depois, proxima, teve_candidato, proximo_indice)
             repo_amz.fechar_oportunidades_sem_leitura(s, depois)
         self._pendentes.discard(produto.id)
         if self._falhas_seguidas >= MAX_FALHAS_SEGUIDAS:  # antes do fim do ciclo: a pausa leva o aviso
