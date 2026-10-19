@@ -136,3 +136,37 @@ def test_falhas_recentes_so_as_falhas_da_janela_das_mais_novas(s):
     s.flush()
     assert repo_msg.falhas_recentes(s, agora - timedelta(hours=1)) == [nova]
     assert pendente.status is StatusMensagem.PENDENTE
+
+
+NUMERO = "+5511900000001"
+
+
+def individual(s, criada=AGORA):
+    return repo_msg.enfileirar(
+        s, "individual", "🔑 *Código de acesso*\n*123456*", criada, numero=NUMERO, expira_em=criada + timedelta(minutes=5)
+    )
+
+
+def test_enfileirar_individual_guarda_numero_e_validade(s):
+    m = individual(s)
+    assert (m.destino, m.numero, m.expira_em) == ("individual", NUMERO, AGORA + timedelta(minutes=5))
+
+
+def test_individual_nao_e_reenviado(s):
+    m = individual(s)
+    m.status = StatusMensagem.EXPIRADA
+    s.flush()
+    with pytest.raises(repo_msg.AcaoInvalida, match="código novo"):
+        repo_msg.reenviar(s, m.id, AGORA)
+
+
+def test_descartar_individual_apaga_o_texto(s):
+    m = individual(s)
+    repo_msg.descartar(s, m.id, AGORA)
+    assert (m.status, m.texto) == (StatusMensagem.DESCARTADA, repo_msg.TEXTO_APAGADO)
+
+
+def test_apagar_texto_so_mexe_na_individual(s):
+    grupo = repo_msg.enfileirar(s, "admin", "aviso", AGORA)
+    repo_msg.apagar_texto_individual(grupo)
+    assert grupo.texto == "aviso"

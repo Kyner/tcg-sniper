@@ -160,3 +160,34 @@ def test_celula_do_texto_preserva_quebras(cliente, sessoes):
 def test_situacao_da_mensagem_tem_selo(cliente, sessoes):
     criar(sessoes, status=StatusMensagem.FALHA, erro="HTTP 400: x")
     assert 'badge-error">falha</span>' in cliente.get("/mensagens").text
+
+
+def _individual_pendente(sessoes) -> int:
+    agora = repo.agora_utc()
+    with sessoes() as s, s.begin():
+        return repo_msg.enfileirar(
+            s, "individual", "🔑 *Código de acesso*\n*654321*", agora, numero="+5511900000001",
+            expira_em=agora + timedelta(minutes=5),
+        ).id
+
+
+def test_filtro_individual_mostra_o_destino_sem_o_numero(cliente, sessoes):
+    _individual_pendente(sessoes)
+    texto = cliente.get("/mensagens", params={"destino": "individual"}).text
+    assert "individual" in texto and "900000001" not in texto
+
+
+def test_mensagem_individual_nao_mostra_o_texto(cliente, sessoes):
+    _individual_pendente(sessoes)
+    texto = cliente.get("/mensagens").text
+    assert "mensagem individual — texto oculto" in texto
+    assert "654321" not in texto and "Código de acesso" not in texto
+    assert "900000001" not in texto and "+55 11 9" not in texto
+
+
+def test_reenviar_individual_responde_409(cliente, sessoes):
+    mid = _individual_pendente(sessoes)
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, mid).status = StatusMensagem.EXPIRADA
+    r = cliente.post(f"/mensagens/{mid}", data={"acao": "reenviar"}, follow_redirects=False)
+    assert r.status_code == 409

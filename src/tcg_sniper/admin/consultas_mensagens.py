@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from tcg_sniper.db.models import EstadoNotificador, MensagemSaida, StatusMensagem
 
 SITUACOES = ("todas", *(s.value for s in StatusMensagem))
-DESTINOS = ("todos", "admin", "oportunidades")
+DESTINOS = ("todos", "admin", "oportunidades", "individual")
 POR_PAGINA = 50
 PENDENTE_PARADA = timedelta(minutes=30)
 NOTIFICADOR_VIVO = timedelta(minutes=1)

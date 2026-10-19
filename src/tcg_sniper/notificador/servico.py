@@ -16,7 +16,9 @@ from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import COLETOR_NOTIFICADOR, EstadoColetorTipo, MensagemSaida, StatusMensagem
+from tcg_sniper.formatacao import ocultar_numero
 from tcg_sniper.notificador import CHAVE_PADRAO
+from tcg_sniper.notificador.base import Destino
 from tcg_sniper.notificador.evolution import Resultado, enviar_uma_vez
 
 log = logging.getLogger(__name__)
@@ -116,11 +118,20 @@ class ServicoNotificador:
     def _processar(self, s: Session, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
         """Devolve o resultado do envio, ou `None` se a mensagem nem chegou a ser enviada."""
         m.atualizado_em = agora
+        if m.expira_em is not None and agora >= m.expira_em:
+            # validade própria (código de acesso: 5 min) vale até para "reenviar"
+            m.status = StatusMensagem.EXPIRADA
+            repo_msg.apagar_texto_individual(m)
+            return None
         validade = timedelta(hours=geral.validade_oportunidade_h)
         if m.destino == "oportunidades" and not m.ignorar_validade and agora - m.criada_em > validade:
             m.status = StatusMensagem.EXPIRADA
             return None
-        grupo = geral.whatsapp_grupo_admin if m.destino == "admin" else geral.whatsapp_grupo_oportunidades
+        individual = m.destino == Destino.INDIVIDUAL.value
+        if individual:
+            grupo = (m.numero or "").removeprefix("+")  # a Evolution quer só os dígitos
+        else:
+            grupo = geral.whatsapp_grupo_admin if m.destino == "admin" else geral.whatsapp_grupo_oportunidades
         falta = None
         if self._chave is None:
             falta = "EVOLUTION_URL ou EVOLUTION_API_KEY ausente (ou com o valor padrão) no .env"
@@ -137,15 +148,19 @@ class ServicoNotificador:
         resultado, erro = enviar_uma_vez(
             self._cliente, self._config_env.evolution_url, self._chave, geral.evolution_instancia, grupo, texto
         )
+        if individual and erro and m.numero:
+            erro = ocultar_numero(erro, m.numero)  # a Evolution pode repetir o número no erro
         if resultado is Resultado.OK:
             m.status = StatusMensagem.ENVIADA
             m.enviada_em = agora
             m.ultimo_erro = None
+            repo_msg.apagar_texto_individual(m)
             return resultado
         m.tentativas += 1
         m.ultimo_erro = erro
         if resultado is Resultado.DEFINITIVO and m.tentativas >= MAX_TENTATIVAS_DEFINITIVAS:
             m.status = StatusMensagem.FALHA
+            repo_msg.apagar_texto_individual(m)
             log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
             if not formato.eh_do_tipo(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
                 self._avisar_falha(s, agora)

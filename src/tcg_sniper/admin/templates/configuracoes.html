@@ -60,8 +60,9 @@
               {% if a.severidade == "falha" %}<span class="badge badge-error badge-sm">Falha</span>
               {% elif a.severidade == "atencao" %}<span class="badge badge-warning badge-sm">Atenção</span>
               {% elif a.severidade == "concluido" %}<span class="badge badge-success badge-sm">Concluído</span>
+              {% elif a.severidade == "acesso" %}<span class="badge badge-neutral badge-sm">Acesso</span>
               {% else %}<span class="badge badge-info badge-sm">Oportunidade</span>{% endif %}
-              <span class="badge badge-ghost badge-sm">grupo {{ a.grupo }}</span>
+              <span class="badge badge-ghost badge-sm">{{ a.grupo }}</span>
               {% if a.agrupa %}<span class="badge badge-outline badge-sm">agrupa</span>{% endif %}
             </div>
             <p class="text-sm text-base-content/70">{{ a.descricao }}</p>
