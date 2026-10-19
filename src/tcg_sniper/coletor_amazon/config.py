@@ -38,13 +38,13 @@ CAMPOS = (
 
 ROTULOS = {
     "url_busca": "URL da busca",
-    "janela_inicio": "Início da janela",
-    "janela_fim": "Fim da janela",
+    "janela_inicio": "Início da busca",
+    "janela_fim": "Fim da busca",
     "pausa_min_s": "Pausa mínima (s)",
     "pausa_max_s": "Pausa máxima (s)",
     "resultados_por_busca": "Resultados por busca",
     "intervalo_busca_min": "Intervalo entre buscas do mesmo produto (min)",
-    "max_buscas_hora": "Máximo de buscas por hora",
+    "max_buscas_hora": "Máximo de buscas por hora (busca)",
     "limite_falha_pct": "Limite de falhas por ciclo (%)",
     "desconto_min_pct": "Desconto mínimo sobre a Liga (%)",
     "realerta_queda_pct": "Queda para novo aviso (%)",
@@ -55,7 +55,7 @@ ROTULOS = {
     "monitor_intervalo_min": "Ler cada anúncio confirmado a cada (min)",
     "monitor_janela_inicio": "Início do monitor",
     "monitor_janela_fim": "Fim do monitor",
-    "monitor_max_paginas_hora": "Máximo de páginas por hora do monitor e da conferência",
+    "monitor_max_paginas_hora": "Máximo de páginas por hora (monitor e checkout)",
     "margem_candidata_pp": "Conferir no checkout a partir de (pontos abaixo do desconto mínimo)",
     "checkout_validade_h": "Conferência de checkout vale por (h)",
     "descoberta_casados_dias": "Buscar de novo produtos já casados a cada (dias)",
@@ -63,16 +63,19 @@ ROTULOS = {
 
 EXPLICACOES = {
     "url_busca": "Modelo da busca na Amazon; {termo} é trocado pelo nome do produto da Liga.",
-    "janela_inicio": "Hora (HH:MM) em que a fila de buscas começa, com variação de até 15 minutos.",
-    "janela_fim": "Hora (HH:MM) em que a fila para, com variação de até 15 minutos.",
-    "pausa_min_s": "Pausa mínima, em segundos, antes de cada página da Amazon.",
+    "janela_inicio": "Hora (HH:MM) em que a busca de anúncios novos começa, com variação de até 15 minutos.",
+    "janela_fim": "Hora (HH:MM) em que a busca de anúncios novos para, com variação de até 15 minutos.",
+    "pausa_min_s": "Pausa mínima, em segundos, antes de cada página da Amazon (vale para os dois navegadores).",
     "pausa_max_s": "Pausa máxima, em segundos. Pausas menores aumentam a chance de CAPTCHA.",
     "resultados_por_busca": "Quantos resultados ler em cada busca (os primeiros da página).",
     "intervalo_busca_min": (
         "Minutos entre duas buscas do mesmo produto. Metade disso se ele teve oferta boa nas "
         "últimas 24 h; o dobro se não tem há 7 dias."
     ),
-    "max_buscas_hora": "Teto de buscas por hora, para segurar o ritmo.",
+    "max_buscas_hora": (
+        "Teto de buscas por hora do navegador da busca (sem login). A Amazon vê a soma deste teto com o do "
+        "monitor, no mesmo endereço."
+    ),
     "limite_falha_pct": "Percentual de buscas com falha num ciclo a partir do qual o grupo admin é avisado.",
     "desconto_min_pct": 'Desconto mínimo sobre o "À partir de" da Liga para avisar o grupo de oportunidades.',
     "realerta_queda_pct": "Queda extra de preço, em %, que gera um novo aviso da mesma oferta.",
@@ -84,8 +87,8 @@ EXPLICACOES = {
     "monitor_janela_inicio": "Hora (HH:MM) em que o monitor começa, com variação de até 15 minutos.",
     "monitor_janela_fim": "Hora (HH:MM) em que o monitor para, com variação de até 15 minutos.",
     "monitor_max_paginas_hora": (
-        "Teto de páginas por hora somando monitor, conferência de checkout e retirada de itens do carrinho. "
-        "A busca de anúncios novos tem o próprio teto."
+        "Teto de páginas por hora do navegador logado, somando monitor, conferência de checkout e retirada de "
+        "itens do carrinho. A Amazon vê a soma deste teto com o da busca, no mesmo endereço."
     ),
     "margem_candidata_pp": (
         "Uma oferta com desconto anunciado de pelo menos (desconto mínimo − este valor) vai ao checkout "
