@@ -11,6 +11,10 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 1. Pequenas (sem pressa, juntar num pacote)
 
+- [ ] Login: `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
+- [ ] Usuários: `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
+- [ ] Front: ao fechar um modal, o foco não volta para o botão que o abriu.
+- [ ] README: o passo de gerar `SEGREDO_API` usa Python no PC; dar alternativa com `docker compose run --rm api python -c ...`.
 - [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
 - [ ] Container deixado parado de propósito recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços: pause-o no admin.
 - [ ] Login do front (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro (no pedido, só o cadastrado gera código e enfileira a mensagem; no entrar, só o cadastrado busca o último código, confere o HMAC e grava a tentativa errada). Rever antes de abrir a API para a internet (ex.: fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo).
