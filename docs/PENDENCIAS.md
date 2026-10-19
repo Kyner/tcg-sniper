@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-19 (casamento por par pronto no código, falta implantar; antes: auditoria conversa × lista e respostas do usuário do mesmo dia).
+Última revisão: 2026-10-19 (busca da Amazon separada do monitor pronta no código, falta implantar; antes: casamento por par).
 
 ## 0. Crítico
 
-- [ ] **Busca da Amazon parada pelo monitor** (achado em 2026-10-19): um navegador só, prioridade estrita; com 49 anúncios a cada 15 min o monitor ocupa 100% e a busca quase não roda (1941 de 1969 produtos sem candidato nunca buscados). Spec aprovada: `docs/superpowers/specs/2026-10-19-amazon-busca-separada-design.md` (serviço `coletor-amazon-busca` sem login, busca 90/h + monitor 180/h).
+- [ ] **Implantar a busca da Amazon separada** (código pronto, `e45702e`): backup, `docker compose up -d --build`, conferir os dois serviços da Amazon no ar, a migração `c6a2f8e4d1b9` aplicada e o noVNC 6082 abrindo (README → "Implantar a busca da Amazon separada").
 
 - [ ] **Coletor da LigaMagic provocando o Cloudflare** (2026-10-19): a leitura de todos os 2165 produtos ativos (~10 h seguidas) gerou o desafio; a cada "Retomar" o job recomeçava a lista e o desafio voltava (pausado desde 16:01). Desenho aprovado: leitura por interesse (casados e candidatos todo dia, novos até 100/dia, resto em rodízio de 7 dias) e esfriar 30 min após desafio (2º desafio no dia encerra o dia). Spec: `docs/superpowers/specs/2026-10-19-liga-leitura-por-interesse-design.md` (aguardando revisão do usuário). Até lá, não retomar a Liga.
 
@@ -55,8 +55,9 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 3. Acompanhar (sem código)
 
-- [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: coleta da Liga passa de ~1 h para ~10 h; a busca da Amazon (200/h na janela 08–22h) alcança cada produto sem par ~1 vez por dia; mais anúncios novos e a busca alternativa = mais gasto com a IA.
-- [ ] Frequência de CAPTCHA da Amazon com o monitor no teto de produção de **1000 páginas/h**. Se os CAPTCHAs aumentarem, baixar para ~220 páginas/h (o suficiente para os anúncios confirmados a cada 15 min).
+- [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: coleta da Liga passa de ~1 h para ~10 h; a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
+- [ ] CAPTCHA da Amazon com os dois navegadores somando ~270 páginas/h no mesmo endereço (busca 90/h + monitor 180/h, desde a separação). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
+- [ ] Quantos produtos ativos ainda não foram buscados (card Amazon (busca) no Dashboard; eram 1941 de 1969 sem candidato em 2026-10-19). Com 90 buscas/h e a janela de 14 h, a primeira passada nos ~2000 produtos leva cerca de 2 dias.
 - [ ] Primeira semana do casamento por par: quantos ignorados foram recuperados (anúncios confirmados para um produto que antes estavam ignorados para outro: `SELECT count(*) FROM casamento c WHERE c.status = 'confirmado' AND EXISTS (SELECT 1 FROM casamento o WHERE o.anuncio_id = c.anuncio_id AND o.produto_id <> c.produto_id AND o.status = 'ignorado' AND o.origem <> 'outro_confirmado')`) e quantos produtos entraram na busca alternativa (`SELECT count(DISTINCT produto_id) FROM termo_busca`; com tentativa sem termo válido: `SELECT count(*) FROM fila_amazon WHERE termos_tentados_em IS NOT NULL`). Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
 - [ ] Fila e gasto da IA nos primeiros dias depois de implantar o casamento por par (volume aceito; o teto de gasto protege): pares pendentes esperando a IA (Dashboard → "esperando você" e Casamentos), gasto do dia e do mês em Logs → IA (filtro "termos de busca" para a busca alternativa, 5 produtos por ciclo) e se o teto do dia está sendo atingido cedo. Se a fila não baixar, ajustar o lote ou os tetos em Configurações → IA.
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
@@ -96,7 +97,7 @@ Nenhuma no momento.
 - **Alerta espera a conferência de checkout (confirmado pelo usuário em 2026-10-19):** o primeiro alerta de uma oportunidade só sai depois da conferência no checkout (preço = itens + impostos, sem frete); se a conferência não puder rodar, vale o comportamento descrito no README.
 - **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário. Após o deploy: `tcg-sniper casamento reabrir-ingles` (simulação) e `--aplicar` para devolver à IA os ignorados pelo automático por serem em inglês.
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
-- 2026-10-19: teto do monitor da Amazon em produção é 1000 páginas/h; baixar para ~220 só se os CAPTCHAs aumentarem.
+- 2026-10-19: busca e monitor da Amazon em serviços separados (busca sem login, 90 buscas/h; monitor logado, 180 páginas/h; a migração baixou o monitor de 1000 para 180).
 - 2026-10-19: busca alternativa entra depois de 7 dias sem candidato.
 - 2026-10-19: celular sem o 9 extra é aceito no login (normalizado para o cadastrado).
 - 2026-10-19: menos de 20 usuários por enquanto, mas o acesso vai ser vendido; limites e sessões pensados para crescer, sem multi-cliente.
@@ -120,6 +121,15 @@ Nenhuma no momento.
 6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### Busca da Amazon separada do monitor (2026-10-19)
+
+Spec `docs/superpowers/specs/2026-10-19-amazon-busca-separada-design.md`, plano `docs/superpowers/plans/2026-10-19-amazon-busca-separada.md`. Resolve a busca parada pelo monitor (um navegador só, prioridade estrita; 1941 de 1969 produtos sem candidato nunca buscados).
+
+- [x] Dois serviços: `coletor-amazon-busca` (navegador sem login, perfil `perfil-amazon-busca`, noVNC 6082) e `coletor-amazon` (retirada, checkout e monitor, navegador logado, noVNC 6081), sobre uma base comum; teste de importação garante que a busca não alcança checkout/carrinho/monitor (`feca3fd`, `a3683e0`, `e45702e`, `3f4bfc8`; serviço e compose `1078c8e`).
+- [x] Estado `amazon_busca`, tetos 90/180 com `least` na migração, ciclo rodando fechado como interrompido (`edd1fcc`).
+- [x] Avisos com a origem no título e resolvido próprio (`ecd382b`); rodada do monitor uma vez por volta inteira (`e45702e`, `3f4bfc8`).
+- [x] Serviços, Dashboard (buscas na última hora, produtos nunca buscados), Configurações e vigia com os dois serviços (`5e27293`, `108f0f8`, `886dc76`, `ed2da3c`).
 
 ### Dashboard e Casamentos por produto (merge `1a834b5`, em produção desde 2026-10-19 15:37)
 
