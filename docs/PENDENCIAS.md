@@ -11,7 +11,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
   - "Desfazer" faz a IA reavaliar o par, mesmo com anúncio igual;
   - **busca alternativa** com 2 a 3 termos gerados pela IA e guardados, para produto ativo sem candidato há **7 dias** (prazo confirmado pelo usuário), dentro do teto de gasto;
   - botões "Rebuscar agora", "Reavaliar com a IA" e "Gerar termos de busca" no **admin antigo** (regra em código comum, para a fase 3 reaproveitar).
-- [ ] **Avaliação da IA — em andamento (2026-10-19).** O automático está ligado desde 16/10 sem nunca ter sido medido, e foi ele quem decidiu a maioria dos casamentos (cerca de 96% ignorados). Rodando `tcg-sniper ia avaliar --modelo gpt-5-mini` nos 266 pares decididos à mão, para medir falsos "sim" e "não" com o limite de 90. Resultado: _a registrar aqui_. Se aparecer falso "sim" acima de 90, desligar o automático e rever o limite.
+- [x] **Avaliação da IA (2026-10-19):** `ia avaliar --modelo gpt-5-mini` nos 266 pares decididos à mão: 260 acertos (98%), 3 falsos "sim" e 3 falsos "não", US$ 0,14. Na faixa em que o automático age (confiança ≥ 90): 217 de 218. O único erro ≥ 90 era um caso de idioma (caixa em inglês confirmada à mão para o produto em português); pela regra de idioma decidida (inglês, português e japonês são produtos diferentes) a IA estava certa e esse casamento foi desfeito. Automático segue ligado com 90/90. Os 24 ignorados pelo automático por idioma estão corretos.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -84,6 +84,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## Decisões registradas
 
+- **Idioma (2026-10-19):** inglês, português e japonês (e outros idiomas) são **produtos diferentes**; um anúncio em inglês não casa com o produto em português da Liga.
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
 - 2026-10-19: teto do monitor da Amazon em produção é 1000 páginas/h; baixar para ~220 só se os CAPTCHAs aumentarem.
 - 2026-10-19: busca alternativa entra depois de 7 dias sem candidato.

@@ -33,6 +33,7 @@ Valem para toda sessão neste repositório. O repositório é público: nada de 
 
 ## Negócio
 
+- Idioma conta como produto diferente: inglês, português e japonês não se casam entre si.
 - O grupo vende como lojista na LigaMagic. Sem API da LigaMagic nem do Mercado Livre (coleta pelo navegador). Avisos só pelo WhatsApp.
 - O acesso às oportunidades vai ser vendido depois: assinantes no mesmo sistema, **sem multi-cliente**. Limites e sessões pensados para crescer.
 
