@@ -1,4 +1,5 @@
-"""fim da oportunidade: motivo de encerramento, carência (em risco), menor preço, alertas, mensagem do alerta
+"""fim da oportunidade: motivo de encerramento, carência (em risco), menor preço, alertas, mensagem do alerta,
+quando deixou de valer
 
 Revision ID: e7c3a9d5b2f4
 Revises: d4b8e2f6a3c1
@@ -37,6 +38,7 @@ def upgrade() -> None:
         ),
     )
     op.add_column("oportunidade", sa.Column("encerramento_avisado_em", DATA, nullable=True))
+    op.add_column("oportunidade", sa.Column("deixou_de_valer_em", DATA, nullable=True))
     op.add_column(
         "oportunidade", sa.Column("alerta_sem_registro", sa.Boolean(), server_default="false", nullable=False)
     )
@@ -61,7 +63,7 @@ def downgrade() -> None:
     op.drop_constraint("ck_oportunidade_motivo_risco", "oportunidade", type_="check")
     op.drop_constraint("ck_oportunidade_motivo_encerramento", "oportunidade", type_="check")
     for coluna in (
-        "alerta_sem_registro", "encerramento_avisado_em", "mensagem_alerta_id", "alertas", "menor_preco",
+        "deixou_de_valer_em", "alerta_sem_registro", "encerramento_avisado_em", "mensagem_alerta_id", "alertas", "menor_preco",
         "motivo_risco", "em_risco_desde", "motivo_encerramento",
     ):
         op.drop_column("oportunidade", coluna)

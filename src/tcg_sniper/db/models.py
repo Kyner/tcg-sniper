@@ -397,6 +397,8 @@ class Oportunidade(Base):
     # Mensagem do último alerta (abertura ou realerta); a limpeza de 30 dias apaga a mensagem e zera aqui.
     mensagem_alerta_id: Mapped[int | None] = mapped_column(ForeignKey("mensagem_saida.id", ondelete="SET NULL"))
     encerramento_avisado_em: Mapped[datetime | None] = mapped_column(DATA)
+    # Quando deixou de valer: a primeira leitura ruim (início do risco) ou, sem risco, o encerramento.
+    deixou_de_valer_em: Mapped[datetime | None] = mapped_column(DATA)
     # Aberta antes desta versão (o id da mensagem não era guardado): ao encerrar, conta como alerta enviado.
     alerta_sem_registro: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 

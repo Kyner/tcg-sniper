@@ -7,7 +7,7 @@ ANTES = "d4b8e2f6a3c1"
 COLUNAS = (
     "SELECT column_name FROM information_schema.columns WHERE table_name = 'oportunidade' AND column_name IN "
     "('motivo_encerramento', 'em_risco_desde', 'motivo_risco', 'menor_preco', 'alertas', 'mensagem_alerta_id', "
-    "'encerramento_avisado_em', 'alerta_sem_registro')"
+    "'encerramento_avisado_em', 'alerta_sem_registro', 'deixou_de_valer_em')"
 )
 PREPARO = """
 INSERT INTO produto_liga (id, liga_id, nome, url, ativo, visto_primeiro_em, visto_ultimo_em)
@@ -36,6 +36,7 @@ def test_migracao_do_fim_da_oportunidade_sobe_preenche_e_desce(engine):
             c.execute(text(PREPARO))
         command.upgrade(cfg, "head")
         with proprio.begin() as c:
+            assert len(c.execute(text(COLUNAS)).all()) == 9
             linhas = c.execute(text(
                 "SELECT id, menor_preco, alertas, alerta_sem_registro, motivo_encerramento "
                 "FROM oportunidade WHERE id IN (990001, 990002) ORDER BY id"

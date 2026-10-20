@@ -48,6 +48,7 @@ Oportunidades fechadas antes desta versão ficam com o motivo vazio (NULL, "ante
 - `alertas` integer NOT NULL default 1: avisos de oportunidade enfileirados (abertura + realertas);
 - `mensagem_alerta_id` integer NULL, FK `mensagem_saida.id` `ON DELETE SET NULL` (a limpeza apaga mensagens com mais de 30 dias): a mensagem do último alerta;
 - `encerramento_avisado_em` timestamptz NULL;
+- `deixou_de_valer_em` timestamptz NULL: gravado no encerramento, `em_risco_desde` (a primeira leitura ruim) ou, sem risco, a hora do encerramento;
 - `alerta_sem_registro` boolean NOT NULL default false: a oportunidade foi aberta antes desta versão, quando o id da mensagem não era guardado.
 
 Um `CHECK` limita `motivo_encerramento` e `motivo_risco` aos valores da tabela acima.
@@ -73,7 +74,7 @@ Preenchimento: as oportunidades existentes recebem `menor_preco = preco_amazon` 
 
 Ponto único para fechar, chamado pelo monitor, pela busca (`sem_leitura`, linha a linha no lugar do `UPDATE` em massa) e por `repositorio_casamento.fechar_oportunidades` (`casamento_desfeito`). Na transação de quem chama:
 
-1. grava `fechada_em` e `motivo_encerramento`, limpa o risco;
+1. grava `fechada_em`, `motivo_encerramento` e `deixou_de_valer_em` (`em_risco_desde` ou agora), limpa o risco;
 2. olha `mensagem_alerta_id`:
    - mensagem **enviada**, ou `alerta_sem_registro` verdadeiro: enfileira o aviso do motivo e grava `encerramento_avisado_em`;
    - mensagem **pendente** na fila: descarta-a (`repositorio_mensagens.descartar`) e não avisa o encerramento;
@@ -106,11 +107,11 @@ _18/10 13:35 · monitor Amazon_
 _18/10 13:35 · admin_
 ```
 
-Em "oferta sumiu" a linha de preço fica "Alerta: R$ X → agora: indisponível". A duração é `fechada_em − aberta_em`.
+O "agora" é o preço que o motor julgou (o monitor o informa: o conferido, itens + impostos sem frete, quando há conferência válida); sem ele (busca, casamento), o preço atual do anúncio. Em "oferta sumiu" a linha de preço fica "Alerta: R$ X → agora: indisponível". A duração é `fechada_em − aberta_em`.
 
 ### Admin antigo
 
-- Configurações → Amazon → Monitor de preço: campo "Carência para encerrar (min)".
+- Configurações → Amazon → Monitor de preço: campo "Carência para encerrar uma oportunidade (min)".
 - Ofertas: oportunidade em risco mostra o selo "em risco desde HH:MM · <motivo>" (componente `badge` do DaisyUI).
 
 ## Erros

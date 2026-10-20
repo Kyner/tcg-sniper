@@ -152,3 +152,56 @@ def test_oferta_sumiu_diz_indisponivel_mesmo_com_preco_guardado(sessoes, oportun
     with sessoes() as s:
         [aviso] = _avisos(s)
         assert "555" not in aviso.texto and "indisponível" in aviso.texto
+
+
+def test_alerta_que_saiu_enquanto_encerrava_avisa_sem_erro(sessoes, oportunidade):
+    """O notificador trava a mensagem durante o envio e a grava ENVIADA; quem encerra não pode decidir pela
+    situação lida antes (PENDENTE), senão o descarte acha ENVIADA e levanta AcaoInvalida na transação dele."""
+    op_id, msg_id = oportunidade
+    with sessoes() as s, s.begin():
+        lida = s.get(MensagemSaida, msg_id)  # lida antes do envio (fica no mapa de identidade da sessão)
+        assert lida.status is StatusMensagem.PENDENTE
+        _situacao(sessoes, msg_id, StatusMensagem.ENVIADA)  # o notificador terminou o envio
+        assert encerrar(s, op_id, M.PRECO_SUBIU, AGORA) is True
+    with sessoes() as s:
+        assert s.get(MensagemSaida, msg_id).status is StatusMensagem.ENVIADA
+        [aviso] = _avisos(s)
+        assert "Oferta encerrada · preço subiu" in aviso.texto
+        assert s.get(Oportunidade, op_id).encerramento_avisado_em == AGORA
+
+
+def test_preco_atual_informado_vale_no_aviso(sessoes, oportunidade):
+    """O monitor informa o preço que o motor julgou (o conferido, com conferência válida); o preço atual
+    anunciado do anúncio fica de fora."""
+    from tcg_sniper.db.models import OrigemPreco, PrecoAtualAmazon
+
+    op_id, msg_id = oportunidade
+    _situacao(sessoes, msg_id, StatusMensagem.ENVIADA)
+    with sessoes() as s, s.begin():
+        anuncio_id = s.get(Oportunidade, op_id).anuncio_id
+        s.add(PrecoAtualAmazon(anuncio_id=anuncio_id, preco=Decimal("760.00"), origem=OrigemPreco.OFERTAS, envio=Envio.AMAZON, coletado_em=AGORA))
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA, preco_atual=Decimal("900.00"))
+    with sessoes() as s:
+        [aviso] = _avisos(s)
+        assert "agora: *R$ 900,00*" in aviso.texto and "760" not in aviso.texto
+
+
+def test_deixou_de_valer_guarda_a_primeira_leitura_ruim(sessoes, oportunidade):
+    op_id, _ = oportunidade
+    with sessoes() as s, s.begin():
+        op = s.get(Oportunidade, op_id)
+        op.em_risco_desde, op.motivo_risco = AGORA - timedelta(minutes=40), M.PRECO_SUBIU
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA)
+    with sessoes() as s:
+        op = s.get(Oportunidade, op_id)
+        assert (op.fechada_em, op.deixou_de_valer_em) == (AGORA, AGORA - timedelta(minutes=40))
+
+
+def test_deixou_de_valer_sem_risco_e_o_encerramento(sessoes, oportunidade):
+    op_id, _ = oportunidade
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.CASAMENTO_DESFEITO, AGORA)
+    with sessoes() as s:
+        assert s.get(Oportunidade, op_id).deixou_de_valer_em == AGORA
