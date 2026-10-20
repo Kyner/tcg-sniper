@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
@@ -17,6 +18,8 @@ from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     Envio,
     EstadoColetorTipo,
+    MotivoEncerramento,
+    Oportunidade,
     OrigemPreco,
     StatusCasamento,
     StatusColeta,
@@ -168,6 +171,16 @@ def test_ofertas_melhor_oferta_por_produto_ordenada_por_desconto(s):
     assert linhas[0].aberta and linhas[0].confiavel and not linhas[1].aberta
     assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(desconto_min=config.desconto_min_pct), config)] == [ff.id]
     assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(situacao="abertas"), config)] == [ff.id]
+
+
+def test_ofertas_mostra_o_risco_da_oportunidade(s):
+    ff, *_ = preparar_ofertas(s)
+    config = repo_amz.obter_config(s)
+    op = s.scalar(select(Oportunidade).where(Oportunidade.produto_id == ff.id, Oportunidade.fechada_em.is_(None)))
+    op.em_risco_desde, op.motivo_risco = T0, MotivoEncerramento.PRECO_SUBIU
+    s.flush()
+    [linha] = [l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
+    assert linha.risco == (T0, "preço subiu")
 
 
 def test_lojista_fba_confiavel_ou_nao(s):
