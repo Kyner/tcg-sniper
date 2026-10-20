@@ -348,7 +348,7 @@ Preço que a página não mostra aparece como "—", nunca como zero.
 
 ### Mensagens no WhatsApp
 
-Todas as mensagens seguem o mesmo formato: emoji de severidade (🔴 falha, 🟡 atenção, ✅ concluído, 💰 oportunidade), título em negrito, linhas com "•", "*O que fazer:*" e, em itálico, a hora e quem mandou. Nenhuma leva endereço do admin ou do noVNC (só abrem na rede de casa); a ação diz onde fazer, por exemplo "noVNC do monitor (porta 6081)" ou "Admin → Serviços → Amazon (busca) → Retomar". Links de produto (Amazon, LigaMagic) continuam.
+Todas as mensagens seguem o mesmo formato: emoji de severidade (🔴 falha, 🟡 atenção, ✅ concluído, 💰 oportunidade, ⏹️ encerrada, ⚠️ correção), título em negrito, linhas com "•", "*O que fazer:*" e, em itálico, a hora e quem mandou. Nenhuma leva endereço do admin ou do noVNC (só abrem na rede de casa); a ação diz onde fazer, por exemplo "noVNC do monitor (porta 6081)" ou "Admin → Serviços → Amazon (busca) → Retomar". Links de produto (Amazon, LigaMagic) continuam.
 
 Um problema que se repete sai uma vez, volta como lembrete a cada 2 h enquanto continuar ("continua · N vezes desde HH:MM") e fecha com "✅ … resolvido". Cada tipo pode ser desligado em **Configurações → Avisos**, que mostra um exemplo de cada um.
 
