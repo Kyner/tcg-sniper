@@ -278,7 +278,7 @@ def test_oportunidade_abrir_atualizar_e_risco(s):
         vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=True, agora=depois, conferido=False,
     )
     assert (op.preco_amazon, op.alertada_em, op.preco_alertado) == (Decimal("650.00"), depois, Decimal("650.00"))
-    assert (op.alertas, op.menor_preco) == (2, Decimal("650.00"))
+    assert (op.alertas, op.menor_preco) == (1, Decimal("650.00"))  # quem soma `alertas` é o aviso enfileirado
 
     repo.marcar_risco(s, op, MotivoEncerramento.PRECO_SUBIU, depois)
     repo.marcar_risco(s, op, MotivoEncerramento.OFERTA_SUMIU, depois + timedelta(minutes=10))
@@ -288,7 +288,7 @@ def test_oportunidade_abrir_atualizar_e_risco(s):
         s, op, preco_amazon=Decimal("690.00"), preco_liga=Decimal("1000.00"), desconto_pct=Decimal("31.00"),
         vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=False, agora=depois, conferido=False,
     )
-    assert (op.em_risco_desde, op.motivo_risco, op.alertas, op.menor_preco) == (None, None, 2, Decimal("650.00"))
+    assert (op.em_risco_desde, op.motivo_risco, op.alertas, op.menor_preco) == (None, None, 1, Decimal("650.00"))
     assert repo.oportunidade_aberta(s, anuncio.id).id == op.id
 
 

@@ -645,7 +645,8 @@ def test_realerta_sem_mensagem_mantem_o_alerta_anterior(sessoes, config, anuncio
     avisador.avisar_em = lambda *_: None  # aviso desligado (ou falhou): nenhuma mensagem enfileirada
     ler_anuncio(ctx, anuncio.id, ASIN)
     op = _aberta(sessoes)
-    assert (op.alertas, op.preco_alertado, op.mensagem_alerta_id) == (2, Decimal("650.00"), primeira)
+    # `alertas` conta os avisos enfileirados: sem mensagem, não soma.
+    assert (op.alertas, op.preco_alertado, op.mensagem_alerta_id) == (1, Decimal("650.00"), primeira)
     with sessoes() as s:
         assert s.get(MensagemSaida, primeira).status is StatusMensagem.PENDENTE
 
@@ -680,3 +681,33 @@ def test_realerta_pela_conferencia_descarta_o_alerta_anterior_ainda_na_fila(sess
     assert op.alertas == 2 and op.mensagem_alerta_id not in (None, primeira)
     with sessoes() as s:
         assert s.get(MensagemSaida, primeira).status is StatusMensagem.DESCARTADA
+
+
+def test_encerramento_pela_conferencia_mostra_o_preco_conferido(sessoes, config, anuncio):
+    """O motor fechou pelo conferido (itens + impostos): o "agora" do aviso é ele, não o anunciado."""
+    ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 760,00"))})
+    ctx.cfg.carencia_encerramento_min = 0
+    ler_anuncio(ctx, anuncio.id, ASIN)  # 24%: espera a conferência
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "760.00", "740.00", itens="740.00"))
+    with sessoes() as s, s.begin():  # o alerta (conferido, 740) saiu
+        s.get(MensagemSaida, _aberta(sessoes).mensagem_alerta_id).status = StatusMensagem.ENVIADA
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "760.00", "900.00", impostos="140.00"))
+    op = _aberta(sessoes)
+    assert op.motivo_encerramento == "preco_subiu"
+    texto = _mensagens(sessoes)[-1]
+    assert "Oferta encerrada" in texto and "agora: *R$ 900,00*" in texto and "760" not in texto
+
+
+def test_decisao_trava_o_anuncio_antes_da_oportunidade(sessoes, config, anuncio, monkeypatch):
+    """Mesma ordem do casamento (anúncio → oportunidade): um Desfazer ao mesmo tempo não se intercala."""
+    from tcg_sniper.coletor_amazon import monitor
+
+    travados = []
+    original = repo_casamento.travar_anuncio
+    monkeypatch.setattr(
+        monitor.repo_casamento, "travar_anuncio", lambda s, anuncio_id: travados.append(anuncio_id) or original(s, anuncio_id)
+    )
+    ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 760,00"))})
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "760.00", "740.00", itens="740.00"))
+    assert travados == [anuncio.id, anuncio.id]

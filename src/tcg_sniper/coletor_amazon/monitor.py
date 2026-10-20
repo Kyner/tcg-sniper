@@ -37,6 +37,7 @@ from tcg_sniper.coletor_amazon.parsers import (
     url_vendedor,
 )
 from tcg_sniper.db import repositorio_amazon as repo
+from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import (
     AnuncioAmazon,
@@ -226,17 +227,23 @@ def _aplicar(
     if acao is motor.Acao.EM_RISCO:
         repo.marcar_risco(s, aberta, decisao.motivo, agora)
     elif acao is motor.Acao.FECHAR:
-        encerramento.encerrar(s, aberta.id, decisao.motivo, agora)
+        # O "agora" do aviso é o preço que o motor julgou (o conferido, com conferência válida).
+        encerramento.encerrar(s, aberta.id, decisao.motivo, agora, preco_atual=leitura.preco)
     return None
 
 
-def _alertar(ctx: ContextoBusca, s: Session, op: Oportunidade, aviso: Dados, agora: datetime) -> None:
+def _alertar(
+    ctx: ContextoBusca, s: Session, op: Oportunidade, aviso: Dados, agora: datetime, *, realerta: bool
+) -> None:
     """Enfileira o alerta (abertura ou realerta) na transação da decisão e liga a mensagem à oportunidade.
-    Sem mensagem nova (aviso desligado ou falhou) fica a do alerta anterior. Com mensagem nova, a anterior
-    ainda na fila é descartada: o preço antigo, mais alto, não sai depois."""
+    Sem mensagem nova (aviso desligado ou falhou) fica a do alerta anterior e `alertas` não muda (conta os
+    avisos enfileirados). Com mensagem nova, a anterior ainda na fila é descartada: o preço antigo, mais
+    alto, não sai depois; o realerta soma 1 em `alertas`."""
     mensagem_id = ctx.avisador.avisar_em(s, TipoAviso.OPORTUNIDADE, str(op.anuncio_id), aviso)
     if mensagem_id is None:
         return
+    if realerta:
+        op.alertas += 1
     if op.mensagem_alerta_id is not None and op.mensagem_alerta_id != mensagem_id:
         anterior = s.get(MensagemSaida, op.mensagem_alerta_id, with_for_update=True, populate_existing=True)
         if anterior is not None and anterior.status is StatusMensagem.PENDENTE:
@@ -257,6 +264,9 @@ def _dados(linha, leitura: motor.Leitura, ref: motor.RefLiga, detalhes: Detalhes
 def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> None:
     agora = ctx.relogio()
     with ctx.sessoes() as s, s.begin():
+        # Trava o anúncio antes da oportunidade (a ordem do casamento): um Desfazer ao mesmo tempo espera
+        # esta decisão, ou ela espera o Desfazer e já não acha o par confirmado.
+        repo_casamento.travar_anuncio(s, anuncio_id)
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
         if not linhas:  # o casamento foi desfeito no admin enquanto a página abria
             return
@@ -299,7 +309,7 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
                 motivo = _motivo_nao_conferido(s, ctx.cfg, anuncio_id, agora)
                 detalhes = dataclasses.replace(selos, motivo_nao_conferido=motivo)
             aviso = _dados(linha, leitura, ref, detalhes)
-            _alertar(ctx, s, op, aviso, agora)
+            _alertar(ctx, s, op, aviso, agora, realerta=decisao.acao is motor.Acao.REALERTAR)
 
 
 def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMonitor:
@@ -372,6 +382,7 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
     conferência. Senão não faz nada (a próxima leitura decide)."""
     agora = ctx.relogio()
     with ctx.sessoes() as s, s.begin():
+        repo_casamento.travar_anuncio(s, anuncio_id)  # anúncio → oportunidade, como em `_decidir`
         conferencia = s.get(ConferenciaCheckout, conferencia_id)
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
         if (
@@ -404,4 +415,4 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
                 importada=melhor.importada, origem_envio=melhor.origem_envio, prime=melhor.prime,
             )
             aviso = _dados(linha, leitura, ref, detalhes)
-            _alertar(ctx, s, op, aviso, agora)
+            _alertar(ctx, s, op, aviso, agora, realerta=decisao.acao is motor.Acao.REALERTAR)
