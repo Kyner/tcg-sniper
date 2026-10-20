@@ -355,16 +355,23 @@ def atualizar_oportunidade(
     conferido: bool,
 ) -> None:
     """`conferido` (obrigatório, sem padrão; só vale com `alertou`): o novo aviso sai com o preço
-    conferido no checkout (True) ou com o anunciado (False)."""
+    conferido no checkout (True) ou com o anunciado (False). Toda leitura elegível tira o risco e acompanha
+    o menor preço; o realerta soma em `alertas`."""
     op.preco_amazon, op.preco_liga, op.desconto_pct = preco_amazon, preco_liga, desconto_pct
     op.vendedor_id, op.envio = vendedor_id, envio
+    op.menor_preco = min(op.menor_preco, preco_amazon)
+    op.em_risco_desde = op.motivo_risco = None
     if alertou:
         op.alertada_em, op.preco_alertado, op.alerta_conferido = agora, preco_amazon, conferido
+        op.alertas += 1
     s.flush()
 
 
-def fechar_oportunidade(s: Session, op: Oportunidade, agora: datetime) -> None:
-    op.fechada_em = agora
+def marcar_risco(s: Session, op: Oportunidade, motivo: MotivoEncerramento, agora: datetime) -> None:
+    """Leitura não elegível dentro da carência: guarda desde quando (a primeira) e o motivo (o da última)."""
+    if op.em_risco_desde is None:
+        op.em_risco_desde = agora
+    op.motivo_risco = motivo
     s.flush()
 
 

@@ -9,7 +9,10 @@ espera e a oferta é candidata ao checkout, sem falha nem ok da mesma oferta na 
 decide pelo preço anunciado: não abre, não avisa, não fecha nem realerta. Quem decide é
 `aplicar_conferencia`, com o preço conferido, logo depois da conferência. O aviso com o preço anunciado
 ("não conferido (<motivo>)") só sai quando não há conferência possível; se ela falha, `redecidir` avisa
-na hora com o anunciado (menos quando a oferta saiu do painel: aí a próxima leitura decide)."""
+na hora com o anunciado (menos quando a oferta saiu do painel: aí a próxima leitura decide).
+
+Leitura não elegível com oportunidade aberta só marca o risco; o encerramento (`oportunidades.encerramento`)
+vem quando a carência vence."""
 
 import dataclasses
 import logging
@@ -34,21 +37,25 @@ from tcg_sniper.coletor_amazon.parsers import (
     url_vendedor,
 )
 from tcg_sniper.db import repositorio_amazon as repo
+from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     ConferenciaCheckout,
     ConfigAmazon,
     Envio,
+    MensagemSaida,
     OfertaAmazon,
+    Oportunidade,
     OrigemPreco,
     PrecoAtualAmazon,
     PrecoAtualLiga,
     SituacaoCheckout,
+    StatusMensagem,
     VendedorAmazon,
 )
 from tcg_sniper.navegador.modelos import Pagina
 from tcg_sniper.navegador.ritmo import com_um_retry, pausa_aleatoria
-from tcg_sniper.oportunidades import motor
+from tcg_sniper.oportunidades import encerramento, motor
 from tcg_sniper.oportunidades.mensagens import Detalhes, dados_oportunidade
 from tcg_sniper.parsing import ErroParser
 
@@ -191,22 +198,51 @@ def _motivo_nao_conferido(s: Session, cfg: ConfigAmazon, anuncio_id: int, agora:
     return "aguardando conferência"
 
 
-def _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora, conferido: bool) -> None:
-    """Grava a decisão do motor. `conferido`: o preço da leitura é o conferido no checkout."""
+def _aberta_motor(aberta: Oportunidade | None) -> motor.Aberta | None:
+    if aberta is None:
+        return None
+    return motor.Aberta(aberta.preco_alertado, aberta.preco_liga, aberta.em_risco_desde)
+
+
+def _aplicar(
+    s, decisao: motor.Decisao, aberta, linha, leitura, ref, vendedor_id, agora, conferido: bool
+) -> Oportunidade | None:
+    """Grava a decisão do motor. Devolve a oportunidade aberta ou atualizada (None em NADA, EM_RISCO e
+    FECHAR). `conferido`: o preço da leitura é o conferido no checkout."""
+    acao = decisao.acao
     if acao is motor.Acao.ABRIR:
-        repo.abrir_oportunidade(
+        return repo.abrir_oportunidade(
             s, anuncio_id=linha.anuncio.id, produto_id=linha.produto.id, preco_amazon=leitura.preco,
             preco_liga=ref.preco_a_partir, desconto_pct=motor.desconto_pct(leitura.preco, ref.preco_a_partir),
             vendedor_id=vendedor_id, envio=leitura.envio, agora=agora, conferido=conferido,
         )
-    elif acao in (motor.Acao.REALERTAR, motor.Acao.ATUALIZAR):
+    if acao in (motor.Acao.REALERTAR, motor.Acao.ATUALIZAR, motor.Acao.RECUPERAR):
         repo.atualizar_oportunidade(
             s, aberta, preco_amazon=leitura.preco, preco_liga=ref.preco_a_partir,
             desconto_pct=motor.desconto_pct(leitura.preco, ref.preco_a_partir), vendedor_id=vendedor_id,
             envio=leitura.envio, alertou=acao is motor.Acao.REALERTAR, agora=agora, conferido=conferido,
         )
+        return aberta
+    if acao is motor.Acao.EM_RISCO:
+        repo.marcar_risco(s, aberta, decisao.motivo, agora)
     elif acao is motor.Acao.FECHAR:
-        repo.fechar_oportunidade(s, aberta, agora)
+        encerramento.encerrar(s, aberta.id, decisao.motivo, agora)
+    return None
+
+
+def _alertar(ctx: ContextoBusca, s: Session, op: Oportunidade, aviso: Dados, agora: datetime) -> None:
+    """Enfileira o alerta (abertura ou realerta) na transação da decisão e liga a mensagem à oportunidade.
+    Sem mensagem nova (aviso desligado ou falhou) fica a do alerta anterior. Com mensagem nova, a anterior
+    ainda na fila é descartada: o preço antigo, mais alto, não sai depois."""
+    mensagem_id = ctx.avisador.avisar_em(s, TipoAviso.OPORTUNIDADE, str(op.anuncio_id), aviso)
+    if mensagem_id is None:
+        return
+    if op.mensagem_alerta_id is not None and op.mensagem_alerta_id != mensagem_id:
+        anterior = s.get(MensagemSaida, op.mensagem_alerta_id, with_for_update=True, populate_existing=True)
+        if anterior is not None and anterior.status is StatusMensagem.PENDENTE:
+            repo_msg.descartar(s, anterior.id, agora)
+    op.mensagem_alerta_id = mensagem_id
+    s.flush()
 
 
 def _dados(linha, leitura: motor.Leitura, ref: motor.RefLiga, detalhes: Detalhes) -> Dados:
@@ -220,7 +256,6 @@ def _dados(linha, leitura: motor.Leitura, ref: motor.RefLiga, detalhes: Detalhes
 
 def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> None:
     agora = ctx.relogio()
-    aviso: Dados | None = None
     with ctx.sessoes() as s, s.begin():
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
         if not linhas:  # o casamento foi desfeito no admin enquanto a página abria
@@ -244,19 +279,14 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
         preco = conferido if conferido is not None else (oferta.preco if oferta else None)
         leitura = motor.Leitura(preco, oferta.envio if oferta else Envio.DESCONHECIDO, _info(melhor.vendedor) if melhor else None)
         aberta = repo.oportunidade_aberta(s, anuncio_id)
-        aberta_motor = (
-            motor.Aberta(aberta.preco_alertado, aberta.preco_liga, aberta.em_risco_desde) if aberta else None
-        )
-        acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta_motor).acao
-        if acao in (motor.Acao.EM_RISCO, motor.Acao.RECUPERAR):  # tratadas na Tarefa 6
-            acao = motor.Acao.ATUALIZAR if acao is motor.Acao.RECUPERAR else motor.Acao.NADA
-        if acao is motor.Acao.REALERTAR and conferido is None and aberta.alerta_conferido:
+        decisao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, _aberta_motor(aberta))
+        if decisao.acao is motor.Acao.REALERTAR and conferido is None and aberta.alerta_conferido:
             # O último aviso foi com o conferido; o anunciado não tem os impostos e parece mais barato:
             # só atualiza, sem aviso, até haver um novo preço conferido.
-            acao = motor.Acao.ATUALIZAR
+            decisao = motor.Decisao(motor.Acao.ATUALIZAR)
         vendedor_id = melhor.vendedor.id if melhor and melhor.vendedor else None
-        _aplicar(s, acao, aberta, linha, leitura, ref, vendedor_id, agora, conferido is not None)
-        if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
+        op = _aplicar(s, decisao, aberta, linha, leitura, ref, vendedor_id, agora, conferido is not None)
+        if decisao.acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
             selos = Detalhes(
                 importada=oferta.importada, origem_envio=oferta.origem_envio, prime=oferta.prime,
                 cupom=getattr(oferta, "cupom", None),  # a oferta gravada (OfertaAmazon) não guarda o cupom
@@ -269,8 +299,7 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
                 motivo = _motivo_nao_conferido(s, ctx.cfg, anuncio_id, agora)
                 detalhes = dataclasses.replace(selos, motivo_nao_conferido=motivo)
             aviso = _dados(linha, leitura, ref, detalhes)
-    if aviso is not None:
-        ctx.avisador.avisar(TipoAviso.OPORTUNIDADE, str(anuncio_id), aviso)
+            _alertar(ctx, s, op, aviso, agora)
 
 
 def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMonitor:
@@ -342,7 +371,6 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
     da melhor oferta), ok e dentro da validade: é preciso que `repo.conferencia_valida` devolva esta
     conferência. Senão não faz nada (a próxima leitura decide)."""
     agora = ctx.relogio()
-    aviso: Dados | None = None
     with ctx.sessoes() as s, s.begin():
         conferencia = s.get(ConferenciaCheckout, conferencia_id)
         linhas = repo.confirmados_com_referencia(s, [anuncio_id])
@@ -368,18 +396,12 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
         vendedor = s.get(VendedorAmazon, linha.atual.vendedor_id) if linha.atual.vendedor_id else None
         leitura = motor.Leitura(conferido, linha.atual.envio, _info(vendedor))
         aberta = repo.oportunidade_aberta(s, anuncio_id)
-        aberta_motor = (
-            motor.Aberta(aberta.preco_alertado, aberta.preco_liga, aberta.em_risco_desde) if aberta else None
-        )
-        acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta_motor).acao
-        if acao in (motor.Acao.EM_RISCO, motor.Acao.RECUPERAR):  # tratadas na Tarefa 6
-            acao = motor.Acao.ATUALIZAR if acao is motor.Acao.RECUPERAR else motor.Acao.NADA
-        _aplicar(s, acao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora, True)
-        if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
+        decisao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, _aberta_motor(aberta))
+        op = _aplicar(s, decisao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora, True)
+        if decisao.acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
             detalhes = Detalhes(
                 preco_conferido=conferido, impostos=conferencia.impostos, frete=conferencia.frete,
                 importada=melhor.importada, origem_envio=melhor.origem_envio, prime=melhor.prime,
             )
             aviso = _dados(linha, leitura, ref, detalhes)
-    if aviso is not None:
-        ctx.avisador.avisar(TipoAviso.OPORTUNIDADE, str(anuncio_id), aviso)
+            _alertar(ctx, s, op, aviso, agora)

@@ -18,6 +18,7 @@ from tcg_sniper.db.models import (
     Envio,
     FilaAmazon,
     MensagemSaida,
+    MotivoEncerramento,
     Oportunidade,
     OrigemCasamento,
     OrigemPreco,
@@ -259,7 +260,7 @@ def test_vendedores(s):
     assert v2.id == v.id and v2.num_avaliacoes == 2400
 
 
-def test_oportunidade_abrir_atualizar_fechar(s):
+def test_oportunidade_abrir_atualizar_e_risco(s):
     produto = criar_produto(s)
     anuncio = criar_anuncio(s, produto=produto, status=StatusCasamento.CONFIRMADO)
     amazon = repo.vendedor_da_amazon(s)
@@ -277,9 +278,18 @@ def test_oportunidade_abrir_atualizar_fechar(s):
         vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=True, agora=depois, conferido=False,
     )
     assert (op.preco_amazon, op.alertada_em, op.preco_alertado) == (Decimal("650.00"), depois, Decimal("650.00"))
+    assert (op.alertas, op.menor_preco) == (2, Decimal("650.00"))
 
-    repo.fechar_oportunidade(s, op, depois)
-    assert repo.oportunidade_aberta(s, anuncio.id) is None
+    repo.marcar_risco(s, op, MotivoEncerramento.PRECO_SUBIU, depois)
+    repo.marcar_risco(s, op, MotivoEncerramento.OFERTA_SUMIU, depois + timedelta(minutes=10))
+    assert (op.em_risco_desde, op.motivo_risco) == (depois, MotivoEncerramento.OFERTA_SUMIU)  # a primeira, o último
+
+    repo.atualizar_oportunidade(  # leitura boa sem realerta: tira o risco, o menor preço fica
+        s, op, preco_amazon=Decimal("690.00"), preco_liga=Decimal("1000.00"), desconto_pct=Decimal("31.00"),
+        vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=False, agora=depois, conferido=False,
+    )
+    assert (op.em_risco_desde, op.motivo_risco, op.alertas, op.menor_preco) == (None, None, 2, Decimal("650.00"))
+    assert repo.oportunidade_aberta(s, anuncio.id).id == op.id
 
 
 def test_conferido_e_obrigatorio_ao_abrir_e_ao_atualizar_oportunidade(s):
