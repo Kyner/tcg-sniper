@@ -15,7 +15,7 @@ from tcg_sniper.db.session import config_alembic
 
 ANTES = "f8d2a6c4e1b3"
 AGORA = datetime(2026, 10, 19, 15, 0, tzinfo=UTC)
-# As mesmas contagens da implantação (README → Implantar o casamento por par): antes de migrar, pelas
+# As mesmas contagens da implantação (docs/IMPLANTACOES.md → Casamento por par): antes de migrar, pelas
 # colunas do anúncio; depois, pela tabela `casamento`. Têm de bater.
 CONTAGEM_ANTES = (
     "SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL AND asin LIKE 'BREG%' "

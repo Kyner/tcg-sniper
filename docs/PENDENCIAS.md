@@ -3,7 +3,7 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-19 (leitura por interesse da LigaMagic pronta no código, falta implantar; antes: busca da Amazon separada do monitor).
+Última revisão: 2026-10-20 (README revisto para publicação e comercialização; antes: leitura por interesse da LigaMagic em produção desde 2026-10-20 08:30).
 
 ## 0. Crítico
 
@@ -28,7 +28,6 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Login: `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
 - [ ] Usuários: `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
 - [ ] Front: ao fechar um modal, o foco não volta para o botão que o abriu.
-- [ ] README: o passo de gerar `SEGREDO_API` usa Python no PC; dar alternativa com `docker compose run --rm api python -c ...`.
 - [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
 - [ ] Vigia de serviços: container parado de propósito no compose recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços. O vigia deveria ignorar serviço parado de propósito (hoje o jeito é pausá-lo no admin).
 - [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
@@ -113,8 +112,7 @@ Nenhuma no momento.
 
 ## Ordem sugerida
 
-0. Implantar a leitura por interesse da LigaMagic (seção 0).
-0. Acompanhar a primeira semana do casamento por par (seção 3) e o resultado dos 19 pares em inglês reabertos.
+0. Acompanhar a primeira semana da leitura por interesse da LigaMagic e do casamento por par (seção 3) e o resultado dos 19 pares em inglês reabertos.
 1. Site novo, fase 2 (área de negócio).
 2. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
 3. Seção 1 (segurança do login), antes de publicar na internet.
@@ -123,6 +121,13 @@ Nenhuma no momento.
 6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### README para publicação e comercialização (2026-10-20)
+
+- [x] README com apresentação para quem chega (o que faz, para quem, estado, formas de usar: instalar sob a MIT ou, em preparação, assinar as oportunidades), diagrama com todos os serviços, roadmap atualizado e seção "Licença e avisos" (sem afiliação, marcas, termos dos sites, não é recomendação de compra). Licença continua MIT.
+- [x] "Uso responsável" descreve o Chromium sem a marca de automação (correção do loop do Cloudflare) e os tetos padrão certos da Amazon (90 buscas/h, 150 páginas/h do monitor).
+- [x] `SEGREDO_API` no passo 2 da instalação, com `openssl rand` ou o Python do container (sem Python no PC); passo 11 para instalação nova.
+- [x] Passos de implantação de cada versão movidos para `docs/IMPLANTACOES.md`; `SECURITY.md` (aviso privado pelo GitHub) e `CONTRIBUTING.md` (regras do projeto) novos.
 
 ### LigaMagic: leitura por interesse e esfriar após desafio (2026-10-19, merge `64b3e69`)
 

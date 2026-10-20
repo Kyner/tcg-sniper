@@ -1,10 +1,31 @@
 # tcg-sniper
 
-Monitor de preços de produtos selados de Magic: The Gathering (boosters, caixas, kits) na [LigaMagic](https://www.ligamagic.com.br). Uma vez por dia ele lê o catálogo de selados com o menor preço anunciado de cada produto e, para os produtos que você escolher acompanhar, guarda o histórico de venda e o número de lojas. Você administra tudo por uma página web e recebe os avisos num grupo de WhatsApp.
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue.svg)](LICENSE)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
+![Docker Compose](https://img.shields.io/badge/roda%20com-Docker%20Compose-2496ED.svg)
 
-É o primeiro pedaço de um monitor de arbitragem: ele já compara o preço da LigaMagic com o da Amazon e avisa quando há uma oferta bem abaixo; outros marketplaces vêm depois (ver [Roadmap](#roadmap)).
+**Monitor de arbitragem de produtos selados de Magic: The Gathering no Brasil.** O tcg-sniper compara o preço da Amazon com o da [LigaMagic](https://www.ligamagic.com.br) e avisa no WhatsApp quando um booster, uma caixa ou um kit aparece bem abaixo do preço de mercado, já com o preço conferido no checkout.
 
-**Estado:** a coleta da LigaMagic, o admin e os avisos no WhatsApp estão prontos e rodando no dia a dia. O sub-projeto 2 (coletor da Amazon, casamento de produtos e oportunidades) também está pronto.
+Feito para quem compra e revende selados: lojistas da LigaMagic, revendedores e grupos de compra. Roda num PC seu, com Docker, e é administrado por uma página web.
+
+## O que ele faz
+
+- **Preço de referência da LigaMagic, todo dia.** Lê o catálogo de selados com o menor preço anunciado ("À partir de") de cada produto e, para os produtos acompanhados, o número de lojas e o resumo do histórico de venda (mínimo, médio e máximo).
+- **Busca e monitor na Amazon.** Procura cada produto na amazon.com.br e lê o preço dos anúncios casados a cada 15 minutos, com o vendedor e a opção (envelope, caixa, deck…) de cada anúncio.
+- **Casamento de produtos com IA (opcional).** A IA compara texto e imagens do anúncio da Amazon com o produto da LigaMagic, inclusive o idioma da edição; você confirma, ou liga o modo automático com confiança mínima e teto de gasto.
+- **Preço conferido no checkout.** Antes do alerta, a oferta vai ao resumo do pedido para ler itens e impostos (o frete aparece à parte). O coletor nunca confirma pedido.
+- **Alertas no WhatsApp.** Oportunidades num grupo, avisos de operação em outro, com lembrete enquanto um problema continua e aviso de resolvido.
+- **Site com login pelo WhatsApp.** Cada pessoa entra com o próprio número e um código; papéis (grupo, operador, admin) com permissões configuráveis.
+- **Operação de casa.** Backup diário do banco (com cópia opcional no Cloudflare R2), vigia dos serviços e tela remota (noVNC) para resolver verificações à mão.
+
+## Estado do projeto
+
+Versão 0.1, em uso diário por um grupo de compra desde outubro de 2026. Coleta da LigaMagic, Amazon (busca, monitor e conferência de checkout), casamento com IA, avisos no WhatsApp e backup estão prontos. O site novo (React) está na fase 1 (login, usuários e acessos); as telas de negócio e de administração ainda estão no admin antigo e migram nas próximas fases. Ainda não está pronto para ficar exposto na internet (ver [Segurança](#segurança)). O que falta está no [Roadmap](#roadmap) e em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
+
+## Formas de usar
+
+- **Instalar por conta própria.** O código é aberto sob a [licença MIT](LICENSE): você pode instalar, modificar e usar, inclusive comercialmente, seguindo este README. Não há suporte garantido; dúvidas e problemas vão para as [issues](https://github.com/Kyner/tcg-sniper/issues).
+- **Assinar as oportunidades (em preparação).** O plano é vender o acesso aos alertas e à área de negócio para assinantes, no mesmo sistema, sem você precisar instalar nada. Ainda não está aberto.
 
 ## Índice
 
@@ -18,7 +39,8 @@ Monitor de preços de produtos selados de Magic: The Gathering (boosters, caixas
 - [Solução de problemas](#solução-de-problemas)
 - [Desenvolvimento](#desenvolvimento)
 - [Roadmap](#roadmap)
-- [Licença](#licença)
+- [Contribuir](#contribuir)
+- [Licença e avisos](#licença-e-avisos)
 
 ## Uso responsável
 
@@ -26,11 +48,11 @@ O tcg-sniper foi feito para acessar a LigaMagic como uma pessoa acessaria, em vo
 
 - **Um acesso por vez, com pausa humana.** Entre uma página e outra há uma pausa aleatória de 8 a 20 segundos. A coleta roda uma vez por dia e nunca há duas ao mesmo tempo.
 - **Navegador de verdade.** Usa o Chromium com janela (não headless), com perfil persistente, no seu próprio PC e na sua conexão.
-- **Sem burlar proteções.** Não há solucionador de CAPTCHA nem disfarce de navegador. Se o Cloudflare mostrar uma verificação, a coleta pausa, avisa você e espera que uma pessoa a resolva.
-- **Amazon com teto e horário.** Na Amazon, a busca tem teto de 90 buscas por hora e o monitor de 180 páginas por hora (padrões; a Amazon vê a soma, cerca de 270 por hora no mesmo endereço), cada um no próprio horário; um CAPTCHA pausa só o serviço que o recebeu até uma pessoa resolver.
+- **Sem burlar proteções.** Não há solucionador de CAPTCHA, nem troca de identidade do navegador, nem rodízio de IP. O Chromium sobe sem a marca de "navegador automatizado" (sem ela, a verificação do Cloudflare entra em loop mesmo resolvida à mão), mas com o próprio user agent e o IP da sua casa. Se aparecer uma verificação, a coleta pausa, avisa você e espera que uma pessoa a resolva pela tela remota; depois de um desafio, a coleta fica mais lenta, e um segundo desafio no mesmo dia encerra o dia.
+- **Amazon com teto e horário.** Na Amazon, a busca tem teto de 90 buscas por hora e o monitor de 150 páginas por hora (padrões; recomendado no máximo 90 e 180, e a Amazon vê a soma no mesmo endereço), cada um no próprio horário; um CAPTCHA pausa só o serviço que o recebeu até uma pessoa resolver.
 - **Só o que a página mostra em texto.** Lê o preço "À partir de" das listagens e o quadro de resumo da página do produto. Os preços de cada loja são desenhados como imagem na página e nunca são decodificados.
 
-Respeite os termos de uso da LigaMagic e não aumente o ritmo da coleta. Este projeto não é afiliado à LigaMagic nem à Wizards of the Coast; Magic: The Gathering é marca da Wizards of the Coast.
+Respeite os termos de uso da LigaMagic e da Amazon e não aumente o ritmo da coleta. Quem instala é responsável pelo uso que faz (ver [Licença e avisos](#licença-e-avisos)).
 
 ## Como funciona
 
@@ -42,25 +64,34 @@ flowchart LR
         coletor[coletor-liga<br/>Chromium + agendador]
         coletor_amz[coletor-amazon<br/>Chromium logado: monitor de preço,<br/>conferência de checkout e retirada]
         coletor_busca[coletor-amazon-busca<br/>Chromium sem login: busca de anúncios novos]
+        casador[casador<br/>casamento com IA]
         admin[admin<br/>página web :8000]
+        web[web + api<br/>site novo :8090]
         db[(Postgres)]
+        notif[notificador]
+        manut[manutencao<br/>backup e limpeza]
         evo[Evolution API]
         vnc[noVNC :6080]
         vnc_amz[noVNC :6081]
         vnc_busca[noVNC :6082]
     end
     whats[Grupos admin e<br/>oportunidades no WhatsApp]
+    openai[(OpenAI)]
+    r2[(Cloudflare R2<br/>opcional)]
 
     coletor -- uma visita por vez --> liga
-    coletor --> db
-    admin --> db
-    coletor --> evo --> whats
     coletor_amz -- uma página por vez --> amazon
-    coletor_amz --> db
-    coletor_amz --> evo
     coletor_busca -- uma página por vez --> amazon
+    coletor --> db
+    coletor_amz --> db
     coletor_busca --> db
-    coletor_busca --> evo
+    casador --> db
+    casador --> openai
+    admin --> db
+    web --> db
+    manut --> db
+    manut -.-> r2
+    db --> notif --> evo --> whats
     vnc -. tela do Chromium .- coletor
     vnc_amz -. tela do Chromium .- coletor_amz
     vnc_busca -. tela do Chromium .- coletor_busca
@@ -111,6 +142,15 @@ Abra o `.env` num editor e troque pelo menos:
 | `ADMIN_SENHA` | Senha da página de admin. |
 | `VNC_SENHA` | Senha da tela remota do Chromium. Só os 8 primeiros caracteres valem. |
 | `EVOLUTION_API_KEY` | Uma chave longa e aleatória, inventada por você. |
+| `SEGREDO_API` | Chave do site novo, com 32 caracteres ou mais (gere com o comando abaixo). Trocá-la depois derruba todas as sessões: todos entram de novo pelo código. |
+
+Para gerar a `SEGREDO_API` (ou qualquer outra chave aleatória), use o `openssl` que vem com o Git Bash ou, sem ele, o Python do próprio container:
+
+```bash
+openssl rand -base64 32
+# ou
+docker compose run --rm --no-deps api python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
 O IP deste PC, a instância e os grupos do WhatsApp não ficam no `.env`: você os preenche em **Configurações** no admin (passos 4 e 5). Cada variável do `.env` está explicada no próprio [`.env.example`](.env.example).
 
@@ -242,40 +282,18 @@ docker compose start coletor-amazon
 
 As páginas ficam em `dados/capturas/` (fora do git) e só entram em `tests/fixtures/amazon` depois de `scripts/anonimizar_fixture.py`.
 
-### 11. Site novo (front) e login pelo WhatsApp
+### 11. Site novo e login pelo WhatsApp
 
-O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (o site, em `http://localhost:8090`). O admin antigo continua em `:8000` até as telas mudarem para cá.
+O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (o site, em `http://localhost:8090`). Eles já subiram no `docker compose up -d --build` do passo 8; sem uma `SEGREDO_API` válida no `.env` (passo 2), a `api` não sobe e o log diz o que fazer. O admin antigo continua em `:8000` até as telas mudarem para cá. Quem já tinha uma instalação de antes do site novo segue as [notas de implantação](docs/IMPLANTACOES.md#site-novo-front-e-login-pelo-whatsapp).
 
-Para implantar (numa instalação que já roda), nesta ordem:
-
-1. Backup do banco antes de tudo:
-
-   ```bash
-   mkdir -p dados/backups
-   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-front-<data>.dump
-   ```
-
-2. Atualize o código: `git pull`.
-3. Ponha uma `SEGREDO_API` de 32 caracteres ou mais no `.env` (gere com o comando abaixo e cole o resultado em `SEGREDO_API=`). Sem ela (ou com o valor de exemplo `trocar-este-segredo`) a `api` não sobe e diz o que fazer. Trocar essa chave depois derruba todas as sessões: todos entram de novo pelo código.
-
-   ```bash
-   python -c "import secrets; print(secrets.token_urlsafe(32))"
-   ```
-
-4. Recrie **todos** os serviços de uma vez (o `migrate` atualiza o banco antes), como na regra de [Atualizar uma instalação existente](#atualizar-uma-instalação-existente). Nunca só `api` e `web`: o `notificador` antigo não conhece o destino novo das mensagens individuais e mandaria o código de acesso para o grupo de oportunidades.
-
-   ```bash
-   docker compose up -d --build
-   ```
-
-5. Crie o superadmin (você):
+1. Crie o superadmin (você):
 
    ```bash
    docker compose exec api tcg-sniper criar-superadmin "<Nome>" "<número>"
    ```
 
-6. Confira no admin antigo (`:8000`): em Configurações → Avisos, o aviso "Código de acesso" ligado (desligado, ninguém recebe código); em Serviços, o `notificador` rodando (ou `docker compose ps notificador`).
-7. Abra `http://localhost:8090` neste PC.
+2. Confira no admin antigo (`:8000`): em Configurações → Avisos, o aviso "Código de acesso" ligado (desligado, ninguém recebe código); em Serviços, o `notificador` rodando (ou `docker compose ps notificador`).
+3. Abra `http://localhost:8090` neste PC.
 
 Para entrar, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Você é o superadmin: o único que cria, edita, rebaixa ou desativa admins, e ninguém (nem você) o rebaixa ou desativa pelo site. Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); admins comuns gerenciam só operadores e grupo. Em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin. Para passar o superadmin a outra pessoa já cadastrada (ex.: número novo): `docker compose exec api tcg-sniper trocar-superadmin "(DDD) número"` (o antigo continua admin).
 
@@ -296,96 +314,18 @@ Sem WhatsApp (notificador pausado, Evolution fora), gere um código no terminal:
 ## Atualizar uma instalação existente
 
 ```bash
+mkdir -p dados/backups
+docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-<data>.dump
 git pull
 docker compose up -d --build
 ```
 
+- Faça o backup antes de toda atualização que muda o banco (na dúvida, sempre). Os arquivos `tcg-antes-*.dump` nunca são apagados pelo rodízio do backup diário.
+- Leia antes as [notas de implantação](docs/IMPLANTACOES.md): algumas versões pedem passos a mais (parar serviços, conferir contagens, rodar um comando depois).
 - Atualize fora do horário da coleta da LigaMagic (por volta das 10:00), para não interromper uma coleta no meio.
 - Recrie todos os serviços de uma vez, como acima. O `migrate` atualiza o banco antes e todos os containers sobem com o código novo.
 - Voltar a migração (downgrade) apaga a tabela `mensagem_saida`, com as mensagens pendentes e o histórico. Faça backup do banco antes de qualquer rollback.
 - Nunca reconstrua um serviço só (`docker compose up -d --build coletor-amazon`, por exemplo) depois de uma atualização que muda o banco: os outros continuam com o código antigo contra o banco novo e podem parar de funcionar. Da separação da busca em diante, `coletor-amazon` e `coletor-amazon-busca` sobem juntos.
-
-### Implantar o monitor de preço e a conferência de checkout
-
-1. Backup do banco antes de tudo:
-
-   ```bash
-   mkdir -p dados/backups
-   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-monitor-<data>.dump
-   ```
-
-2. Atualize e recrie todos os serviços de uma vez (o `migrate` atualiza o banco antes), como na regra acima:
-
-   ```bash
-   git pull
-   docker compose up -d --build
-   ```
-
-3. Confira: em Configurações → Amazon, a seção "Monitor de preço" com os padrões (15 min, 08:00–22:00, 150 páginas por hora, margem 5, validade 6 h, descoberta dos casados a cada 7 dias); em Serviços, os interruptores do monitor e da conferência ligados e os cards Amazon (busca) e Amazon (monitor e checkout) ligados.
-4. Faça login na conta Amazon pelo noVNC (`http://<IP deste PC>:6081/vnc.html`). Sem login, a primeira conferência fica `sem_login`, o grupo admin é avisado e o monitor segue.
-5. Na primeira hora: Logs → Monitor com leituras chegando; Dashboard sem o aviso de "monitor não cabe no intervalo"; Logs → Checkout com as primeiras conferências e nenhuma marcada "item no carrinho".
-
-### Implantar a busca da Amazon separada
-
-Faça o backup de sempre antes (ver [Backup do banco](#backup-do-banco)). A migração `c6a2f8e4d1b9` cria o estado do serviço `amazon_busca` (ativo), baixa os tetos para no máximo 90 buscas por hora (busca) e 180 páginas por hora (monitor) — um valor seu menor fica — e fecha como interrompido um ciclo de busca que estiver rodando. Suba tudo junto (`docker compose up -d --build`) e confira: `docker compose ps` com `coletor-amazon` e `coletor-amazon-busca` de pé, os dois cards da Amazon em Serviços, e `http://<IP deste PC>:6082/vnc.html` abrindo (informe o CEP também nesse navegador). O primeiro CAPTCHA do navegador novo é provável: o grupo admin recebe "Amazon (busca) · CAPTCHA"; resolva no noVNC 6082 e clique em Retomar no card Amazon (busca). O monitor não para.
-
-- [ ] Depois do deploy, confira Serviços → Amazon (monitor e checkout): se aparecer pausado (um CAPTCHA de antes da separação), resolva pelo noVNC 6081 e clique em Retomar.
-
-### Implantar o casamento por par
-
-A migração `a9d4f2c6e8b1` cria a tabela `casamento` (um par por anúncio, com o mesmo status, origem e datas de antes) e a `termo_busca`, confere que nenhum anúncio ficou com dois confirmados (se ficar, aborta sem mudar nada) e remove as colunas antigas do casamento em `anuncio_amazon` (e `fila_amazon.ultimo_termo_en`). Tudo numa transação: um erro desfaz tudo. Voltar esta migração (downgrade) refaz as colunas antigas com um produto por anúncio (o confirmado ou, sem confirmado, o par mais antigo) e apaga `casamento`, `termo_busca` e os termos gerados; para voltar ao estado exato de antes, restaure o backup do passo 2.
-
-1. Pare os serviços do app (o banco e o WhatsApp continuam no ar), para nenhum container antigo gravar nas tabelas enquanto você faz o backup e a migração as muda:
-
-   ```bash
-   docker compose stop coletor-liga coletor-amazon coletor-amazon-busca casador notificador manutencao admin api web
-   ```
-
-   Se desistir da implantação antes do passo 4, volte com `docker compose up -d` (sem `--build`, o código de antes).
-
-2. Backup do banco:
-
-   ```bash
-   mkdir -p dados/backups
-   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-casamento-por-par-<data>.dump
-   ```
-
-3. Conferência antes de migrar. Anote as contagens por situação (são o número de referência do passo 6) e confira que nenhum anúncio está sem produto (anúncio sem produto não vira par; o resultado tem de ser 0; se não for, pare e investigue antes de seguir):
-
-   ```bash
-   docker compose exec -T postgres psql -U tcg -d tcg -c "SELECT status_casamento, count(*) FROM anuncio_amazon WHERE produto_id IS NOT NULL GROUP BY 1 ORDER BY 1"
-   docker compose exec -T postgres psql -U tcg -d tcg -c "SELECT count(*) FROM anuncio_amazon WHERE produto_id IS NULL"
-   ```
-
-4. Atualize e recrie todos os serviços de uma vez (o `migrate` atualiza o banco antes; os serviços parados no passo 1 voltam já com o código novo), como na regra acima:
-
-   ```bash
-   git pull
-   docker compose up -d --build
-   ```
-
-   Se o `migrate` falhar com "mais de um casamento confirmado", nada mudou no banco: anote os ids da mensagem e pare (os serviços com código novo não funcionam com o banco antigo; volte para o commit anterior e rode `docker compose up -d --build` de novo).
-
-5. Confira que a migração rodou: `docker compose logs migrate` termina sem erro.
-6. Compare com as contagens do passo 3 (têm de bater, situação por situação):
-
-   ```bash
-   docker compose exec -T postgres psql -U tcg -d tcg -c "SELECT status, count(*) FROM casamento GROUP BY 1 ORDER BY 1"
-   ```
-
-7. No admin: Dashboard e Casamentos com os mesmos números de antes; a tela de um produto em Casamentos mostra os botões Rebuscar agora, Reavaliar com a IA e, em produto ainda sem casamento, Gerar termos de busca. A contagem dos 7 dias sem anúncio novo da busca alternativa começa na implantação: a IA só gera termos sozinha uma semana depois.
-8. Regra de idioma revista: devolva à IA os pares que o automático ignorou por serem em inglês. Primeiro a simulação (só mostra as contagens), depois aplique:
-
-   ```bash
-   docker compose exec casador tcg-sniper casamento reabrir-ingles
-   docker compose exec casador tcg-sniper casamento reabrir-ingles --aplicar
-   ```
-
-   Só pares ignorados pelo automático (com o motivo da IA falando de inglês ou idioma, e não de japonês) voltam a pendente; suas decisões não mudam. Anúncio já confirmado em outro produto fica ignorado.
-
-### Implantar a leitura por interesse da LigaMagic
-
-Faça o backup de sempre antes (ver [Backup do banco](#backup-do-banco)). A migração `d4b8e2f6a3c1` acrescenta a `config_liga` o esfriar após desafio (30 min) e os produtos novos por dia (100). Suba tudo junto (`docker compose up -d --build`) e confira em Configurações → LigaMagic os dois campos novos. Se a LigaMagic estiver parada num desafio, resolva-o no noVNC (`http://<IP deste PC>:6080/vnc.html`) se a verificação ainda estiver na tela e clique em **Retomar**: o coletor espera 30 min (`esfriar_desafio_min`) antes da primeira página, e o card mostra "Esfriando até HH:MM" (ou "Parada até amanhã (2º desafio)" se já houve dois desafios hoje). No dia seguinte, o resumo no grupo admin traz a linha "Produtos: ok · N de M · casados …, candidatos …, novos …, rodízio …".
 
 ## Uso no dia a dia
 
@@ -435,6 +375,8 @@ O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as po
 
 No site novo cada pessoa entra com o próprio número: o código de acesso vai só para o WhatsApp dela, vale 5 minutos e uma vez; 5 tentativas erradas o invalidam; no máximo 3 códigos por número a cada 15 minutos e 20 pedidos por hora no total (acima disso a tela pede para esperar e o grupo admin é avisado). O banco guarda só o HMAC (com a chave `SEGREDO_API` do `.env`) do código, do token da sessão e do número dos pedidos; o número nunca vai para log nem para o grupo (aparece mascarado, `+55 11 9****-**34`). A sessão dura 30 dias, renovada a cada uso; desativar um usuário encerra as sessões dele na hora. A `api` (8100) e o `web` (8090) só escutam em `127.0.0.1`.
 
+Antes de publicar na internet ainda faltam os itens da seção "Segurança antes da internet" de [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md) (limites de login por IP e por número, entre outros). Para avisar de uma falha de segurança, veja [`SECURITY.md`](SECURITY.md).
+
 ### Backup do banco
 
 O serviço `manutencao` faz, todo dia às 04:00 (fuso de Configurações → Geral), um `pg_dump` do banco e depois apaga o histórico antigo. Se o PC estava desligado às 04:00, ao subir ele roda na hora quando o último backup ok tem mais de 24 h. Reiniciar não repete o backup do dia.
@@ -447,7 +389,7 @@ O serviço `manutencao` faz, todo dia às 04:00 (fuso de Configurações → Ger
 Para restaurar um backup (apaga e recria o conteúdo do banco `tcg`): primeiro pare os serviços do app, que escrevem no banco; depois restaure; por fim suba tudo de novo:
 
 ```bash
-docker compose stop coletor-liga coletor-amazon coletor-amazon-busca casador notificador manutencao admin
+docker compose stop coletor-liga coletor-amazon coletor-amazon-busca casador notificador manutencao admin api web
 docker compose exec -T postgres pg_restore -U tcg -d tcg --clean --if-exists < dados/backups/tcg-diario-AAAA-MM-DD.dump
 docker compose up -d
 ```
@@ -461,7 +403,7 @@ Os ajustes de operação ficam na página **Configurações** do admin, em quatr
 - **Amazon**: desconto mínimo, horário e teto da busca (navegador sem login), horário e teto do monitor (navegador logado) e demais ajustes do motor de oportunidades.
 - **IA**: liga a IA do casamento, modelo, preços, tetos de gasto e de chamadas e o modo automático (ver [passo 9](#9-casamento-com-ia-opcional)).
 
-No `.env` ficam só as senhas e a infraestrutura: `ADMIN_SENHA`, `VNC_SENHA`, `EVOLUTION_API_KEY`, `OPENAI_API_KEY`, as `R2_*` do backup, `DATABASE_URL`, `DIR_DADOS` e `EVOLUTION_URL`, explicadas no [`.env.example`](.env.example). Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
+No `.env` ficam só as senhas e a infraestrutura: `ADMIN_SENHA`, `VNC_SENHA`, `EVOLUTION_API_KEY`, `SEGREDO_API`, `OPENAI_API_KEY`, as `R2_*` do backup, `DATABASE_URL`, `DIR_DADOS` e `EVOLUTION_URL`, explicadas no [`.env.example`](.env.example). Depois de mudar o `.env`, recrie os containers: `docker compose up -d`.
 
 Quem já tinha os antigos `HOST_PUBLICO`, `FUSO`, `COLETA_*`, `PAUSA_*`, `LIGA_*` etc. no `.env`: na primeira subida o sistema copia esses valores para a tela; depois disso eles são ignorados e podem ser apagados.
 
@@ -489,6 +431,8 @@ Quem já tinha os antigos `HOST_PUBLICO`, `FUSO`, `COLETA_*`, `PAUSA_*`, `LIGA_*
 **O logo do painel da Evolution aparece quebrado.** É só visual e não afeta nada.
 
 ## Desenvolvimento
+
+As regras para contribuir (idioma, commits, dados pessoais, ritmo de coleta) estão em [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ```bash
 cp .env.example .env
@@ -555,7 +499,9 @@ web/                  site novo (React + Vite + DaisyUI), servido pelo Caddy no 
 docker/               entrypoint do coletor (Xvfb, VNC, noVNC) e script inicial do Postgres
 scripts/              captura de páginas reais para as fixtures
 tests/                testes (pytest)
-docs/superpowers/     especificação e plano de implementação
+docs/PENDENCIAS.md    lista única do que falta e das decisões tomadas
+docs/IMPLANTACOES.md  passos extras de atualização de cada versão
+docs/superpowers/     especificações e planos de implementação
 ```
 
 ### Quando a LigaMagic muda o layout
@@ -569,11 +515,33 @@ O desenho completo está em [`docs/superpowers/specs/2026-10-13-coletor-liga-des
 
 ## Roadmap
 
-1. **Coleta da LigaMagic, admin e avisos no WhatsApp.** Pronto.
-2. **Mais marketplaces.** Em andamento: a Amazon, o casamento de produtos e as oportunidades estão prontos; Mercado Livre e outros são os próximos.
-3. **Cupons, cashback, frete e comissão no cálculo.**
-4. **Migração para servidor.**
+Pronto:
 
-## Licença
+- Coleta da LigaMagic, admin e avisos no WhatsApp.
+- Amazon: busca, monitor de preço, conferência de checkout e oportunidades.
+- Casamento de produtos por par, com IA opcional e regra de idioma.
+- Backup diário, vigia dos serviços e site novo fase 1 (login pelo WhatsApp, usuários, papéis e acessos).
 
-[MIT](LICENSE).
+Próximos, nesta ordem:
+
+1. **Site novo, fase 2:** área de negócio (oportunidades, funil, resultados).
+2. **Site novo, fases 3 e 4:** telas de administração no site novo e desligamento do admin antigo.
+3. **Segurança antes da internet** e **publicação**: front estático, API por túnel, controle de acesso na frente da gestão e do noVNC.
+4. **Assinatura das oportunidades** para quem não quer instalar.
+5. **Margem líquida real:** comissão da LigaMagic, frete, imposto, cupons e cashback no cálculo, com alerta por margem mínima.
+6. **Mais lojas:** Mercado Livre (pelo navegador) e depois Magalu, Shopee e lojas de TCG.
+7. **Servidor:** API, site e banco num VPS, com os coletores em casa.
+
+O detalhe de cada item está em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
+
+## Contribuir
+
+Issues e pull requests são bem-vindos; veja [`CONTRIBUTING.md`](CONTRIBUTING.md). Falhas de segurança vão pelo aviso privado descrito em [`SECURITY.md`](SECURITY.md), nunca por issue pública.
+
+## Licença e avisos
+
+Código sob a licença [MIT](LICENSE): pode ser usado, copiado, modificado e distribuído, inclusive comercialmente, mantendo o aviso de copyright e a licença. O software vem sem garantia de nenhum tipo.
+
+- **Sem afiliação.** O tcg-sniper não é afiliado, patrocinado nem aprovado pela LigaMagic, pela Amazon, pela Wizards of the Coast, pela Meta (WhatsApp) nem pela OpenAI. Magic: The Gathering é marca da Wizards of the Coast; os demais nomes são marcas dos seus donos e aparecem só para dizer com o que o projeto conversa. A licença do código não dá direito sobre essas marcas.
+- **Termos dos sites.** Quem instala e roda o tcg-sniper é responsável por seguir os termos de uso dos sites acessados e as leis aplicáveis, e por manter o ritmo de coleta descrito em [Uso responsável](#uso-responsável).
+- **Não é recomendação de compra.** As oportunidades são cálculos a partir de preços públicos, que mudam a qualquer momento. Confira preço, vendedor e produto antes de comprar; o projeto nunca compra por você.
