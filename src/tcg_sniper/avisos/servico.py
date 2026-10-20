@@ -78,8 +78,8 @@ def abertos(s: Session, tipo: TipoAviso) -> list[str]:
     )
 
 
-def _enfileirar(s: Session, tipo: TipoAviso, texto: str, agora: datetime) -> None:
-    repo_msg.enfileirar(s, CATALOGO[tipo].grupo.value, texto, agora)
+def _enfileirar(s: Session, tipo: TipoAviso, texto: str, agora: datetime) -> int:
+    return repo_msg.enfileirar(s, CATALOGO[tipo].grupo.value, texto, agora).id
 
 
 def _travar(s: Session, tipo: TipoAviso, chave: str, agora: datetime) -> EstadoAviso:
@@ -92,35 +92,38 @@ def _travar(s: Session, tipo: TipoAviso, chave: str, agora: datetime) -> EstadoA
     return s.get(EstadoAviso, (tipo.value, chave), with_for_update=True, populate_existing=True)
 
 
-def _avisar(s: Session, tipo: TipoAviso, chave: str, dados: Dados, agora: datetime) -> None:
+def _avisar(s: Session, tipo: TipoAviso, chave: str, dados: Dados, agora: datetime) -> int | None:
     definicao = CATALOGO[tipo]
     if definicao.grupo is Destino.INDIVIDUAL:
         log.error("aviso %s é individual: use avisar_individual", tipo.value)
-        return
+        return None
     zona, host = zona_e_host(s)
     aviso = formato.aviso_de(tipo, dados, agora)
     liga = ligado(s, tipo)
     if not definicao.agrupa:
         if liga:
-            _enfileirar(s, tipo, formato.formatar(aviso, zona, host), agora)
-        return
+            return _enfileirar(s, tipo, formato.formatar(aviso, zona, host), agora)
+        return None
     estado = _travar(s, tipo, chave, agora)
     if not estado.aberto:
         estado.aberto, estado.ocorrencias = True, 1
         estado.primeiro_em = estado.ultimo_em = agora
         estado.ultimo_envio_em = None
+        mensagem_id = None
         if liga:
-            _enfileirar(s, tipo, formato.formatar(aviso, zona, host), agora)
+            mensagem_id = _enfileirar(s, tipo, formato.formatar(aviso, zona, host), agora)
             estado.ultimo_envio_em = agora
         s.flush()
-        return
+        return mensagem_id
     estado.ocorrencias += 1
     estado.ultimo_em = agora
+    mensagem_id = None
     if liga and (estado.ultimo_envio_em is None or agora - estado.ultimo_envio_em >= definicao.lembrete):
         texto = formato.formatar_lembrete(aviso, estado.ocorrencias, estado.primeiro_em, zona, host)
-        _enfileirar(s, tipo, texto, agora)
+        mensagem_id = _enfileirar(s, tipo, texto, agora)
         estado.ultimo_envio_em = agora
     s.flush()
+    return mensagem_id
 
 
 def _resolver(s: Session, tipo: TipoAviso, chave: str, agora: datetime) -> None:
@@ -137,14 +140,16 @@ def _resolver(s: Session, tipo: TipoAviso, chave: str, agora: datetime) -> None:
     s.flush()
 
 
-def avisar(s: Session, tipo: TipoAviso, chave: str, dados: Dados, agora: datetime) -> None:
+def avisar(s: Session, tipo: TipoAviso, chave: str, dados: Dados, agora: datetime) -> int | None:
+    """Registra a ocorrência; devolve o id da mensagem enfileirada (None: desligado, só contou ou falhou)."""
     try:
         with s.begin_nested():
-            _avisar(s, tipo, chave, dados, agora)
+            return _avisar(s, tipo, chave, dados, agora)
     except Exception as erro:
         if _deixar_subir(erro):
             raise
         log.exception("aviso %s (%s) não registrado", tipo.value, chave)
+        return None
 
 
 def resolver(s: Session, tipo: TipoAviso, chave: str, agora: datetime) -> None:
@@ -198,6 +203,10 @@ class Avisador(Protocol):
 
     def avisar(self, tipo: TipoAviso, chave: str, dados: Dados) -> None: ...
 
+    def avisar_em(self, s: Session, tipo: TipoAviso, chave: str, dados: Dados) -> int | None:
+        """Como `avisar`, mas na transação de quem chama (o id da mensagem fica junto do que a gerou)."""
+        ...
+
     def resolver(self, tipo: TipoAviso, chave: str) -> None: ...
 
     def resolver_todos(self, tipo: TipoAviso) -> None: ...
@@ -221,6 +230,9 @@ class AvisadorBanco:
 
     def avisar(self, tipo: TipoAviso, chave: str, dados: Dados) -> None:
         self._rodar(avisar, tipo, chave, dados)
+
+    def avisar_em(self, s: Session, tipo: TipoAviso, chave: str, dados: Dados) -> int | None:
+        return avisar(s, tipo, chave, dados, self._relogio())
 
     def resolver(self, tipo: TipoAviso, chave: str) -> None:
         self._rodar(resolver, tipo, chave)

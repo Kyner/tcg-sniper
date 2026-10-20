@@ -7,6 +7,7 @@ from tcg_sniper.avisos import formato
 from tcg_sniper.avisos.catalogo import CATALOGO, Dados, TipoAviso
 from tcg_sniper.coletor_amazon.modelos import OfertaLista
 from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
+from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     Casamento,
@@ -323,6 +324,11 @@ class AvisadorFake:
         texto = formato.formatar(aviso, ZoneInfo("America/Sao_Paulo"), self._host, estrito=True)
         self.avisos.append((tipo, chave, dados))
         self.mensagens.append((CATALOGO[tipo].grupo, texto))
+
+    def avisar_em(self, s, tipo: TipoAviso, chave: str, dados: Dados) -> int | None:
+        """Como `avisar`, e enfileira a mensagem de verdade na sessão (o chamador guarda o id)."""
+        self.avisar(tipo, chave, dados)
+        return repo_msg.enfileirar(s, CATALOGO[tipo].grupo.value, self.mensagens[-1][1], T0).id
 
     def resolver(self, tipo: TipoAviso, chave: str) -> None:
         self.resolvidos.append((tipo, chave))
