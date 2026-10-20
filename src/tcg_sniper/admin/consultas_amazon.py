@@ -26,6 +26,7 @@ from tcg_sniper.db.models import (
     ConfigAmazon,
     Envio,
     FilaAmazon,
+    MotivoEncerramento,
     OfertaAmazon,
     Oportunidade,
     OrigemCasamento,
@@ -40,6 +41,7 @@ from tcg_sniper.db.models import (
     TipoColeta,
     VendedorAmazon,
 )
+from tcg_sniper.oportunidades.mensagens import ROTULOS_MOTIVO
 from tcg_sniper.oportunidades.motor import (
     CEM,
     Regras,
@@ -413,6 +415,7 @@ class LinhaOferta:
     desconto: Decimal | None
     diferenca: Decimal | None  # "À partir de" − preço da Amazon
     aberta: bool
+    risco: tuple[datetime, str] | None = None  # desde quando está em risco e o motivo
     origem_casamento: OrigemCasamento | None = None
     conferencia: ConferenciaCheckout | None = None
     importada: bool = False
@@ -461,7 +464,13 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .where(*condicoes)
     )
-    abertas = set(s.scalars(select(Oportunidade.produto_id).where(Oportunidade.fechada_em.is_(None))))
+    abertas = {
+        produto_id: (desde, motivo)
+        for produto_id, desde, motivo in s.execute(
+            select(Oportunidade.produto_id, Oportunidade.em_risco_desde, Oportunidade.motivo_risco)
+            .where(Oportunidade.fechada_em.is_(None))
+        )
+    }
     regras = Regras.de(config)
     aceitas = []
     for anuncio, produto, atual, vendedor, preco_liga, origem in s.execute(consulta):
@@ -505,6 +514,11 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
                 desconto=_desconto_exibido(efetivo, preco_liga) if preco_liga else None,
                 diferenca=preco_liga - efetivo if preco_liga is not None else None,
                 aberta=produto.id in abertas,
+                risco=(
+                    (abertas[produto.id][0], ROTULOS_MOTIVO[MotivoEncerramento(abertas[produto.id][1])])
+                    if produto.id in abertas and abertas[produto.id][0] is not None
+                    else None
+                ),
                 origem_casamento=origem,
                 conferencia=conferencia if conferido is not None else None,
                 importada=bool(melhor and melhor.importada),
