@@ -20,6 +20,7 @@ from tcg_sniper.db.models import (
     ConfigAmazon,
     Envio,
     FilaAmazon,
+    MotivoEncerramento,
     OfertaAmazon,
     Oportunidade,
     OrigemPreco,
@@ -368,16 +369,16 @@ def fechar_oportunidade(s: Session, op: Oportunidade, agora: datetime) -> None:
 
 
 def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 24) -> int:
-    """Fecha as abertas cujo anúncio não aparece em nenhuma busca há `horas` horas."""
+    """Encerra (motivo `sem_leitura`) as abertas cujo anúncio não aparece em nenhuma leitura há `horas` horas."""
+    from tcg_sniper.oportunidades import encerramento  # import tardio: o encerramento usa os repositórios
+
     velhos = select(AnuncioAmazon.id).where(AnuncioAmazon.visto_ultimo_em < agora - timedelta(hours=horas))
-    resultado = s.execute(
-        update(Oportunidade)
+    ids = list(s.scalars(
+        select(Oportunidade.id)
         .where(Oportunidade.fechada_em.is_(None), Oportunidade.anuncio_id.in_(velhos))
-        .values(fechada_em=agora)
-        .execution_options(synchronize_session=False)
-    )
-    s.flush()
-    return resultado.rowcount
+        .order_by(Oportunidade.id)
+    ))
+    return sum(encerramento.encerrar(s, op_id, MotivoEncerramento.SEM_LEITURA, agora) for op_id in ids)
 
 
 # --- link manual ----------------------------------------------------------------------------

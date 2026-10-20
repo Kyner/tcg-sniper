@@ -16,8 +16,8 @@ Regras (spec 2026-10-19-casamento-por-par-design.md):
 Toda escrita trava antes a linha do anúncio (confirmações do mesmo anúncio viram fila). Quem registra
 vários anúncios numa transação só (a busca, `registrar_visto` em laço) trava em ordem crescente de
 `anuncio_id` — como `reavaliar_produto` — ou faz commit por anúncio; senão duas transações podem se
-travar mutuamente (deadlock). Este módulo só depende dos modelos: o repositorio_amazon importa este, nunca
-o contrário."""
+travar mutuamente (deadlock). Este módulo só depende dos modelos (e, num import tardio, do encerramento das
+oportunidades): o repositorio_amazon importa este, nunca o contrário."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,7 +27,15 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from tcg_sniper.db.models import AnuncioAmazon, AvaliacaoIA, Casamento, Oportunidade, OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import (
+    AnuncioAmazon,
+    AvaliacaoIA,
+    Casamento,
+    MotivoEncerramento,
+    Oportunidade,
+    OrigemCasamento,
+    StatusCasamento,
+)
 
 PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO
 # Ignorados que "Reavaliar com a IA" devolve a pendente. `manual` e `sugerido_ia` são decisões suas (no
@@ -89,14 +97,15 @@ def travar_anuncio(s: Session, anuncio_id: int) -> AnuncioAmazon:
 
 
 def fechar_oportunidades(s: Session, anuncio_id: int, agora: datetime, exceto_produto_id: int | None = None) -> int:
+    """Encerra (motivo `casamento_desfeito`) as oportunidades abertas do anúncio, menos as de
+    `exceto_produto_id`. Pelo encerramento: grava o motivo e avisa "alerta corrigido" a quem viu o alerta."""
+    from tcg_sniper.oportunidades import encerramento  # import tardio: este módulo é base do repositorio_amazon
+
     condicoes = [Oportunidade.anuncio_id == anuncio_id, Oportunidade.fechada_em.is_(None)]
     if exceto_produto_id is not None:
         condicoes.append(Oportunidade.produto_id != exceto_produto_id)
-    resultado = s.execute(
-        update(Oportunidade).where(*condicoes).values(fechada_em=agora).execution_options(synchronize_session="fetch")
-    )
-    s.flush()
-    return resultado.rowcount
+    ids = list(s.scalars(select(Oportunidade.id).where(*condicoes).order_by(Oportunidade.id)))
+    return sum(encerramento.encerrar(s, op_id, MotivoEncerramento.CASAMENTO_DESFEITO, agora) for op_id in ids)
 
 
 def _zerar_aplicada(s: Session, anuncio_id: int, produto_id: int) -> None:
