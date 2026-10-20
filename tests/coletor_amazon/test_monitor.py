@@ -183,6 +183,7 @@ def test_sem_ofertas_registra_preco_nulo_e_fecha_a_oportunidade(sessoes, config,
     ctx, _, avisador = contexto(
         sessoes, config, {url_ofertas(ASIN): [painel(amazon("R$ 700,00")), painel()]}, checkout=False
     )
+    ctx.cfg.carencia_encerramento_min = 0  # sem carência: a primeira leitura ruim fecha
     ler_anuncio(ctx, anuncio.id, ASIN)  # abre a oportunidade
     resultado = ler_anuncio(ctx, anuncio.id, ASIN)  # anúncio indisponível
     assert (resultado.melhor, resultado.ofertas) == (None, 0)
@@ -258,6 +259,7 @@ def test_anuncio_colado_a_mao_le_a_pagina_do_produto_uma_vez(sessoes, config):
 
 def test_conferencia_atualiza_a_aberta_sem_novo_alerta_ou_fecha(sessoes, config, anuncio):
     ctx, _, avisador = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ctx.cfg.carencia_encerramento_min = 0  # sem carência: a primeira leitura ruim fecha
     ler_anuncio(ctx, anuncio.id, ASIN)  # conferência desligada: abre e avisa com o preço anunciado
     aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "700.00", "720.00", impostos="20.00"))
     with sessoes() as s:

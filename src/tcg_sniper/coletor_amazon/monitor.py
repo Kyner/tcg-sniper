@@ -244,7 +244,12 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
         preco = conferido if conferido is not None else (oferta.preco if oferta else None)
         leitura = motor.Leitura(preco, oferta.envio if oferta else Envio.DESCONHECIDO, _info(melhor.vendedor) if melhor else None)
         aberta = repo.oportunidade_aberta(s, anuncio_id)
-        acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta.preco_alertado if aberta else None)
+        aberta_motor = (
+            motor.Aberta(aberta.preco_alertado, aberta.preco_liga, aberta.em_risco_desde) if aberta else None
+        )
+        acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta_motor).acao
+        if acao in (motor.Acao.EM_RISCO, motor.Acao.RECUPERAR):  # tratadas na Tarefa 6
+            acao = motor.Acao.ATUALIZAR if acao is motor.Acao.RECUPERAR else motor.Acao.NADA
         if acao is motor.Acao.REALERTAR and conferido is None and aberta.alerta_conferido:
             # O último aviso foi com o conferido; o anunciado não tem os impostos e parece mais barato:
             # só atualiza, sem aviso, até haver um novo preço conferido.
@@ -363,7 +368,12 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
         vendedor = s.get(VendedorAmazon, linha.atual.vendedor_id) if linha.atual.vendedor_id else None
         leitura = motor.Leitura(conferido, linha.atual.envio, _info(vendedor))
         aberta = repo.oportunidade_aberta(s, anuncio_id)
-        acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta.preco_alertado if aberta else None)
+        aberta_motor = (
+            motor.Aberta(aberta.preco_alertado, aberta.preco_liga, aberta.em_risco_desde) if aberta else None
+        )
+        acao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, aberta_motor).acao
+        if acao in (motor.Acao.EM_RISCO, motor.Acao.RECUPERAR):  # tratadas na Tarefa 6
+            acao = motor.Acao.ATUALIZAR if acao is motor.Acao.RECUPERAR else motor.Acao.NADA
         _aplicar(s, acao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora, True)
         if acao in (motor.Acao.ABRIR, motor.Acao.REALERTAR):
             detalhes = Detalhes(
