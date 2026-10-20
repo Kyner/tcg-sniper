@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico
 
-- [ ] **Implantar a leitura por interesse da LigaMagic** (código pronto, merge `<merge>`): backup, `docker compose up -d --build`, conferir a migração `d4b8e2f6a3c1` aplicada e Configurações → LigaMagic com Esfriar após desafio 30 e Produtos novos por dia 100; depois, com a Liga ainda `pausado_desafio`, resolver o desafio no noVNC (6080) se ainda aparecer e Retomar: o job espera `esfriar_desafio_min` (30) antes da primeira página (README → "Implantar a leitura por interesse da LigaMagic").
+- [ ] **Implantar a leitura por interesse da LigaMagic** (código pronto, merge `64b3e69`): backup, `docker compose up -d --build`, conferir a migração `d4b8e2f6a3c1` aplicada e Configurações → LigaMagic com Esfriar após desafio 30 e Produtos novos por dia 100; depois, com a Liga ainda `pausado_desafio`, resolver o desafio no noVNC (6080) se ainda aparecer e Retomar: o job espera `esfriar_desafio_min` (30) antes da primeira página (README → "Implantar a leitura por interesse da LigaMagic").
 
 - [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
 
@@ -126,7 +126,7 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### LigaMagic: leitura por interesse e esfriar após desafio (2026-10-19, merge `<merge>`)
+### LigaMagic: leitura por interesse e esfriar após desafio (2026-10-19, merge `64b3e69`)
 
 Spec `docs/superpowers/specs/2026-10-19-liga-leitura-por-interesse-design.md`, plano `docs/superpowers/plans/2026-10-19-liga-leitura-por-interesse.md`. Resolve o desafio do Cloudflare provocado pela leitura de todos os 2165 produtos ativos (~10 h seguidas) e o Retomar que recomeçava a lista.
 
