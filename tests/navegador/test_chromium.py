@@ -174,3 +174,39 @@ def test_abrir_e_esperar_com_pagina_ilegivel_vira_erro_rede():
     n = navegador_com(PaginaQueSomeNaEspera(), lambda p: False)
     with pytest.raises(ErroRede, match="ilegível"):
         n.abrir_e_esperar("https://loja.test/p", "#aod-offer")
+
+
+def test_chromium_abre_sem_se_anunciar_como_automatizado(monkeypatch, tmp_path):
+    from tcg_sniper.navegador import chromium as modulo
+
+    recebido = {}
+
+    class Contexto:
+        def __init__(self):
+            self.pages = [PaginaPw()]
+
+        def close(self):
+            pass
+
+    class Playwright:
+        def __init__(self):
+            self.chromium = self
+
+        def launch_persistent_context(self, *_a, **kwargs):
+            recebido.update(kwargs)
+            return Contexto()
+
+        def stop(self):
+            pass
+
+    class Inicio:
+        def start(self):
+            return Playwright()
+
+    monkeypatch.setattr(modulo, "sync_playwright", lambda: Inicio())
+    with NavegadorChromium(tmp_path / "perfil", lambda p: False):
+        pass
+    # Sem isso o navigator.webdriver fica true e o desafio do Cloudflare entra em loop mesmo
+    # resolvido à mão no noVNC.
+    assert "--enable-automation" in recebido["ignore_default_args"]
+    assert "--disable-blink-features=AutomationControlled" in recebido["args"]
