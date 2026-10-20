@@ -17,6 +17,8 @@ from tcg_sniper.db.models import (
     AnuncioAmazon,
     Envio,
     FilaAmazon,
+    MensagemSaida,
+    Oportunidade,
     OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
@@ -309,6 +311,23 @@ def test_fechar_oportunidades_sem_leitura_ha_24h(s):
     assert repo.fechar_oportunidades_sem_leitura(s, T0 + timedelta(hours=25)) == 1
     assert repo.oportunidade_aberta(s, velho.id) is None
     assert repo.oportunidade_aberta(s, novo.id) is not None
+
+
+def test_sem_leitura_ha_24h_encerra_como_sem_leitura(s):
+    p = criar_produto(s, "sem-lei")
+    a = criar_anuncio(s, "B0SEMLEI01", produto=p, status=StatusCasamento.CONFIRMADO)
+    a.visto_ultimo_em = T0 - timedelta(hours=25)
+    s.add(Oportunidade(
+        anuncio_id=a.id, produto_id=p.id, preco_amazon=Decimal(700), preco_liga=Decimal(1000),
+        desconto_pct=Decimal(30), envio=Envio.AMAZON, aberta_em=T0 - timedelta(hours=26),
+        alertada_em=T0 - timedelta(hours=26), preco_alertado=Decimal(700), menor_preco=Decimal(700),
+        alerta_sem_registro=True,
+    ))
+    s.flush()
+    assert repo.fechar_oportunidades_sem_leitura(s, T0) == 1
+    assert s.scalar(select(Oportunidade)).motivo_encerramento == "sem_leitura"
+    [aviso] = s.scalars(select(MensagemSaida)).all()
+    assert aviso.destino == "admin"
 
 
 def test_confirmados_com_referencia_reflete_preco_registrado_na_mesma_sessao(s):
