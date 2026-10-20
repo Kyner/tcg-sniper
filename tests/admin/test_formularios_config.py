@@ -21,6 +21,8 @@ LIGA = {
     "categorias": " 10, 11,10 ,12 ",
     "url_listagem": "https://www.ligamagic.com.br/?view=cards/search&card=categ%3D{categ}",
     "max_cliques": "50",
+    "produtos_novos_dia": "100",
+    "esfriar_desafio_min": "30",
 }
 
 

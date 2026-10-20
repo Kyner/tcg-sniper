@@ -12,6 +12,8 @@ from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.avisos.formato import formatar_duracao
 from tcg_sniper.avisos.servico import Avisador
 from tcg_sniper.coletor_liga.desafio import eh_desafio
+from tcg_sniper.coletor_liga.esfriamento import desafios_desde
+from tcg_sniper.coletor_liga.lista_do_dia import inicio_do_dia
 from tcg_sniper.coletor_liga.modelos import Pagina, PaginaExpandida
 from tcg_sniper.coletor_liga.navegador import Navegador
 from tcg_sniper.config import Config
@@ -38,6 +40,8 @@ class ResultadoColeta:
     novos: int = 0
     # Fechada por erro inesperado (o admin já foi avisado por `encerrar_por_erro`).
     interrompida: bool = False
+    # Grupos da lista do dia ("casados 52, candidatos 18, novos 100, rodízio 312"); só na etapa dos produtos.
+    grupos: str | None = None
 
 
 def pausa_humana(config: Config, dormir: Dormir) -> None:
@@ -76,18 +80,28 @@ def abrir_listagem(
     return expandida
 
 
-def dados_desafio(url: str) -> Dados:
-    """Só o caminho da página (sem o domínio): o aviso diz onde parou, a ação diz onde resolver."""
+def dados_desafio(url: str, desafios_hoje: int, esfriar_min: int) -> Dados:
+    """Só o caminho da página (sem o domínio): o aviso diz onde parou, a ação diz onde resolver. A 3ª linha
+    diz o que acontece depois do Retomar (1º desafio do dia: esfria; 2º: só amanhã)."""
     partes = urlsplit(url)
     pagina = (partes.path or "/") + (f"?{partes.query}" if partes.query else "")
-    return Dados(linhas=(f"Página: {pagina}", "A coleta fica pausada até você retomar"))
+    if desafios_hoje >= 2:
+        efeito = "2º desafio de hoje: depois de retomar, a coleta só volta amanhã, no horário de sempre"
+    elif esfriar_min > 0:
+        efeito = (
+            f"1º desafio de hoje: volta {esfriar_min} min depois de você retomar, "
+            "com pausas em dobro até o fim do dia"
+        )
+    else:
+        efeito = "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro até o fim do dia"
+    return Dados(linhas=(f"Página: {pagina}", "A coleta fica pausada até você retomar", efeito))
 
 
 def dados_resumo(
     dia: date, listagens: ResultadoColeta | None, produtos: ResultadoColeta, duracao: timedelta
 ) -> Dados:
     """Resumo de um job concluído. `listagens` é None quando o job rodou só os produtos. Nas listagens,
-    ok/falha contam categorias."""
+    ok/falha contam categorias; nos produtos, "<ok> de <lidos>" e os grupos da lista do dia."""
     linhas = []
     if listagens is not None:
         total = listagens.produtos_ok + listagens.produtos_falha
@@ -95,7 +109,13 @@ def dados_resumo(
             f"Listagens: {listagens.status.value} · {listagens.produtos_ok} de {total} categorias · "
             f"{listagens.novos} produtos novos"
         )
-    linhas.append(f"Produtos: {produtos.status.value} · {produtos.produtos_ok} ok · {produtos.produtos_falha} falhas")
+    linha = (
+        f"Produtos: {produtos.status.value} · {produtos.produtos_ok} de "
+        f"{produtos.produtos_ok + produtos.produtos_falha}"
+    )
+    if produtos.grupos:
+        linha += f" · {produtos.grupos}"
+    linhas.append(linha)
     linhas.append(f"Duração: {formatar_duracao(duracao)}")
     return Dados(titulo_extra=f"{dia:%d/%m}", linhas=tuple(linhas))
 
@@ -103,6 +123,7 @@ def dados_resumo(
 def registrar_desafio(
     sessoes: sessionmaker[Session],
     avisador: Avisador,
+    config: Config,
     coleta_id: int,
     url: str,
     ok: int,
@@ -114,8 +135,9 @@ def registrar_desafio(
             s, coleta_id, StatusColeta.PAUSADA_DESAFIO, ok, falha, agora, erro=f"desafio em {url}"
         )
         repo.pausar_por_desafio(s, f"desafio em {url}", agora)
-    log.warning("desafio do Cloudflare em %s; coletor pausado", url)
-    avisador.avisar(TipoAviso.LIGA_DESAFIO, CHAVE_GERAL, dados_desafio(url))
+        desafios_hoje = desafios_desde(s, inicio_do_dia(agora, config.zona))  # já conta este
+    log.warning("desafio do Cloudflare em %s (%dº de hoje); coletor pausado", url, desafios_hoje)
+    avisador.avisar(TipoAviso.LIGA_DESAFIO, CHAVE_GERAL, dados_desafio(url, desafios_hoje, config.esfriar_desafio_min))
 
 
 def salvar_html_falha(config: Config, nome: str, html: str) -> Path:

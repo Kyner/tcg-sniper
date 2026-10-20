@@ -26,6 +26,8 @@ LIGA = {
     "categorias": "10,11",
     "url_listagem": "https://liga.test/listagem?categ={categ}",
     "max_cliques": "50",
+    "produtos_novos_dia": "100",
+    "esfriar_desafio_min": "30",
 }
 
 
@@ -153,3 +155,24 @@ def test_aba_amazon_explica_os_dois_navegadores_e_a_soma_dos_tetos(cliente):
     assert "soma dos dois tetos" in trecho
     assert "Máximo de buscas por hora (busca)" in trecho
     assert "Máximo de páginas por hora (monitor e checkout)" in trecho
+
+
+def test_salvar_esfriar_e_novos_por_dia(cliente, sessoes, config):
+    dados = {**LIGA, "esfriar_desafio_min": "45", "produtos_novos_dia": "250"}
+    assert cliente.post("/configuracoes/liga", data=dados, follow_redirects=False).status_code == 303
+    with sessoes() as s:
+        liga = repo.obter_config_liga(s, config)
+    assert (liga.esfriar_desafio_min, liga.produtos_novos_dia) == (45, 250)
+
+
+def test_esfriar_fora_do_limite_nao_grava(cliente):
+    r = cliente.post("/configuracoes/liga", data={**LIGA, "esfriar_desafio_min": "241"})
+    assert r.status_code == 400 and "O valor deve ficar entre 0 e 240." in r.text
+
+
+def test_aba_ligamagic_explica_a_leitura_por_interesse(cliente):
+    texto = cliente.get("/configuracoes").text
+    trecho = texto[texto.index('id="liga"') : texto.index('id="amazon"')]
+    assert "só abrem os casados e os com candidato" in trecho and "rodízio do dia" in trecho
+    assert "Esfriar após desafio (min)" in trecho and "Produtos novos por dia" in trecho
+    assert 'name="esfriar_desafio_min" value="30"' in trecho and 'name="produtos_novos_dia" value="100"' in trecho

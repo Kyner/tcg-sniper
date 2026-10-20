@@ -69,9 +69,9 @@ flowchart LR
 Todo dia, por volta das 10:00:
 
 1. **Listagens.** O coletor abre a listagem de cada categoria de selados (20 por padrão) e clica em "Exibir mais" até mostrar tudo. Daí saem o catálogo e o preço "À partir de" atual de cada produto.
-2. **Produtos ativos.** Depois abre a página de cada produto que você marcou como ativo no admin e guarda o número de lojas e o resumo do histórico de venda (mínimo, médio e máximo).
+2. **Produtos do dia.** Depois abre a página só dos produtos ativos que interessam hoje: os casados e os com candidato (todo dia), os novos ainda sem resumo (até 100 por dia, os mais antigos primeiro) e o rodízio do dia (cada um dos demais uma vez por semana). Guarda o número de lojas e o resumo do histórico de venda (mínimo, médio e máximo). O que já foi lido hoje não é relido: um Retomar continua de onde parou.
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
-4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços.
+4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços. Depois do 1º desafio do dia a coleta espera 30 min (Configurações → LigaMagic → Esfriar após desafio) e segue com pausas em dobro até o fim do dia; um 2º desafio no mesmo dia encerra o dia, e a coleta volta no horário de amanhã.
 
 **Amazon.** De 08:00 às 22:00 o `coletor-amazon-busca` (um navegador próprio, sem login) procura cada produto ativo na amazon.com.br, um por vez, com pausa humana. Quando a LigaMagic mostra o nome do produto em inglês, a busca alterna entre o nome em português e o nome em inglês a cada passada; um produto sem casamento que passa 7 dias sem achar anúncio novo ganha de 2 a 3 termos de busca alternativos sugeridos pela IA (uma vez, dentro do teto de gasto), que entram no rodízio até aparecer anúncio novo. Cada anúncio achado vira um par (anúncio × produto) pendente em **Casamentos**; ignorar vale só para aquele par (o mesmo anúncio achado na busca de outro produto volta a ser pendente para ele), e um anúncio é confirmado para no máximo um produto. Só pares confirmados geram oportunidade. Quando uma oferta vendida pela Amazon (ou por lojista confiável com envio pela Amazon) fica abaixo do "À partir de" da Liga pelo menos o desconto mínimo de Configurações → Amazon (padrão 25%), o grupo de oportunidades recebe um aviso. Ofertas vendidas pela "Amazon Global" (importadas pela própria Amazon) contam como vendidas pela Amazon e também geram aviso; o prazo é mais longo e o imposto de importação pode ser cobrado à parte do preço mostrado. Os anúncios confirmados têm o preço lido pelo **monitor de preço** do `coletor-amazon` (o navegador logado) a cada 15 min, e as melhores ofertas passam pela **conferência de checkout** (ver [Monitor de preço e conferência de checkout](#10-monitor-de-preço-e-conferência-de-checkout)). Tudo isso se ajusta em **Configurações** no admin (seções Geral, LigaMagic e Amazon; os valores ficam no banco, não no `.env`).
 
@@ -169,7 +169,7 @@ Ao final, o grupo admin recebe "🟡 Liga · produtos novos no catálogo" e "✅
 
 Abra o admin em `http://<IP deste PC>:8000` (usuário qualquer, senha `ADMIN_SENHA`) e vá em **Catálogo**. Todo produto novo entra inativo. Ative um por um ou use os filtros e **Ativar todos deste filtro**.
 
-Cada produto ativo é uma visita a mais por dia na LigaMagic (cerca de 17 segundos cada): 50 produtos somam uns 15 minutos; 250, pouco mais de uma hora. Comece com poucos.
+Cada página de produto leva cerca de 17 segundos. Os casados e os com candidato são lidos todo dia; os demais ativos, uma vez por semana (rodízio), e os novos até 100 por dia. Com uns 2000 produtos ativos são umas 450 a 500 páginas por dia, de 2 a 3 horas.
 
 A partir da próxima coleta, os produtos ativos ganham histórico de venda e número de lojas. Para não esperar o dia seguinte, clique em **Rodar agora** em Serviços: como as listagens do dia já foram feitas, só os produtos rodam.
 
@@ -383,6 +383,10 @@ A migração `a9d4f2c6e8b1` cria a tabela `casamento` (um par por anúncio, com 
 
    Só pares ignorados pelo automático (com o motivo da IA falando de inglês ou idioma, e não de japonês) voltam a pendente; suas decisões não mudam. Anúncio já confirmado em outro produto fica ignorado.
 
+### Implantar a leitura por interesse da LigaMagic
+
+Faça o backup de sempre antes (ver [Backup do banco](#backup-do-banco)). A migração `d4b8e2f6a3c1` acrescenta a `config_liga` o esfriar após desafio (30 min) e os produtos novos por dia (100). Suba tudo junto (`docker compose up -d --build`) e confira em Configurações → LigaMagic os dois campos novos. Se a LigaMagic estiver parada num desafio, resolva-o no noVNC (`http://<IP deste PC>:6080/vnc.html`) se a verificação ainda estiver na tela e clique em **Retomar**: o coletor espera 30 min (`esfriar_desafio_min`) antes da primeira página, e o card mostra "Esfriando até HH:MM" (ou "Parada até amanhã (2º desafio)" se já houve dois desafios hoje). No dia seguinte, o resumo no grupo admin traz a linha "Produtos: ok · N de M · casados …, candidatos …, novos …, rodízio …".
+
 ## Uso no dia a dia
 
 ### Página de admin
@@ -421,7 +425,7 @@ Um problema que se repete sai uma vez, volta como lembrete a cada 2 h enquanto c
 
 1. Abra o noVNC: `http://<IP deste PC>:6080/vnc.html` (senha `VNC_SENHA`). Funciona pelo celular, na mesma rede.
 2. O Chromium está aberto com a verificação na tela. Resolva-a nessa janela.
-3. Clique em **Retomar** em Serviços. Em até 1 minuto a coleta volta, no mesmo navegador.
+3. Clique em **Retomar** em Serviços. A coleta volta no mesmo navegador depois do esfriamento (30 min por padrão; o card da LigaMagic mostra "Esfriando até HH:MM"), com pausas em dobro até o fim do dia. Se foi o 2º desafio do dia, o card mostra "Parada até amanhã (2º desafio)" e a coleta volta no horário de amanhã ("Rodar agora" some até lá). O aviso do WhatsApp já diz qual dos dois é.
 
 O coletor nunca tenta de novo sozinho. Se a janela do Chromium for fechada, a próxima coleta abre outra.
 
@@ -453,7 +457,7 @@ docker compose up -d
 Os ajustes de operação ficam na página **Configurações** do admin, em quatro seções que salvam separadamente e valem a partir da próxima coleta ou ciclo, sem reiniciar:
 
 - **Geral**: IP ou nome deste PC na rede, fuso horário, instância da Evolution e os grupos de WhatsApp (admin e oportunidades).
-- **LigaMagic**: horário da coleta diária e variação, pausas entre páginas, limite de falhas, categorias, URL da listagem e máximo de cliques. Tire de **Categorias** uma que falhe todo dia; pausas menores aumentam a chance de desafio do Cloudflare.
+- **LigaMagic**: horário da coleta diária e variação, pausas entre páginas, limite de falhas, categorias, URL da listagem, máximo de cliques, produtos novos por dia (padrão 100) e esfriar após desafio (padrão 30 min). Tire de **Categorias** uma que falhe todo dia; pausas menores aumentam a chance de desafio do Cloudflare.
 - **Amazon**: desconto mínimo, horário e teto da busca (navegador sem login), horário e teto do monitor (navegador logado) e demais ajustes do motor de oportunidades.
 - **IA**: liga a IA do casamento, modelo, preços, tetos de gasto e de chamadas e o modo automático (ver [passo 9](#9-casamento-com-ia-opcional)).
 

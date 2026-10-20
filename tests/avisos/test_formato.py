@@ -28,22 +28,22 @@ ESPERADOS = {
     TipoAviso.LIGA_COLETA_CONCLUIDA: (
         "✅ *Liga · coleta concluída · 18/10*\n"
         "• Listagens: ok · 20 de 20 categorias · 3 produtos novos\n"
-        "• Produtos: ok · 412 ok · 0 falhas\n"
-        "• Duração: 1 h 12 min\n"
+        "• Produtos: ok · 482 de 482 · casados 52, candidatos 18, novos 100, rodízio 312\n"
+        "• Duração: 2 h 41 min\n"
         "_18/10 10:42 · coletor Liga_"
     ),
     TipoAviso.LIGA_COLETA_PARCIAL: (
         "🟡 *Liga · coleta parcial · 18/10*\n"
         "• Listagens: ok · 20 de 20 categorias · 0 produtos novos\n"
-        "• Produtos: parcial · 380 ok · 32 falhas\n"
-        "• Duração: 1 h 5 min\n"
+        "• Produtos: parcial · 450 de 482 · casados 52, candidatos 18, novos 100, rodízio 312\n"
+        "• Duração: 2 h 35 min\n"
         "\n"
         "*O que fazer:* Nada urgente; se repetir, veja Admin → Logs → LigaMagic.\n"
         "_18/10 10:42 · coletor Liga_"
     ),
     TipoAviso.LIGA_COLETA_FALHOU: (
         "🔴 *Liga · coleta falhou*\n"
-        "• Etapa: Coleta dos produtos ativos\n"
+        "• Etapa: Coleta dos produtos da lista do dia\n"
         "• Falhas: 300 de 412 produtos\n"
         "\n"
         "*O que fazer:* O layout da LigaMagic pode ter mudado: veja Admin → Logs → LigaMagic e os HTMLs na pasta falhas.\n"
@@ -53,6 +53,7 @@ ESPERADOS = {
         "🔴 *Liga · desafio do Cloudflare*\n"
         "• Página: /?view=cards/search&card=categ%3D10\n"
         "• A coleta fica pausada até você retomar\n"
+        "• 1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia\n"
         "\n"
         "*O que fazer:* Resolva no noVNC da Liga (porta 6080) e depois Admin → Serviços → LigaMagic → Retomar.\n"
         "_18/10 10:42 · coletor Liga_"
@@ -73,7 +74,7 @@ ESPERADOS = {
     ),
     TipoAviso.LIGA_ERRO: (
         "🔴 *Liga · erro inesperado*\n"
-        "• Onde: Coleta dos produtos ativos 41\n"
+        "• Onde: Coleta dos produtos da lista do dia 41\n"
         "• Erro: TimeoutError('página não carregou')\n"
         "\n"
         "*O que fazer:* Veja os logs do coletor (docker compose logs coletor-liga); a próxima coleta tenta de novo.\n"

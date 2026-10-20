@@ -261,3 +261,17 @@ def test_estado_da_busca_da_amazon_e_a_linha_6_e_independente_do_monitor(s):
     assert repo.obter_estado(s, T0, COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
     repo.retomar(s, T0, COLETOR_AMAZON_BUSCA)
     assert repo.obter_estado(s, T0, COLETOR_AMAZON_BUSCA).estado is EstadoColetorTipo.ATIVO
+
+
+def test_pedir_execucao_nao_muda_a_hora_da_ultima_mudanca_de_estado(s):
+    repo.retomar(s, T0, solicitar=False)
+    repo.solicitar_execucao(s, T0 + timedelta(minutes=10))
+    estado = repo.obter_estado(s)
+    assert estado.execucao_solicitada and estado.atualizado_em == T0
+
+
+def test_consumir_solicitacao_nao_muda_a_hora_da_ultima_mudanca_de_estado(s):
+    repo.retomar(s, T0, solicitar=True)
+    assert repo.consumir_solicitacao(s, T0 + timedelta(minutes=10)) is True
+    estado = repo.obter_estado(s)
+    assert not estado.execucao_solicitada and estado.atualizado_em == T0

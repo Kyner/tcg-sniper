@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-19 (busca da Amazon separada do monitor em produção; plano da LigaMagic por interesse escrito).
+Última revisão: 2026-10-19 (leitura por interesse da LigaMagic pronta no código, falta implantar; antes: busca da Amazon separada do monitor).
 
 ## 0. Crítico
 
-- [ ] **Coletor da LigaMagic provocando o Cloudflare** (2026-10-19): a leitura de todos os 2165 produtos ativos (~10 h seguidas) gerou o desafio; a cada "Retomar" o job recomeçava a lista e o desafio voltava (pausado desde 16:01). Desenho aprovado: leitura por interesse (casados e candidatos todo dia, novos até 100/dia, resto em rodízio de 7 dias) e esfriar 30 min após desafio (2º desafio no dia encerra o dia). Spec: `docs/superpowers/specs/2026-10-19-liga-leitura-por-interesse-design.md`. Plano: `docs/superpowers/plans/2026-10-19-liga-leitura-por-interesse.md`. Até implantar, não retomar a Liga.
+- [ ] **Implantar a leitura por interesse da LigaMagic** (código pronto, merge `<merge>`): backup, `docker compose up -d --build`, conferir a migração `d4b8e2f6a3c1` aplicada e Configurações → LigaMagic com Esfriar após desafio 30 e Produtos novos por dia 100; depois, com a Liga ainda `pausado_desafio`, resolver o desafio no noVNC (6080) se ainda aparecer e Retomar: o job espera `esfriar_desafio_min` (30) antes da primeira página (README → "Implantar a leitura por interesse da LigaMagic").
 
 - [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
 
@@ -49,17 +49,21 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela). Pode ir junto com a fase 3.
 - [ ] Mover `admin/consultas_catalogo.py` (situação do catálogo por produto) para um pacote neutro (ex.: `tcg_sniper/consultas/`) antes de a API da fase 2 importá-lo: a fase 4 apaga o pacote `admin`.
 - [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes na fase 3.
+- [ ] Índice em `resumo_preco.coletado_em` para a lista do dia (hoje varre a tabela inteira; ela cresce ~800 mil linhas/ano).
+- [ ] Produto novo cuja página sempre falha ocupa uma das vagas de novos do dia (o mais antigo primeiro); pular depois de N falhas.
+- [ ] LigaMagic: desligar e religar pelo liga/desliga de Serviços reinicia a espera de 30 min após um desafio; o card diz "volta sozinha", mas nenhum job roda se o do dia já rodou. Nunca fica mais agressivo, só o texto engana. Contar a espera só do "Retomar" após desafio.
+- [ ] LigaMagic: 1º desafio tarde da noite com a espera terminando depois da meia-noite roda o job da madrugada com pausas normais ("desafios hoje" zera à meia-noite). Avaliar contar as pausas em dobro pelas últimas 24 h.
 - [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
 
 ## 3. Acompanhar (sem código)
 
-- [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: coleta da Liga passa de ~1 h para ~10 h; a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
+- [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: a etapa dos produtos da Liga lê ~450–500 páginas por dia (leitura por interesse; eram ~10 h com todos os ativos); a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
 - [ ] CAPTCHA da Amazon com os dois navegadores somando ~270 páginas/h no mesmo endereço (busca 90/h + monitor 180/h, desde a separação). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
 - [ ] Quantos produtos ativos ainda não foram buscados (card Amazon (busca) no Dashboard; eram 1941 de 1969 sem candidato em 2026-10-19). Com 90 buscas/h e a janela de 14 h, a primeira passada nos ~2000 produtos leva cerca de 2 dias.
 - [ ] Primeira semana do casamento por par: quantos ignorados foram recuperados (anúncios confirmados para um produto que antes estavam ignorados para outro: `SELECT count(*) FROM casamento c WHERE c.status = 'confirmado' AND EXISTS (SELECT 1 FROM casamento o WHERE o.anuncio_id = c.anuncio_id AND o.produto_id <> c.produto_id AND o.status = 'ignorado' AND o.origem <> 'outro_confirmado')`) e quantos produtos entraram na busca alternativa (`SELECT count(DISTINCT produto_id) FROM termo_busca`; com tentativa sem termo válido: `SELECT count(*) FROM fila_amazon WHERE termos_tentados_em IS NOT NULL`). Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
 - [ ] Fila e gasto da IA nos primeiros dias depois de implantar o casamento por par (volume aceito; o teto de gasto protege): pares pendentes esperando a IA (Dashboard → "esperando você" e Casamentos), gasto do dia e do mês em Logs → IA (filtro "termos de busca" para a busca alternativa, 5 produtos por ciclo) e se o teto do dia está sendo atingido cedo. Se a fila não baixar, ajustar o lote ou os tetos em Configurações → IA.
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
-- [ ] Uma semana de coletas da LigaMagic sem desafio do Cloudflare. No fim, revisar o máximo de cliques em "Exibir mais" (Configurações → LigaMagic) com os números reais.
+- [ ] Acompanhar uma semana sem desafio com ~500 páginas/dia (leitura por interesse, desde a implantação): avisos "Liga · desafio do Cloudflare" e a linha "Produtos: … de … · casados, candidatos, novos, rodízio" do resumo diário. Se o desafio voltar, baixar o rodízio (por exemplo para 14 dias) ou subir as pausas em Configurações → LigaMagic. No fim, revisar também o máximo de cliques em "Exibir mais" com os números reais.
 - [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio local para em 7 diários + 4 semanais. No R2, as regras de ciclo de vida foram criadas no painel (`diario/` 7 dias, `semanal/` 35 dias): conferir que os arquivos antigos somem.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
 - [ ] Volume de avisos no grupo admin na primeira semana (~60–70/dia com a rodada do monitor); desligar em Configurações → Avisos o que virar ruído.
@@ -94,6 +98,7 @@ Nenhuma no momento.
 
 - **Alerta espera a conferência de checkout (confirmado pelo usuário em 2026-10-19):** o primeiro alerta de uma oportunidade só sai depois da conferência no checkout (preço = itens + impostos, sem frete); se a conferência não puder rodar, vale o comportamento descrito no README.
 - **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário. Após o deploy: `tcg-sniper casamento reabrir-ingles` (simulação) e `--aplicar` para devolver à IA os ignorados pelo automático por serem em inglês.
+- 2026-10-19: LigaMagic lê por interesse (casados e candidatos todo dia, novos até 100/dia, demais em rodízio de 7 dias; listagens completas todo dia) e esfria 30 min após um desafio resolvido, com pausas em dobro no resto do dia; o 2º desafio no dia encerra o dia.
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
 - 2026-10-19: busca e monitor da Amazon em serviços separados (busca sem login, 90 buscas/h; monitor logado, 180 páginas/h; a migração baixou o monitor de 1000 para 180).
 - 2026-10-19: busca alternativa entra depois de 7 dias sem candidato.
@@ -110,6 +115,7 @@ Nenhuma no momento.
 
 ## Ordem sugerida
 
+0. Implantar a leitura por interesse da LigaMagic (seção 0).
 0. Acompanhar a primeira semana do casamento por par (seção 3) e o resultado dos 19 pares em inglês reabertos.
 1. Site novo, fase 2 (área de negócio).
 2. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
@@ -119,6 +125,14 @@ Nenhuma no momento.
 6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### LigaMagic: leitura por interesse e esfriar após desafio (2026-10-19, merge `<merge>`)
+
+Spec `docs/superpowers/specs/2026-10-19-liga-leitura-por-interesse-design.md`, plano `docs/superpowers/plans/2026-10-19-liga-leitura-por-interesse.md`. Resolve o desafio do Cloudflare provocado pela leitura de todos os 2165 produtos ativos (~10 h seguidas) e o Retomar que recomeçava a lista.
+
+- [x] **Coletor da LigaMagic provocando o Cloudflare**: a etapa dos produtos lê só a lista do dia (casados, candidatos, novos até 100/dia, rodízio de 7 dias), sem reler o que já foi lido hoje; resumo com os grupos.
+- [x] Esfriar após desafio (30 min contados da retomada, pausas em dobro no resto do dia; 2º desafio encerra o dia, inclusive "Rodar agora"), derivado do banco (sobrevive a reinício); aviso diz se é o 1º ou o 2º do dia.
+- [x] Configurações → LigaMagic com "Produtos novos por dia" e "Esfriar após desafio (min)" (migração `d4b8e2f6a3c1`); cards da LigaMagic em Serviços e no Dashboard com "Esfriando até HH:MM" / "Parada até amanhã (2º desafio)".
 
 ### Busca da Amazon separada do monitor (merge `ee69f72`, em produção desde 2026-10-19 18:49)
 
