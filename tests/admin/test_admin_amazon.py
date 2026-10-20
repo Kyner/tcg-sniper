@@ -183,6 +183,28 @@ def test_ofertas_mostra_o_risco_da_oportunidade(s):
     assert linha.risco == (T0, "preço subiu")
 
 
+@pytest.mark.parametrize("risco_no_da_linha", [True, False])
+def test_ofertas_mostra_o_risco_da_oportunidade_do_proprio_anuncio(s, risco_no_da_linha):
+    """Duas oportunidades abertas em anúncios diferentes do mesmo produto: o selo da linha (a oferta mais
+    barata, B02) é o da oportunidade desse anúncio, não o de outro anúncio do produto."""
+    ff, _, _, barato = preparar_ofertas(s)
+    config = repo_amz.obter_config(s)
+    caro = anuncio_com_preco(s, "B05", ff, "900.00", status=StatusCasamento.CONFIRMADO)  # id depois do da linha
+    outra = repo_amz.abrir_oportunidade(
+        s, anuncio_id=caro.id, produto_id=ff.id, preco_amazon=Decimal("900.00"), preco_liga=Decimal("1000.00"),
+        desconto_pct=Decimal("10.00"), vendedor_id=None, envio=Envio.AMAZON, agora=T0, conferido=False,
+    )
+    da_linha = s.scalar(select(Oportunidade).where(Oportunidade.anuncio_id == barato.id))
+    em_risco = da_linha if risco_no_da_linha else outra
+    em_risco.em_risco_desde, em_risco.motivo_risco = T0, MotivoEncerramento.PRECO_SUBIU
+    s.flush()
+    outra.preco_amazon = Decimal("899.00")  # a do outro anúncio é a última gravada (e a última lida)
+    s.flush()
+    [linha] = [l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
+    assert linha.anuncio.id == barato.id and linha.aberta
+    assert linha.risco == ((T0, "preço subiu") if risco_no_da_linha else None)
+
+
 def test_lojista_fba_confiavel_ou_nao(s):
     ff = criar_produto(s, "ff")
     criar_preco_liga(s, ff, "1000.00")
