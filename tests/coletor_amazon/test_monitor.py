@@ -633,3 +633,50 @@ def test_conferencia_dentro_da_carencia_so_marca_o_risco(sessoes, config, anunci
     op = _aberta(sessoes)
     assert (op.fechada_em, op.em_risco_desde, op.motivo_risco) == (None, AGORA, "preco_subiu")
     assert len(avisador.mensagens) == 1
+
+
+def test_realerta_sem_mensagem_mantem_o_alerta_anterior(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    ctx, _, avisador = contexto(
+        sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 650,00"))}, checkout=False,
+        relogio=Relogio(AGORA + timedelta(minutes=15)),
+    )
+    avisador.avisar_em = lambda *_: None  # aviso desligado (ou falhou): nenhuma mensagem enfileirada
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    op = _aberta(sessoes)
+    assert (op.alertas, op.preco_alertado, op.mensagem_alerta_id) == (2, Decimal("650.00"), primeira)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.PENDENTE
+
+
+def test_realerta_descarta_o_alerta_anterior_ainda_na_fila(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)  # o alerta fica pendente na fila
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    _ler(sessoes, config, "R$ 650,00", AGORA + timedelta(minutes=15), anuncio.id)  # realerta
+    op = _aberta(sessoes)
+    assert op.mensagem_alerta_id not in (None, primeira)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.DESCARTADA
+        assert s.get(MensagemSaida, op.mensagem_alerta_id).status is StatusMensagem.PENDENTE
+
+
+def test_realerta_nao_mexe_no_alerta_anterior_ja_enviado(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, primeira).status = StatusMensagem.ENVIADA
+    _ler(sessoes, config, "R$ 650,00", AGORA + timedelta(minutes=15), anuncio.id)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.ENVIADA
+
+
+def test_realerta_pela_conferencia_descarta_o_alerta_anterior_ainda_na_fila(sessoes, config, anuncio):
+    ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "700.00", "640.00", itens="640.00"))
+    op = _aberta(sessoes)
+    assert op.alertas == 2 and op.mensagem_alerta_id not in (None, primeira)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.DESCARTADA

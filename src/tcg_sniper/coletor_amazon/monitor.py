@@ -37,17 +37,20 @@ from tcg_sniper.coletor_amazon.parsers import (
     url_vendedor,
 )
 from tcg_sniper.db import repositorio_amazon as repo
+from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     ConferenciaCheckout,
     ConfigAmazon,
     Envio,
+    MensagemSaida,
     OfertaAmazon,
     Oportunidade,
     OrigemPreco,
     PrecoAtualAmazon,
     PrecoAtualLiga,
     SituacaoCheckout,
+    StatusMensagem,
     VendedorAmazon,
 )
 from tcg_sniper.navegador.modelos import Pagina
@@ -227,6 +230,21 @@ def _aplicar(
     return None
 
 
+def _alertar(ctx: ContextoBusca, s: Session, op: Oportunidade, aviso: Dados, agora: datetime) -> None:
+    """Enfileira o alerta (abertura ou realerta) na transação da decisão e liga a mensagem à oportunidade.
+    Sem mensagem nova (aviso desligado ou falhou) fica a do alerta anterior. Com mensagem nova, a anterior
+    ainda na fila é descartada: o preço antigo, mais alto, não sai depois."""
+    mensagem_id = ctx.avisador.avisar_em(s, TipoAviso.OPORTUNIDADE, str(op.anuncio_id), aviso)
+    if mensagem_id is None:
+        return
+    if op.mensagem_alerta_id is not None and op.mensagem_alerta_id != mensagem_id:
+        anterior = s.get(MensagemSaida, op.mensagem_alerta_id, with_for_update=True, populate_existing=True)
+        if anterior is not None and anterior.status is StatusMensagem.PENDENTE:
+            repo_msg.descartar(s, anterior.id, agora)
+    op.mensagem_alerta_id = mensagem_id
+    s.flush()
+
+
 def _dados(linha, leitura: motor.Leitura, ref: motor.RefLiga, detalhes: Detalhes) -> Dados:
     """`leitura.preco` já é o preço que vale (o conferido, quando há conferência): o "% abaixo da Liga"
     do título e a linha da Amazon falam do mesmo preço."""
@@ -281,8 +299,7 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
                 motivo = _motivo_nao_conferido(s, ctx.cfg, anuncio_id, agora)
                 detalhes = dataclasses.replace(selos, motivo_nao_conferido=motivo)
             aviso = _dados(linha, leitura, ref, detalhes)
-            op.mensagem_alerta_id = ctx.avisador.avisar_em(s, TipoAviso.OPORTUNIDADE, str(anuncio_id), aviso)
-            s.flush()
+            _alertar(ctx, s, op, aviso, agora)
 
 
 def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMonitor:
@@ -387,5 +404,4 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
                 importada=melhor.importada, origem_envio=melhor.origem_envio, prime=melhor.prime,
             )
             aviso = _dados(linha, leitura, ref, detalhes)
-            op.mensagem_alerta_id = ctx.avisador.avisar_em(s, TipoAviso.OPORTUNIDADE, str(anuncio_id), aviso)
-            s.flush()
+            _alertar(ctx, s, op, aviso, agora)
