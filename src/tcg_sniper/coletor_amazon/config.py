@@ -34,6 +34,7 @@ CAMPOS = (
     "margem_candidata_pp",
     "checkout_validade_h",
     "descoberta_casados_dias",
+    "carencia_encerramento_min",
 )
 
 ROTULOS = {
@@ -59,6 +60,7 @@ ROTULOS = {
     "margem_candidata_pp": "Conferir no checkout a partir de (pontos abaixo do desconto mínimo)",
     "checkout_validade_h": "Conferência de checkout vale por (h)",
     "descoberta_casados_dias": "Buscar de novo produtos já casados a cada (dias)",
+    "carencia_encerramento_min": "Carência antes de encerrar uma oportunidade (min)",
 }
 
 EXPLICACOES = {
@@ -96,6 +98,10 @@ EXPLICACOES = {
     ),
     "checkout_validade_h": "Por quantas horas o total conferido vale para a mesma oferta (vendedor e preço).",
     "descoberta_casados_dias": "Produto que já tem anúncio confirmado só volta à busca depois deste número de dias.",
+    "carencia_encerramento_min": (
+        "Quanto tempo uma oportunidade que deixou de ser elegível fica em risco antes de ser encerrada. "
+        "0 encerra na hora."
+    ),
 }
 
 

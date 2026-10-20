@@ -79,6 +79,21 @@ class Envio(enum.StrEnum):
     DESCONHECIDO = "desconhecido"
 
 
+class MotivoEncerramento(enum.StrEnum):
+    """Por que uma oportunidade fechou, na ordem de prioridade (spec 2026-10-20-fim-da-oportunidade)."""
+
+    CASAMENTO_DESFEITO = "casamento_desfeito"
+    SEM_LEITURA = "sem_leitura"
+    LIGA_DESATUALIZADA = "liga_desatualizada"
+    OFERTA_SUMIU = "oferta_sumiu"
+    VENDEDOR = "vendedor"
+    LIGA_CAIU = "liga_caiu"
+    PRECO_SUBIU = "preco_subiu"
+
+
+MOTIVOS_SQL = ", ".join(f"'{m.value}'" for m in MotivoEncerramento)
+
+
 class StatusMensagem(enum.StrEnum):
     PENDENTE = "pendente"
     ENVIADA = "enviada"
@@ -349,11 +364,15 @@ class TermoBusca(Base):
 
 
 class Oportunidade(Base):
-    """Oferta elegível da Amazon. Aberta enquanto `fechada_em` é NULL; no máximo uma aberta por anúncio."""
+    """Oferta elegível da Amazon. Aberta enquanto `fechada_em` é NULL; no máximo uma aberta por anúncio.
+    Em risco (`em_risco_desde`) quando a leitura deixou de ser elegível e a carência ainda não venceu.
+    Só `oportunidades.encerramento.encerrar` fecha."""
 
     __tablename__ = "oportunidade"
     __table_args__ = (
         Index("uq_oportunidade_aberta", "anuncio_id", unique=True, postgresql_where=text("fechada_em IS NULL")),
+        CheckConstraint(f"motivo_encerramento IN ({MOTIVOS_SQL})", name="ck_oportunidade_motivo_encerramento"),
+        CheckConstraint(f"motivo_risco IN ({MOTIVOS_SQL})", name="ck_oportunidade_motivo_risco"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -370,6 +389,16 @@ class Oportunidade(Base):
     # O último aviso saiu com o preço conferido no checkout: o anunciado (sem os impostos) não realerta.
     alerta_conferido: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     fechada_em: Mapped[datetime | None] = mapped_column(DATA)
+    motivo_encerramento: Mapped[MotivoEncerramento | None] = mapped_column(Text)
+    em_risco_desde: Mapped[datetime | None] = mapped_column(DATA)
+    motivo_risco: Mapped[MotivoEncerramento | None] = mapped_column(Text)
+    menor_preco: Mapped[Decimal] = mapped_column(DINHEIRO)
+    alertas: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # Mensagem do último alerta (abertura ou realerta); a limpeza de 30 dias apaga a mensagem e zera aqui.
+    mensagem_alerta_id: Mapped[int | None] = mapped_column(ForeignKey("mensagem_saida.id", ondelete="SET NULL"))
+    encerramento_avisado_em: Mapped[datetime | None] = mapped_column(DATA)
+    # Aberta antes desta versão (o id da mensagem não era guardado): ao encerrar, conta como alerta enviado.
+    alerta_sem_registro: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class OfertaAmazon(Base):
@@ -441,6 +470,7 @@ LIMITES_CONFIG_AMAZON: dict[str, tuple[int, int]] = {
     "margem_candidata_pp": (0, 50),
     "checkout_validade_h": (1, 72),
     "descoberta_casados_dias": (1, 60),
+    "carencia_encerramento_min": (0, 240),
 }
 
 PADROES_CONFIG_AMAZON: dict[str, object] = {
@@ -466,6 +496,7 @@ PADROES_CONFIG_AMAZON: dict[str, object] = {
     "margem_candidata_pp": 5,
     "checkout_validade_h": 6,
     "descoberta_casados_dias": 7,
+    "carencia_encerramento_min": 30,
 }
 
 
@@ -508,6 +539,7 @@ class ConfigAmazon(Base):
     margem_candidata_pp: Mapped[int] = mapped_column(Integer)
     checkout_validade_h: Mapped[int] = mapped_column(Integer)
     descoberta_casados_dias: Mapped[int] = mapped_column(Integer)
+    carencia_encerramento_min: Mapped[int] = mapped_column(Integer)
     # Ligados e desligados em Serviços (fora do formulário de Configurações).
     monitor_ligado: Mapped[bool] = mapped_column(Boolean, server_default="true")
     checkout_ligado: Mapped[bool] = mapped_column(Boolean, server_default="true")

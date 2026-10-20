@@ -333,7 +333,7 @@ def abrir_oportunidade(
     op = Oportunidade(
         anuncio_id=anuncio_id, produto_id=produto_id, preco_amazon=preco_amazon, preco_liga=preco_liga,
         desconto_pct=desconto_pct, vendedor_id=vendedor_id, envio=envio, aberta_em=agora,
-        alertada_em=agora, preco_alertado=preco_amazon, alerta_conferido=conferido,
+        alertada_em=agora, preco_alertado=preco_amazon, alerta_conferido=conferido, menor_preco=preco_amazon,
     )
     s.add(op)
     s.flush()

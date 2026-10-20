@@ -90,6 +90,7 @@ def formulario_padrao(**mudancas):
         "margem_candidata_pp": "5",
         "checkout_validade_h": "6",
         "descoberta_casados_dias": "7",
+        "carencia_encerramento_min": "30",
     }
     campos.update({k: str(v) for k, v in mudancas.items()})
     return campos
