@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
+from zoneinfo import ZoneInfo
 
-from tcg_sniper.avisos.catalogo import Dados, Negrito, Trecho
-from tcg_sniper.db.models import Envio
+from tcg_sniper.avisos.catalogo import Dados, Negrito, TipoAviso, Trecho
+from tcg_sniper.db.models import Envio, MotivoEncerramento
 from tcg_sniper.formatacao import formatar_brl
 from tcg_sniper.oportunidades.motor import Leitura, RefLiga, desconto_pct
 
@@ -92,4 +94,60 @@ def dados_oportunidade(
         linhas.append(f"Cupom: {detalhes.cupom} (condicional, não descontado)")
     return Dados(
         titulo_extra=f"{desconto}% abaixo da Liga", destaque=nome_produto, linhas=tuple(linhas), link_produto=url_amazon
+    )
+
+
+ROTULOS_MOTIVO = {
+    MotivoEncerramento.PRECO_SUBIU: "preço subiu",
+    MotivoEncerramento.OFERTA_SUMIU: "oferta sumiu",
+    MotivoEncerramento.LIGA_CAIU: "Liga baixou",
+    MotivoEncerramento.VENDEDOR: "vendedor mudou",
+    MotivoEncerramento.LIGA_DESATUALIZADA: "preço da Liga desatualizado",
+    MotivoEncerramento.SEM_LEITURA: "anúncio sem leitura",
+    MotivoEncerramento.CASAMENTO_DESFEITO: "casamento desfeito",
+}
+TECNICOS = frozenset({MotivoEncerramento.LIGA_DESATUALIZADA, MotivoEncerramento.SEM_LEITURA})
+
+
+def tipo_do_encerramento(motivo: MotivoEncerramento) -> TipoAviso:
+    if motivo == MotivoEncerramento.CASAMENTO_DESFEITO:
+        return TipoAviso.OPORTUNIDADE_CORRIGIDA
+    if motivo in TECNICOS:
+        return TipoAviso.OPORTUNIDADE_ENCERRADA_TECNICO
+    return TipoAviso.OPORTUNIDADE_ENCERRADA
+
+
+def _duracao(inicio: datetime, fim: datetime) -> str:
+    minutos = max(0, int((fim - inicio).total_seconds() // 60))
+    horas, resto = divmod(minutos, 60)
+    if not horas:
+        return f"{resto} min"
+    return f"{horas} h {resto} min" if resto else f"{horas} h"
+
+
+def dados_encerramento(
+    *,
+    motivo: MotivoEncerramento,
+    nome_produto: str,
+    aberta_em: datetime,
+    fechada_em: datetime,
+    preco_alertado: Decimal,
+    preco_atual: Decimal | None,
+    preco_liga: Decimal | None,
+    url_amazon: str | None,
+    zona: ZoneInfo,
+) -> Dados:
+    """Dados dos avisos de fim da oportunidade (tipo em `tipo_do_encerramento`)."""
+    desde = aberta_em.astimezone(zona).strftime("%d/%m %H:%M")
+    if motivo == MotivoEncerramento.CASAMENTO_DESFEITO:
+        return Dados(destaque=nome_produto, linhas=(f"O alerta de {desde} era de outro produto: desconsidere.",))
+    linhas: list = [f"Durou {_duracao(aberta_em, fechada_em)} (desde {desde})"]
+    if motivo not in TECNICOS:
+        agora = Negrito(formatar_brl(preco_atual)) if preco_atual is not None else Negrito("indisponível")
+        linhas.append(("Alerta: ", Negrito(formatar_brl(preco_alertado)), " → agora: ", agora))
+        if preco_liga is not None:
+            linhas.append(f"Liga: a partir de {formatar_brl(preco_liga)}")
+    return Dados(
+        titulo_extra=ROTULOS_MOTIVO[motivo], destaque=nome_produto, linhas=tuple(linhas),
+        link_produto=url_amazon if motivo not in TECNICOS else None,
     )

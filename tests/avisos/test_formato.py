@@ -271,6 +271,29 @@ ESPERADOS = {
         "https://www.amazon.com.br/dp/B0TESTE123\n"
         "_18/10 10:42 · monitor Amazon_"
     ),
+    TipoAviso.OPORTUNIDADE_ENCERRADA: (
+        "⏹️ *Oferta encerrada · preço subiu*\n"
+        "*Final Fantasy - Caixa de Booster de Jogo*\n"
+        "• Durou 3 h 20 min (desde 18/10 10:15)\n"
+        "• Alerta: *R$ 1.299,90* → agora: *R$ 1.549,90*\n"
+        "• Liga: a partir de R$ 1.589,00\n"
+        "https://www.amazon.com.br/dp/B0TESTE123\n"
+        "_18/10 10:42 · monitor Amazon_"
+    ),
+    TipoAviso.OPORTUNIDADE_CORRIGIDA: (
+        "⚠️ *Alerta corrigido*\n"
+        "*Final Fantasy - Caixa de Booster de Jogo*\n"
+        "• O alerta de 18/10 10:15 era de outro produto: desconsidere.\n"
+        "_18/10 10:42 · casamentos_"
+    ),
+    TipoAviso.OPORTUNIDADE_ENCERRADA_TECNICO: (
+        "🟡 *Oportunidade encerrada · anúncio sem leitura*\n"
+        "*Final Fantasy - Caixa de Booster de Jogo*\n"
+        "• Durou 26 h 5 min (desde 18/10 10:15)\n"
+        "\n"
+        "*O que fazer:* Confira Admin → Serviços (LigaMagic e Amazon (monitor e checkout)).\n"
+        "_18/10 10:42 · monitor Amazon_"
+    ),
     TipoAviso.CODIGO_ACESSO: (
         "🔑 *Código de acesso*\n"
         "*123456*\n"
@@ -305,7 +328,7 @@ def texto_de(tipo, dados=None, host=HOST, estrito=True):
 
 def test_catalogo_cobre_todos_os_tipos():
     assert set(CATALOGO) == set(TipoAviso) == set(ESPERADOS)
-    assert len(TipoAviso) == 34
+    assert len(TipoAviso) == 37
 
 
 @pytest.mark.parametrize("tipo", list(TipoAviso))
@@ -317,7 +340,12 @@ def test_regras_do_catalogo():
     for tipo, d in CATALOGO.items():
         assert d.ligado_padrao is True, tipo
         assert (d.lembrete is not None) == d.agrupa, tipo
-        destino = {TipoAviso.OPORTUNIDADE: Destino.OPORTUNIDADES, TipoAviso.CODIGO_ACESSO: Destino.INDIVIDUAL}
+        destino = {
+            TipoAviso.OPORTUNIDADE: Destino.OPORTUNIDADES,
+            TipoAviso.OPORTUNIDADE_ENCERRADA: Destino.OPORTUNIDADES,
+            TipoAviso.OPORTUNIDADE_CORRIGIDA: Destino.OPORTUNIDADES,
+            TipoAviso.CODIGO_ACESSO: Destino.INDIVIDUAL,
+        }
         assert d.grupo is destino.get(tipo, Destino.ADMIN), tipo
         if d.agrupa and tipo is not TipoAviso.MENSAGEM_NAO_ENVIADA:
             assert d.lembrete == timedelta(hours=2), tipo
