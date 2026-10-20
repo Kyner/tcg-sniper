@@ -69,7 +69,15 @@ class NavegadorChromium:
                 # A janela ocupa a tela do Xvfb (1366x768) com abas e barra de endereço visíveis no
                 # noVNC; a página usa o espaço que sobra, como num navegador maximizado de verdade.
                 no_viewport=True,
-                args=["--start-maximized", "--window-position=0,0", "--window-size=1366,768"],
+                # Sem a marca de automação (navigator.webdriver = false): com ela o desafio do
+                # Cloudflare entra em loop mesmo resolvido à mão no noVNC.
+                ignore_default_args=["--enable-automation"],
+                args=[
+                    "--start-maximized",
+                    "--window-position=0,0",
+                    "--window-size=1366,768",
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
             paginas = self._contexto.pages
             self._pagina = paginas[0] if paginas else self._contexto.new_page()
