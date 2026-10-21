@@ -24,7 +24,6 @@ from tcg_sniper.admin import (
 )
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.admin import formularios_ia as form_ia
-from tcg_sniper.admin.consultas_catalogo import SITUACOES_PRODUTO
 from tcg_sniper.admin.icones import icone
 from tcg_sniper.avisos import formato
 from tcg_sniper.avisos import servico as avisos
@@ -35,6 +34,7 @@ from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
+from tcg_sniper.consultas.catalogo import SITUACOES_PRODUTO
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
