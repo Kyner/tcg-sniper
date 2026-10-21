@@ -3,17 +3,15 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-21 (sub-projeto B, Oportunidades na área de negócio, pronto para o merge; falta implantar).
+Última revisão: 2026-10-21 (sub-projeto B em produção; conferidos em produção os avisos de encerramento, as fotos no R2, o backup diário e o volume de avisos no grupo admin).
 
 ## Ordem sugerida
 
-1. Implantar o sub-projeto B (notas em `docs/IMPLANTACOES.md`: bucket de imagens no R2 e `.env`).
-2. Acompanhar ao longo dos dias (seção 3), sem prazo: primeiro os avisos de encerramento de 2026-10-21.
+1. Escolher a próxima frente de código: site novo, fase 3 (área administrativa + auditoria de layout + botões do par, depois fase 4) ou seção 1 (segurança do login, **obrigatória antes de publicar na internet ou vender acesso**).
+2. Acompanhar ao longo dos dias (seção 3), sem prazo: carga das coletas, gasto da IA e casamento por par.
 3. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
-4. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
-5. Seção 1 (segurança do login), **antes de publicar na internet ou vender acesso**.
-6. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
-7. Margem líquida (seção 4), quando o grupo tiver os valores.
+4. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
+5. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
 
@@ -94,11 +92,9 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 ### Oportunidades na área de negócio (depois do deploy)
 
 - [ ] Trocar o `r2.dev` por domínio próprio (Custom Domains → `img.<domínio>`) antes de publicar na internet; o `r2.dev` é limitado e não serve para produção.
-- [ ] Primeiros dias: a cópia das imagens (100 por hora, as das oportunidades primeiro) termina e as fotos aparecem em Oportunidades e Produto; conferir a tela `/` e uma página de produto.
 
 ### Fim da oportunidade (desde 2026-10-20 21:50)
 
-- [ ] Primeiros encerramentos (a partir de 2026-10-21 08:00, quando o monitor volta): as 13 oportunidades abertas na migração estão marcadas "alerta sem registro" e avisam o grupo de oportunidades quando encerrarem. Conferir que o motivo faz sentido, que sai um aviso só por oportunidade e que o selo "em risco desde" aparece em Ofertas durante a carência. Consulta: `SELECT motivo_encerramento, count(*), count(encerramento_avisado_em) FROM oportunidade WHERE fechada_em > '2026-10-20 21:50' GROUP BY 1`.
 - [ ] Primeira semana: oportunidades que abrem e encerram várias vezes no mesmo dia mesmo com a carência de 30 min (ruído no grupo). Se acontecer, subir a carência em Configurações → Amazon → Monitor de preço.
 
 ### Coleta e casamento
@@ -114,9 +110,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 ### Operação
 
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
-- [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio local para em 7 diários + 4 semanais. No R2, as regras de ciclo de vida foram criadas no painel (`diario/` 7 dias, `semanal/` 35 dias): conferir que os arquivos antigos somem.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
-- [ ] Volume de avisos no grupo admin na primeira semana (~60–70/dia com a rodada do monitor); desligar em Configurações → Avisos o que virar ruído.
 - [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida é uma thread de 60 s).
 
 ## 4. Próximas funcionalidades (decisão do grupo)
@@ -170,6 +164,13 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Conferido em produção (2026-10-21, pelo usuário)
+
+- [x] Avisos de encerramento da oportunidade (sub-projeto A): funcionando no grupo de oportunidades.
+- [x] Fotos copiadas para o bucket público do R2 (sub-projeto B): aparecem em Oportunidades e na página de produto.
+- [x] Backup diário: funcionando (rodízio local e cópia no R2).
+- [x] Volume de avisos no grupo admin: sem ruído, nada a desligar.
 
 ### Oportunidades na área de negócio (merge `27e6364`, em produção desde 2026-10-21 08:44)
 
