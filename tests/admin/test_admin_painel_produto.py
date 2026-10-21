@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas_catalogo import SITUACOES_PRODUTO
+from tcg_sniper.consultas.catalogo import SITUACOES_PRODUTO
 
 
 @pytest.fixture
