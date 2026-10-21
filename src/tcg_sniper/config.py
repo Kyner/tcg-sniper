@@ -113,9 +113,15 @@ class Config(BaseSettings):
 
     @property
     def imagens_configuradas(self) -> bool:
-        return bool(
-            (self.r2_account_id or "").strip() and (self.r2_bucket_imagens or "").strip() and self.chaves_r2_imagens()
-        )
+        bucket = (self.r2_bucket_imagens or "").strip()
+        if bucket == (self.r2_bucket or "").strip():  # o das imagens é público: nunca o dos backups
+            return False
+        return bool((self.r2_account_id or "").strip() and bucket and self.chaves_r2_imagens())
+
+    @property
+    def bucket_imagens_igual_ao_dos_backups(self) -> bool:
+        bucket = (self.r2_bucket_imagens or "").strip()
+        return bool(bucket) and bucket == (self.r2_bucket or "").strip()
 
     @property
     def zona(self) -> ZoneInfo:

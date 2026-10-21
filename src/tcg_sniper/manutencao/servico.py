@@ -74,8 +74,11 @@ class ServicoManutencao:
         self._segredos = (*getattr(enviador, "segredos", ()), self._conexao.senha or "")
         self._vigia_desde = self._relogio()
         self._enviador_imagens = enviador_imagens or criar_enviador_imagens(config_env)
-        self._http = http or httpx.Client()
+        self._http = http
+        if self._enviador_imagens is not None and self._http is None:
+            self._http = httpx.Client()
         self._imagens_em: datetime | None = None
+        self._ativo = False
 
     def parar(self) -> None:
         """Pede o encerramento: a execução em andamento termina e `rodar` volta."""
@@ -94,10 +97,12 @@ class ServicoManutencao:
     def tick(self) -> bool:
         """Registra que está vivo, roda a execução do dia se for a hora (devolve se rodou) e, depois dela,
         o lote de imagens da hora: o backup nunca espera a cópia das imagens."""
+        self._ativo = False
         try:
             return self._tick_backup()
         finally:
-            self._copiar_imagens()
+            if self._ativo:  # manutenção desligada em Serviços: nada de lote
+                self._copiar_imagens()
 
     def _copiar_imagens(self) -> None:
         enviador = self._enviador_imagens
@@ -107,10 +112,11 @@ class ServicoManutencao:
         if self._imagens_em is not None and agora - self._imagens_em < timedelta(hours=1):
             return
         self._imagens_em = agora
-        segredos = getattr(enviador, "segredos", ())
+        segredos = (*getattr(enviador, "segredos", ()), *self._segredos)
         try:
             imagens.copiar_lote(
-                self._sessoes, enviador, self._http, limpar=lambda t: limpar_texto(t, segredos)
+                self._sessoes, enviador, self._http, limpar=lambda t: limpar_texto(t, segredos),
+                parar=self._parar.is_set,
             )
         except Exception as erro:  # noqa: BLE001 - a cópia das imagens nunca derruba a manutenção
             log.error("erro inesperado na cópia das imagens: %s", limpar_texto(f"{type(erro).__name__}: {erro}", segredos))
@@ -127,6 +133,7 @@ class ServicoManutencao:
             vigia.verificar(s, agora, self._vigia_desde)  # roda também com o backup desligado
             if repo.obter_estado(s, agora, COLETOR_MANUTENCAO).estado is not EstadoColetorTipo.ATIVO:
                 return False
+            self._ativo = True
             zona = ZoneInfo(repo.obter_config_geral(s, self._config_env).fuso)
             local = agora.astimezone(zona)
             inicio_do_dia = local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -227,7 +234,10 @@ class ServicoManutencao:
         log.info("manutenção iniciada (backup diário às %s)", f"{HORA_BACKUP:%H:%M}")
         if self._enviador is None:
             log.warning("R2_* vazias no .env: o backup fica só no PC (só local)")
-        if self._enviador_imagens is None:
+        if self._config_env.bucket_imagens_igual_ao_dos_backups:
+            log.warning("R2_BUCKET_IMAGENS igual ao bucket dos backups: cópia das imagens desligada "
+                        "(o bucket das imagens é público)")
+        elif self._enviador_imagens is None:
             log.warning("R2_BUCKET_IMAGENS vazia: sem cópia das imagens (as telas saem sem foto)")
         self.inicializar()
         while not self._parar.is_set():
@@ -239,4 +249,6 @@ class ServicoManutencao:
                 self._dormir(PASSO_S)
             else:
                 self._parar.wait(PASSO_S)
+        if self._http is not None:
+            self._http.close()
         log.info("manutenção encerrada")

@@ -2,6 +2,7 @@ import io
 from decimal import Decimal
 
 import httpx
+import pytest
 from fakes import T0, criar_anuncio, criar_produto
 from PIL import Image
 
@@ -161,3 +162,76 @@ def test_servico_um_lote_por_hora_e_excecao_nao_derruba(monkeypatch, sessoes, co
     relogio.agora += timedelta(hours=1)
     servico.tick()
     assert len(chamadas) == 2
+
+
+def _tres_produtos(sessoes):
+    with sessoes() as s, s.begin():
+        for nome in ("a", "b", "c"):
+            criar_produto(s, nome).imagem_url = f"https://liga.test/{nome}.jpg"
+    return _http({f"https://liga.test/{n}.jpg": _ok_png() for n in "abc"})
+
+
+def test_prazo_estourado_para_o_lote_no_meio(sessoes):
+    http = _tres_produtos(sessoes)
+    tempo = iter([0, 0, 0, 1000, 1000, 1000])  # prazo conferido antes de cada item
+    resultado = imagens.copiar_lote(sessoes, EnviadorFalso(), http, dormir=lambda _s: None, prazo_s=180,
+                                    relogio=lambda: next(tempo))
+    assert (resultado.copiadas, resultado.falhas) == (2, 0)
+
+
+def test_parar_nao_processa_nada(sessoes):
+    http = _tres_produtos(sessoes)
+    enviador = EnviadorFalso()
+    resultado = imagens.copiar_lote(sessoes, enviador, http, dormir=lambda _s: None, parar=lambda: True)
+    assert resultado == imagens.Resultado(0, 0) and not enviador.gravados
+
+
+def test_so_https_inclusive_no_redirecionamento(sessoes):
+    http = _http({
+        "http://liga.test/x.jpg": _ok_png(),
+        "https://liga.test/r.jpg": httpx.Response(302, headers={"Location": "http://liga.test/x.jpg"}),
+    })
+    for url in ("http://liga.test/x.jpg", "https://liga.test/r.jpg"):
+        with pytest.raises(imagens.ErroImagem):
+            imagens.baixar(http, url)
+
+
+def test_servico_pausado_nao_copia_imagens(monkeypatch, sessoes, config):
+    from datetime import UTC, datetime
+
+    from fakes import AvisadorFake
+
+    from tcg_sniper.db import repositorio as repo
+    from tcg_sniper.db.models import COLETOR_MANUTENCAO
+    from tcg_sniper.manutencao.servico import ServicoManutencao
+
+    agora = datetime(2026, 10, 14, 10, 0, tzinfo=UTC)
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "pausado", agora, COLETOR_MANUTENCAO)
+    chamadas = []
+    monkeypatch.setattr(imagens, "copiar_lote", lambda *a, **k: chamadas.append(1))
+    servico = ServicoManutencao(sessoes, config, AvisadorFake(), None, relogio=lambda: agora,
+                                dormir=lambda _: None, enviador_imagens=EnviadorFalso())
+    servico.tick()
+    assert chamadas == []
+
+
+def test_bucket_das_imagens_igual_ao_dos_backups_desliga_a_copia(config, caplog):
+    import logging
+
+    from fakes import AvisadorFake
+
+    from tcg_sniper.manutencao.servico import ServicoManutencao
+
+    igual = config.model_validate({**config.model_dump(), "r2_account_id": "conta", "r2_bucket": "balde",
+                                   "r2_bucket_imagens": " balde ", "r2_access_key_id": "a",
+                                   "r2_secret_access_key": "b"})
+    assert not igual.imagens_configuradas
+    from tcg_sniper.manutencao.r2 import criar_enviador_imagens
+    assert criar_enviador_imagens(igual) is None
+    servico = ServicoManutencao(None, igual, AvisadorFake(), None)
+    servico.parar()
+    servico.inicializar = lambda: None
+    with caplog.at_level(logging.WARNING):
+        servico.rodar()
+    assert "igual ao bucket dos backups" in caplog.text

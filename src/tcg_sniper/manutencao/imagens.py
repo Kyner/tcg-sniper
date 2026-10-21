@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 LADO_MAX = 600
 QUALIDADE = 80
 MAX_BYTES = 5 * 1024 * 1024
+PRAZO_S = 180  # o lote nunca segura o laço da manutenção por mais que isto
 CACHE = "public, max-age=31536000, immutable"
 CABECALHOS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -70,7 +71,16 @@ def para_webp(dados: bytes) -> bytes:
 
 
 def baixar(http: httpx.Client, url: str) -> bytes:
-    resposta = http.get(url, headers=CABECALHOS, timeout=20, follow_redirects=True)
+    for _ in range(6):  # redirecionamentos seguidos à mão: só https, em cada salto
+        if httpx.URL(url).scheme != "https":
+            raise ErroImagem("só https")
+        resposta = http.get(url, headers=CABECALHOS, timeout=20, follow_redirects=False)
+        if resposta.status_code in (301, 302, 303, 307, 308) and "location" in resposta.headers:
+            url = str(resposta.url.join(resposta.headers["location"]))
+            continue
+        break
+    else:
+        raise ErroImagem("redirecionamentos demais")
     if resposta.status_code != 200:
         raise ErroImagem(f"HTTP {resposta.status_code}")
     if not resposta.headers.get("Content-Type", "").startswith("image/"):
@@ -117,11 +127,17 @@ def _marcar(s: Session, alvo: Alvo, chave: str) -> None:
 def copiar_lote(
     sessoes: sessionmaker[Session], enviador: EnviadorImagens, http: httpx.Client, limite: int = 100,
     dormir: Callable[[float], None] = time.sleep, limpar: Callable[[str], str] = lambda t: t,
+    prazo_s: float = PRAZO_S, parar: Callable[[], bool] = lambda: False,
+    relogio: Callable[[], float] = time.monotonic,
 ) -> Resultado:
+    """O lote para quando o prazo estoura ou `parar()` é verdadeiro (o resto vai na próxima rodada)."""
+    limite_em = relogio() + prazo_s
     with sessoes() as s:
         alvos = pendentes(s, limite)
     copiadas = falhas = 0
     for i, alvo in enumerate(alvos):
+        if parar() or relogio() >= limite_em:
+            break
         if i:
             dormir(1.0)
         try:
