@@ -2,11 +2,11 @@
 import { BrowserRouter, Outlet, Route, Routes } from "react-router";
 import { Exige, RotaProtegida } from "./componentes/RotaProtegida";
 import { Acessos } from "./paginas/Acessos";
-import { AreaNegocio } from "./paginas/AreaNegocio";
 import { Entrar } from "./paginas/Entrar";
 import { Gestao } from "./paginas/Gestao";
 import { Indisponivel } from "./paginas/Indisponivel";
 import { NaoEncontrada } from "./paginas/NaoEncontrada";
+import { Oportunidades } from "./paginas/Oportunidades";
 import { SemAcesso } from "./paginas/SemAcesso";
 import { Usuarios } from "./paginas/Usuarios";
 import { SessaoProvider, useSessao } from "./sessao";
@@ -22,7 +22,9 @@ export function Rotas() {
           path="/"
           element={
             <Exige permissao="ver_area_negocio">
-              <AreaNegocio />
+              <Exige permissao="ver_oportunidades">
+                <Oportunidades />
+              </Exige>
             </Exige>
           }
         />

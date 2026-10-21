@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { apiFalsa, EU_GRUPO, EU_OPERADOR, ok, renderizarEm, SEM_SESSAO } from "../teste/apoio";
+import { apiFalsa, EU_GRUPO, EU_OPERADOR, ok, renderizarEm, respostasOportunidadesVazias, SEM_SESSAO } from "../teste/apoio";
 
 const PEDIDO_OK = ok({ ok: true, mensagem: "Se o número estiver cadastrado, o código chega no WhatsApp em instantes." });
 
@@ -18,6 +18,7 @@ describe("Entrar", () => {
       "GET /api/auth/eu": SEM_SESSAO,
       "POST /api/auth/pedir-codigo": PEDIDO_OK,
       "POST /api/auth/entrar": ok(EU_GRUPO),
+      ...respostasOportunidadesVazias(),
     });
     renderizarEm("/entrar");
     const usuario = await pedirCodigo();
@@ -25,7 +26,7 @@ describe("Entrar", () => {
     expect(screen.getByText(/pode demorar/)).toBeInTheDocument();
     await usuario.type(screen.getByLabelText("Código"), "123456");
     await usuario.click(screen.getByRole("button", { name: "Entrar" }));
-    expect(await screen.findByRole("heading", { name: "Área de negócio" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Oportunidades" })).toBeInTheDocument();
     const entrar = chamadas.find((c) => c.caminho === "/api/auth/entrar");
     expect(entrar?.corpo).toEqual({ numero: "11 90000-0002", codigo: "123456" });
   });
@@ -115,8 +116,8 @@ describe("Entrar", () => {
   });
 
   it("já logado, /entrar vai direto para o início", async () => {
-    apiFalsa({ "GET /api/auth/eu": ok(EU_GRUPO) });
+    apiFalsa({ "GET /api/auth/eu": ok(EU_GRUPO), ...respostasOportunidadesVazias() });
     renderizarEm("/entrar");
-    expect(await screen.findByRole("heading", { name: "Área de negócio" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Oportunidades" })).toBeInTheDocument();
   });
 });

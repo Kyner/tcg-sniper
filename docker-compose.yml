@@ -195,6 +195,8 @@ services:
   web:
     build: ./web
     image: tcg-sniper-web
+    environment:
+      - URL_PUBLICA_IMAGENS=${URL_PUBLICA_IMAGENS:-}
     ports:
       - "127.0.0.1:8090:8090"
     depends_on:
