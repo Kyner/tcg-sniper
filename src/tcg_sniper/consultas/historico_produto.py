@@ -1,14 +1,16 @@
-"""Histórico de um produto ativo na área de negócio: curva da Amazon (menor preço elegível por hora, ou por dia acima
-de 90 dias, entre os anúncios confirmados), curvas da Liga, faixas das oportunidades e recorrência. O `preco_amazon`
-só grava quando o preço muda (ou na 1ª leitura do dia): o valor de um anúncio num intervalo é a última linha até o fim
-dele, por até 26 h. Carrega só as linhas dos anúncios deste produto."""
+"""Histórico de um produto ativo na área de negócio: curva da Amazon (menor preço elegível de cada intervalo, por hora
+ou por dia acima de 90 dias, entre os anúncios confirmados), curvas da Liga, faixas das oportunidades e recorrência.
+O `preco_amazon` só grava quando o preço muda (ou na 1ª leitura do dia): o ponto de um intervalo é o mínimo entre o
+valor que vinha do intervalo anterior (a última leitura de cada anúncio, válida por até 26 h contadas do início do
+intervalo) e as leituras elegíveis que caíram dentro dele, para uma queda curta aparecer. Carrega só as linhas dos
+anúncios deste produto."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.consultas.oportunidades import AnuncioResumo, Encerrada, linha_oportunidade
@@ -101,20 +103,26 @@ def _curva_amazon(s, anuncios, desde, agora, regras, zona) -> tuple[str, list[Po
     escala = "dia" if agora - inicio > LIMITE_POR_HORA else "hora"
     passo = timedelta(days=1) if escala == "dia" else timedelta(hours=1)
     pontos, ultima, i = [], {}, 0
+
+    def elegivel(leitura, vendedor) -> bool:
+        return leitura.preco is not None and motor.vendedor_elegivel(
+            leitura.envio, vendedor_do_motor(vendedor), regras)
+
     balde = _truncar(inicio, escala, zona)
     while balde <= agora:
         fim = balde + passo
+        candidatas = [  # o que vinha valendo do intervalo anterior (até 26 h depois da leitura)
+            leitura for leitura, vendedor in ultima.values()
+            if leitura.coletado_em >= balde - VALIDADE_LEITURA and elegivel(leitura, vendedor)
+        ]
         while i < len(linhas) and linhas[i][0].coletado_em < fim:
             leitura, vendedor = linhas[i]
             ultima[leitura.anuncio_id] = (leitura, vendedor)
+            if elegivel(leitura, vendedor):
+                candidatas.append(leitura)
             i += 1
-        validos = [
-            leitura for leitura, vendedor in ultima.values()
-            if leitura.preco is not None and leitura.coletado_em >= balde - VALIDADE_LEITURA
-            and motor.vendedor_elegivel(leitura.envio, vendedor_do_motor(vendedor), regras)
-        ]
-        if validos:
-            menor = min(validos, key=lambda l: l.preco)
+        if candidatas:
+            menor = min(candidatas, key=lambda l: l.preco)
             pontos.append(PontoAmazon(balde, menor.preco, titulos[menor.anuncio_id]))
         balde = _truncar(fim, escala, zona) if escala == "hora" else (balde + passo).astimezone(zona).replace(hour=0)
     return escala, pontos
@@ -141,8 +149,10 @@ def historico_produto(
         select(ResumoPreco).where(ResumoPreco.produto_id == produto_id, ResumoPreco.preco_medio.is_not(None),
                                   *periodo_resumo).order_by(ResumoPreco.coletado_em))]
     ops = list(s.scalars(
-        select(Oportunidade).where(Oportunidade.produto_id == produto_id,
-                                   *([] if desde is None else [Oportunidade.aberta_em >= desde]))
+        select(Oportunidade).where(
+            Oportunidade.produto_id == produto_id,
+            *([] if desde is None else [func.coalesce(
+                Oportunidade.deixou_de_valer_em, Oportunidade.fechada_em, agora) >= desde]))
         .order_by(Oportunidade.aberta_em.desc())
     ))
     faixas = [Faixa(op.id, op.aberta_em, op.deixou_de_valer_em or op.fechada_em or agora, op.fechada_em is None,
