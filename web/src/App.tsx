@@ -12,8 +12,9 @@ import { SemAcesso } from "./paginas/SemAcesso";
 import { Usuarios } from "./paginas/Usuarios";
 import { SessaoProvider, useSessao } from "./sessao";
 
-// A página Oportunidades traz o Recharts: vai num pedaço próprio, carregado só ao abrir a rota.
+// As páginas Oportunidades e Produto trazem o Recharts: vão em pedaços próprios, carregados só ao abrir a rota.
 const Oportunidades = lazy(() => import("./paginas/Oportunidades").then((m) => ({ default: m.Oportunidades })));
+const Produto = lazy(() => import("./paginas/Produto").then((m) => ({ default: m.Produto })));
 
 export function Rotas() {
   const { sessao, recarregar } = useSessao();
@@ -29,6 +30,18 @@ export function Rotas() {
               <Exige permissao="ver_oportunidades">
                 <Suspense fallback={<Carregando />}>
                   <Oportunidades />
+                </Suspense>
+              </Exige>
+            </Exige>
+          }
+        />
+        <Route
+          path="/produtos/:id"
+          element={
+            <Exige permissao="ver_area_negocio">
+              <Exige permissao="ver_oportunidades">
+                <Suspense fallback={<Carregando />}>
+                  <Produto />
                 </Suspense>
               </Exige>
             </Exige>
