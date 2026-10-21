@@ -57,7 +57,7 @@ class Config(BaseSettings):
     r2_bucket_imagens: str | None = None
     r2_imagens_access_key_id: SecretStr | None = None  # vazias: usa as chaves dos backups
     r2_imagens_secret_access_key: SecretStr | None = None
-    url_publica_imagens: str | None = None  # https://<bucket>.r2.dev ou https://img.<domínio>, sem barra no fim
+    url_publica_imagens: str | None = None  # https://pub-<código>.r2.dev ou https://img.<domínio>, sem barra no fim
 
     @field_validator("liga_categorias")
     @classmethod
