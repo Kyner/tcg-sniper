@@ -7,15 +7,22 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
-1. Escolher a próxima frente de código: site novo, fase 3 (área administrativa + auditoria de layout + botões do par, depois fase 4) ou seção 1 (segurança do login, **obrigatória antes de publicar na internet ou vender acesso**).
-2. Acompanhar ao longo dos dias (seção 3), sem prazo: carga das coletas, gasto da IA e casamento por par.
-3. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
-4. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
-5. Margem líquida (seção 4), quando o grupo tiver os valores.
+1. Site novo, fase 3 (spec `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`): entregas 3A Casamentos e Catálogo → 3B Serviços, Atividade e Dashboard → 3C Configurações, Ofertas e Mensagens; depois fase 4. Antes ou junto: o bug do nome em Logs e o atraso do monitor (seção 0).
+2. Seção 1 (segurança do login), **obrigatória antes de publicar na internet ou vender acesso**.
+3. Acompanhar ao longo dos dias (seção 3), sem prazo: carga das coletas, gasto da IA e casamento por par.
+4. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
+5. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
+6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
 
 Nenhum no momento.
+
+### Achados da auditoria de UX de 2026-10-21 (fora do desenho da fase 3)
+
+- [ ] **Logs › Monitor e Logs › Checkout mostram o mesmo produto em todas as linhas** (só exibição; os casamentos estão certos). `_produto_da_linha` (`admin/consultas.py`) monta duas subconsultas aninhadas que perdem a correlação: o SQL sai com `FROM oportunidade, conferencia_checkout`. Corrigir com `correlate_except` nas duas e um teste com dois anúncios de produtos diferentes. A Atividade da fase 3 já nasce certa.
+- [ ] **Monitor da Amazon atrasado (473 anúncios com leitura vencida em 2026-10-21)**: 521 confirmados a cada 15 min pedem ~2.084 páginas/h; o teto é 1.000, mas com pausa de 8–20 s um navegador faz ~257 páginas/h (conta aproximada, não medida). Decidir: intervalo maior (ex.: 30–35 min), pausas menores (mais risco de CAPTCHA) ou ler com prioridade os anúncios perto do desconto.
+- [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -119,7 +126,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
   - [x] **A. Fim da oportunidade** (merge `000fa6d`, em produção desde 2026-10-20 21:50): detalhe em "Concluídas".
   - [x] **B. Oportunidades** (merge `27e6364`, em produção desde 2026-10-21 08:44; detalhe em "Concluídas"): ativas e encerradas, linha do tempo e curva de preço (do `preco_amazon`), duração (`aberta_em` até `deixou_de_valer_em`), motivo do encerramento, recorrência por produto, quase oportunidades (casados com desconto entre 10% e o mínimo) e números do período; permissão `ver_oportunidades`. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo`.
   - [ ] **C. Mercado (LigaMagic)**: preço subindo ou caindo (7 e 30 dias), nº de lojas caindo (escassez), esgotou na Liga, preço fora da média de venda, lançamentos, volatilidade; talvez avisos de tendência. Permissão `ver_resultados` (ou `ver_mercado`). Começar com ~3 semanas de histórico (coleta desde 2026-10-13, ou seja, a partir de ~2026-11-03).
-- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem. Pequenas do admin antigo (seção 2) entram junto.
+- [ ] **Site novo, fase 3 — área administrativa** (spec de 2026-10-21: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, a partir da auditoria de UX por tarefa do mesmo dia; entregas 3A → 3B → 3C): migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem. Pequenas do admin antigo (seção 2) entram junto.
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
 - [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
 - [ ] **Vender acesso às oportunidades**: assinantes na área de negócio, no mesmo sistema (sem multi-cliente). Assinatura, pagamento e planos ficam num projeto próprio; a base de permissões finas já veio na fase 1. Depende da seção 1 e de publicar na internet.
