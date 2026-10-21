@@ -147,6 +147,8 @@ class ProdutoLiga(Base):
     nome: Mapped[str] = mapped_column(Text)
     nome_en: Mapped[str | None] = mapped_column(Text)
     imagem_url: Mapped[str | None] = mapped_column(Text)
+    imagem_chave: Mapped[str | None] = mapped_column(Text)  # cópia no bucket de imagens (manutencao/imagens.py)
+    imagem_origem: Mapped[str | None] = mapped_column(Text)  # a imagem_url que foi copiada
     url: Mapped[str] = mapped_column(Text)
     edicao: Mapped[str | None] = mapped_column(Text)
     tipo: Mapped[str | None] = mapped_column(Text)
@@ -248,6 +250,8 @@ class AnuncioAmazon(Base):
     variacao: Mapped[str | None] = mapped_column(Text)
     # Imagem principal: a busca só preenche quando vazia; a página do produto pode trocar.
     imagem_url: Mapped[str | None] = mapped_column(Text)
+    imagem_chave: Mapped[str | None] = mapped_column(Text)  # cópia no bucket de imagens (manutencao/imagens.py)
+    imagem_origem: Mapped[str | None] = mapped_column(Text)  # a imagem_url que foi copiada
     url: Mapped[str] = mapped_column(Text)
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
@@ -277,6 +281,7 @@ class PrecoAmazon(Base):
     """Histórico append-only: uma linha quando o preço (ou vendedor/envio) muda, ou na 1ª leitura do dia."""
 
     __tablename__ = "preco_amazon"
+    __table_args__ = (Index("ix_preco_amazon_anuncio_coletado", "anuncio_id", "coletado_em"),)  # curva do produto
 
     id: Mapped[int] = mapped_column(primary_key=True)
     anuncio_id: Mapped[int] = mapped_column(ForeignKey("anuncio_amazon.id"))
@@ -473,6 +478,7 @@ LIMITES_CONFIG_AMAZON: dict[str, tuple[int, int]] = {
     "checkout_validade_h": (1, 72),
     "descoberta_casados_dias": (1, 60),
     "carencia_encerramento_min": (0, 240),
+    "quase_oportunidade_min_pct": (0, 100),
 }
 
 PADROES_CONFIG_AMAZON: dict[str, object] = {
@@ -499,6 +505,7 @@ PADROES_CONFIG_AMAZON: dict[str, object] = {
     "checkout_validade_h": 6,
     "descoberta_casados_dias": 7,
     "carencia_encerramento_min": 30,
+    "quase_oportunidade_min_pct": 10,
 }
 
 
@@ -542,6 +549,7 @@ class ConfigAmazon(Base):
     checkout_validade_h: Mapped[int] = mapped_column(Integer)
     descoberta_casados_dias: Mapped[int] = mapped_column(Integer)
     carencia_encerramento_min: Mapped[int] = mapped_column(Integer)
+    quase_oportunidade_min_pct: Mapped[int] = mapped_column(Integer)
     # Ligados e desligados em Serviços (fora do formulário de Configurações).
     monitor_ligado: Mapped[bool] = mapped_column(Boolean, server_default="true")
     checkout_ligado: Mapped[bool] = mapped_column(Boolean, server_default="true")

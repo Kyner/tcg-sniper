@@ -93,6 +93,7 @@ def test_migracao_cria_o_vendedor_amazon(s):
         ("margem_candidata_pp", 51),
         ("checkout_validade_h", 0),
         ("descoberta_casados_dias", 61),
+        ("quase_oportunidade_min_pct", 101),
     ],
 )
 def test_config_amazon_recusa_valores_fora_dos_limites(s, campo, valor):
