@@ -4,6 +4,19 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 
 Da mais nova para a mais antiga.
 
+## Oportunidades na área de negócio (2026-10-21)
+
+Faça o backup de sempre antes (ver [Backup do banco](../README.md#backup-do-banco)). A migração `f3b8d1c7a9e2` acrescenta a `config_amazon` o piso da quase oportunidade (padrão 10%), cria um índice no `preco_amazon` (leva alguns segundos com o histórico atual) e acrescenta as colunas da cópia das imagens.
+
+**Bucket de imagens**, no painel da Cloudflare:
+
+1. R2 → criar o bucket `tcg-sniper-imagens`. É um bucket **novo**: o dos backups nunca fica público.
+2. Settings → Public access → habilitar o endereço `r2.dev` (com domínio próprio: Custom Domains → `img.<domínio>`).
+3. Token do R2 com "Object Read & Write" só nesse bucket (ou incluir o bucket no token atual).
+4. No `.env`: `R2_BUCKET_IMAGENS`, `URL_PUBLICA_IMAGENS` (o endereço do passo 2, sem barra no fim) e, se o token for outro, `R2_IMAGENS_ACCESS_KEY_ID` e `R2_IMAGENS_SECRET_ACCESS_KEY`.
+
+Suba tudo junto (`docker compose up -d --build`). A primeira passada copia as imagens em lotes (100 por hora, as das oportunidades primeiro). Confira em Configurações → Amazon o campo "Quase oportunidade a partir de (%)" e a tela `/` do site novo (Oportunidades).
+
 ## Fim da oportunidade (2026-10-20)
 
 Faça o backup de sempre antes (ver [Backup do banco](../README.md#backup-do-banco)). A migração `e7c3a9d5b2f4` acrescenta à `oportunidade` o motivo de encerramento, o risco (carência), o menor preço, a contagem de alertas, a mensagem do alerta e quando a oportunidade deixou de valer (`deixou_de_valer_em`: a primeira leitura ruim ou, sem carência, o encerramento), e a `config_amazon` a carência (30 min). As oportunidades abertas na hora da migração ficam marcadas como "alerta sem registro": quando encerrarem, o grupo recebe o aviso. Suba tudo junto (`docker compose up -d --build`) e confira em Configurações → Amazon → Monitor de preço o campo "Carência para encerrar uma oportunidade (min)" e em Configurações → Avisos os três avisos novos (oferta encerrada, alerta corrigido, oportunidade encerrada técnico), ligados.

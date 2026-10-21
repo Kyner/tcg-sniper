@@ -297,6 +297,13 @@ O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (
 
 Para entrar, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Você é o superadmin: o único que cria, edita, rebaixa ou desativa admins, e ninguém (nem você) o rebaixa ou desativa pelo site. Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); admins comuns gerenciam só operadores e grupo. Em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin. Para passar o superadmin a outra pessoa já cadastrada (ex.: número novo): `docker compose exec api tcg-sniper trocar-superadmin "(DDD) número"` (o antigo continua admin).
 
+A área de negócio do site novo tem duas telas, ambas atrás de `ver_oportunidades`:
+
+- **Oportunidades** (`/`): números do período (7, 30 ou 90 dias), as oportunidades ativas agora (com o selo de risco), as quase lá (casados com desconto entre o piso e o mínimo), um gráfico por dia e a lista das encerradas, com duração e motivo.
+- **Produto** (`/produtos/<id>`): a curva de preço do produto (menor preço elegível da Amazon, "a partir de" e média da Liga, preço alvo), com as faixas em que houve oportunidade, a recorrência e as oportunidades do produto.
+
+As imagens de produto são copiadas para um bucket público do R2 (`R2_BUCKET_IMAGENS`, `URL_PUBLICA_IMAGENS`); sem essas variáveis o site funciona sem fotos.
+
 Permissões de cada papel (padrão; Gestão → Acessos muda as de grupo e operador, e vale na próxima ação de quem já está logado):
 
 | Permissão | Grupo | Operador | Admin |
