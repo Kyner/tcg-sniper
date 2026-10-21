@@ -78,6 +78,7 @@ class ServicoManutencao:
         if self._enviador_imagens is not None and self._http is None:
             self._http = httpx.Client()
         self._imagens_em: datetime | None = None
+        self._falhas_imagens: dict[imagens.ChaveFalha, float] = {}  # pula por 24 h o que falhou (só em memória)
         self._ativo = False
 
     def parar(self) -> None:
@@ -116,7 +117,7 @@ class ServicoManutencao:
         try:
             imagens.copiar_lote(
                 self._sessoes, enviador, self._http, limpar=lambda t: limpar_texto(t, segredos),
-                parar=self._parar.is_set,
+                parar=self._parar.is_set, falhas_recentes=self._falhas_imagens,
             )
         except Exception as erro:  # noqa: BLE001 - a cópia das imagens nunca derruba a manutenção
             log.error("erro inesperado na cópia das imagens: %s", limpar_texto(f"{type(erro).__name__}: {erro}", segredos))
@@ -239,6 +240,9 @@ class ServicoManutencao:
                         "(o bucket das imagens é público)")
         elif self._enviador_imagens is None:
             log.warning("R2_BUCKET_IMAGENS vazia: sem cópia das imagens (as telas saem sem foto)")
+        proprias = (self._config_env.r2_imagens_access_key_id, self._config_env.r2_imagens_secret_access_key)
+        if sum(bool(c and c.get_secret_value().strip()) for c in proprias) == 1:
+            log.warning("Só uma das chaves R2_IMAGENS_* preenchida: usando as chaves dos backups")
         self.inicializar()
         while not self._parar.is_set():
             try:

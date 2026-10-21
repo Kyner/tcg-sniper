@@ -41,8 +41,9 @@ def quase_la(
     s: Session, regras: motor.Regras, piso_pct: int, agora: datetime, limite: int | None = None,
     produto_id: int | None = None,
 ) -> list[QuaseLa]:
+    # Produto com oportunidade aberta (em qualquer anúncio) já está nas Ativas: não aparece aqui.
     aberta = select(Oportunidade.id).where(
-        Oportunidade.anuncio_id == AnuncioAmazon.id, Oportunidade.fechada_em.is_(None)
+        Oportunidade.produto_id == ProdutoLiga.id, Oportunidade.fechada_em.is_(None)
     ).exists()
     consulta = (
         select(ProdutoLiga, AnuncioAmazon, PrecoAtualAmazon, PrecoAtualLiga, VendedorAmazon)
@@ -71,5 +72,11 @@ def quase_la(
             falta_reais=(atual.preco - alvo).quantize(CENTAVO),
             falta_pp=(Decimal(regras.desconto_min_pct) - desconto).quantize(CENTAVO),
         ))
-    itens.sort(key=lambda i: (i.falta_pp, i.produto.nome))
+    # Um item por produto: o anúncio mais perto do mínimo (menor falta_pp).
+    melhor: dict[int, QuaseLa] = {}
+    for item in itens:
+        atual_melhor = melhor.get(item.produto.id)
+        if atual_melhor is None or item.falta_pp < atual_melhor.falta_pp:
+            melhor[item.produto.id] = item
+    itens = sorted(melhor.values(), key=lambda i: (i.falta_pp, i.produto.nome))
     return itens if limite is None else itens[:limite]

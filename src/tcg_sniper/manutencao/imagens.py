@@ -1,12 +1,14 @@
 """Cópia das imagens dos produtos (Liga) e anúncios (Amazon) para o bucket PÚBLICO de imagens no R2: a área de
 negócio nunca aponta para a Liga ou a Amazon (link quebra, entrega o IP de quem vê). Roda no `manutencao`, um lote
-por hora; produto ativo e anúncio casado, os com oportunidade aberta primeiro. Falha de um item não para os outros."""
+por hora; produto ativo e anúncio casado, os com oportunidade aberta primeiro. Falha de um item não para os outros,
+e o item cuja imagem não baixou (ou não é imagem) fica de fora dos lotes seguintes por 24 h (memória do processo, sem
+gravar no banco): assim os quebrados não seguram a fila."""
 
 import hashlib
 import io
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -22,6 +24,8 @@ log = logging.getLogger(__name__)
 LADO_MAX = 600
 QUALIDADE = 80
 MAX_BYTES = 5 * 1024 * 1024
+MAX_PIXELS = 40_000_000  # acima disto recusa antes de decodificar (não gasta memória com imagem gigante)
+PAUSA_FALHA_S = 24 * 3600  # item que falhou ao baixar/converter só é tentado de novo depois disto
 PRAZO_S = 180  # o lote nunca segura o laço da manutenção por mais que isto
 CACHE = "public, max-age=31536000, immutable"
 CABECALHOS = {
@@ -33,6 +37,9 @@ CABECALHOS = {
 
 class ErroImagem(Exception):
     pass
+
+
+ChaveFalha = tuple[str, int, str]  # (tipo, id, url)
 
 
 class EnviadorImagens(Protocol):
@@ -60,6 +67,9 @@ def chave_para(tipo: str, ident: str, origem: str) -> str:
 def para_webp(dados: bytes) -> bytes:
     try:
         imagem = Image.open(io.BytesIO(dados))
+        largura, altura = imagem.size  # lido do cabeçalho, sem decodificar
+        if largura * altura > MAX_PIXELS:
+            raise ErroImagem(f"imagem grande demais ({largura}x{altura})")
         imagem.load()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as erro:
         raise ErroImagem("não é uma imagem") from erro
@@ -94,7 +104,8 @@ def _precisa(coluna_url: Any, coluna_origem: Any) -> tuple[Any, Any]:
     return coluna_url.is_not(None), or_(coluna_origem.is_(None), coluna_origem != coluna_url)
 
 
-def pendentes(s: Session, limite: int) -> list[Alvo]:
+def pendentes(s: Session, limite: int, pular: Container[ChaveFalha] = frozenset()) -> list[Alvo]:
+    """Fila do lote, sem os (tipo, id, url) de `pular` (falharam há pouco)."""
     aberta = select(Oportunidade.produto_id).where(Oportunidade.fechada_em.is_(None))
     casado = select(Casamento.produto_id).where(Casamento.status == StatusCasamento.CONFIRMADO)
     produtos = s.execute(
@@ -113,6 +124,7 @@ def pendentes(s: Session, limite: int) -> list[Alvo]:
     ).all()
     alvos = [(p.prioridade, 0, p.id, Alvo("produtos", p.id, p.liga_id, p.imagem_url)) for p in produtos]
     alvos += [(a.prioridade, 1, a.id, Alvo("anuncios", a.id, a.asin, a.imagem_url)) for a in anuncios]
+    alvos = [x for x in alvos if (x[3].tipo, x[3].id, x[3].url) not in pular]
     alvos.sort(key=lambda x: x[:3])
     return [alvo for *_, alvo in alvos[:limite]]
 
@@ -128,12 +140,20 @@ def copiar_lote(
     sessoes: sessionmaker[Session], enviador: EnviadorImagens, http: httpx.Client, limite: int = 100,
     dormir: Callable[[float], None] = time.sleep, limpar: Callable[[str], str] = lambda t: t,
     prazo_s: float = PRAZO_S, parar: Callable[[], bool] = lambda: False,
-    relogio: Callable[[], float] = time.monotonic,
+    relogio: Callable[[], float] = time.monotonic, falhas_recentes: dict[ChaveFalha, float] | None = None,
 ) -> Resultado:
-    """O lote para quando o prazo estoura ou `parar()` é verdadeiro (o resto vai na próxima rodada)."""
-    limite_em = relogio() + prazo_s
+    """O lote para quando o prazo estoura ou `parar()` é verdadeiro (o resto vai na próxima rodada).
+
+    `falhas_recentes` ((tipo, id, url) → quando falhou, no `relogio`) é guardado por quem chama entre os lotes: o item
+    que não baixou ou não converteu fica de fora por `PAUSA_FALHA_S`. Falha do envio ao R2 não entra (é do R2, não do
+    item)."""
+    inicio = relogio()
+    limite_em = inicio + prazo_s
+    if falhas_recentes is not None:
+        for chave_falha in [c for c, quando in falhas_recentes.items() if inicio - quando >= PAUSA_FALHA_S]:
+            del falhas_recentes[chave_falha]
     with sessoes() as s:
-        alvos = pendentes(s, limite)
+        alvos = pendentes(s, limite, pular=falhas_recentes or frozenset())
     copiadas = falhas = 0
     for i, alvo in enumerate(alvos):
         if parar() or relogio() >= limite_em:
@@ -142,7 +162,13 @@ def copiar_lote(
             dormir(1.0)
         try:
             chave = chave_para(alvo.tipo, alvo.ident, alvo.url)
-            enviador.enviar_bytes(para_webp(baixar(http, alvo.url)), chave, "image/webp", CACHE)
+            try:
+                webp = para_webp(baixar(http, alvo.url))
+            except Exception:
+                if falhas_recentes is not None:
+                    falhas_recentes[(alvo.tipo, alvo.id, alvo.url)] = relogio()
+                raise
+            enviador.enviar_bytes(webp, chave, "image/webp", CACHE)
             with sessoes() as s, s.begin():
                 _marcar(s, alvo, chave)
             copiadas += 1

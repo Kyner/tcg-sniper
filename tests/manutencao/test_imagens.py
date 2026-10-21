@@ -4,7 +4,7 @@ from decimal import Decimal
 import httpx
 import pytest
 from fakes import T0, criar_anuncio, criar_produto
-from PIL import Image
+from PIL import Image, ImageFile
 
 from tcg_sniper.db.models import AnuncioAmazon, Envio, Oportunidade, ProdutoLiga, StatusCasamento
 from tcg_sniper.manutencao import imagens
@@ -235,3 +235,108 @@ def test_bucket_das_imagens_igual_ao_dos_backups_desliga_a_copia(config, caplog)
     with caplog.at_level(logging.WARNING):
         servico.rodar()
     assert "igual ao bucket dos backups" in caplog.text
+
+
+def test_para_webp_recusa_acima_de_40_megapixels(monkeypatch):
+    saida = io.BytesIO()
+    Image.new("1", (8000, 5001)).save(saida, "PNG")  # 40,008 MP, arquivo pequeno
+    chamadas = []
+    monkeypatch.setattr(ImageFile.ImageFile, "load", lambda self: chamadas.append(1))
+    with pytest.raises(imagens.ErroImagem, match="grande demais"):
+        imagens.para_webp(saida.getvalue())
+    assert chamadas == []  # recusada antes de decodificar
+
+
+def test_falha_fica_de_fora_por_24h_e_nao_segura_a_fila(sessoes):
+    with sessoes() as s, s.begin():
+        for nome in ("a", "b", "c"):
+            criar_produto(s, nome).imagem_url = f"https://liga.test/{nome}.jpg"
+    pedidos = []
+    respostas = {"https://liga.test/a.jpg": httpx.Response(404), "https://liga.test/b.jpg": httpx.Response(404),
+                 "https://liga.test/c.jpg": _ok_png()}
+
+    def responder(req):
+        pedidos.append(str(req.url).rsplit("/", 1)[1])
+        return respostas[str(req.url)]
+
+    http = httpx.Client(transport=httpx.MockTransport(responder))
+    falhas: dict = {}
+    agora = [1000.0]
+    lote = {"limite": 2, "dormir": lambda _s: None, "relogio": lambda: agora[0], "falhas_recentes": falhas}
+    assert imagens.copiar_lote(sessoes, EnviadorFalso(), http, **lote) == imagens.Resultado(0, 2)
+    assert pedidos == ["a.jpg", "b.jpg"] and len(falhas) == 2
+    pedidos.clear()
+    agora[0] += imagens.PAUSA_FALHA_S - 1  # antes de 24 h: só o seguinte da fila
+    assert imagens.copiar_lote(sessoes, EnviadorFalso(), http, **lote) == imagens.Resultado(1, 0)
+    assert pedidos == ["c.jpg"]
+    pedidos.clear()
+    agora[0] += 1  # 24 h depois da falha: tenta de novo
+    assert imagens.copiar_lote(sessoes, EnviadorFalso(), http, **lote) == imagens.Resultado(0, 2)
+    assert pedidos == ["a.jpg", "b.jpg"]
+
+
+def test_r2_fora_nao_tira_o_item_da_fila(sessoes):
+    with sessoes() as s, s.begin():
+        criar_produto(s, "r2fora").imagem_url = "https://liga.test/r2fora.jpg"
+    falhas: dict = {}
+    imagens.copiar_lote(sessoes, EnviadorFalso(falhar_em=("produtos/",)), _http({"https://liga.test/r2fora.jpg":
+                        _ok_png()}), limite=10, dormir=lambda _s: None, falhas_recentes=falhas)
+    assert falhas == {}
+
+
+def test_servico_guarda_as_falhas_entre_os_lotes(monkeypatch, sessoes, config):
+    from datetime import UTC, datetime, timedelta
+
+    from fakes import AvisadorFake
+
+    from tcg_sniper.manutencao.servico import ServicoManutencao
+
+    class Relogio:
+        agora = datetime(2026, 10, 14, 10, 0, tzinfo=UTC)
+
+        def __call__(self):
+            return self.agora
+
+    recebidas = []
+    monkeypatch.setattr(imagens, "copiar_lote", lambda *a, **k: recebidas.append(k["falhas_recentes"]))
+    relogio = Relogio()
+    servico = ServicoManutencao(sessoes, config, AvisadorFake(), None, relogio=relogio, dormir=lambda _: None,
+                                enviador_imagens=EnviadorFalso(), http=_http({}))
+    servico.tick()
+    relogio.agora += timedelta(hours=1)
+    servico.tick()
+    assert len(recebidas) == 2 and recebidas[0] is recebidas[1]
+
+
+@pytest.mark.parametrize("campo", ["r2_imagens_access_key_id", "r2_imagens_secret_access_key"])
+def test_so_uma_chave_propria_das_imagens_avisa(config, caplog, campo):
+    import logging
+
+    from fakes import AvisadorFake
+
+    from tcg_sniper.manutencao.servico import ServicoManutencao
+
+    metade = config.model_validate({**config.model_dump(), campo: "so-esta"})
+    servico = ServicoManutencao(None, metade, AvisadorFake(), None, enviador_imagens=EnviadorFalso(), http=_http({}))
+    servico.parar()
+    servico.inicializar = lambda: None
+    with caplog.at_level(logging.WARNING):
+        servico.rodar()
+    assert "Só uma das chaves R2_IMAGENS_* preenchida: usando as chaves dos backups" in caplog.text
+
+
+def test_as_duas_chaves_proprias_nao_avisam(config, caplog):
+    import logging
+
+    from fakes import AvisadorFake
+
+    from tcg_sniper.manutencao.servico import ServicoManutencao
+
+    ambas = config.model_validate({**config.model_dump(), "r2_imagens_access_key_id": "id",
+                                   "r2_imagens_secret_access_key": "segredo"})
+    servico = ServicoManutencao(None, ambas, AvisadorFake(), None, enviador_imagens=EnviadorFalso(), http=_http({}))
+    servico.parar()
+    servico.inicializar = lambda: None
+    with caplog.at_level(logging.WARNING):
+        servico.rodar()
+    assert "R2_IMAGENS_*" not in caplog.text

@@ -52,3 +52,24 @@ def test_quase_la_so_elegiveis_entre_o_piso_e_o_minimo(s):
     assert itens[0].falta_pp == Decimal("5.00")
     assert [i.produto.nome for i in quase_la(s, REGRAS, 10, AGORA, limite=1)] == ["Produto perto"]
     assert [i.produto.nome for i in quase_la(s, REGRAS, 10, AGORA, produto_id=longe.id)] == ["Produto longe"]
+
+
+def test_quase_la_um_item_por_produto_o_mais_perto(s):
+    p = _produto(s, "dois")
+    criar_atual_amazon(s, criar_anuncio(s, "B0QUASE011", p, StatusCasamento.CONFIRMADO), "880.00")  # 12%
+    criar_atual_amazon(s, criar_anuncio(s, "B0QUASE012", p, StatusCasamento.CONFIRMADO), "850.00")  # 15%
+
+    itens = quase_la(s, REGRAS, 10, AGORA)
+    assert [i.produto.nome for i in itens] == ["Produto dois"]
+    assert itens[0].desconto_pct == Decimal("15.00")
+
+
+def test_quase_la_ignora_produto_com_ativa_em_outro_anuncio(s):
+    p = _produto(s, "ativa")
+    a = criar_anuncio(s, "B0QUASE013", p, StatusCasamento.CONFIRMADO)
+    criar_atual_amazon(s, a, "790.00")
+    criar_oportunidade(s, a, p, aberta_em=T0)
+    criar_atual_amazon(s, criar_anuncio(s, "B0QUASE014", p, StatusCasamento.CONFIRMADO), "850.00")  # na faixa
+
+    assert quase_la(s, REGRAS, 10, AGORA) == []
+    assert quase_la(s, REGRAS, 10, AGORA, produto_id=p.id) == []
