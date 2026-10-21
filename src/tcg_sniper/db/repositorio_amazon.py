@@ -20,6 +20,7 @@ from tcg_sniper.db.models import (
     ConfigAmazon,
     Envio,
     FilaAmazon,
+    MotivoEncerramento,
     OfertaAmazon,
     Oportunidade,
     OrigemPreco,
@@ -333,7 +334,7 @@ def abrir_oportunidade(
     op = Oportunidade(
         anuncio_id=anuncio_id, produto_id=produto_id, preco_amazon=preco_amazon, preco_liga=preco_liga,
         desconto_pct=desconto_pct, vendedor_id=vendedor_id, envio=envio, aberta_em=agora,
-        alertada_em=agora, preco_alertado=preco_amazon, alerta_conferido=conferido,
+        alertada_em=agora, preco_alertado=preco_amazon, alerta_conferido=conferido, menor_preco=preco_amazon,
     )
     s.add(op)
     s.flush()
@@ -354,30 +355,36 @@ def atualizar_oportunidade(
     conferido: bool,
 ) -> None:
     """`conferido` (obrigatório, sem padrão; só vale com `alertou`): o novo aviso sai com o preço
-    conferido no checkout (True) ou com o anunciado (False)."""
+    conferido no checkout (True) ou com o anunciado (False). Toda leitura elegível tira o risco e acompanha
+    o menor preço. Quem soma em `alertas` é o monitor, quando o realerta enfileira a mensagem."""
     op.preco_amazon, op.preco_liga, op.desconto_pct = preco_amazon, preco_liga, desconto_pct
     op.vendedor_id, op.envio = vendedor_id, envio
+    op.menor_preco = min(op.menor_preco, preco_amazon)
+    op.em_risco_desde = op.motivo_risco = None
     if alertou:
         op.alertada_em, op.preco_alertado, op.alerta_conferido = agora, preco_amazon, conferido
     s.flush()
 
 
-def fechar_oportunidade(s: Session, op: Oportunidade, agora: datetime) -> None:
-    op.fechada_em = agora
+def marcar_risco(s: Session, op: Oportunidade, motivo: MotivoEncerramento, agora: datetime) -> None:
+    """Leitura não elegível dentro da carência: guarda desde quando (a primeira) e o motivo (o da última)."""
+    if op.em_risco_desde is None:
+        op.em_risco_desde = agora
+    op.motivo_risco = motivo
     s.flush()
 
 
 def fechar_oportunidades_sem_leitura(s: Session, agora: datetime, horas: int = 24) -> int:
-    """Fecha as abertas cujo anúncio não aparece em nenhuma busca há `horas` horas."""
+    """Encerra (motivo `sem_leitura`) as abertas cujo anúncio não aparece em nenhuma leitura há `horas` horas."""
+    from tcg_sniper.oportunidades import encerramento  # import tardio: o encerramento usa os repositórios
+
     velhos = select(AnuncioAmazon.id).where(AnuncioAmazon.visto_ultimo_em < agora - timedelta(hours=horas))
-    resultado = s.execute(
-        update(Oportunidade)
+    ids = list(s.scalars(
+        select(Oportunidade.id)
         .where(Oportunidade.fechada_em.is_(None), Oportunidade.anuncio_id.in_(velhos))
-        .values(fechada_em=agora)
-        .execution_options(synchronize_session=False)
-    )
-    s.flush()
-    return resultado.rowcount
+        .order_by(Oportunidade.id)
+    ))
+    return sum(encerramento.encerrar(s, op_id, MotivoEncerramento.SEM_LEITURA, agora) for op_id in ids)
 
 
 # --- link manual ----------------------------------------------------------------------------

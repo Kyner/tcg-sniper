@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
-from tcg_sniper.db.models import Casamento, Envio, OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import Casamento, Envio, MensagemSaida, Oportunidade, OrigemCasamento, StatusCasamento
 
 PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO
 MANUAL, OUTRO = OrigemCasamento.MANUAL, OrigemCasamento.OUTRO_CONFIRMADO
@@ -488,3 +488,18 @@ def test_reabrir_ingles_aplicando(s):
 
 def repo_casamento_avaliacao(s, anuncio_id, produto_id):
     return repo_ia.avaliacoes_dos_pares(s, [(anuncio_id, produto_id)])[(anuncio_id, produto_id)]
+
+
+def test_desfazer_o_confirmado_encerra_a_oportunidade_como_casamento_desfeito(s):
+    p = criar_produto(s, "cas-fim")
+    a = criar_anuncio(s, "B0CASFIM01", produto=p, status=CONFIRMADO)
+    s.add(Oportunidade(
+        anuncio_id=a.id, produto_id=p.id, preco_amazon=Decimal(700), preco_liga=Decimal(1000),
+        desconto_pct=Decimal(30), envio=Envio.AMAZON, aberta_em=T0, alertada_em=T0,
+        preco_alertado=Decimal(700), menor_preco=Decimal(700), alerta_sem_registro=True,
+    ))
+    s.flush()
+    repo_casamento.desfazer(s, a.id, p.id, T0 + timedelta(hours=1))
+    op = s.scalar(select(Oportunidade))
+    assert op.motivo_encerramento == "casamento_desfeito" and op.fechada_em is not None
+    assert any("Alerta corrigido" in m.texto for m in s.scalars(select(MensagemSaida)))

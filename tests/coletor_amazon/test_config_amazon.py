@@ -91,3 +91,10 @@ def test_explicacoes_dos_tetos_falam_da_soma_no_mesmo_endereco():
     assert "busca" in EXPLICACOES["max_buscas_hora"] and "soma" in EXPLICACOES["max_buscas_hora"]
     assert "busca" in EXPLICACOES["janela_inicio"] and "busca" in EXPLICACOES["janela_fim"]
     assert "soma" in EXPLICACOES["monitor_max_paginas_hora"]
+
+
+def test_carencia_tem_limites():
+    _, erros = validar_config(formulario(carencia_encerramento_min="241"))
+    assert "carencia_encerramento_min" in erros
+    _, erros = validar_config(formulario(carencia_encerramento_min="0"))
+    assert "carencia_encerramento_min" not in erros

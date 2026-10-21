@@ -3,7 +3,7 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-20 (README revisto para publicação e comercialização; antes: leitura por interesse da LigaMagic em produção desde 2026-10-20 08:30).
+Última revisão: 2026-10-20 (fim da oportunidade entregue; README revisto para publicação e comercialização; antes: leitura por interesse da LigaMagic em produção desde 2026-10-20 08:30).
 
 ## 0. Crítico
 
@@ -21,6 +21,8 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
+- [ ] Oportunidade aberta há mais de 30 dias sem realerta perde o vínculo com a mensagem (limpeza apaga a mensagem) e não avisa o encerramento; aceito por ora (rara).
+- [ ] Fim da oportunidade: se um realerta ainda está na fila quando a oportunidade encerra, o vínculo aponta para ele, que é descartado, e o aviso de encerramento não sai mesmo que o grupo tenha visto o alerta anterior (exige o WhatsApp fora por mais que a carência). Avaliar guardar se algum alerta da oportunidade saiu.
 - [ ] Idioma: produtos com casamento confirmado antes da regra de idioma (todos os ~50 de 2026-10-19) ficam como "não se sabe se tem português confirmado", então anúncios novos em inglês deles ficam pendentes para você em vez de o automático confirmar. Seguro para produtos em português; para quem tem a edição em inglês confirmada à mão, os irmãos em inglês nunca confirmam sozinhos. Corrigir com um preenchimento único do idioma dos anúncios confirmados (IA ou à mão, botão "definir idioma").
 - [ ] Idioma: anúncio com idioma "indefinido" ainda pode ser confirmado pelo automático mesmo com português confirmado no produto (pequena brecha na regra "inglês só sem português").
 - [ ] `reabrir-ingles`: o filtro por motivo é aproximado (pega "idioma" que não é sobre idioma; descarta motivo em inglês que só cita japonês). Conferir o número do dry-run (esperado perto de 24) antes do `--aplicar`.
@@ -69,7 +71,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 ## 4. Próximas funcionalidades (decisão do grupo)
 
 - [ ] **Site novo, fase 2 — área de negócio**, em três sub-projetos (decidido em 2026-10-20: a informação estratégica é o produto; telas com gráficos e acompanhamento):
-  - [ ] **A. Fim da oportunidade**: motivo de encerramento, carência de 30 min e avisos "oferta encerrada" / "alerta corrigido" (grupo de oportunidades) e técnico (grupo admin). Spec `docs/superpowers/specs/2026-10-20-fim-da-oportunidade-design.md`.
+  - [x] **A. Fim da oportunidade** (merge `pendente`): detalhe em "Concluídas".
   - [ ] **B. Oportunidades**: ativas e encerradas, linha do tempo e curva de preço (do `preco_amazon`), duração, recorrência por produto, quase oportunidades (casados com desconto entre 10% e o mínimo) e números do período; permissão `ver_oportunidades`. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo`.
   - [ ] **C. Mercado (LigaMagic)**: preço subindo ou caindo (7 e 30 dias), nº de lojas caindo (escassez), esgotou na Liga, preço fora da média de venda, lançamentos, volatilidade; talvez avisos de tendência. Permissão `ver_resultados` (ou `ver_mercado`). Começar com ~3 semanas de histórico (desde 2026-10-13).
 - [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem.
@@ -124,6 +126,15 @@ Nenhuma no momento.
 6. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## Concluídas
+
+### Fim da oportunidade (2026-10-20, merge `pendente`)
+
+Spec `docs/superpowers/specs/2026-10-20-fim-da-oportunidade-design.md`; migração `e7c3a9d5b2f4`.
+
+- [x] Motivo de encerramento e carência (Configurações → Amazon → Monitor de preço, padrão 30 min, 0 a 240): a oportunidade só encerra depois de ficar fora das condições pela carência; oscilação mais curta não gera aviso.
+- [x] Avisos: "⏹️ Oferta encerrada · <motivo>" e "⚠️ Alerta corrigido" no grupo de oportunidades; "🟡 Oportunidade encerrada · <motivo técnico>" no grupo admin. Num realerta, o alerta anterior ainda pendente é descartado (vale o preço mais novo).
+- [x] Alerta ligado à mensagem: o encerramento só avisa se o alerta saiu de fato (expirado ou ainda na fila não gera aviso).
+- [x] Selo "em risco desde HH:MM · <motivo>" em Ofertas.
 
 ### README para publicação e comercialização (2026-10-20)
 

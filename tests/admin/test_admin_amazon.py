@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
@@ -17,6 +18,8 @@ from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     Envio,
     EstadoColetorTipo,
+    MotivoEncerramento,
+    Oportunidade,
     OrigemPreco,
     StatusCasamento,
     StatusColeta,
@@ -90,6 +93,7 @@ def formulario_padrao(**mudancas):
         "margem_candidata_pp": "5",
         "checkout_validade_h": "6",
         "descoberta_casados_dias": "7",
+        "carencia_encerramento_min": "30",
     }
     campos.update({k: str(v) for k, v in mudancas.items()})
     return campos
@@ -167,6 +171,38 @@ def test_ofertas_melhor_oferta_por_produto_ordenada_por_desconto(s):
     assert linhas[0].aberta and linhas[0].confiavel and not linhas[1].aberta
     assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(desconto_min=config.desconto_min_pct), config)] == [ff.id]
     assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(situacao="abertas"), config)] == [ff.id]
+
+
+def test_ofertas_mostra_o_risco_da_oportunidade(s):
+    ff, *_ = preparar_ofertas(s)
+    config = repo_amz.obter_config(s)
+    op = s.scalar(select(Oportunidade).where(Oportunidade.produto_id == ff.id, Oportunidade.fechada_em.is_(None)))
+    op.em_risco_desde, op.motivo_risco = T0, MotivoEncerramento.PRECO_SUBIU
+    s.flush()
+    [linha] = [l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
+    assert linha.risco == (T0, "preço subiu")
+
+
+@pytest.mark.parametrize("risco_no_da_linha", [True, False])
+def test_ofertas_mostra_o_risco_da_oportunidade_do_proprio_anuncio(s, risco_no_da_linha):
+    """Duas oportunidades abertas em anúncios diferentes do mesmo produto: o selo da linha (a oferta mais
+    barata, B02) é o da oportunidade desse anúncio, não o de outro anúncio do produto."""
+    ff, _, _, barato = preparar_ofertas(s)
+    config = repo_amz.obter_config(s)
+    caro = anuncio_com_preco(s, "B05", ff, "900.00", status=StatusCasamento.CONFIRMADO)  # id depois do da linha
+    outra = repo_amz.abrir_oportunidade(
+        s, anuncio_id=caro.id, produto_id=ff.id, preco_amazon=Decimal("900.00"), preco_liga=Decimal("1000.00"),
+        desconto_pct=Decimal("10.00"), vendedor_id=None, envio=Envio.AMAZON, agora=T0, conferido=False,
+    )
+    da_linha = s.scalar(select(Oportunidade).where(Oportunidade.anuncio_id == barato.id))
+    em_risco = da_linha if risco_no_da_linha else outra
+    em_risco.em_risco_desde, em_risco.motivo_risco = T0, MotivoEncerramento.PRECO_SUBIU
+    s.flush()
+    outra.preco_amazon = Decimal("899.00")  # a do outro anúncio é a última gravada (e a última lida)
+    s.flush()
+    [linha] = [l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
+    assert linha.anuncio.id == barato.id and linha.aberta
+    assert linha.risco == ((T0, "preço subiu") if risco_no_da_linha else None)
 
 
 def test_lojista_fba_confiavel_ou_nao(s):

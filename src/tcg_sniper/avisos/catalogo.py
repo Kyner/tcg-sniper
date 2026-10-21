@@ -17,6 +17,8 @@ class Severidade(StrEnum):
     CONCLUIDO = "concluido"
     OPORTUNIDADE = "oportunidade"
     ACESSO = "acesso"
+    ENCERRADA = "encerrada"
+    CORRECAO = "correcao"
 
 
 EMOJI = {
@@ -25,6 +27,8 @@ EMOJI = {
     Severidade.CONCLUIDO: "✅",
     Severidade.OPORTUNIDADE: "💰",
     Severidade.ACESSO: "🔑",
+    Severidade.ENCERRADA: "⏹️",
+    Severidade.CORRECAO: "⚠️",
 }
 EMOJI_RESOLVIDO = "✅"
 
@@ -61,6 +65,9 @@ class TipoAviso(StrEnum):
     SERVICO_PAUSADO_MANUAL = "servico_pausado_manual"
     MENSAGEM_NAO_ENVIADA = "mensagem_nao_enviada"
     OPORTUNIDADE = "oportunidade"
+    OPORTUNIDADE_ENCERRADA = "oportunidade_encerrada"
+    OPORTUNIDADE_CORRIGIDA = "oportunidade_corrigida"
+    OPORTUNIDADE_ENCERRADA_TECNICO = "oportunidade_encerrada_tecnico"
     CODIGO_ACESSO = "codigo_acesso"
     SEGURANCA_USUARIO = "seguranca_usuario"
     SEGURANCA_LIMITE = "seguranca_limite"
@@ -107,6 +114,7 @@ LIGA, AMAZON, MONITOR, IA = "coletor Liga", "coletor Amazon", "monitor Amazon", 
 BUSCA = "busca Amazon"
 MANUTENCAO, VIGIA, ADMIN, NOTIFICADOR = "manutenção", "vigia", "admin", "notificador"
 ACESSO = "acesso"
+CASAMENTOS = "casamentos"
 
 
 def _problema(
@@ -368,6 +376,40 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
             ),
             link_produto="https://www.amazon.com.br/dp/B0TESTE123",
         ),
+    ),
+    TipoAviso.OPORTUNIDADE_ENCERRADA: DefinicaoAviso(
+        Severidade.ENCERRADA, Destino.OPORTUNIDADES, "Oferta encerrada", MONITOR,
+        "Uma oportunidade avisada acabou (preço subiu, oferta sumiu, Liga baixou ou vendedor mudou), depois da "
+        "carência de Configurações → Amazon.",
+        Dados(
+            titulo_extra="preço subiu",
+            destaque="Final Fantasy - Caixa de Booster de Jogo",
+            linhas=(
+                "Durou 3 h 20 min (desde 18/10 10:15)",
+                ("Alerta: ", Negrito("R$ 1.299,90"), " → agora: ", Negrito("R$ 1.549,90")),
+                "Liga: a partir de R$ 1.589,00",
+            ),
+            link_produto="https://www.amazon.com.br/dp/B0TESTE123",
+        ),
+    ),
+    TipoAviso.OPORTUNIDADE_CORRIGIDA: DefinicaoAviso(
+        Severidade.CORRECAO, Destino.OPORTUNIDADES, "Alerta corrigido", CASAMENTOS,
+        "O casamento de uma oportunidade avisada foi desfeito, ignorado ou trocado: o alerta era de outro produto.",
+        Dados(
+            destaque="Final Fantasy - Caixa de Booster de Jogo",
+            linhas=("O alerta de 18/10 10:15 era de outro produto: desconsidere.",),
+        ),
+    ),
+    TipoAviso.OPORTUNIDADE_ENCERRADA_TECNICO: DefinicaoAviso(
+        A, Destino.ADMIN, "Oportunidade encerrada", MONITOR,
+        "Uma oportunidade avisada fechou por motivo técnico (preço da Liga desatualizado ou anúncio sem leitura); "
+        "a oferta pode continuar existindo.",
+        Dados(
+            titulo_extra="anúncio sem leitura",
+            destaque="Final Fantasy - Caixa de Booster de Jogo",
+            linhas=("Durou 26 h 5 min (desde 18/10 10:15)",),
+        ),
+        acao="Confira Admin → Serviços (LigaMagic e Amazon (monitor e checkout)).",
     ),
     TipoAviso.CODIGO_ACESSO: DefinicaoAviso(
         Severidade.ACESSO, Destino.INDIVIDUAL, "Código de acesso", ACESSO,

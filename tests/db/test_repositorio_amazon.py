@@ -17,6 +17,9 @@ from tcg_sniper.db.models import (
     AnuncioAmazon,
     Envio,
     FilaAmazon,
+    MensagemSaida,
+    MotivoEncerramento,
+    Oportunidade,
     OrigemCasamento,
     OrigemPreco,
     PrecoAmazon,
@@ -257,7 +260,7 @@ def test_vendedores(s):
     assert v2.id == v.id and v2.num_avaliacoes == 2400
 
 
-def test_oportunidade_abrir_atualizar_fechar(s):
+def test_oportunidade_abrir_atualizar_e_risco(s):
     produto = criar_produto(s)
     anuncio = criar_anuncio(s, produto=produto, status=StatusCasamento.CONFIRMADO)
     amazon = repo.vendedor_da_amazon(s)
@@ -275,9 +278,18 @@ def test_oportunidade_abrir_atualizar_fechar(s):
         vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=True, agora=depois, conferido=False,
     )
     assert (op.preco_amazon, op.alertada_em, op.preco_alertado) == (Decimal("650.00"), depois, Decimal("650.00"))
+    assert (op.alertas, op.menor_preco) == (1, Decimal("650.00"))  # quem soma `alertas` é o aviso enfileirado
 
-    repo.fechar_oportunidade(s, op, depois)
-    assert repo.oportunidade_aberta(s, anuncio.id) is None
+    repo.marcar_risco(s, op, MotivoEncerramento.PRECO_SUBIU, depois)
+    repo.marcar_risco(s, op, MotivoEncerramento.OFERTA_SUMIU, depois + timedelta(minutes=10))
+    assert (op.em_risco_desde, op.motivo_risco) == (depois, MotivoEncerramento.OFERTA_SUMIU)  # a primeira, o último
+
+    repo.atualizar_oportunidade(  # leitura boa sem realerta: tira o risco, o menor preço fica
+        s, op, preco_amazon=Decimal("690.00"), preco_liga=Decimal("1000.00"), desconto_pct=Decimal("31.00"),
+        vendedor_id=amazon.id, envio=Envio.AMAZON, alertou=False, agora=depois, conferido=False,
+    )
+    assert (op.em_risco_desde, op.motivo_risco, op.alertas, op.menor_preco) == (None, None, 1, Decimal("650.00"))
+    assert repo.oportunidade_aberta(s, anuncio.id).id == op.id
 
 
 def test_conferido_e_obrigatorio_ao_abrir_e_ao_atualizar_oportunidade(s):
@@ -309,6 +321,23 @@ def test_fechar_oportunidades_sem_leitura_ha_24h(s):
     assert repo.fechar_oportunidades_sem_leitura(s, T0 + timedelta(hours=25)) == 1
     assert repo.oportunidade_aberta(s, velho.id) is None
     assert repo.oportunidade_aberta(s, novo.id) is not None
+
+
+def test_sem_leitura_ha_24h_encerra_como_sem_leitura(s):
+    p = criar_produto(s, "sem-lei")
+    a = criar_anuncio(s, "B0SEMLEI01", produto=p, status=StatusCasamento.CONFIRMADO)
+    a.visto_ultimo_em = T0 - timedelta(hours=25)
+    s.add(Oportunidade(
+        anuncio_id=a.id, produto_id=p.id, preco_amazon=Decimal(700), preco_liga=Decimal(1000),
+        desconto_pct=Decimal(30), envio=Envio.AMAZON, aberta_em=T0 - timedelta(hours=26),
+        alertada_em=T0 - timedelta(hours=26), preco_alertado=Decimal(700), menor_preco=Decimal(700),
+        alerta_sem_registro=True,
+    ))
+    s.flush()
+    assert repo.fechar_oportunidades_sem_leitura(s, T0) == 1
+    assert s.scalar(select(Oportunidade)).motivo_encerramento == "sem_leitura"
+    [aviso] = s.scalars(select(MensagemSaida)).all()
+    assert aviso.destino == "admin"
 
 
 def test_confirmados_com_referencia_reflete_preco_registrado_na_mesma_sessao(s):

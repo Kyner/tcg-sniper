@@ -26,6 +26,7 @@ from tcg_sniper.db.models import (
     ConfigAmazon,
     Envio,
     FilaAmazon,
+    MotivoEncerramento,
     OfertaAmazon,
     Oportunidade,
     OrigemCasamento,
@@ -40,6 +41,7 @@ from tcg_sniper.db.models import (
     TipoColeta,
     VendedorAmazon,
 )
+from tcg_sniper.oportunidades.mensagens import ROTULOS_MOTIVO
 from tcg_sniper.oportunidades.motor import (
     CEM,
     Regras,
@@ -413,6 +415,7 @@ class LinhaOferta:
     desconto: Decimal | None
     diferenca: Decimal | None  # "À partir de" − preço da Amazon
     aberta: bool
+    risco: tuple[datetime, str] | None = None  # desde quando está em risco e o motivo
     origem_casamento: OrigemCasamento | None = None
     conferencia: ConferenciaCheckout | None = None
     importada: bool = False
@@ -461,7 +464,16 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
         .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
         .where(*condicoes)
     )
-    abertas = set(s.scalars(select(Oportunidade.produto_id).where(Oportunidade.fechada_em.is_(None))))
+    # Oportunidades abertas por anúncio (no máximo uma por anúncio): o selo de risco é o da oportunidade do
+    # anúncio da linha; "aberta" continua valendo para o produto (qualquer anúncio dele com oportunidade).
+    riscos: dict[int, tuple[datetime | None, str | None]] = {}
+    produtos_abertos: set[int] = set()
+    for anuncio_id, produto_id, desde, motivo in s.execute(
+        select(Oportunidade.anuncio_id, Oportunidade.produto_id, Oportunidade.em_risco_desde, Oportunidade.motivo_risco)
+        .where(Oportunidade.fechada_em.is_(None))
+    ):
+        riscos[anuncio_id] = (desde, motivo)
+        produtos_abertos.add(produto_id)
     regras = Regras.de(config)
     aceitas = []
     for anuncio, produto, atual, vendedor, preco_liga, origem in s.execute(consulta):
@@ -490,6 +502,7 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
             continue
         ofertas_lidas = lidas.get(anuncio.id, [])
         melhor = next((o for o in ofertas_lidas if o.melhor), None)
+        desde, motivo_risco = riscos.get(anuncio.id, (None, None))
         melhores[produto.id] = (
             efetivo,
             LinhaOferta(
@@ -504,7 +517,8 @@ def ofertas(s: Session, filtro: FiltroOfertas, config: ConfigAmazon) -> list[Lin
                 coletado_em=atual.coletado_em,
                 desconto=_desconto_exibido(efetivo, preco_liga) if preco_liga else None,
                 diferenca=preco_liga - efetivo if preco_liga is not None else None,
-                aberta=produto.id in abertas,
+                aberta=produto.id in produtos_abertos,
+                risco=(desde, ROTULOS_MOTIVO[MotivoEncerramento(motivo_risco)]) if desde is not None else None,
                 origem_casamento=origem,
                 conferencia=conferencia if conferido is not None else None,
                 importada=bool(melhor and melhor.importada),

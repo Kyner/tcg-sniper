@@ -4,6 +4,10 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 
 Da mais nova para a mais antiga.
 
+## Fim da oportunidade (2026-10-20)
+
+Faça o backup de sempre antes (ver [Backup do banco](../README.md#backup-do-banco)). A migração `e7c3a9d5b2f4` acrescenta à `oportunidade` o motivo de encerramento, o risco (carência), o menor preço, a contagem de alertas, a mensagem do alerta e quando a oportunidade deixou de valer (`deixou_de_valer_em`: a primeira leitura ruim ou, sem carência, o encerramento), e a `config_amazon` a carência (30 min). As oportunidades abertas na hora da migração ficam marcadas como "alerta sem registro": quando encerrarem, o grupo recebe o aviso. Suba tudo junto (`docker compose up -d --build`) e confira em Configurações → Amazon → Monitor de preço o campo "Carência para encerrar uma oportunidade (min)" e em Configurações → Avisos os três avisos novos (oferta encerrada, alerta corrigido, oportunidade encerrada técnico), ligados.
+
 ## Leitura por interesse da LigaMagic (2026-10-19)
 
 Faça o backup de sempre antes (ver [Backup do banco](../README.md#backup-do-banco)). A migração `d4b8e2f6a3c1` acrescenta a `config_liga` o esfriar após desafio (30 min) e os produtos novos por dia (100). Suba tudo junto (`docker compose up -d --build`) e confira em Configurações → LigaMagic os dois campos novos. Se a LigaMagic estiver parada num desafio, resolva-o no noVNC (`http://<IP deste PC>:6080/vnc.html`) se a verificação ainda estiver na tela e clique em **Retomar**: o coletor espera 30 min (`esfriar_desafio_min`) antes da primeira página, e o card mostra "Esfriando até HH:MM" (ou "Parada até amanhã (2º desafio)" se já houve dois desafios hoje). No dia seguinte, o resumo no grupo admin traz a linha "Produtos: ok · N de M · casados …, candidatos …, novos …, rodízio …".

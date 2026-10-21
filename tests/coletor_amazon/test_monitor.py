@@ -27,6 +27,7 @@ from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     Envio,
+    MensagemSaida,
     OfertaAmazon,
     Oportunidade,
     OrigemCasamento,
@@ -34,6 +35,7 @@ from tcg_sniper.db.models import (
     PrecoAtualAmazon,
     SituacaoCheckout,
     StatusCasamento,
+    StatusMensagem,
     VendedorAmazon,
 )
 from tcg_sniper.notificador.base import Destino
@@ -183,6 +185,7 @@ def test_sem_ofertas_registra_preco_nulo_e_fecha_a_oportunidade(sessoes, config,
     ctx, _, avisador = contexto(
         sessoes, config, {url_ofertas(ASIN): [painel(amazon("R$ 700,00")), painel()]}, checkout=False
     )
+    ctx.cfg.carencia_encerramento_min = 0  # sem carência: a primeira leitura ruim fecha
     ler_anuncio(ctx, anuncio.id, ASIN)  # abre a oportunidade
     resultado = ler_anuncio(ctx, anuncio.id, ASIN)  # anúncio indisponível
     assert (resultado.melhor, resultado.ofertas) == (None, 0)
@@ -258,6 +261,7 @@ def test_anuncio_colado_a_mao_le_a_pagina_do_produto_uma_vez(sessoes, config):
 
 def test_conferencia_atualiza_a_aberta_sem_novo_alerta_ou_fecha(sessoes, config, anuncio):
     ctx, _, avisador = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ctx.cfg.carencia_encerramento_min = 0  # sem carência: a primeira leitura ruim fecha
     ler_anuncio(ctx, anuncio.id, ASIN)  # conferência desligada: abre e avisa com o preço anunciado
     aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "700.00", "720.00", impostos="20.00"))
     with sessoes() as s:
@@ -552,3 +556,158 @@ def test_par_desfeito_nao_abre_oportunidade(sessoes, config, anuncio):
     assert avisador.mensagens == []
     with sessoes() as s:
         assert s.scalar(select(Oportunidade)) is None
+
+
+def _aberta(sessoes):
+    with sessoes() as s:
+        return s.scalar(select(Oportunidade).order_by(Oportunidade.id.desc()))
+
+
+def _ler(sessoes, config, preco, quando, anuncio_id):
+    """Uma leitura do monitor em `quando` com a Amazon vendendo a `preco` (None: sem ofertas)."""
+    pagina = painel(amazon(preco)) if preco else painel()
+    ctx, _, avisador = contexto(sessoes, config, {url_ofertas(ASIN): pagina}, checkout=False, relogio=Relogio(quando))
+    ler_anuncio(ctx, anuncio_id, ASIN)
+    return avisador
+
+
+def _mensagens(sessoes):
+    with sessoes() as s:
+        return [m.texto for m in s.scalars(select(MensagemSaida).order_by(MensagemSaida.id))]
+
+
+def test_oscilacao_curta_nao_fecha_nem_avisa(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    _ler(sessoes, config, "R$ 800,00", AGORA + timedelta(minutes=15), anuncio.id)  # em risco
+    op = _aberta(sessoes)
+    assert op.fechada_em is None and op.em_risco_desde == AGORA + timedelta(minutes=15)
+    assert op.motivo_risco == "preco_subiu"
+    _ler(sessoes, config, None, AGORA + timedelta(minutes=25), anuncio.id)  # segue ruim: a carência não recomeça
+    op = _aberta(sessoes)
+    assert (op.fechada_em, op.em_risco_desde, op.motivo_risco) == (
+        None, AGORA + timedelta(minutes=15), "oferta_sumiu"
+    )
+    _ler(sessoes, config, "R$ 700,00", AGORA + timedelta(minutes=30), anuncio.id)  # recupera
+    op = _aberta(sessoes)
+    assert (op.fechada_em, op.em_risco_desde, op.motivo_risco) == (None, None, None)
+    assert op.alertas == 1
+    assert len(_mensagens(sessoes)) == 1  # só o alerta da abertura
+
+
+def test_ruim_por_30_min_fecha_com_motivo_e_avisa_uma_vez(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    with sessoes() as s, s.begin():  # o alerta saiu
+        s.get(MensagemSaida, _aberta(sessoes).mensagem_alerta_id).status = StatusMensagem.ENVIADA
+    _ler(sessoes, config, "R$ 800,00", AGORA + timedelta(minutes=15), anuncio.id)
+    assert _aberta(sessoes).fechada_em is None
+    _ler(sessoes, config, "R$ 800,00", AGORA + timedelta(minutes=45), anuncio.id)
+    op = _aberta(sessoes)
+    assert op.fechada_em == AGORA + timedelta(minutes=45) and op.motivo_encerramento == "preco_subiu"
+    assert (op.em_risco_desde, op.motivo_risco) == (None, None)
+    textos = _mensagens(sessoes)
+    assert len(textos) == 2 and "Oferta encerrada · preço subiu" in textos[1]
+    _ler(sessoes, config, "R$ 800,00", AGORA + timedelta(minutes=60), anuncio.id)  # fechada: não avisa de novo
+    assert len(_mensagens(sessoes)) == 2
+
+
+def test_abertura_guarda_a_mensagem_e_realerta_soma(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    op = _aberta(sessoes)
+    assert op.mensagem_alerta_id is not None and op.alertas == 1 and op.menor_preco == Decimal("700.00")
+    primeira = op.mensagem_alerta_id
+    _ler(sessoes, config, "R$ 800,00", AGORA + timedelta(minutes=15), anuncio.id)  # em risco
+    _ler(sessoes, config, "R$ 650,00", AGORA + timedelta(minutes=30), anuncio.id)  # queda de 7%: realerta
+    op = _aberta(sessoes)
+    assert op.alertas == 2 and op.menor_preco == Decimal("650.00") and op.em_risco_desde is None
+    assert op.fechada_em is None and op.mensagem_alerta_id not in (None, primeira)
+    _ler(sessoes, config, "R$ 690,00", AGORA + timedelta(minutes=45), anuncio.id)  # sobe sem sair: só atualiza
+    op = _aberta(sessoes)
+    assert (op.alertas, op.menor_preco, op.preco_amazon) == (2, Decimal("650.00"), Decimal("690.00"))
+    assert len(_mensagens(sessoes)) == 2
+
+
+def test_conferencia_dentro_da_carencia_so_marca_o_risco(sessoes, config, anuncio):
+    ctx, _, avisador = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "700.00", "800.00", impostos="100.00"))
+    op = _aberta(sessoes)
+    assert (op.fechada_em, op.em_risco_desde, op.motivo_risco) == (None, AGORA, "preco_subiu")
+    assert len(avisador.mensagens) == 1
+
+
+def test_realerta_sem_mensagem_mantem_o_alerta_anterior(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    ctx, _, avisador = contexto(
+        sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 650,00"))}, checkout=False,
+        relogio=Relogio(AGORA + timedelta(minutes=15)),
+    )
+    avisador.avisar_em = lambda *_: None  # aviso desligado (ou falhou): nenhuma mensagem enfileirada
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    op = _aberta(sessoes)
+    # `alertas` conta os avisos enfileirados: sem mensagem, não soma.
+    assert (op.alertas, op.preco_alertado, op.mensagem_alerta_id) == (1, Decimal("650.00"), primeira)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.PENDENTE
+
+
+def test_realerta_descarta_o_alerta_anterior_ainda_na_fila(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)  # o alerta fica pendente na fila
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    _ler(sessoes, config, "R$ 650,00", AGORA + timedelta(minutes=15), anuncio.id)  # realerta
+    op = _aberta(sessoes)
+    assert op.mensagem_alerta_id not in (None, primeira)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.DESCARTADA
+        assert s.get(MensagemSaida, op.mensagem_alerta_id).status is StatusMensagem.PENDENTE
+
+
+def test_realerta_nao_mexe_no_alerta_anterior_ja_enviado(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, primeira).status = StatusMensagem.ENVIADA
+    _ler(sessoes, config, "R$ 650,00", AGORA + timedelta(minutes=15), anuncio.id)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.ENVIADA
+
+
+def test_realerta_pela_conferencia_descarta_o_alerta_anterior_ainda_na_fila(sessoes, config, anuncio):
+    ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    primeira = _aberta(sessoes).mensagem_alerta_id
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "700.00", "640.00", itens="640.00"))
+    op = _aberta(sessoes)
+    assert op.alertas == 2 and op.mensagem_alerta_id not in (None, primeira)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, primeira).status is StatusMensagem.DESCARTADA
+
+
+def test_encerramento_pela_conferencia_mostra_o_preco_conferido(sessoes, config, anuncio):
+    """O motor fechou pelo conferido (itens + impostos): o "agora" do aviso é ele, não o anunciado."""
+    ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 760,00"))})
+    ctx.cfg.carencia_encerramento_min = 0
+    ler_anuncio(ctx, anuncio.id, ASIN)  # 24%: espera a conferência
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "760.00", "740.00", itens="740.00"))
+    with sessoes() as s, s.begin():  # o alerta (conferido, 740) saiu
+        s.get(MensagemSaida, _aberta(sessoes).mensagem_alerta_id).status = StatusMensagem.ENVIADA
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "760.00", "900.00", impostos="140.00"))
+    op = _aberta(sessoes)
+    assert op.motivo_encerramento == "preco_subiu"
+    texto = _mensagens(sessoes)[-1]
+    assert "Oferta encerrada" in texto and "agora: *R$ 900,00*" in texto and "760" not in texto
+
+
+def test_decisao_trava_o_anuncio_antes_da_oportunidade(sessoes, config, anuncio, monkeypatch):
+    """Mesma ordem do casamento (anúncio → oportunidade): um Desfazer ao mesmo tempo não se intercala."""
+    from tcg_sniper.coletor_amazon import monitor
+
+    travados = []
+    original = repo_casamento.travar_anuncio
+    monkeypatch.setattr(
+        monitor.repo_casamento, "travar_anuncio", lambda s, anuncio_id: travados.append(anuncio_id) or original(s, anuncio_id)
+    )
+    ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 760,00"))})
+    ler_anuncio(ctx, anuncio.id, ASIN)
+    aplicar_conferencia(ctx, anuncio.id, conferencia(sessoes, anuncio.id, "760.00", "740.00", itens="740.00"))
+    assert travados == [anuncio.id, anuncio.id]

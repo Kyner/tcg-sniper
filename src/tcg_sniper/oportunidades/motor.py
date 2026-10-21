@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 
-from tcg_sniper.db.models import ConfigAmazon, Envio
+from tcg_sniper.db.models import ConfigAmazon, Envio, MotivoEncerramento
 
 CEM = Decimal(100)
 
@@ -19,6 +19,7 @@ class Regras:
     liga_preco_max_idade_h: int
     vendedor_min_positivas_pct: int
     vendedor_min_avaliacoes: int
+    carencia_encerramento_min: int = 30
 
     @classmethod
     def de(cls, config: ConfigAmazon) -> "Regras":
@@ -28,6 +29,7 @@ class Regras:
             liga_preco_max_idade_h=config.liga_preco_max_idade_h,
             vendedor_min_positivas_pct=config.vendedor_min_positivas_pct,
             vendedor_min_avaliacoes=config.vendedor_min_avaliacoes,
+            carencia_encerramento_min=config.carencia_encerramento_min,
         )
 
 
@@ -57,6 +59,8 @@ class Acao(StrEnum):
     ABRIR = "abrir"
     REALERTAR = "realertar"
     ATUALIZAR = "atualizar"
+    RECUPERAR = "recuperar"  # estava em risco e voltou a ser elegível
+    EM_RISCO = "em_risco"  # deixou de ser elegível; a carência ainda não venceu
     FECHAR = "fechar"
     NADA = "nada"
 
@@ -114,23 +118,59 @@ def _referencia_valida(ref: RefLiga, regras: Regras, agora: datetime) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class Aberta:
+    """O que o motor precisa da oportunidade aberta do anúncio."""
+
+    preco_alertado: Decimal
+    preco_liga: Decimal  # o "À partir de" gravado na última leitura que a manteve aberta
+    em_risco_desde: datetime | None = None
+
+
+@dataclass(frozen=True)
+class Decisao:
+    acao: Acao
+    motivo: MotivoEncerramento | None = None  # EM_RISCO e FECHAR
+
+
+def motivo_inelegivel(
+    leitura: Leitura, ref: RefLiga, regras: Regras, agora: datetime, preco_liga_anterior: Decimal | None = None
+) -> MotivoEncerramento | None:
+    """Por que a leitura não é elegível, na ordem da spec; None quando é. `preco_liga_anterior` separa
+    "a Liga caiu" (a Amazon ainda daria o desconto contra a Liga de antes) de "a Amazon subiu"."""
+    if not _referencia_valida(ref, regras, agora):
+        return MotivoEncerramento.LIGA_DESATUALIZADA
+    if leitura.preco is None or leitura.preco <= 0:
+        return MotivoEncerramento.OFERTA_SUMIU
+    if not vendedor_elegivel(leitura.envio, leitura.vendedor, regras):
+        return MotivoEncerramento.VENDEDOR
+    if atinge_desconto(leitura.preco, ref.preco_a_partir, regras.desconto_min_pct):
+        return None
+    if atinge_desconto(leitura.preco, preco_liga_anterior, regras.desconto_min_pct):
+        return MotivoEncerramento.LIGA_CAIU
+    return MotivoEncerramento.PRECO_SUBIU
+
+
 def elegivel(leitura: Leitura, ref: RefLiga, regras: Regras, agora: datetime) -> bool:
-    return (
-        vendedor_elegivel(leitura.envio, leitura.vendedor, regras)
-        and _referencia_valida(ref, regras, agora)
-        and atinge_desconto(leitura.preco, ref.preco_a_partir, regras.desconto_min_pct)
-    )
+    return motivo_inelegivel(leitura, ref, regras, agora) is None
 
 
-def decidir(
-    leitura: Leitura, ref: RefLiga, regras: Regras, agora: datetime, preco_alertado: Decimal | None
-) -> Acao:
-    """`preco_alertado` é o da oportunidade aberta do anúncio (None se não há aberta)."""
-    aberta = preco_alertado is not None
-    if not elegivel(leitura, ref, regras, agora):
-        return Acao.FECHAR if aberta else Acao.NADA
-    if not aberta:
-        return Acao.ABRIR
-    if leitura.preco * CEM <= preco_alertado * (CEM - regras.realerta_queda_pct):
-        return Acao.REALERTAR
-    return Acao.ATUALIZAR
+def decidir(leitura: Leitura, ref: RefLiga, regras: Regras, agora: datetime, aberta: Aberta | None) -> Decisao:
+    """`aberta`: a oportunidade aberta do anúncio (None se não há). Leitura ruim com aberta: EM_RISCO até
+    a carência vencer (contada de `em_risco_desde`), depois FECHAR; carência 0 fecha na hora."""
+    motivo = motivo_inelegivel(leitura, ref, regras, agora, aberta.preco_liga if aberta else None)
+    if motivo is not None:
+        if aberta is None:
+            return Decisao(Acao.NADA)
+        carencia = timedelta(minutes=regras.carencia_encerramento_min)
+        desde = aberta.em_risco_desde or agora
+        if agora - desde >= carencia:
+            return Decisao(Acao.FECHAR, motivo)
+        return Decisao(Acao.EM_RISCO, motivo)
+    if aberta is None:
+        return Decisao(Acao.ABRIR)
+    if leitura.preco * CEM <= aberta.preco_alertado * (CEM - regras.realerta_queda_pct):
+        return Decisao(Acao.REALERTAR)
+    if aberta.em_risco_desde is not None:
+        return Decisao(Acao.RECUPERAR)
+    return Decisao(Acao.ATUALIZAR)

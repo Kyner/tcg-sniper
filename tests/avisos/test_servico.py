@@ -250,3 +250,15 @@ def test_tipo_de_grupo_nao_vai_para_numero_e_individual_nao_vai_para_grupo(sesso
         servico.avisar(s, CODIGO, CHAVE_GERAL, CATALOGO[CODIGO].exemplo, T)
     assert saidas(sessoes) == []
     assert "900000001" not in caplog.text
+
+
+def test_avisar_devolve_o_id_da_mensagem(sessoes):
+    with sessoes() as s, s.begin():
+        mensagem_id = servico.avisar(s, TipoAviso.OPORTUNIDADE, "1", CATALOGO[TipoAviso.OPORTUNIDADE].exemplo, T)
+        assert s.get(MensagemSaida, mensagem_id).destino == "oportunidades"
+
+
+def test_avisar_desligado_devolve_none(sessoes):
+    with sessoes() as s, s.begin():
+        servico.definir_ligado(s, TipoAviso.OPORTUNIDADE, False)
+        assert servico.avisar(s, TipoAviso.OPORTUNIDADE, "1", CATALOGO[TipoAviso.OPORTUNIDADE].exemplo, T) is None
