@@ -98,3 +98,12 @@ def test_carencia_tem_limites():
     assert "carencia_encerramento_min" in erros
     _, erros = validar_config(formulario(carencia_encerramento_min="0"))
     assert "carencia_encerramento_min" not in erros
+
+
+def test_piso_da_quase_oportunidade_fica_abaixo_do_desconto_minimo():
+    _, erros = validar_config(formulario(quase_oportunidade_min_pct="20", desconto_min_pct="20"))
+    assert erros["quase_oportunidade_min_pct"] == "O piso da quase oportunidade precisa ficar abaixo do desconto mínimo."
+    _, erros = validar_config(formulario(quase_oportunidade_min_pct="19", desconto_min_pct="20"))
+    assert "quase_oportunidade_min_pct" not in erros
+    _, erros = validar_config(formulario(quase_oportunidade_min_pct="101"))
+    assert "quase_oportunidade_min_pct" in erros
