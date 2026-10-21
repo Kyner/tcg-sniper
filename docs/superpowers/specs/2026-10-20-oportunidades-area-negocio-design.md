@@ -32,7 +32,7 @@ Substitui o "Em construção" (`AreaNegocio.tsx` sai). Exige `ver_oportunidades`
 
 Exige `ver_oportunidades`. Produto inexistente ou inativo: tela `NaoEncontrada`.
 
-- Cabeçalho: foto, nome, edição, link da Liga, link do anúncio casado da Amazon (o de menor preço atual quando há mais de um), "Nª oportunidade em 30 dias".
+- Cabeçalho: foto (do nosso bucket), nome, edição, link da Liga, link do anúncio casado da Amazon (o de menor preço atual quando há mais de um), "Nª oportunidade em 30 dias".
 - **Curva de preço** (Recharts, seletor de período, padrão 30 dias): linha da Amazon, linha da Liga ("a partir de") e do médio da Liga, linha tracejada do preço alvo (Liga × (1 − desconto mínimo)), faixas sombreadas (`ReferenceArea`) em cada oportunidade; a faixa vinda de `?oportunidade=` fica mais escura. Toque ou passar o mouse mostra data, preço e anúncio.
 - **Histórico de oportunidades do produto** (`table`): abertura, duração, alertas, preço alertado, menor preço, motivo.
 - Selo "quase lá" se o produto estiver na faixa agora.
@@ -42,6 +42,17 @@ Cores dos gráficos a partir das variáveis do tema do DaisyUI (`--color-primary
 ### Estados
 
 Carregando: `Carregando`. Erro de rede: `alert alert-error` com "Tentar de novo". Vazio: textos próprios ("Nenhuma oportunidade nos últimos 7 dias", "Ainda não há leituras suficientes para a curva", "sem preço da Liga no período" na legenda). Oportunidade sem motivo (fechada antes do registro): selo "antes do registro". Ativa: duração até agora, selo "aberta".
+
+## Imagens (decidido em 2026-10-21)
+
+As telas nunca apontam para a Liga ou a Amazon (link quebra, entrega o IP de quem vê, e a CSP teria de liberar sites de fora). As imagens são copiadas para um **bucket R2 público próprio** (`R2_BUCKET_IMAGENS`, ex.: `tcg-sniper-imagens`), **nunca** o dos backups.
+
+- Serviço `manutencao`, um lote por hora (até 100, 1 s entre downloads): produto ativo e anúncio casado com `imagem_url` ainda não copiada ou com origem nova; os com oportunidade aberta primeiro. Reduz para até 600 px e grava em WebP com cache longo; a chave tem um hash da origem (`produtos/<liga_id>-<hash>.webp`, `anuncios/<asin>-<hash>.webp`), então imagem nova na origem vira chave nova.
+- Colunas `imagem_chave` e `imagem_origem` em `produto_liga` e `anuncio_amazon` (mesma migração do piso).
+- `.env`: `R2_BUCKET_IMAGENS`, `URL_PUBLICA_IMAGENS` (endereço `r2.dev` do bucket por enquanto; domínio próprio, ex.: `img.<domínio>`, antes de publicar), e opcionalmente `R2_IMAGENS_ACCESS_KEY_ID`/`R2_IMAGENS_SECRET_ACCESS_KEY` (vazias: o token dos backups, com o bucket novo incluído).
+- A API devolve `imagem` = `URL_PUBLICA_IMAGENS` + chave, ou `null` sem cópia ou sem a variável (a tela sai sem foto). A CSP do Caddy libera em `img-src` só `URL_PUBLICA_IMAGENS`.
+- Falha de um item (rede, 404, não é imagem, R2) vai para o log e tenta de novo na próxima rodada; nunca para o backup.
+- Uso de imagem de terceiros (Liga e Amazon): ok para o grupo; rever antes de vender acesso.
 
 ## Consultas (`tcg_sniper/consultas/`)
 
@@ -97,6 +108,7 @@ Toda rota com `exige(Permissao.VER_OPORTUNIDADES)`. Dinheiro como texto decimal 
 
 - Alerta "quase lá" no WhatsApp.
 - Tendências da LigaMagic (sub-projeto C).
+- Domínio próprio para as imagens (configuração no painel da Cloudflare, quando houver).
 - Margem líquida (taxas, frete, imposto).
 - Assinantes: pagamento, planos e cadastro.
 - Números de casamentos e IA (gestão, fase 3).

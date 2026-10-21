@@ -4,7 +4,7 @@
 
 **Goal:** a área de negócio do site novo passa a mostrar números do período, oportunidades ativas, quase oportunidades, encerradas e o histórico de preço de cada produto, com gráficos.
 
-**Architecture:** consultas na hora num pacote neutro `tcg_sniper/consultas/` (funções que recebem sessão e `agora` e devolvem dataclasses), expostas por `api/rotas_oportunidades.py` com a permissão nova `ver_oportunidades`; o front (`web/`) ganha as páginas Oportunidades (`/`) e Produto (`/produtos/:id`) com Recharts. A elegibilidade das quase oportunidades usa as funções do motor (`motor.motivo_inelegivel`, `motor.vendedor_elegivel`), nunca uma cópia da regra.
+**Architecture:** imagens dos produtos e anúncios copiadas para um bucket público próprio no R2 (`manutencao`), nunca servidas da Liga ou da Amazon; consultas na hora num pacote neutro `tcg_sniper/consultas/` (funções que recebem sessão e `agora` e devolvem dataclasses), expostas por `api/rotas_oportunidades.py` com a permissão nova `ver_oportunidades`; o front (`web/`) ganha as páginas Oportunidades (`/`) e Produto (`/produtos/:id`) com Recharts. A elegibilidade das quase oportunidades usa as funções do motor (`motor.motivo_inelegivel`, `motor.vendedor_elegivel`), nunca uma cópia da regra.
 
 **Tech Stack:** Python 3.12, SQLAlchemy 2 + Alembic, Postgres 16, FastAPI + Pydantic 2, pytest; React 19 + Vite + DaisyUI 5 + Recharts 3, Vitest, Playwright.
 
@@ -20,6 +20,7 @@
 - Dinheiro no JSON como texto decimal com 2 casas ("1299.90"); percentuais também ("27.40"); datas ISO 8601 com fuso.
 - `periodo` ∈ `7d | 30d | 90d | tudo`; outro valor: 400 `{"erro": "periodo_invalido", "mensagem": "Período inválido."}`.
 - Piso da quase oportunidade: `quase_oportunidade_min_pct`, padrão 10, faixa 0–100, e menor que `desconto_min_pct` (validação do formulário).
+- Imagens: só do nosso bucket público (`URL_PUBLICA_IMAGENS` + chave). O front nunca aponta para a Liga ou a Amazon; sem cópia ou sem a variável, a tela sai sem foto. O bucket dos backups (`R2_BUCKET`) **nunca** fica público; as imagens usam `R2_BUCKET_IMAGENS`.
 - Commit por tarefa, na branch de trabalho; merge, push e deploy só quando o usuário pedir.
 
 ## Decisões do plano sobre o que a spec deixou aberto
@@ -28,13 +29,14 @@
 - **Curva da Amazon:** `preco_amazon` só grava quando o preço muda (ou na 1ª leitura do dia). O valor de um anúncio numa hora é a **última linha até o fim da hora**, valendo por até 26 h. A consulta carrega só as linhas dos anúncios confirmados **daquele produto** no período (poucas centenas) e faz o "carrega para frente" em Python. Assim usa `motor.vendedor_elegivel` sem duplicar a regra em SQL.
 - **Arquivos:** a spec pôs tudo em `consultas/oportunidades.py`; o plano divide em `oportunidades.py` (período, ativas, encerradas, por dia), `quase_la.py` e `historico_produto.py`, para tarefas paralelas sem conflito.
 - `duracao_media_min` e `duracao_min` em minutos inteiros.
+- **Imagens (decidido pelo usuário em 2026-10-21):** copiar para um bucket R2 público próprio, com domínio próprio quando houver; até lá, o endereço `r2.dev` do bucket (limitado pela Cloudflare, serve para testar em casa). As consultas devolvem `imagem_chave`; a API troca por `imagem` (URL completa ou `null`).
 
 ## Review Focus
 
 - Oportunidade ativa (sem `fechada_em`) entra nos números com duração até agora e não quebra a média — teste na Tarefa 4.
 - Produto com dois anúncios confirmados, um de lojista sem envio pela Amazon mais barato: a curva ignora o não elegível — teste na Tarefa 5.
 - Período sem nenhuma oportunidade: médias `null` no JSON e "—" na tela, sem divisão por zero — testes nas Tarefas 4 e 7.
-- Imagens do produto (Liga: `repositorio.sbrauble.com`; Amazon: `m.media-amazon.com`) bloqueadas pela CSP do Caddy: `img-src` precisa liberar os dois hosts — mudança e teste na Tarefa 7.
+- Falha ao baixar ou gravar uma imagem (Liga fora, 404, R2 sem rede, arquivo que não é imagem) não pode parar o backup nem as outras imagens: conta como falha e tenta de novo na próxima rodada — teste na Tarefa 10.
 - Recharts sob a CSP `style-src 'self'`: o gráfico não pode gerar `<style>` inline nem erro de CSP no console — conferido no ponta a ponta da Tarefa 9.
 
 ---
@@ -53,11 +55,12 @@
 | `src/tcg_sniper/api/permissoes.py`, `api/rotas_oportunidades.py` (novo), `api/app.py` | permissão e rotas |
 | `tests/fakes_oportunidades.py` (novo) | montar oportunidades, leituras e preços da Liga nos testes |
 | `web/src/...` | páginas, componentes, `formato.ts`, tipos |
-| `web/Caddyfile` | `img-src` com os hosts das imagens |
+| `src/tcg_sniper/manutencao/imagens.py` (novo), `manutencao/r2.py`, `manutencao/servico.py`, `config.py` | cópia das imagens para o bucket público |
+| `web/Caddyfile`, `docker-compose.yml` | `img-src` com o host das imagens (`URL_PUBLICA_IMAGENS`) |
 | `tests/e2e/test_ponta_a_ponta.py`, `scripts/verificar_layout.py` | ponta a ponta e layout |
 | `README.md`, `docs/IMPLANTACOES.md`, `docs/PENDENCIAS.md` | documentação |
 
-Ondas para execução paralela: [T1, T2, T3] → [T4, T7] → [T5, T8] → [T6] → [T9].
+Ondas para execução paralela: [T1, T2, T3] → [T4, T7, T10] → [T5, T8] → [T6] → [T9]. (A Tarefa 10 está no fim do arquivo, mas roda na onda 2.)
 
 ---
 
@@ -92,7 +95,7 @@ Ondas para execução paralela: [T1, T2, T3] → [T4, T7] → [T5, T8] → [T6] 
 - Modify: `src/tcg_sniper/coletor_amazon/config.py` (`CAMPOS`, `ROTULOS`, `EXPLICACOES`, `validar_config`)
 - Test: `tests/db/test_migracao_quase_oportunidade.py` (novo), `tests/coletor_amazon/test_config_amazon.py`, e os formulários completos em `tests/admin/test_admin_amazon.py:96` e `tests/admin/test_admin_config_tela.py:107` (acrescentar `"quase_oportunidade_min_pct": "10"`)
 
-**Interfaces:** Produces `ConfigAmazon.quase_oportunidade_min_pct: int` (padrão 10).
+**Interfaces:** Produces `ConfigAmazon.quase_oportunidade_min_pct: int` (padrão 10); `ProdutoLiga.imagem_chave`, `ProdutoLiga.imagem_origem`, `AnuncioAmazon.imagem_chave`, `AnuncioAmazon.imagem_origem` (`str | None`): chave da cópia no bucket de imagens e a URL de origem copiada (se a origem mudar, copia de novo).
 
 - [ ] **Step 1: teste da migração** (`tests/db/test_migracao_quase_oportunidade.py`):
 
@@ -108,6 +111,10 @@ COLUNA = (
     "SELECT 1 FROM information_schema.columns WHERE table_name = 'config_amazon' "
     "AND column_name = 'quase_oportunidade_min_pct'"
 )
+IMAGENS = (
+    "SELECT 1 FROM information_schema.columns WHERE table_name IN ('produto_liga', 'anuncio_amazon') "
+    "AND column_name IN ('imagem_chave', 'imagem_origem')"
+)
 
 
 def test_migracao_do_piso_e_do_indice_sobe_e_desce(engine):
@@ -119,9 +126,11 @@ def test_migracao_do_piso_e_do_indice_sobe_e_desce(engine):
         with proprio.begin() as c:
             assert c.execute(text(INDICE)).all() == []
             assert c.execute(text(COLUNA)).all() == []
+            assert c.execute(text(IMAGENS)).all() == []
         command.upgrade(cfg, "head")
         with proprio.begin() as c:
             assert len(c.execute(text(INDICE)).all()) == 1
+            assert len(c.execute(text(IMAGENS)).all()) == 4
             assert c.execute(text("SELECT quase_oportunidade_min_pct FROM config_amazon WHERE id = 1")).scalar() in (
                 None, 10,
             )
@@ -153,10 +162,17 @@ O `formulario()` monta os padrões a partir de `PADROES_CONFIG_AMAZON`; se ele l
     __table_args__ = (Index("ix_preco_amazon_anuncio_coletado", "anuncio_id", "coletado_em"),)  # curva do produto
 ```
 
+Em `ProdutoLiga` e em `AnuncioAmazon`, depois de `imagem_url`:
+
+```python
+    imagem_chave: Mapped[str | None] = mapped_column(Text)  # cópia no bucket de imagens (manutencao/imagens.py)
+    imagem_origem: Mapped[str | None] = mapped_column(Text)  # a imagem_url que foi copiada
+```
+
 - [ ] **Step 5: migração** `f3b8d1c7a9e2_quase_oportunidade.py`:
 
 ```python
-"""quase oportunidade: piso do desconto (config_amazon) e índice do histórico da Amazon por anúncio e data
+"""quase oportunidade: piso do desconto (config_amazon), índice do histórico da Amazon e colunas da cópia das imagens
 
 Revision ID: f3b8d1c7a9e2
 Revises: e7c3a9d5b2f4
@@ -181,9 +197,15 @@ def upgrade() -> None:
         "ck_config_amazon_quase_oportunidade_min_pct", "config_amazon", "quase_oportunidade_min_pct BETWEEN 0 AND 100"
     )
     op.create_index("ix_preco_amazon_anuncio_coletado", "preco_amazon", ["anuncio_id", "coletado_em"])
+    for tabela in ("produto_liga", "anuncio_amazon"):
+        op.add_column(tabela, sa.Column("imagem_chave", sa.Text(), nullable=True))
+        op.add_column(tabela, sa.Column("imagem_origem", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
+    for tabela in ("produto_liga", "anuncio_amazon"):
+        op.drop_column(tabela, "imagem_origem")
+        op.drop_column(tabela, "imagem_chave")
     op.drop_index("ix_preco_amazon_anuncio_coletado", table_name="preco_amazon")
     op.drop_constraint("ck_config_amazon_quase_oportunidade_min_pct", "config_amazon", type_="check")
     op.drop_column("config_amazon", "quase_oportunidade_min_pct")
@@ -212,7 +234,7 @@ No fim de `validar_config`, antes do `return`:
 ```
 
 - [ ] **Step 7:** `uv run pytest -q tests/db tests/coletor_amazon tests/admin` e `uv run ruff check` — PASS (o template do admin percorre `CAMPOS`; se `test_css_em_dia_com_os_templates` falhar, `uv run python scripts/gerar_css.py`).
-- [ ] **Step 8:** commit `feat: near-opportunity floor setting and price history index`.
+- [ ] **Step 8:** commit `feat: near-opportunity floor, price history index and image copy columns`.
 
 ---
 
@@ -266,8 +288,8 @@ e o último `assert` do teste: `{Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORT
 PERIODOS: dict[str, int | None]  # {"7d": 7, "30d": 30, "90d": 90, "tudo": None}
 def desde_do_periodo(periodo: str, agora: datetime) -> datetime | None  # ValueError se periodo inválido
 def duracao_min(aberta_em: datetime, deixou_de_valer_em: datetime | None, fechada_em: datetime | None, agora: datetime) -> int
-@dataclass(frozen=True) class ProdutoResumo: id: int; nome: str; imagem_url: str | None; ativo: bool
-@dataclass(frozen=True) class AnuncioResumo: titulo: str; url: str; imagem_url: str | None
+@dataclass(frozen=True) class ProdutoResumo: id: int; nome: str; imagem_chave: str | None; ativo: bool
+@dataclass(frozen=True) class AnuncioResumo: titulo: str; url: str; imagem_chave: str | None
 @dataclass(frozen=True) class Numeros: diferenca_bruta: Decimal; oportunidades: int; desconto_medio: Decimal | None; duracao_media_min: int | None; produtos: int
 @dataclass(frozen=True) class Dia: dia: date; oportunidades: int
 @dataclass(frozen=True) class Ativa: id: int; produto: ProdutoResumo; anuncio: AnuncioResumo; preco_amazon: Decimal; preco_liga: Decimal; desconto_pct: Decimal; aberta_em: datetime; em_risco_desde: datetime | None; motivo_risco: str | None
@@ -508,7 +530,7 @@ O = Oportunidade
 class ProdutoResumo:
     id: int
     nome: str
-    imagem_url: str | None
+    imagem_chave: str | None
     ativo: bool
 
 
@@ -516,7 +538,7 @@ class ProdutoResumo:
 class AnuncioResumo:
     titulo: str
     url: str
-    imagem_url: str | None
+    imagem_chave: str | None
 
 
 @dataclass(frozen=True)
@@ -595,7 +617,7 @@ def _no_periodo(desde: datetime | None):
 
 
 def produto_resumo(p: ProdutoLiga) -> ProdutoResumo:
-    return ProdutoResumo(p.id, p.nome, p.imagem_url, p.ativo)
+    return ProdutoResumo(p.id, p.nome, p.imagem_chave, p.ativo)
 
 
 def numeros_periodo(s: Session, desde: datetime | None, agora: datetime) -> Numeros:
@@ -645,7 +667,7 @@ def ativas(s: Session) -> list[Ativa]:
     ).all()
     return [
         Ativa(
-            id=op.id, produto=produto_resumo(p), anuncio=AnuncioResumo(a.titulo, a.url, a.imagem_url),
+            id=op.id, produto=produto_resumo(p), anuncio=AnuncioResumo(a.titulo, a.url, a.imagem_chave),
             preco_amazon=op.preco_amazon, preco_liga=op.preco_liga, desconto_pct=op.desconto_pct,
             aberta_em=op.aberta_em, em_risco_desde=op.em_risco_desde,
             motivo_risco=None if op.motivo_risco is None else str(op.motivo_risco),
@@ -712,7 +734,7 @@ def quase_la(s: Session, regras: motor.Regras, piso_pct: int, agora: datetime, l
 @dataclass(frozen=True) class PontoAmazon: t: datetime; preco: Decimal; anuncio: str
 @dataclass(frozen=True) class PontoLiga: t: datetime; preco: Decimal
 @dataclass(frozen=True) class Faixa: id: int; inicio: datetime; fim: datetime; aberta: bool; motivo: str | None
-@dataclass(frozen=True) class CabecalhoProduto: id: int; nome: str; edicao: str | None; imagem_url: str | None; url_liga: str
+@dataclass(frozen=True) class CabecalhoProduto: id: int; nome: str; edicao: str | None; imagem_chave: str | None; url_liga: str
 @dataclass(frozen=True) class Historico: produto: CabecalhoProduto; anuncio: AnuncioResumo | None; escala: str; amazon: list[PontoAmazon]; liga: list[PontoLiga]; liga_medio: list[PontoLiga]; desconto_min_pct: int; faixas: list[Faixa]; oportunidades: list[Encerrada]; recorrencia_30d: int; quase_la: bool
 def historico_produto(s: Session, produto_id: int, desde: datetime | None, agora: datetime, regras: motor.Regras, piso_pct: int, zona: ZoneInfo) -> Historico | None  # None: produto inexistente ou inativo
 ```
@@ -865,7 +887,7 @@ def quase_la(
             continue
         alvo = (ref.preco_a_partir * (CEM - regras.desconto_min_pct) / CEM).quantize(CENTAVO)
         itens.append(QuaseLa(
-            produto=produto_resumo(produto), anuncio=AnuncioResumo(anuncio.titulo, anuncio.url, anuncio.imagem_url),
+            produto=produto_resumo(produto), anuncio=AnuncioResumo(anuncio.titulo, anuncio.url, anuncio.imagem_chave),
             preco_amazon=atual.preco, preco_liga=ref.preco_a_partir, desconto_pct=desconto,
             falta_reais=(atual.preco - alvo).quantize(CENTAVO),
             falta_pp=(Decimal(regras.desconto_min_pct) - desconto).quantize(CENTAVO),
@@ -1013,7 +1035,7 @@ class CabecalhoProduto:
     id: int
     nome: str
     edicao: str | None
-    imagem_url: str | None
+    imagem_chave: str | None
     url_liga: str
 
 
@@ -1109,8 +1131,8 @@ def historico_produto(
         .order_by(PrecoAtualAmazon.preco).limit(1)
     ).scalar()
     return Historico(
-        produto=CabecalhoProduto(produto.id, produto.nome, produto.edicao, produto.imagem_url, produto.url),
-        anuncio=None if atual is None else AnuncioResumo(atual.titulo, atual.url, atual.imagem_url),
+        produto=CabecalhoProduto(produto.id, produto.nome, produto.edicao, produto.imagem_chave, produto.url),
+        anuncio=None if atual is None else AnuncioResumo(atual.titulo, atual.url, atual.imagem_chave),
         escala=escala, amazon=amazon, liga=liga, liga_medio=liga_medio, desconto_min_pct=regras.desconto_min_pct,
         faixas=faixas, oportunidades=[linha_oportunidade(op, produto, agora) for op in ops],
         recorrencia_30d=recorrencia, quase_la=bool(quase_la(s, regras, piso_pct, agora, produto_id=produto_id)),
@@ -1139,8 +1161,8 @@ GET /api/oportunidades/resumo?periodo=7d
   {"periodo":"7d","numeros":{"diferenca_bruta":"500.00","oportunidades":2,"desconto_medio":"25.00"|null,
    "duracao_media_min":120|null,"produtos":2},"por_dia":[{"dia":"2026-10-20","oportunidades":1}]}
 GET /api/oportunidades/ativas
-  {"ativas":[{"id":1,"produto":{"id":1,"nome":"…","imagem_url":"…"|null,"ativo":true},
-   "anuncio":{"titulo":"…","url":"…","imagem_url":"…"|null},"preco_amazon":"800.00","preco_liga":"1000.00",
+  {"ativas":[{"id":1,"produto":{"id":1,"nome":"…","imagem":"…"|null,"ativo":true},
+   "anuncio":{"titulo":"…","url":"…","imagem":"…"|null},"preco_amazon":"800.00","preco_liga":"1000.00",
    "desconto_pct":"20.00","aberta_em":"…","em_risco_desde":"…"|null,"motivo_risco":"preco_subiu"|null}],
    "ultima_aberta_em":"…"|null}
 GET /api/oportunidades/encerradas?periodo=7d&motivo=preco_subiu&pagina=1
@@ -1151,7 +1173,7 @@ GET /api/oportunidades/quase?limite=20
   {"itens":[{"produto":{…},"anuncio":{…},"preco_amazon":"850.00","preco_liga":"1000.00","desconto_pct":"15.00",
    "falta_reais":"50.00","falta_pp":"5.00"}],"desconto_min_pct":20,"piso_pct":10}
 GET /api/produtos/{id}/historico?periodo=30d
-  {"produto":{"id":1,"nome":"…","edicao":"…"|null,"imagem_url":"…"|null,"url_liga":"…"},"anuncio":{…}|null,
+  {"produto":{"id":1,"nome":"…","edicao":"…"|null,"imagem":"…"|null,"url_liga":"…"},"anuncio":{…}|null,
    "periodo":"30d","escala":"hora"|"dia","amazon":[{"t":"…","preco":"900.00","anuncio":"…"}],
    "liga":[{"t":"…","preco":"1000.00"}],"liga_medio":[{"t":"…","preco":"1100.00"}],"desconto_min_pct":20,
    "faixas":[{"id":1,"inicio":"…","fim":"…","aberta":false,"motivo":"preco_subiu"|null}],
@@ -1215,8 +1237,8 @@ def test_formatos_e_chaves_fechadas(cliente, logar, dados):
     assert set(ativas) == {"ativas", "ultima_aberta_em"}
     assert set(ativas["ativas"][0]) == {"id", "produto", "anuncio", "preco_amazon", "preco_liga", "desconto_pct",
                                         "aberta_em", "em_risco_desde", "motivo_risco"}
-    assert set(ativas["ativas"][0]["produto"]) == {"id", "nome", "imagem_url", "ativo"}
-    assert set(ativas["ativas"][0]["anuncio"]) == {"titulo", "url", "imagem_url"}
+    assert set(ativas["ativas"][0]["produto"]) == {"id", "nome", "imagem", "ativo"}
+    assert set(ativas["ativas"][0]["anuncio"]) == {"titulo", "url", "imagem"}
     enc = cliente.get("/api/oportunidades/encerradas?periodo=tudo&motivo=preco_subiu").json()
     assert enc["total"] == 1 and enc["itens"][0]["motivo"] == "preco_subiu"
     assert set(enc["itens"][0]) == {"id", "produto", "aberta_em", "fechada_em", "aberta", "duracao_min", "alertas",
@@ -1227,8 +1249,25 @@ def test_formatos_e_chaves_fechadas(cliente, logar, dados):
     assert set(hist) == {"produto", "anuncio", "periodo", "escala", "amazon", "liga", "liga_medio",
                          "desconto_min_pct", "faixas", "oportunidades", "recorrencia_30d", "quase_la"}
     texto = str([resumo, ativas, enc, quase, hist]).lower()
-    for proibido in ("vendedor", "casamento", "mensagem", "imposto", "frete", "seller"):
+    for proibido in ("vendedor", "casamento", "mensagem", "imposto", "frete", "seller", "sbrauble", "media-amazon"):
         assert proibido not in texto
+
+
+def test_imagem_vem_do_nosso_bucket_ou_nula(sessoes, config, relogio, dados):
+    from fastapi.testclient import TestClient
+    from fakes_api import logar as logar_cliente
+
+    from tcg_sniper.api.app import criar_app
+    from tcg_sniper.db.models import ProdutoLiga
+
+    with sessoes() as s, s.begin():
+        s.get(ProdutoLiga, dados).imagem_chave = "produtos/api.webp"
+    for base, esperado in (("https://img.exemplo.test", "https://img.exemplo.test/produtos/api.webp"), (None, None)):
+        cliente = TestClient(criar_app(sessoes, config.model_copy(update={"url_publica_imagens": base}), relogio))
+        logar_cliente(sessoes, cliente, Papel.GRUPO)
+        ativa = cliente.get("/api/oportunidades/ativas").json()["ativas"][0]
+        assert ativa["produto"]["imagem"] == esperado
+        assert ativa["anuncio"]["imagem"] is None  # anúncio sem cópia
 
 
 def test_produto_inexistente_404(cliente, logar):
@@ -1271,14 +1310,14 @@ VerOportunidades = Annotated[Contexto, Depends(exige(Permissao.VER_OPORTUNIDADES
 class ProdutoSaida(BaseModel):
     id: int
     nome: str
-    imagem_url: str | None
+    imagem: str | None
     ativo: bool
 
 
 class AnuncioSaida(BaseModel):
     titulo: str
     url: str
-    imagem_url: str | None
+    imagem: str | None
 
 
 class NumerosSaida(BaseModel):
@@ -1359,7 +1398,7 @@ class CabecalhoSaida(BaseModel):
     id: int
     nome: str
     edicao: str | None
-    imagem_url: str | None
+    imagem: str | None
     url_liga: str
 
 
@@ -1397,6 +1436,26 @@ class HistoricoSaida(BaseModel):
     quase_la: bool
 
 
+def _imagens(dados, base: str | None):
+    """Troca cada `imagem_chave` das consultas por `imagem`: a URL pública da cópia, ou None sem cópia ou sem
+    `URL_PUBLICA_IMAGENS` (a tela sai sem foto; nunca aponta para a Liga ou a Amazon)."""
+    if isinstance(dados, list):
+        return [_imagens(d, base) for d in dados]
+    if not isinstance(dados, dict):
+        return dados
+    saida = {}
+    for chave, valor in dados.items():
+        if chave == "imagem_chave":
+            saida["imagem"] = f"{base.rstrip('/')}/{valor}" if base and valor else None
+        else:
+            saida[chave] = _imagens(valor, base)
+    return saida
+
+
+def _base(request: Request) -> str | None:
+    return request.app.state.config.url_publica_imagens
+
+
 def _desde(periodo: str, agora: datetime) -> datetime | None:
     try:
         return q.desde_do_periodo(periodo, agora)
@@ -1420,7 +1479,7 @@ def resumo(request: Request, _c: VerOportunidades, periodo: str = "7d") -> Resum
 @roteador.get("/oportunidades/ativas")
 def ativas(request: Request, _c: VerOportunidades) -> AtivasSaida:
     with request.app.state.sessoes() as s:
-        return AtivasSaida(ativas=[AtivaSaida.model_validate(asdict(a)) for a in q.ativas(s)],
+        return AtivasSaida(ativas=[AtivaSaida.model_validate(_imagens(asdict(a), _base(request))) for a in q.ativas(s)],
                            ultima_aberta_em=q.ultima_aberta_em(s))
 
 
@@ -1434,7 +1493,7 @@ def encerradas(
     desde = _desde(periodo, agora)
     with estado.sessoes() as s:
         resultado = q.encerradas(s, desde, motivo, pagina, agora)
-    return EncerradasSaida.model_validate(asdict(resultado))
+    return EncerradasSaida.model_validate(_imagens(asdict(resultado), _base(request)))
 
 
 def _regras_e_piso(s) -> tuple[Regras, int]:
@@ -1450,7 +1509,7 @@ def quase(
     with estado.sessoes() as s:
         regras, piso = _regras_e_piso(s)
         itens = quase_la(s, regras, piso, estado.relogio(), limite=limite)
-    return QuaseListaSaida(itens=[QuaseSaida.model_validate(asdict(i)) for i in itens],
+    return QuaseListaSaida(itens=[QuaseSaida.model_validate(_imagens(asdict(i), _base(request))) for i in itens],
                            desconto_min_pct=regras.desconto_min_pct, piso_pct=piso)
 
 
@@ -1465,7 +1524,7 @@ def historico(request: Request, produto_id: int, _c: VerOportunidades, periodo: 
         h = historico_produto(s, produto_id, desde, agora, regras, piso, zona)
     if h is None:
         raise ErroApi(404, "nao_encontrado", "Produto não encontrado.")
-    return HistoricoSaida.model_validate({**asdict(h), "periodo": periodo})
+    return HistoricoSaida.model_validate({**_imagens(asdict(h), _base(request)), "periodo": periodo})
 ```
 
 Em `app.py`: `from tcg_sniper.api import rotas_acessos, rotas_auth, rotas_oportunidades, rotas_usuarios` e `app.include_router(rotas_oportunidades.roteador)`.
@@ -1480,7 +1539,7 @@ Dinheiro: o Pydantic 2 serializa `Decimal` como texto no JSON ("200.00") — con
 ### Task 7: Front — página Oportunidades
 
 **Files:**
-- Modify: `web/package.json`, `web/package-lock.json` (Recharts), `web/Caddyfile:27` (`img-src`), `web/src/App.tsx`, `web/src/tipos.ts`, `web/src/teste/configuracao.ts`, `web/src/rotas.test.tsx`
+- Modify: `web/package.json`, `web/package-lock.json` (Recharts), `web/Caddyfile:27` (`img-src`), `docker-compose.yml` (serviço `web`), `web/src/App.tsx`, `web/src/tipos.ts`, `web/src/teste/configuracao.ts`, `web/src/rotas.test.tsx`
 - Delete: `web/src/paginas/AreaNegocio.tsx`
 - Create: `web/src/formato.ts`, `web/src/formato.test.ts`, `web/src/cores.ts`, `web/src/componentes/SeletorPeriodo.tsx`, `web/src/componentes/MotivoSelo.tsx`, `web/src/paginas/Oportunidades.tsx`, `web/src/paginas/Oportunidades.test.tsx`, `tests/test_caddyfile.py`
 
@@ -1489,20 +1548,23 @@ Dinheiro: o Pydantic 2 serializa `Decimal` como texto no JSON ("200.00") — con
 - Produces (Tarefa 8): `formato.ts` (`reais`, `pct`, `duracao`, `dataHora`, `ROTULOS_MOTIVO`), `cores.ts` (`useCoresTema`), `SeletorPeriodo`, `MotivoSelo`, tipos `Periodo`, `ProdutoResumo`, `AnuncioResumo`, `OportunidadeLinha`, `Historico` em `tipos.ts`.
 
 - [ ] **Step 1: dependência.** `cd web && npm view recharts versions --json` e escolher a **3.x mais nova publicada há pelo menos 14 dias** (`npm view recharts time --json`); `npm install --save-exact recharts@<versão>`. `npm run build` tem de passar.
-- [ ] **Step 2: CSP.** No `web/Caddyfile`, `img-src 'self' data:` vira `img-src 'self' data: https://repositorio.sbrauble.com https://m.media-amazon.com`. Teste `tests/test_caddyfile.py`:
+- [ ] **Step 2: CSP.** No `web/Caddyfile`, `img-src 'self' data:` vira `img-src 'self' data: {$URL_PUBLICA_IMAGENS}` (o Caddy troca `{$VAR}` pelo valor da variável; vazia, fica só `'self' data:`). No `docker-compose.yml`, serviço `web`: `environment: [URL_PUBLICA_IMAGENS=${URL_PUBLICA_IMAGENS:-}]` (lida do `.env`, como as outras). Teste `tests/test_caddyfile.py`:
 
 ```python
 from pathlib import Path
 
-CADDYFILE = Path(__file__).resolve().parents[1] / "web" / "Caddyfile"
+RAIZ = Path(__file__).resolve().parents[1]
 
 
-def test_csp_libera_so_as_imagens_da_liga_e_da_amazon():
-    texto = CADDYFILE.read_text(encoding="utf-8")
-    assert "img-src 'self' data: https://repositorio.sbrauble.com https://m.media-amazon.com;" in texto
+def test_csp_libera_so_o_nosso_host_de_imagens():
+    texto = (RAIZ / "web" / "Caddyfile").read_text(encoding="utf-8")
+    assert "img-src 'self' data: {$URL_PUBLICA_IMAGENS};" in texto
+    assert "sbrauble" not in texto and "media-amazon" not in texto
     assert "style-src 'self';" in texto and "script-src 'self';" in texto
+    assert "URL_PUBLICA_IMAGENS" in (RAIZ / "docker-compose.yml").read_text(encoding="utf-8")
 ```
 
+Se `tests/test_compose.py` conferir a lista de variáveis de cada serviço, acrescentar lá também.
 - [ ] **Step 3: tipos** (`web/src/tipos.ts`, no fim):
 
 ```ts
@@ -1511,8 +1573,8 @@ export type Motivo =
   | "casamento_desfeito" | "sem_leitura" | "liga_desatualizada" | "oferta_sumiu" | "vendedor" | "liga_caiu"
   | "preco_subiu";
 
-export interface ProdutoResumo { id: number; nome: string; imagem_url: string | null; ativo: boolean }
-export interface AnuncioResumo { titulo: string; url: string; imagem_url: string | null }
+export interface ProdutoResumo { id: number; nome: string; imagem: string | null; ativo: boolean }
+export interface AnuncioResumo { titulo: string; url: string; imagem: string | null }
 
 /** GET /api/oportunidades/resumo. Dinheiro e % vêm como texto decimal ("1299.90"). */
 export interface ResumoOportunidades {
@@ -1555,7 +1617,7 @@ export interface QuaseOportunidades {
 
 /** GET /api/produtos/{id}/historico. */
 export interface Historico {
-  produto: { id: number; nome: string; edicao: string | null; imagem_url: string | null; url_liga: string };
+  produto: { id: number; nome: string; edicao: string | null; imagem: string | null; url_liga: string };
   anuncio: AnuncioResumo | null;
   periodo: Periodo;
   escala: "hora" | "dia";
@@ -1739,8 +1801,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { apiFalsa, EU_GRUPO, ok, renderizarEm } from "../teste/apoio";
 
-const PRODUTO = { id: 7, nome: "Final Fantasy - Caixa", imagem_url: null, ativo: true };
-const ANUNCIO = { titulo: "Caixa FF", url: "https://www.amazon.com.br/dp/B0X", imagem_url: null };
+const PRODUTO = { id: 7, nome: "Final Fantasy - Caixa", imagem: null, ativo: true };
+const ANUNCIO = { titulo: "Caixa FF", url: "https://www.amazon.com.br/dp/B0X", imagem: null };
 const resumo = (periodo: string, oportunidades: number) => ok({
   periodo,
   numeros: oportunidades
@@ -1965,9 +2027,9 @@ export function Oportunidades() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {ativas?.ativas.map((a) => (
             <div key={a.id} className="card bg-base-100 shadow-sm">
-              {(a.produto.imagem_url ?? a.anuncio.imagem_url) && (
+              {(a.produto.imagem ?? a.anuncio.imagem) && (
                 <figure className="h-40 bg-base-200">
-                  <img src={(a.produto.imagem_url ?? a.anuncio.imagem_url)!} alt="" className="h-full object-contain" />
+                  <img src={(a.produto.imagem ?? a.anuncio.imagem)!} alt="" className="h-full object-contain" />
                 </figure>
               )}
               <div className="card-body gap-2">
@@ -2122,15 +2184,15 @@ import type { Historico } from "../tipos";
 
 function historico(parcial: Partial<Historico> = {}): Historico {
   return {
-    produto: { id: 7, nome: "Final Fantasy - Caixa", edicao: "FIN", imagem_url: null, url_liga: "https://liga.test/p/7" },
-    anuncio: { titulo: "Caixa FF", url: "https://www.amazon.com.br/dp/B0X", imagem_url: null },
+    produto: { id: 7, nome: "Final Fantasy - Caixa", edicao: "FIN", imagem: null, url_liga: "https://liga.test/p/7" },
+    anuncio: { titulo: "Caixa FF", url: "https://www.amazon.com.br/dp/B0X", imagem: null },
     periodo: "30d", escala: "hora",
     amazon: [{ t: "2026-10-18T10:00:00-03:00", preco: "1299.90", anuncio: "Caixa FF" }],
     liga: [{ t: "2026-10-18T04:00:00-03:00", preco: "1589.00" }],
     liga_medio: [],
     desconto_min_pct: 20,
     faixas: [{ id: 2, inicio: "2026-10-18T10:15:00-03:00", fim: "2026-10-18T13:15:00-03:00", aberta: false, motivo: "preco_subiu" }],
-    oportunidades: [{ id: 2, produto: { id: 7, nome: "Final Fantasy - Caixa", imagem_url: null, ativo: true },
+    oportunidades: [{ id: 2, produto: { id: 7, nome: "Final Fantasy - Caixa", imagem: null, ativo: true },
       aberta_em: "2026-10-18T10:15:00-03:00", fechada_em: "2026-10-18T13:35:00-03:00", aberta: false,
       duracao_min: 180, alertas: 2, preco_alertado: "1299.90", menor_preco: "1249.90", preco_liga: "1589.00",
       desconto_pct: "18.20", motivo: "preco_subiu" }],
@@ -2287,7 +2349,7 @@ export function Produto() {
       {h && (
         <>
           <div className="flex flex-wrap items-start gap-4">
-            {h.produto.imagem_url && <img src={h.produto.imagem_url} alt="" className="h-24 w-24 rounded object-contain" />}
+            {h.produto.imagem && <img src={h.produto.imagem} alt="" className="h-24 w-24 rounded object-contain" />}
             <div className="flex-1 space-y-2">
               <h1 className="text-2xl font-bold">{h.produto.nome}</h1>
               <div className="flex flex-wrap gap-2">
@@ -2389,8 +2451,377 @@ def test_grupo_ve_oportunidade_e_abre_o_produto(servidores, usuarios, engine):
 
 - [ ] **Step 2: layout.** Em `scripts/verificar_layout.py`, depois de entrar, descobrir a primeira página de produto: abrir `/`, ler o `href` do primeiro link que começa com `/produtos/` e, se houver, acrescentá-lo a `TELAS_WEB` para esta execução (sem produto, seguir só com as fixas). Rodar o teste de layout do e2e (`TCG_E2E=1 uv run pytest -q tests/e2e`) com o produto da fixture.
 - [ ] **Step 3: docs.**
-  - `docs/IMPLANTACOES.md`, seção nova no topo "Oportunidades na área de negócio (2026-10-21)": backup de sempre; migração `f3b8d1c7a9e2` (piso da quase oportunidade, padrão 10%, e índice do `preco_amazon`, que leva alguns segundos com o histórico atual); subir tudo junto; conferir Configurações → Amazon → "Quase oportunidade a partir de (%)" e a tela `/` do site novo; a CSP do site passa a liberar imagens de `repositorio.sbrauble.com` e `m.media-amazon.com`.
+  - `docs/IMPLANTACOES.md`, seção nova no topo "Oportunidades na área de negócio (2026-10-21)": backup de sempre; migração `f3b8d1c7a9e2` (piso da quase oportunidade, padrão 10%, índice do `preco_amazon`, que leva alguns segundos com o histórico atual, e colunas da cópia das imagens). **Bucket de imagens**, no painel da Cloudflare: (1) R2 → criar o bucket `tcg-sniper-imagens` (um bucket **novo**: o dos backups nunca fica público); (2) Settings → Public access → habilitar o endereço `r2.dev` (com domínio próprio: Custom Domains → `img.<domínio>`); (3) token do R2 com "Object Read & Write" só nesse bucket (ou incluir o bucket no token atual); (4) `.env`: `R2_BUCKET_IMAGENS`, `URL_PUBLICA_IMAGENS` (o endereço do passo 2, sem barra no fim) e, se o token for outro, `R2_IMAGENS_ACCESS_KEY_ID`/`R2_IMAGENS_SECRET_ACCESS_KEY`. Subir tudo junto; a primeira passada copia as imagens em lotes (100 por hora, as das oportunidades primeiro). Conferir Configurações → Amazon → "Quase oportunidade a partir de (%)" e a tela `/` do site novo.
   - `README.md`: na seção do site novo, a área de negócio passa a ter Oportunidades e Produto (o que cada uma mostra, em 3–4 linhas) e a permissão `ver_oportunidades`.
-  - `docs/PENDENCIAS.md`: marcar B `[x]` com "merge `pendente`" e detalhe em "Concluídas" (telas, API, permissão, piso, índice); tirar o pré-requisito `consultas_catalogo` (feito na Tarefa 1); "Última revisão" atualizada.
+  - `docs/PENDENCIAS.md`: marcar B `[x]` com "merge `pendente`" e detalhe em "Concluídas" (telas, API, permissão, piso, índice, imagens no R2); tirar o pré-requisito `consultas_catalogo` (feito na Tarefa 1) e o item "Imagens no R2 da Cloudflare" da seção 4 (feito); em "Acompanhar": trocar o `r2.dev` por domínio próprio antes de publicar; em "Riscos": as imagens são da Liga e da Amazon (uso de imagem de terceiros), rever antes de vender acesso; "Última revisão" atualizada.
 - [ ] **Step 4:** suíte inteira: `uv run pytest -q`, `uv run ruff check`, `cd web && npm test && npm run build` — PASS.
 - [ ] **Step 5:** commit `docs: opportunities in the business area (deploy notes, readme, pending list)`.
+
+---
+
+### Task 10: Cópia das imagens para o bucket público (roda na onda 2)
+
+**Files:**
+- Create: `src/tcg_sniper/manutencao/imagens.py`, `tests/manutencao/test_imagens.py`
+- Modify: `src/tcg_sniper/config.py` (variáveis novas), `src/tcg_sniper/manutencao/r2.py` (bucket e chaves por parâmetro; `enviar_bytes`), `src/tcg_sniper/manutencao/servico.py` (lote de hora em hora), `.env.example` (se existir; senão a seção de variáveis do README)
+- Test: `tests/test_config.py`, `tests/manutencao/test_r2.py` (ou o arquivo que já testa o `EnviadorR2`), `tests/manutencao/test_servico.py` (ou o equivalente)
+
+**Interfaces:**
+- Consumes (Tarefa 2): colunas `imagem_chave` e `imagem_origem` em `ProdutoLiga` e `AnuncioAmazon`.
+- Produces: `Config.url_publica_imagens: str | None` (a API da Tarefa 6 lê de `request.app.state.config`); chaves no bucket `produtos/<liga_id>-<hash>.webp` e `anuncios/<asin>-<hash>.webp`.
+
+**Regras:**
+- Bucket próprio (`R2_BUCKET_IMAGENS`), **nunca** o dos backups. Token: `R2_IMAGENS_ACCESS_KEY_ID`/`R2_IMAGENS_SECRET_ACCESS_KEY`; vazias, usa `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` (o token atual com o bucket novo incluído). `R2_ACCOUNT_ID` é o mesmo.
+- O que copiar: imagem de produto **ativo** e de anúncio com casamento **confirmado**, com `imagem_url` preenchida e `imagem_origem` diferente da `imagem_url` (nunca copiada, ou a origem mudou). Ordem: primeiro os que têm oportunidade aberta, depois os casados, depois o resto; dentro disso, pelo id.
+- Lote de até 100 por rodada, uma rodada por hora, no `tick` do `manutencao`, com 1 s de pausa entre downloads. Nunca derruba o serviço nem atrasa o backup das 04:00 (o backup roda antes no mesmo `tick`, se for a hora).
+- Download com `httpx`, timeout 20 s, até 5 MB, só `Content-Type: image/*`. Conversão com Pillow (já é dependência): lado maior até 600 px, WebP qualidade 80. Gravação com `ContentType: image/webp` e `CacheControl: public, max-age=31536000, immutable` (a chave muda quando a origem muda: `<hash>` = 10 primeiros caracteres do SHA-1 da URL de origem).
+- Falha de um item (rede, 404, não é imagem, Pillow, R2) vai para o log (sem segredos: `limpar_texto` do serviço), conta como falha e não muda a linha; os outros continuam. Tenta de novo na próxima rodada.
+- Sem `R2_BUCKET_IMAGENS` (ou sem chaves): a rodada não roda; log uma vez ao subir: "R2_BUCKET_IMAGENS vazia: sem cópia das imagens (as telas saem sem foto)".
+
+- [ ] **Step 1: testes** (`tests/manutencao/test_imagens.py`):
+
+```python
+import io
+from datetime import timedelta
+
+import httpx
+import pytest
+from fakes import T0, criar_anuncio, criar_produto
+from fakes_oportunidades import criar_oportunidade
+from PIL import Image
+
+from tcg_sniper.db.models import AnuncioAmazon, ProdutoLiga, StatusCasamento
+from tcg_sniper.manutencao import imagens
+
+
+def _png(lado=1200) -> bytes:
+    saida = io.BytesIO()
+    Image.new("RGB", (lado, lado // 2), (200, 30, 30)).save(saida, "PNG")
+    return saida.getvalue()
+
+
+class EnviadorFalso:
+    def __init__(self, falhar_em=()):
+        self.gravados: dict[str, tuple[bytes, str, str]] = {}
+        self.falhar_em = set(falhar_em)
+
+    def enviar_bytes(self, dados: bytes, chave: str, tipo: str, cache: str) -> None:
+        if any(chave.startswith(p) for p in self.falhar_em):
+            raise OSError("R2 fora")
+        self.gravados[chave] = (dados, tipo, cache)
+
+
+def _http(respostas: dict[str, httpx.Response]) -> httpx.Client:
+    return httpx.Client(transport=httpx.MockTransport(lambda req: respostas[str(req.url)]))
+
+
+def _ok_png():
+    return httpx.Response(200, content=_png(), headers={"Content-Type": "image/png"})
+
+
+def test_para_webp_reduz_e_converte():
+    webp = imagens.para_webp(_png(1200))
+    imagem = Image.open(io.BytesIO(webp))
+    assert imagem.format == "WEBP" and max(imagem.size) == 600
+
+
+def test_chave_muda_com_a_origem():
+    a = imagens.chave_para("produtos", "p1", "https://x.test/a.jpg")
+    b = imagens.chave_para("produtos", "p1", "https://x.test/b.jpg")
+    assert a.startswith("produtos/p1-") and a.endswith(".webp") and a != b
+
+
+def test_pendentes_na_ordem_oportunidade_casado_resto(s):
+    resto = criar_produto(s, "resto")
+    casado = criar_produto(s, "casado")
+    com_op = criar_produto(s, "comop")
+    inativo = criar_produto(s, "inativo", ativo=False)
+    for p in (resto, casado, com_op, inativo):
+        p.imagem_url = f"https://liga.test/{p.liga_id}.jpg"
+    a_casado = criar_anuncio(s, "B0IMG00001", casado, StatusCasamento.CONFIRMADO)
+    a_op = criar_anuncio(s, "B0IMG00002", com_op, StatusCasamento.CONFIRMADO)
+    a_pendente = criar_anuncio(s, "B0IMG00003", resto, StatusCasamento.PENDENTE)
+    for a in (a_casado, a_op, a_pendente):
+        a.imagem_url = f"https://amazon.test/{a.asin}.jpg"
+    criar_oportunidade(s, a_op, com_op, aberta_em=T0)
+    s.flush()
+    alvos = [(a.tipo, a.ident) for a in imagens.pendentes(s, limite=10)]
+    assert alvos[:2] == [("produtos", "comop"), ("anuncios", "B0IMG00002")]
+    assert set(alvos[2:4]) == {("produtos", "casado"), ("anuncios", "B0IMG00001")}
+    assert alvos[4:] == [("produtos", "resto")]  # inativo e anúncio só pendente ficam de fora
+    assert len(imagens.pendentes(s, limite=2)) == 2
+
+
+def test_copiar_lote_grava_e_marca_e_falha_nao_para_o_resto(sessoes):
+    with sessoes() as s, s.begin():
+        bom = criar_produto(s, "bom")
+        bom.imagem_url = "https://liga.test/bom.jpg"
+        quebrado = criar_produto(s, "quebrado")
+        quebrado.imagem_url = "https://liga.test/quebrado.jpg"
+        texto = criar_produto(s, "texto")
+        texto.imagem_url = "https://liga.test/texto.jpg"
+        ids = bom.id, quebrado.id, texto.id
+    http = _http({
+        "https://liga.test/bom.jpg": _ok_png(),
+        "https://liga.test/quebrado.jpg": httpx.Response(404),
+        "https://liga.test/texto.jpg": httpx.Response(200, text="<html>", headers={"Content-Type": "text/html"}),
+    })
+    enviador = EnviadorFalso()
+    resultado = imagens.copiar_lote(sessoes, enviador, http, limite=10, dormir=lambda _s: None)
+    assert (resultado.copiadas, resultado.falhas) == (1, 2)
+    (chave, (dados, tipo, cache)), = enviador.gravados.items()
+    assert chave.startswith("produtos/bom-") and tipo == "image/webp" and "immutable" in cache
+    with sessoes() as s:
+        bom, quebrado, texto = (s.get(ProdutoLiga, i) for i in ids)
+        assert (bom.imagem_chave, bom.imagem_origem) == (chave, "https://liga.test/bom.jpg")
+        assert quebrado.imagem_chave is None and texto.imagem_chave is None
+
+
+def test_origem_nova_copia_de_novo_com_outra_chave(sessoes):
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "troca")
+        p.imagem_url, p.imagem_chave, p.imagem_origem = "https://liga.test/nova.jpg", "produtos/troca-velha.webp", \
+            "https://liga.test/velha.jpg"
+        pid = p.id
+    enviador = EnviadorFalso()
+    imagens.copiar_lote(sessoes, enviador, _http({"https://liga.test/nova.jpg": _ok_png()}), limite=10,
+                        dormir=lambda _s: None)
+    with sessoes() as s:
+        assert s.get(ProdutoLiga, pid).imagem_origem == "https://liga.test/nova.jpg"
+        assert s.get(ProdutoLiga, pid).imagem_chave != "produtos/troca-velha.webp"
+
+
+def test_r2_fora_conta_falha_e_nao_marca(sessoes):
+    with sessoes() as s, s.begin():
+        a = criar_anuncio(s, "B0IMGR2001", criar_produto(s, "r2"), StatusCasamento.CONFIRMADO)
+        a.imagem_url = "https://amazon.test/r2.jpg"
+        aid = a.id
+    http = _http({"https://amazon.test/r2.jpg": _ok_png(), "https://liga.test/r2.jpg": _ok_png()})
+    resultado = imagens.copiar_lote(sessoes, EnviadorFalso(falhar_em=("anuncios/",)), http, limite=10,
+                                    dormir=lambda _s: None)
+    assert resultado.falhas == 1
+    with sessoes() as s:
+        assert s.get(AnuncioAmazon, aid).imagem_chave is None
+```
+
+Em `tests/test_config.py`:
+
+```python
+def test_imagens_usam_o_token_proprio_ou_o_dos_backups(config):
+    assert not config.imagens_configuradas
+    com_bucket = config.model_copy(update={
+        "r2_account_id": "conta", "r2_bucket_imagens": "tcg-sniper-imagens",
+        "r2_access_key_id": SecretStr("a"), "r2_secret_access_key": SecretStr("b"),
+    })
+    assert com_bucket.imagens_configuradas
+    assert com_bucket.chaves_r2_imagens() == ("a", "b")
+    proprio = com_bucket.model_copy(update={
+        "r2_imagens_access_key_id": SecretStr("c"), "r2_imagens_secret_access_key": SecretStr("d"),
+    })
+    assert proprio.chaves_r2_imagens() == ("c", "d")
+```
+
+(Importar `SecretStr` de `pydantic`. Se o `config` fixture tiver `r2_*` preenchidas, montar um `Config(_env_file=None, ...)` como a fixture faz.)
+
+- [ ] **Step 2:** `uv run pytest -q tests/manutencao/test_imagens.py tests/test_config.py` — FAIL.
+- [ ] **Step 3: config.** Em `Config`, junto das `r2_*`:
+
+```python
+    # Imagens dos produtos e anúncios (área de negócio): bucket PÚBLICO próprio, nunca o dos backups.
+    r2_bucket_imagens: str | None = None
+    r2_imagens_access_key_id: SecretStr | None = None  # vazias: usa as chaves dos backups
+    r2_imagens_secret_access_key: SecretStr | None = None
+    url_publica_imagens: str | None = None  # https://<bucket>.r2.dev ou https://img.<domínio>, sem barra no fim
+
+    def chaves_r2_imagens(self) -> tuple[str, str] | None:
+        proprias = (self.r2_imagens_access_key_id, self.r2_imagens_secret_access_key)
+        chaves = proprias if all(proprias) else (self.r2_access_key_id, self.r2_secret_access_key)
+        if not all(chaves):
+            return None
+        valores = tuple(c.get_secret_value().strip() for c in chaves)
+        return valores if all(valores) else None
+
+    @property
+    def imagens_configuradas(self) -> bool:
+        return bool((self.r2_account_id or "").strip() and (self.r2_bucket_imagens or "").strip()
+                    and self.chaves_r2_imagens())
+```
+
+- [ ] **Step 4: r2.py.** `EnviadorR2.__init__` ganha `bucket: str | None = None` e `chaves: tuple[str, str] | None = None` (keyword-only); sem eles, usa `config.r2_bucket` e as chaves dos backups, como hoje. Os segredos (`self._segredos`) incluem as chaves usadas. Método novo:
+
+```python
+    def enviar_bytes(self, dados: bytes, chave: str, tipo: str, cache: str) -> None:
+        self._cliente.put_object(Bucket=self._bucket, Key=chave, Body=dados, ContentType=tipo, CacheControl=cache)
+```
+
+E:
+
+```python
+def criar_enviador_imagens(config: Config) -> EnviadorR2 | None:
+    """`None` sem `R2_BUCKET_IMAGENS` ou sem chaves (as telas saem sem foto)."""
+    if not config.imagens_configuradas:
+        return None
+    return EnviadorR2(config, bucket=config.r2_bucket_imagens.strip(), chaves=config.chaves_r2_imagens())
+```
+
+Teste (no arquivo que já testa o `EnviadorR2`, com a fábrica de cliente falsa que ele usa): `criar_enviador_imagens` usa o bucket de imagens (nunca `r2_bucket`) e `enviar_bytes` chama `put_object` com `ContentType` e `CacheControl`.
+
+- [ ] **Step 5: `src/tcg_sniper/manutencao/imagens.py`:**
+
+```python
+"""Cópia das imagens dos produtos (Liga) e anúncios (Amazon) para o bucket PÚBLICO de imagens no R2: a área de
+negócio nunca aponta para a Liga ou a Amazon (link quebra, entrega o IP de quem vê). Roda no `manutencao`, um lote
+por hora; produto ativo e anúncio casado, os com oportunidade aberta primeiro. Falha de um item não para os outros."""
+
+import hashlib
+import io
+import logging
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Protocol
+
+import httpx
+from PIL import Image, UnidentifiedImageError
+from sqlalchemy import case, or_, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from tcg_sniper.db.models import AnuncioAmazon, Casamento, Oportunidade, ProdutoLiga, StatusCasamento
+
+log = logging.getLogger(__name__)
+
+LADO_MAX = 600
+QUALIDADE = 80
+MAX_BYTES = 5 * 1024 * 1024
+CACHE = "public, max-age=31536000, immutable"
+CABECALHOS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/129.0 Safari/537.36", "Accept": "image/avif,image/webp,image/*,*/*;q=0.8"}
+
+
+class ErroImagem(Exception):
+    pass
+
+
+class EnviadorImagens(Protocol):
+    def enviar_bytes(self, dados: bytes, chave: str, tipo: str, cache: str) -> None: ...
+
+
+@dataclass(frozen=True)
+class Alvo:
+    tipo: str  # "produtos" ou "anuncios"
+    id: int
+    ident: str  # liga_id ou asin
+    url: str
+
+
+@dataclass(frozen=True)
+class Resultado:
+    copiadas: int
+    falhas: int
+
+
+def chave_para(tipo: str, ident: str, origem: str) -> str:
+    return f"{tipo}/{ident}-{hashlib.sha1(origem.encode()).hexdigest()[:10]}.webp"
+
+
+def para_webp(dados: bytes) -> bytes:
+    try:
+        imagem = Image.open(io.BytesIO(dados))
+        imagem.load()
+    except (UnidentifiedImageError, OSError) as erro:
+        raise ErroImagem("não é uma imagem") from erro
+    imagem = imagem.convert("RGBA" if imagem.mode in ("RGBA", "LA", "P") else "RGB")
+    imagem.thumbnail((LADO_MAX, LADO_MAX))
+    saida = io.BytesIO()
+    imagem.save(saida, "WEBP", quality=QUALIDADE)
+    return saida.getvalue()
+
+
+def baixar(http: httpx.Client, url: str) -> bytes:
+    resposta = http.get(url, headers=CABECALHOS, timeout=20, follow_redirects=True)
+    if resposta.status_code != 200:
+        raise ErroImagem(f"HTTP {resposta.status_code}")
+    if not resposta.headers.get("Content-Type", "").startswith("image/"):
+        raise ErroImagem("a resposta não é imagem")
+    if len(resposta.content) > MAX_BYTES:
+        raise ErroImagem("imagem grande demais")
+    return resposta.content
+
+
+def _precisa(coluna_url, coluna_origem):
+    return coluna_url.is_not(None), or_(coluna_origem.is_(None), coluna_origem != coluna_url)
+
+
+def pendentes(s: Session, limite: int) -> list[Alvo]:
+    aberta = select(Oportunidade.produto_id).where(Oportunidade.fechada_em.is_(None))
+    casado = select(Casamento.produto_id).where(Casamento.status == StatusCasamento.CONFIRMADO)
+    produtos = s.execute(
+        select(ProdutoLiga.id, ProdutoLiga.liga_id, ProdutoLiga.imagem_url,
+               case((ProdutoLiga.id.in_(aberta), 0), (ProdutoLiga.id.in_(casado), 1), else_=2).label("prioridade"))
+        .where(ProdutoLiga.ativo.is_(True), *_precisa(ProdutoLiga.imagem_url, ProdutoLiga.imagem_origem))
+    ).all()
+    aberta_anuncio = select(Oportunidade.anuncio_id).where(Oportunidade.fechada_em.is_(None))
+    anuncios = s.execute(
+        select(AnuncioAmazon.id, AnuncioAmazon.asin, AnuncioAmazon.imagem_url,
+               case((AnuncioAmazon.id.in_(aberta_anuncio), 0), else_=1).label("prioridade"))
+        .join(Casamento, Casamento.anuncio_id == AnuncioAmazon.id)
+        .where(Casamento.status == StatusCasamento.CONFIRMADO,
+               *_precisa(AnuncioAmazon.imagem_url, AnuncioAmazon.imagem_origem))
+        .distinct()
+    ).all()
+    alvos = [(p.prioridade, 0, p.id, Alvo("produtos", p.id, p.liga_id, p.imagem_url)) for p in produtos]
+    alvos += [(a.prioridade, 1, a.id, Alvo("anuncios", a.id, a.asin, a.imagem_url)) for a in anuncios]
+    alvos.sort(key=lambda x: x[:3])
+    return [alvo for *_, alvo in alvos[:limite]]
+
+
+def _marcar(s: Session, alvo: Alvo, chave: str) -> None:
+    modelo = ProdutoLiga if alvo.tipo == "produtos" else AnuncioAmazon
+    linha = s.get(modelo, alvo.id)
+    if linha is not None and linha.imagem_url == alvo.url:  # a origem não mudou enquanto copiava
+        linha.imagem_chave, linha.imagem_origem = chave, alvo.url
+
+
+def copiar_lote(
+    sessoes: sessionmaker[Session], enviador: EnviadorImagens, http: httpx.Client, limite: int = 100,
+    dormir: Callable[[float], None] = time.sleep, limpar: Callable[[str], str] = lambda t: t,
+) -> Resultado:
+    with sessoes() as s:
+        alvos = pendentes(s, limite)
+    copiadas = falhas = 0
+    for i, alvo in enumerate(alvos):
+        if i:
+            dormir(1.0)
+        try:
+            chave = chave_para(alvo.tipo, alvo.ident, alvo.url)
+            enviador.enviar_bytes(para_webp(baixar(http, alvo.url)), chave, "image/webp", CACHE)
+            with sessoes() as s, s.begin():
+                _marcar(s, alvo, chave)
+            copiadas += 1
+        except Exception as erro:  # noqa: BLE001 - um item com problema não para o lote
+            falhas += 1
+            log.warning("imagem %s/%s não copiada: %s", alvo.tipo, alvo.ident, limpar(f"{type(erro).__name__}: {erro}"))
+    if alvos:
+        log.info("imagens: %d copiadas, %d falhas (lote de %d)", copiadas, falhas, len(alvos))
+    return Resultado(copiadas, falhas)
+```
+
+- [ ] **Step 6: servico.py.** O `Manutencao.__init__` ganha `enviador_imagens: EnviadorImagens | None` e `http: httpx.Client | None` (padrões: `criar_enviador_imagens(config_env)` e `httpx.Client()`, como o `_enviador` dos backups é criado hoje) e `self._imagens_em: datetime | None = None`. No fim do `tick`, depois do backup e do vigia:
+
+```python
+        if self._enviador_imagens is not None and (
+            self._imagens_em is None or agora - self._imagens_em >= timedelta(hours=1)
+        ):
+            self._imagens_em = agora
+            try:
+                imagens.copiar_lote(self._sessoes, self._enviador_imagens, self._http,
+                                    limpar=lambda t: limpar_texto(t, self._enviador_imagens.segredos))
+            except Exception:  # noqa: BLE001 - a cópia das imagens nunca derruba a manutenção
+                log.exception("erro inesperado na cópia das imagens")
+```
+
+Em `rodar()`, junto do aviso das `R2_*`: `if self._enviador_imagens is None: log.warning("R2_BUCKET_IMAGENS vazia: sem cópia das imagens (as telas saem sem foto)")`. Teste no arquivo do serviço: com um enviador falso e o relógio do teste, dois `tick` na mesma hora chamam `copiar_lote` uma vez; um `tick` 1 h depois chama de novo; `copiar_lote` que levanta exceção não derruba o `tick` (usar `monkeypatch.setattr(imagens, "copiar_lote", ...)`). Seguir a forma que os testes atuais montam o `Manutencao`.
+
+- [ ] **Step 7:** variáveis novas no `.env.example` (ou na tabela de variáveis do README) com comentário: "bucket PÚBLICO só de imagens; nunca o dos backups".
+- [ ] **Step 8:** `uv run pytest -q tests/manutencao tests/test_config.py` e `uv run ruff check` — PASS.
+- [ ] **Step 9:** commit `feat: copy product and listing images to a public R2 bucket`.
