@@ -3,11 +3,21 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-20 (fim da oportunidade em produção desde 21:50; README revisto para publicação e comercialização; antes: leitura por interesse da LigaMagic em produção desde 2026-10-20 08:30).
+Última revisão: 2026-10-20 22:00 (fim da oportunidade em produção desde 21:50; lista reorganizada: pequenas agrupadas por área, pré-requisito do sub-projeto B destacado, itens resolvidos movidos para "Concluídas").
+
+## Ordem sugerida
+
+1. **Site novo, fase 2, sub-projeto B (Oportunidades)**: começa pelo brainstorming e pela spec; primeira tarefa do plano é mover `consultas_catalogo` (ver seção 4).
+2. Acompanhar ao longo dos dias (seção 3), sem prazo: primeiro os avisos de encerramento de 2026-10-21.
+3. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
+4. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
+5. Seção 1 (segurança do login), **antes de publicar na internet ou vender acesso**.
+6. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
+7. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
 
-- [x] **Reabrir os ignorados por inglês** (2026-10-19): `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês; voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado).
+Nenhum no momento.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -21,48 +31,79 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
+### Oportunidades e monitor da Amazon
+
 - [ ] Oportunidade aberta há mais de 30 dias sem realerta perde o vínculo com a mensagem (limpeza apaga a mensagem) e não avisa o encerramento; aceito por ora (rara).
 - [ ] Fim da oportunidade: se um realerta ainda está na fila quando a oportunidade encerra, o vínculo aponta para ele, que é descartado, e o aviso de encerramento não sai mesmo que o grupo tenha visto o alerta anterior (exige o WhatsApp fora por mais que a carência). Avaliar guardar se algum alerta da oportunidade saiu.
+- [ ] Fim da oportunidade: `alertas` começa em 1 ao abrir mesmo com o aviso de oportunidade desligado (padrão do banco); o sub-projeto B deve contar pelas mensagens se precisar do número exato.
+- [ ] `docs/IMPLANTACOES.md`, fim da oportunidade: "sem carência" onde o certo é "sem risco marcado" (só redação).
+- [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
+- [ ] Teste de Ofertas com produto sem preço na Liga.
+
+### Casamento e idioma
+
 - [ ] Idioma: produtos com casamento confirmado antes da regra de idioma (todos os ~50 de 2026-10-19) ficam como "não se sabe se tem português confirmado", então anúncios novos em inglês deles ficam pendentes para você em vez de o automático confirmar. Seguro para produtos em português; para quem tem a edição em inglês confirmada à mão, os irmãos em inglês nunca confirmam sozinhos. Corrigir com um preenchimento único do idioma dos anúncios confirmados (IA ou à mão, botão "definir idioma").
 - [ ] Idioma: anúncio com idioma "indefinido" ainda pode ser confirmado pelo automático mesmo com português confirmado no produto (pequena brecha na regra "inglês só sem português").
-- [ ] `reabrir-ingles`: o filtro por motivo é aproximado (pega "idioma" que não é sobre idioma; descarta motivo em inglês que só cita japonês). Conferir o número do dry-run (esperado perto de 24) antes do `--aplicar`.
-- [ ] Login: celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. **Decidido (2026-10-19):** aceitar a variante sem o 9 no login, normalizando para o número cadastrado.
-- [ ] Login: `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
-- [ ] Usuários: `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
+- [ ] Casamento por par: um anúncio confirmado para um produto que foi **desativado** continua confirmado nele (como antes): sai do monitor, mas não aparece como pendente para outros produtos e não pode ser confirmado em outro até você reativar o produto ou desfazer o par. Decidir se desativar um produto deve soltar os confirmados dele.
+- [ ] Casamento por par: `marcar_reavaliado` pode tirar a marca de reavaliar com uma resposta da IA que já estava a caminho, mais antiga que o pedido de reavaliar (inofensivo: a avaliação gravada vale para os mesmos dados; para reavaliar de novo, é só clicar outra vez).
+- [ ] Casamento por par: a guarda global contra as colunas antigas (`tests/test_sem_casamento_no_anuncio.py`) só pega os prefixos `anuncio.` e `AnuncioAmazon.`; uma variável com outro nome (`a.produto_id`, `item.status_casamento`) passaria. As colunas já saíram do banco, então o erro apareceria em execução.
+- [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio. Vale também para a espera dos termos de busca cuja chamada falhou.
+
+### LigaMagic
+
+- [ ] Produto novo cuja página sempre falha ocupa uma das vagas de novos do dia (o mais antigo primeiro); pular depois de N falhas.
+- [ ] Desligar e religar pelo liga/desliga de Serviços reinicia a espera de 30 min após um desafio; o card diz "volta sozinha", mas nenhum job roda se o do dia já rodou. Nunca fica mais agressivo, só o texto engana. Contar a espera só do "Retomar" após desafio.
+- [ ] 1º desafio tarde da noite com a espera terminando depois da meia-noite roda o job da madrugada com pausas normais ("desafios hoje" zera à meia-noite). Avaliar contar as pausas em dobro pelas últimas 24 h.
+- [ ] Índice em `resumo_preco.coletado_em` para a lista do dia (hoje varre a tabela inteira; ela cresce ~800 mil linhas/ano).
+
+### Login, usuários e site novo
+
+- [ ] Celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. **Decidido (2026-10-19):** aceitar a variante sem o 9 no login, normalizando para o número cadastrado.
+- [ ] `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
+- [ ] `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
 - [ ] Front: ao fechar um modal, o foco não volta para o botão que o abriu.
+
+### Avisos, vigia e notificador
+
 - [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
 - [ ] Vigia de serviços: container parado de propósito no compose recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços. O vigia deveria ignorar serviço parado de propósito (hoje o jeito é pausá-lo no admin).
 - [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
 - [ ] Aviso "mensagem não enviada" nunca é resolvido, então o lembrete de 2 h mostra uma contagem que só cresce.
 - [ ] Notificador, casos raros aceitos: (a) uma mensagem cujo registro sempre falha pode travar a fila; (b) se o banco cair entre gravar a oportunidade e gravar a mensagem, o alerta fica só no log.
-- [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio. Vale também para a espera dos termos de busca cuja chamada falhou.
-- [ ] Casamento por par: um anúncio confirmado para um produto que foi **desativado** continua confirmado nele (como antes): sai do monitor, mas não aparece como pendente para outros produtos e não pode ser confirmado em outro até você reativar o produto ou desfazer o par. Decidir se desativar um produto deve soltar os confirmados dele.
-- [ ] Casamento por par: `marcar_reavaliado` pode tirar a marca de reavaliar com uma resposta da IA que já estava a caminho, mais antiga que o pedido de reavaliar (inofensivo: a avaliação gravada vale para os mesmos dados; para reavaliar de novo, é só clicar outra vez).
-- [ ] Casamento por par: a guarda global contra as colunas antigas (`tests/test_sem_casamento_no_anuncio.py`) só pega os prefixos `anuncio.` e `AnuncioAmazon.`; uma variável com outro nome (`a.produto_id`, `item.status_casamento`) passaria. As colunas já saíram do banco, então o erro apareceria em execução.
-- [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
-- [ ] Teste de Ofertas com produto sem preço na Liga.
+
+### Admin antigo (juntar com a fase 3)
+
+- [ ] Card da LigaMagic diz "Próxima começa em instantes" até a meia-noite quando a coleta do dia foi pulada (pausa no horário) (`consultas_painel.py`).
+- [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela).
+- [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes.
+
+### Código e dependências
+
 - [ ] `openai` fixada em `<3` no `pyproject.toml`: a 3.x troca a biblioteca de rede e exige refazer os testes do pacote `ia`.
 - [ ] Limpar as 6 reexportações `# noqa: PLC0414` em `src/` (sobra da extração do pacote `navegador`).
 - [ ] `TZ` fixo em America/Sao_Paulo no compose: mudar o fuso em Configurações → Geral não muda os logs nem o relógio do noVNC.
-- [ ] Card da LigaMagic diz "Próxima começa em instantes" até a meia-noite quando a coleta do dia foi pulada (pausa no horário) (`consultas_painel.py`). Pode ir junto com a fase 3.
-- [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela). Pode ir junto com a fase 3.
-- [ ] Mover `admin/consultas_catalogo.py` (situação do catálogo por produto) para um pacote neutro (ex.: `tcg_sniper/consultas/`) antes de a API da fase 2 importá-lo: a fase 4 apaga o pacote `admin`.
-- [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes na fase 3.
-- [ ] Índice em `resumo_preco.coletado_em` para a lista do dia (hoje varre a tabela inteira; ela cresce ~800 mil linhas/ano).
-- [ ] Produto novo cuja página sempre falha ocupa uma das vagas de novos do dia (o mais antigo primeiro); pular depois de N falhas.
-- [ ] LigaMagic: desligar e religar pelo liga/desliga de Serviços reinicia a espera de 30 min após um desafio; o card diz "volta sozinha", mas nenhum job roda se o do dia já rodou. Nunca fica mais agressivo, só o texto engana. Contar a espera só do "Retomar" após desafio.
-- [ ] LigaMagic: 1º desafio tarde da noite com a espera terminando depois da meia-noite roda o job da madrugada com pausas normais ("desafios hoje" zera à meia-noite). Avaliar contar as pausas em dobro pelas últimas 24 h.
 - [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
 
 ## 3. Acompanhar (sem código)
 
+### Fim da oportunidade (desde 2026-10-20 21:50)
+
+- [ ] Primeiros encerramentos (a partir de 2026-10-21 08:00, quando o monitor volta): as 13 oportunidades abertas na migração estão marcadas "alerta sem registro" e avisam o grupo de oportunidades quando encerrarem. Conferir que o motivo faz sentido, que sai um aviso só por oportunidade e que o selo "em risco desde" aparece em Ofertas durante a carência. Consulta: `SELECT motivo_encerramento, count(*), count(encerramento_avisado_em) FROM oportunidade WHERE fechada_em > '2026-10-20 21:50' GROUP BY 1`.
+- [ ] Primeira semana: oportunidades que abrem e encerram várias vezes no mesmo dia mesmo com a carência de 30 min (ruído no grupo). Se acontecer, subir a carência em Configurações → Amazon → Monitor de preço.
+
+### Coleta e casamento
+
 - [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: a etapa dos produtos da Liga lê ~450–500 páginas por dia (leitura por interesse; eram ~10 h com todos os ativos); a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
+- [ ] Acompanhar uma semana sem desafio com ~500 páginas/dia (leitura por interesse, desde a implantação): avisos "Liga · desafio do Cloudflare" e a linha "Produtos: … de … · casados, candidatos, novos, rodízio" do resumo diário. Se o desafio voltar, baixar o rodízio (por exemplo para 14 dias) ou subir as pausas em Configurações → LigaMagic. No fim, revisar também o máximo de cliques em "Exibir mais" com os números reais.
 - [ ] CAPTCHA da Amazon com os dois navegadores somando ~270 páginas/h no mesmo endereço (busca 90/h + monitor 180/h, desde a separação). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
 - [ ] Quantos produtos ativos ainda não foram buscados (card Amazon (busca) no Dashboard; eram 1941 de 1969 sem candidato em 2026-10-19). Com 90 buscas/h e a janela de 14 h, a primeira passada nos ~2000 produtos leva cerca de 2 dias.
 - [ ] Primeira semana do casamento por par: quantos ignorados foram recuperados (anúncios confirmados para um produto que antes estavam ignorados para outro: `SELECT count(*) FROM casamento c WHERE c.status = 'confirmado' AND EXISTS (SELECT 1 FROM casamento o WHERE o.anuncio_id = c.anuncio_id AND o.produto_id <> c.produto_id AND o.status = 'ignorado' AND o.origem <> 'outro_confirmado')`) e quantos produtos entraram na busca alternativa (`SELECT count(DISTINCT produto_id) FROM termo_busca`; com tentativa sem termo válido: `SELECT count(*) FROM fila_amazon WHERE termos_tentados_em IS NOT NULL`). Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
+- [ ] Resultado dos 19 pares em inglês reabertos em 2026-10-19 (`reabrir-ingles --aplicar`): quantos a IA confirmou e quantos voltaram a ignorado.
 - [ ] Fila e gasto da IA nos primeiros dias depois de implantar o casamento por par (volume aceito; o teto de gasto protege): pares pendentes esperando a IA (Dashboard → "esperando você" e Casamentos), gasto do dia e do mês em Logs → IA (filtro "termos de busca" para a busca alternativa, 5 produtos por ciclo) e se o teto do dia está sendo atingido cedo. Se a fila não baixar, ajustar o lote ou os tetos em Configurações → IA.
+
+### Operação
+
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
-- [ ] Acompanhar uma semana sem desafio com ~500 páginas/dia (leitura por interesse, desde a implantação): avisos "Liga · desafio do Cloudflare" e a linha "Produtos: … de … · casados, candidatos, novos, rodízio" do resumo diário. Se o desafio voltar, baixar o rodízio (por exemplo para 14 dias) ou subir as pausas em Configurações → LigaMagic. No fim, revisar também o máximo de cliques em "Exibir mais" com os números reais.
 - [ ] Primeira semana do backup diário (card Backup no Dashboard; arquivos em `dados/backups/` e no R2). Conferir que o rodízio local para em 7 diários + 4 semanais. No R2, as regras de ciclo de vida foram criadas no painel (`diario/` 7 dias, `semanal/` 35 dias): conferir que os arquivos antigos somem.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
 - [ ] Volume de avisos no grupo admin na primeira semana (~60–70/dia com a rodada do monitor); desligar em Configurações → Avisos o que virar ruído.
@@ -70,14 +111,15 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 4. Próximas funcionalidades (decisão do grupo)
 
-- [ ] **Site novo, fase 2 — área de negócio**, em três sub-projetos (decidido em 2026-10-20: a informação estratégica é o produto; telas com gráficos e acompanhamento):
-  - [x] **A. Fim da oportunidade** (merge `000fa6d`): detalhe em "Concluídas".
-  - [ ] **B. Oportunidades**: ativas e encerradas, linha do tempo e curva de preço (do `preco_amazon`), duração, recorrência por produto, quase oportunidades (casados com desconto entre 10% e o mínimo) e números do período; permissão `ver_oportunidades`. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo`.
-  - [ ] **C. Mercado (LigaMagic)**: preço subindo ou caindo (7 e 30 dias), nº de lojas caindo (escassez), esgotou na Liga, preço fora da média de venda, lançamentos, volatilidade; talvez avisos de tendência. Permissão `ver_resultados` (ou `ver_mercado`). Começar com ~3 semanas de histórico (desde 2026-10-13).
-- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem.
+- [ ] **Site novo, fase 2 — área de negócio**, em três sub-projetos (decidido em 2026-10-20: a informação estratégica é o produto; telas com gráficos e acompanhamento), na ordem A → B → C:
+  - [x] **A. Fim da oportunidade** (merge `000fa6d`, em produção desde 2026-10-20 21:50): detalhe em "Concluídas".
+  - [ ] **B. Oportunidades**: ativas e encerradas, linha do tempo e curva de preço (do `preco_amazon`), duração (`aberta_em` até `deixou_de_valer_em`), motivo do encerramento, recorrência por produto, quase oportunidades (casados com desconto entre 10% e o mínimo) e números do período; permissão `ver_oportunidades`. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo`.
+    - [ ] Pré-requisito (primeira tarefa do plano): mover `admin/consultas_catalogo.py` (situação do catálogo por produto) para um pacote neutro (ex.: `tcg_sniper/consultas/`) antes de a API importá-lo: a fase 4 apaga o pacote `admin`.
+  - [ ] **C. Mercado (LigaMagic)**: preço subindo ou caindo (7 e 30 dias), nº de lojas caindo (escassez), esgotou na Liga, preço fora da média de venda, lançamentos, volatilidade; talvez avisos de tendência. Permissão `ver_resultados` (ou `ver_mercado`). Começar com ~3 semanas de histórico (coleta desde 2026-10-13, ou seja, a partir de ~2026-11-03).
+- [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem. Pequenas do admin antigo (seção 2) entram junto.
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
 - [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
-- [ ] **Vender acesso às oportunidades**: assinantes na área de negócio, no mesmo sistema (sem multi-cliente). Assinatura, pagamento e planos ficam num projeto próprio; a base de permissões finas já veio na fase 1.
+- [ ] **Vender acesso às oportunidades**: assinantes na área de negócio, no mesmo sistema (sem multi-cliente). Assinatura, pagamento e planos ficam num projeto próprio; a base de permissões finas já veio na fase 1. Depende da seção 1 e de publicar na internet.
 - [ ] **Margem líquida real** por oportunidade: comissão de lojista da LigaMagic, frete de envio, imposto, cupons e cartões. Alertar por um piso de margem configurável (ex.: 15%) no lugar ou ao lado do desconto mínimo, com uma tabela editável de regras (Prime e frete grátis, cashback por cartão, cupons com validade). Precisa dos valores/regras do grupo.
 - [ ] **Coletor do Mercado Livre** pelo navegador (sem API).
 - [ ] **Limite de exposição por produto** (quanto o grupo aceita comprar de cada item). Pré-requisito: registrar compras e estoque (hoje não existe). Faz sentido depois da margem.
@@ -98,8 +140,11 @@ Nenhuma no momento.
 
 ## Decisões registradas
 
+- 2026-10-20: fase 2 do site novo dividida em A (fim da oportunidade), B (oportunidades) e C (mercado da Liga); a informação estratégica (tendências, histórico, gráficos) é o que se vende.
+- 2026-10-20: fim da oportunidade com carência de 30 min (configurável, 0 a 240); motivos de mercado avisam o grupo de oportunidades ("Oferta encerrada"), motivos técnicos o grupo admin, casamento desfeito ou trocado avisa "Alerta corrigido" no grupo de oportunidades; o aviso de fim só sai se o alerta de abertura chegou ao grupo.
+- 2026-10-20: README pronto para publicar o repositório e preparar a venda, licença MIT mantida; aviso de vulnerabilidade privado pelo GitHub ativado; assinatura descrita só como "em preparação".
 - **Alerta espera a conferência de checkout (confirmado pelo usuário em 2026-10-19):** o primeiro alerta de uma oportunidade só sai depois da conferência no checkout (preço = itens + impostos, sem frete); se a conferência não puder rodar, vale o comportamento descrito no README.
-- **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário. Após o deploy: `tcg-sniper casamento reabrir-ingles` (simulação) e `--aplicar` para devolver à IA os ignorados pelo automático por serem em inglês.
+- **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário.
 - 2026-10-19: LigaMagic lê por interesse (casados e candidatos todo dia, novos até 100/dia, demais em rodízio de 7 dias; listagens completas todo dia) e esfria 30 min após um desafio resolvido, com pausas em dobro no resto do dia; o 2º desafio no dia encerra o dia.
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
 - 2026-10-19: busca e monitor da Amazon em serviços separados (busca sem login, 90 buscas/h; monitor logado, 180 páginas/h; a migração baixou o monitor de 1000 para 180).
@@ -115,26 +160,21 @@ Nenhuma no momento.
 - 2026-10-15: Ofertas não lê uma vez por dia os anúncios casados sem desconto; só mostra o rótulo "vendedor não verificado" (por isso vendedor e variação ficam vazios nesses anúncios).
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
-## Ordem sugerida
-
-0. Acompanhar a primeira semana da leitura por interesse da LigaMagic e do casamento por par (seção 3) e o resultado dos 19 pares em inglês reabertos.
-1. Site novo, fase 2 (área de negócio).
-2. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
-3. Seção 1 (segurança do login), antes de publicar na internet.
-4. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
-5. Seção 3 (acompanhar) ao longo dos próximos dias, sem prazo.
-6. Margem líquida (seção 4), quando o grupo tiver os valores.
-
 ## Concluídas
 
 ### Fim da oportunidade (merge `000fa6d`, em produção desde 2026-10-20 21:50; 13 abertas marcadas "alerta sem registro")
 
-Spec `docs/superpowers/specs/2026-10-20-fim-da-oportunidade-design.md`; migração `e7c3a9d5b2f4`.
+Spec `docs/superpowers/specs/2026-10-20-fim-da-oportunidade-design.md`, plano `docs/superpowers/plans/2026-10-20-fim-da-oportunidade.md`; migração `e7c3a9d5b2f4`. Suíte no merge: 2047 testes passando.
 
 - [x] Motivo de encerramento e carência (Configurações → Amazon → Monitor de preço, padrão 30 min, 0 a 240): a oportunidade só encerra depois de ficar fora das condições pela carência; oscilação mais curta não gera aviso.
 - [x] Avisos: "⏹️ Oferta encerrada · <motivo>" e "⚠️ Alerta corrigido" no grupo de oportunidades; "🟡 Oportunidade encerrada · <motivo técnico>" no grupo admin. Num realerta, o alerta anterior ainda pendente é descartado (vale o preço mais novo).
 - [x] Alerta ligado à mensagem: o encerramento só avisa se o alerta saiu de fato (expirado ou ainda na fila não gera aviso).
 - [x] Selo "em risco desde HH:MM · <motivo>" em Ofertas.
+- [x] Dados para o sub-projeto B na `oportunidade`: menor preço, número de alertas, mensagem do último alerta e `deixou_de_valer_em` (a primeira leitura ruim).
+
+### Reabrir os ignorados por inglês (2026-10-19)
+
+- [x] `reabrir-ingles --aplicar` reabriu 19 pares ignorados pelo automático por idioma inglês (o dry-run esperava perto de 24; o filtro por motivo é aproximado e ficou de fora o que não era sobre idioma); voltaram a pendente para a IA reavaliar com a regra condicional (português preferido; inglês casa se o produto não tiver português confirmado). Acompanhar o resultado na seção 3.
 
 ### README para publicação e comercialização (2026-10-20)
 
