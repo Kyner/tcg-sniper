@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { chamarApi } from "../api";
+import { Carregando } from "../componentes/Carregando";
 import { MotivoSelo } from "../componentes/MotivoSelo";
 import { SeletorPeriodo } from "../componentes/SeletorPeriodo";
 import { useCoresTema } from "../cores";
@@ -32,10 +33,12 @@ export function Oportunidades() {
   const [quase, setQuase] = useState<QuaseOportunidades | null>(null);
   const [todasQuase, setTodasQuase] = useState(false);
   const [encerradas, setEncerradas] = useState<EncerradasOportunidades | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [erroPrincipal, setErroPrincipal] = useState<string | null>(null);
+  const [erroAtivas, setErroAtivas] = useState<string | null>(null);
+  const erro = erroPrincipal ?? erroAtivas;
 
-  const carregar = useCallback(async () => {
-    setErro(null);
+  const carregar = useCallback(async (sinal?: { cancelado: boolean }) => {
+    setErroPrincipal(null);
     try {
       const filtroMotivo = motivo ? `&motivo=${motivo}` : "";
       const [r, e] = await Promise.all([
@@ -44,32 +47,45 @@ export function Oportunidades() {
           `/api/oportunidades/encerradas?periodo=${periodo}&pagina=${pagina}${filtroMotivo}`,
         ),
       ]);
+      if (sinal?.cancelado) return;
       setResumo(r);
       setEncerradas(e);
     } catch (e) {
-      setErro(tratarErro(e));
+      if (sinal?.cancelado) return;
+      setErroPrincipal(tratarErro(e));
     }
   }, [periodo, motivo, pagina, tratarErro]);
 
-  const carregarAtivas = useCallback(async () => {
+  const carregarAtivas = useCallback(async (sinal?: { cancelado: boolean }) => {
     try {
       const caminhoQuase = todasQuase ? "/api/oportunidades/quase" : "/api/oportunidades/quase?limite=20";
       const [a, q] = await Promise.all([
         chamarApi<AtivasOportunidades>("/api/oportunidades/ativas"),
         chamarApi<QuaseOportunidades>(caminhoQuase),
       ]);
+      if (sinal?.cancelado) return;
       setAtivas(a);
       setQuase(q);
+      setErroAtivas(null);
     } catch (e) {
-      setErro(tratarErro(e));
+      if (sinal?.cancelado) return;
+      setErroAtivas(tratarErro(e));
     }
   }, [todasQuase, tratarErro]);
 
-  useEffect(() => { void carregar(); }, [carregar]);
   useEffect(() => {
-    void carregarAtivas();
-    const id = window.setInterval(() => void carregarAtivas(), 60_000);
-    return () => window.clearInterval(id);
+    const sinal = { cancelado: false };
+    void carregar(sinal);
+    return () => { sinal.cancelado = true; };
+  }, [carregar]);
+  useEffect(() => {
+    const sinal = { cancelado: false };
+    void carregarAtivas(sinal);
+    const id = window.setInterval(() => void carregarAtivas(sinal), 60_000);
+    return () => {
+      sinal.cancelado = true;
+      window.clearInterval(id);
+    };
   }, [carregarAtivas]);
 
   function trocarPeriodo(p: Periodo) {
@@ -84,6 +100,10 @@ export function Oportunidades() {
 
   const n = resumo?.numeros;
   const paginas = encerradas ? Math.max(1, Math.ceil(encerradas.total / encerradas.por_pagina)) : 1;
+
+  if (resumo === null && !erro) return <Carregando />;
+
+  const girando = <span className="loading loading-spinner" role="status" aria-label="Carregando seção" />;
 
   return (
     <section className="space-y-6">
@@ -127,6 +147,7 @@ export function Oportunidades() {
 
       <section aria-labelledby="titulo-ativas" className="space-y-3">
         <h2 id="titulo-ativas" className="text-xl font-semibold">Ativas agora</h2>
+        {ativas === null && girando}
         {ativas && ativas.ativas.length === 0 && (
           <p className="opacity-70">
             Nenhuma oportunidade aberta agora
@@ -171,11 +192,26 @@ export function Oportunidades() {
 
       <section aria-labelledby="titulo-quase" className="space-y-3">
         <h2 id="titulo-quase" className="text-xl font-semibold">Quase lá</h2>
+        {quase === null && girando}
         {quase && quase.itens.length === 0 && (
           <p className="opacity-70">Nenhum produto entre {quase.piso_pct}% e {quase.desconto_min_pct}% de desconto agora</p>
         )}
         {quase && quase.itens.length > 0 && (
-          <div className="overflow-x-auto">
+          <ul className="list bg-base-100 rounded-box shadow-sm md:hidden">
+            {quase.itens.map((q) => (
+              <li key={q.produto.id} className="list-row">
+                <div className="list-col-grow">
+                  <Link className="link" to={`/produtos/${q.produto.id}`}>{q.produto.nome}</Link>
+                  <div className="text-xs opacity-70">
+                    {pct(q.desconto_pct)} · faltam {reais(q.falta_reais)} ({pct(q.falta_pp)})
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {quase && quase.itens.length > 0 && (
+          <div className="hidden overflow-x-auto md:block">
             <table className="table table-sm">
               <thead><tr><th>Produto</th><th>Desconto</th><th>Falta</th></tr></thead>
               <tbody>
@@ -210,9 +246,30 @@ export function Oportunidades() {
             ))}
           </select>
         </div>
+        {encerradas === null && girando}
         {encerradas && encerradas.itens.length === 0 && <p className="opacity-70">Nenhuma encerrada {TEXTO_PERIODO[periodo]}</p>}
         {encerradas && encerradas.itens.length > 0 && (
-          <div className="overflow-x-auto">
+          <ul className="list bg-base-100 rounded-box shadow-sm md:hidden">
+            {encerradas.itens.map((e) => (
+              <li key={e.id} className="list-row">
+                <div className="list-col-grow space-y-1">
+                  <div>
+                    {e.produto.ativo
+                      ? <Link className="link" to={`/produtos/${e.produto.id}?oportunidade=${e.id}`}>{e.produto.nome}</Link>
+                      : e.produto.nome}
+                  </div>
+                  <div className="text-xs opacity-70">
+                    {dataHora(e.aberta_em)} · durou {duracao(e.duracao_min)} · {pct(e.desconto_pct)}
+                  </div>
+                  <div className="text-xs opacity-70">{reais(e.preco_alertado)} → {reais(e.menor_preco)}</div>
+                </div>
+                <MotivoSelo motivo={e.motivo} aberta={e.aberta} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {encerradas && encerradas.itens.length > 0 && (
+          <div className="hidden overflow-x-auto md:block">
             <table className="table table-sm">
               <thead>
                 <tr><th>Produto</th><th>Abriu</th><th>Durou</th><th>Alerta → menor</th><th>Desconto</th><th>Motivo</th></tr>

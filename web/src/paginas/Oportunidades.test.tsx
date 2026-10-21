@@ -47,9 +47,17 @@ describe("Oportunidades", () => {
     expect(within(ativas).getByRole("link", { name: "Ver na Amazon" })).toHaveAttribute("href", ANUNCIO.url);
     expect(within(ativas).getByRole("link", { name: "Histórico do produto" })).toHaveAttribute("href", "/produtos/7");
     const quase = screen.getByRole("region", { name: "Quase lá" });
-    expect(await within(quase).findByText("faltam R$ 50,00 (5%)")).toBeInTheDocument();
+    expect(await within(quase).findAllByText(/faltam R\$ 50,00 \(5%\)/)).not.toHaveLength(0);
     const encerradas = screen.getByRole("region", { name: "Encerradas no período" });
     expect(await within(await within(encerradas).findByRole("table")).findByText("preço subiu")).toBeInTheDocument();
+  });
+
+  it("mostra Carregando antes da primeira resposta", async () => {
+    apiFalsa({ "GET /api/auth/eu": ok(EU_GRUPO), ...respostasOportunidadesVazias() });
+    renderizarEm("/");
+    expect(screen.getByRole("status", { name: "Carregando" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Oportunidades" })).toBeInTheDocument();
+    expect(await screen.findByText("Nenhuma oportunidade aberta agora")).toBeInTheDocument();
   });
 
   it("período vazio: médias com traço e textos de vazio; troca de período busca de novo", async () => {
