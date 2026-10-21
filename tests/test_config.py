@@ -97,3 +97,23 @@ def test_padroes_da_leitura_por_interesse():
 def test_limites_da_leitura_por_interesse(campo, valor):
     with pytest.raises(ValidationError):
         Config(_env_file=None, **{campo: valor})
+
+
+def test_imagens_usam_o_token_proprio_ou_o_dos_backups(monkeypatch):
+    from pydantic import SecretStr
+
+    for var in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_BUCKET_IMAGENS", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
+                "R2_IMAGENS_ACCESS_KEY_ID", "R2_IMAGENS_SECRET_ACCESS_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    config = Config(_env_file=None)
+    assert not config.imagens_configuradas
+    com_bucket = config.model_copy(update={
+        "r2_account_id": "conta", "r2_bucket_imagens": "tcg-sniper-imagens",
+        "r2_access_key_id": SecretStr("a"), "r2_secret_access_key": SecretStr("b"),
+    })
+    assert com_bucket.imagens_configuradas
+    assert com_bucket.chaves_r2_imagens() == ("a", "b")
+    proprio = com_bucket.model_copy(update={
+        "r2_imagens_access_key_id": SecretStr("c"), "r2_imagens_secret_access_key": SecretStr("d"),
+    })
+    assert proprio.chaves_r2_imagens() == ("c", "d")
