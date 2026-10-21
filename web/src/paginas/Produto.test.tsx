@@ -73,4 +73,35 @@ describe("Produto", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeInTheDocument();
   });
+
+  it("vindo das encerradas: abre no período do link", async () => {
+    const chamadas = apiFalsa({
+      "GET /api/auth/eu": ok(EU_GRUPO),
+      "GET /api/produtos/7/historico?periodo=90d": ok(historico({ periodo: "90d" })),
+    });
+    renderizarEm("/produtos/7?oportunidade=2&periodo=90d");
+    expect(await screen.findByRole("heading", { name: "Final Fantasy - Caixa" })).toBeInTheDocument();
+    expect(chamadas.some((c) => c.caminho === "/api/produtos/7/historico?periodo=90d")).toBe(true);
+    expect(chamadas.some((c) => c.caminho === "/api/produtos/7/historico?periodo=30d")).toBe(false);
+  });
+
+  it("período inválido no link: 30 dias", async () => {
+    const chamadas = apiFalsa({
+      "GET /api/auth/eu": ok(EU_GRUPO),
+      "GET /api/produtos/7/historico?periodo=30d": ok(historico()),
+    });
+    renderizarEm("/produtos/7?periodo=1ano");
+    expect(await screen.findByRole("heading", { name: "Final Fantasy - Caixa" })).toBeInTheDocument();
+    expect(chamadas.some((c) => c.caminho === "/api/produtos/7/historico?periodo=30d")).toBe(true);
+  });
+
+  it("sem oportunidade em 30 dias: texto próprio, sem 0ª", async () => {
+    apiFalsa({
+      "GET /api/auth/eu": ok(EU_GRUPO),
+      "GET /api/produtos/7/historico?periodo=30d": ok(historico({ recorrencia_30d: 0 })),
+    });
+    renderizarEm("/produtos/7");
+    expect(await screen.findByText("nenhuma oportunidade em 30 dias")).toBeInTheDocument();
+    expect(screen.queryByText(/0ª oportunidade/)).not.toBeInTheDocument();
+  });
 });

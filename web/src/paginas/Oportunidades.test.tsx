@@ -50,6 +50,42 @@ describe("Oportunidades", () => {
     expect(await within(quase).findAllByText(/faltam R\$ 50,00 \(5%\)/)).not.toHaveLength(0);
     const encerradas = screen.getByRole("region", { name: "Encerradas no período" });
     expect(await within(await within(encerradas).findByRole("table")).findByText("preço subiu")).toBeInTheDocument();
+    // O link para o histórico leva o período, para a oportunidade destacada estar na curva.
+    for (const link of within(encerradas).getAllByRole("link", { name: PRODUTO.nome })) {
+      expect(link).toHaveAttribute("href", "/produtos/7?oportunidade=2&periodo=7d");
+    }
+  });
+
+  it("ativa de produto inativo: sem link para o histórico", async () => {
+    apiFalsa({
+      "GET /api/auth/eu": ok(EU_GRUPO),
+      ...respostasOportunidadesVazias(),
+      "GET /api/oportunidades/ativas": ok({
+        ativas: [{ id: 1, produto: { ...PRODUTO, ativo: false }, anuncio: ANUNCIO, preco_amazon: "1299.90",
+          preco_liga: "1589.00", desconto_pct: "18.20", aberta_em: new Date().toISOString(), em_risco_desde: null,
+          motivo_risco: null }],
+        ultima_aberta_em: null,
+      }),
+    });
+    renderizarEm("/");
+    const ativas = await screen.findByRole("region", { name: "Ativas agora" });
+    expect(await within(ativas).findByRole("link", { name: "Ver na Amazon" })).toBeInTheDocument();
+    expect(within(ativas).queryByRole("link", { name: "Histórico do produto" })).not.toBeInTheDocument();
+  });
+
+  it("primeira carga das encerradas falhou: alerta sem spinner eterno", async () => {
+    apiFalsa({
+      "GET /api/auth/eu": ok(EU_GRUPO),
+      ...respostasOportunidadesVazias(),
+      "GET /api/oportunidades/encerradas?periodo=7d&pagina=1": {
+        status: 500, corpo: { erro: "interno", mensagem: "Erro interno. Tente de novo em instantes." },
+      },
+    });
+    renderizarEm("/");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Erro interno");
+    await screen.findByText("Nenhuma oportunidade aberta agora");
+    const encerradas = screen.getByRole("region", { name: "Encerradas no período" });
+    expect(within(encerradas).queryByRole("status", { name: "Carregando seção" })).not.toBeInTheDocument();
   });
 
   it("mostra Carregando antes da primeira resposta", async () => {

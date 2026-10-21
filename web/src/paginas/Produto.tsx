@@ -11,12 +11,18 @@ import { useSessao } from "../sessao";
 import type { Historico, Periodo } from "../tipos";
 import { NaoEncontrada } from "./NaoEncontrada";
 
+const PERIODOS: readonly Periodo[] = ["7d", "30d", "90d", "tudo"];
+
+function periodoInicial(valor: string | null): Periodo {
+  return PERIODOS.find((p) => p === valor) ?? "30d";
+}
+
 export function Produto() {
   const { id } = useParams();
   const [busca] = useSearchParams();
   const destaque = busca.get("oportunidade") ? Number(busca.get("oportunidade")) : null;
   const { tratarErro } = useSessao();
-  const [periodo, setPeriodo] = useState<Periodo>("30d");
+  const [periodo, setPeriodo] = useState<Periodo>(() => periodoInicial(busca.get("periodo")));
   const [historico, setHistorico] = useState<Historico | null>(null);
   const [naoExiste, setNaoExiste] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -61,7 +67,11 @@ export function Produto() {
               <h1 className="text-2xl font-bold">{h.produto.nome}</h1>
               <div className="flex flex-wrap gap-2">
                 {h.produto.edicao && <span className="badge badge-ghost">{h.produto.edicao}</span>}
-                <span className="badge badge-primary">{h.recorrencia_30d}ª oportunidade em 30 dias</span>
+                <span className="badge badge-primary">
+                  {h.recorrencia_30d === 0
+                    ? "nenhuma oportunidade em 30 dias"
+                    : `${h.recorrencia_30d}ª oportunidade em 30 dias`}
+                </span>
                 {h.quase_la && <span className="badge badge-warning">quase lá</span>}
               </div>
               <div className="flex flex-wrap gap-2">

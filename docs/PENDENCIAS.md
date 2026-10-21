@@ -180,6 +180,7 @@ Spec `docs/superpowers/specs/2026-10-20-oportunidades-area-negocio-design.md`, p
 - [x] Piso da quase oportunidade configurável (Configurações → Amazon, padrão 10%) e índice no `preco_amazon`.
 - [x] Imagens de produto copiadas para um bucket público do R2 (lotes de 100 por hora, as das oportunidades primeiro); `consultas_catalogo` movido para `tcg_sniper/consultas/`.
 - [x] Ponta a ponta (login do grupo, oportunidade ativa, abrir o produto) e layout das telas novas, inclusive a página de produto.
+- [x] Revisão final: "Quase lá" com um item por produto (o anúncio mais perto do mínimo) e sem produto que já tem oportunidade aberta, também no selo do produto; link das encerradas leva o período (`?periodo=`) e a página do produto abre nele, para a oportunidade destacada estar na curva; sem spinner eterno nas encerradas quando a primeira carga falha; "nenhuma oportunidade em 30 dias" no lugar de "0ª"; "Histórico do produto" das ativas só com o produto ativo; cópia das imagens pula por 24 h (em memória) o item que não baixou ou não converteu, sem segurar a fila; imagem acima de 40 megapixels recusada antes de decodificar; aviso no log quando só uma das chaves `R2_IMAGENS_*` está preenchida.
 
 ### Fim da oportunidade (merge `000fa6d`, em produção desde 2026-10-20 21:50; 13 abertas marcadas "alerta sem registro")
 

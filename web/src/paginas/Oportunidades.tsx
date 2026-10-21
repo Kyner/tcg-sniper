@@ -181,7 +181,9 @@ export function Oportunidades() {
                     <a className="btn btn-primary btn-sm" href={a.anuncio.url} target="_blank" rel="noreferrer">
                       Ver na Amazon
                     </a>
-                    <Link className="btn btn-ghost btn-sm" to={`/produtos/${a.produto.id}`}>Histórico do produto</Link>
+                    {a.produto.ativo && (
+                      <Link className="btn btn-ghost btn-sm" to={`/produtos/${a.produto.id}`}>Histórico do produto</Link>
+                    )}
                   </div>
                 </div>
               </div>
@@ -246,7 +248,7 @@ export function Oportunidades() {
             ))}
           </select>
         </div>
-        {encerradas === null && girando}
+        {encerradas === null && !erroPrincipal && girando}
         {encerradas && encerradas.itens.length === 0 && <p className="opacity-70">Nenhuma encerrada {TEXTO_PERIODO[periodo]}</p>}
         {encerradas && encerradas.itens.length > 0 && (
           <ul className="list bg-base-100 rounded-box shadow-sm md:hidden">
@@ -255,7 +257,7 @@ export function Oportunidades() {
                 <div className="list-col-grow space-y-1">
                   <div>
                     {e.produto.ativo
-                      ? <Link className="link" to={`/produtos/${e.produto.id}?oportunidade=${e.id}`}>{e.produto.nome}</Link>
+                      ? <Link className="link" to={`/produtos/${e.produto.id}?oportunidade=${e.id}&periodo=${periodo}`}>{e.produto.nome}</Link>
                       : e.produto.nome}
                   </div>
                   <div className="text-xs opacity-70">
@@ -279,7 +281,7 @@ export function Oportunidades() {
                   <tr key={e.id}>
                     <td>
                       {e.produto.ativo
-                        ? <Link className="link" to={`/produtos/${e.produto.id}?oportunidade=${e.id}`}>{e.produto.nome}</Link>
+                        ? <Link className="link" to={`/produtos/${e.produto.id}?oportunidade=${e.id}&periodo=${periodo}`}>{e.produto.nome}</Link>
                         : e.produto.nome}
                     </td>
                     <td>{dataHora(e.aberta_em)}</td>
