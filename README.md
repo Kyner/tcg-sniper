@@ -302,6 +302,7 @@ Permissões de cada papel (padrão; Gestão → Acessos muda as de grupo e opera
 | Permissão | Grupo | Operador | Admin |
 | --- | --- | --- | --- |
 | Entrar na área de negócio (`ver_area_negocio`) | sim | sim | sempre |
+| Ver oportunidades (`ver_oportunidades`) | sim | sim | sempre |
 | Entrar na área de gestão (`ver_area_gestao`) | não | sim | sempre |
 | Gerir usuários (`gerir_usuarios`) | não | não | sempre |
 | Gerir acessos (`gerir_acessos`) | não | não | sempre |

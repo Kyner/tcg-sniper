@@ -14,8 +14,10 @@ def linhas(resposta):
 
 def test_padroes_e_linhas_salvas():
     padrao = calcular_grade({})
-    assert padrao[Papel.GRUPO] == {Permissao.VER_AREA_NEGOCIO}
-    assert padrao[Papel.OPERADOR] == {Permissao.VER_AREA_NEGOCIO, Permissao.VER_AREA_GESTAO}
+    assert padrao[Papel.GRUPO] == {Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES}
+    assert padrao[Papel.OPERADOR] == {
+        Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES, Permissao.VER_AREA_GESTAO,
+    }
     assert padrao[Papel.ADMIN] == set(Permissao)
     salvas = {
         (Papel.GRUPO, "ver_area_negocio"): False,
@@ -24,9 +26,12 @@ def test_padroes_e_linhas_salvas():
         (Papel.OPERADOR, "gerir_usuarios"): True,
     }
     grade = calcular_grade(salvas)
-    assert grade[Papel.GRUPO] == frozenset()
+    assert grade[Papel.GRUPO] == {Permissao.VER_OPORTUNIDADES}
     assert grade[Papel.ADMIN] == set(Permissao)
-    assert grade[Papel.OPERADOR] == {Permissao.VER_AREA_NEGOCIO, Permissao.VER_AREA_GESTAO, Permissao.GERIR_USUARIOS}
+    assert grade[Papel.OPERADOR] == {
+        Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES, Permissao.VER_AREA_GESTAO,
+        Permissao.GERIR_USUARIOS,
+    }
 
 
 def test_grade_em_cache_ate_vencer_ou_invalidar(sessoes):

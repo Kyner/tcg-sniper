@@ -4,6 +4,7 @@ export type Papel = "grupo" | "operador" | "admin";
 
 export type Permissao =
   | "ver_area_negocio"
+  | "ver_oportunidades"
   | "ver_area_gestao"
   | "gerir_usuarios"
   | "gerir_acessos"
