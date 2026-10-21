@@ -124,13 +124,27 @@ def entrar_no_web(navegador, base: str, numero: str, codigo: str) -> dict:
         contexto.close()
 
 
+def descobrir_produto_web(navegador, base: str, estado: dict) -> list[str]:
+    """Primeira página de produto do front novo: o href do primeiro link /produtos/ da tela inicial (ou nada)."""
+    contexto = navegador.new_context(storage_state=estado)
+    try:
+        pagina = contexto.new_page()
+        pagina.goto(base + "/", wait_until="networkidle")
+        link = pagina.locator('a[href^="/produtos/"]').first
+        return [link.get_attribute("href")] if link.count() else []
+    finally:
+        contexto.close()
+
+
 def verificar_web(navegador, base: str, estado: dict, saida: Path) -> list[str]:
-    """Telas do front novo: /entrar sem sessão e as demais com a sessão de `estado`, nos dois tamanhos e temas."""
+    """Telas do front novo: /entrar sem sessão e as demais com a sessão de `estado`, nos dois tamanhos e temas.
+    Se a tela inicial tiver um produto, a página dele entra na conferência desta execução."""
     saida.mkdir(parents=True, exist_ok=True)
     problemas: list[str] = []
+    telas_logadas = TELAS_WEB + descobrir_produto_web(navegador, base, estado)
     for nome_tam, (largura, altura) in TAMANHOS.items():
         for tema in ("winter", "night"):
-            for logado, telas in ((False, TELAS_WEB_ANONIMAS), (True, TELAS_WEB)):
+            for logado, telas in ((False, TELAS_WEB_ANONIMAS), (True, telas_logadas)):
                 contexto = navegador.new_context(
                     viewport={"width": largura, "height": altura}, storage_state=estado if logado else None
                 )
