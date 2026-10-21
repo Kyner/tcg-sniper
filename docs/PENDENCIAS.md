@@ -3,7 +3,7 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-20 (fim da oportunidade entregue; README revisto para publicação e comercialização; antes: leitura por interesse da LigaMagic em produção desde 2026-10-20 08:30).
+Última revisão: 2026-10-20 (fim da oportunidade em produção desde 21:50; README revisto para publicação e comercialização; antes: leitura por interesse da LigaMagic em produção desde 2026-10-20 08:30).
 
 ## 0. Crítico
 
@@ -127,7 +127,7 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### Fim da oportunidade (2026-10-20, merge `000fa6d`)
+### Fim da oportunidade (merge `000fa6d`, em produção desde 2026-10-20 21:50; 13 abertas marcadas "alerta sem registro")
 
 Spec `docs/superpowers/specs/2026-10-20-fim-da-oportunidade-design.md`; migração `e7c3a9d5b2f4`.
 
