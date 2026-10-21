@@ -56,3 +56,37 @@ def test_segredos_sem_espacos_e_com_o_account_id(config):
         _config(config, r2_account_id=" conta-abc123 ", r2_secret_access_key=f"  {SEGREDO}\n"), ClienteFake
     )
     assert set(enviador.segredos) == {SEGREDO, "ID-FALSO-R2", "conta-abc123"}
+
+
+def test_imagens_usam_o_bucket_de_imagens_e_nunca_o_dos_backups(config):
+    cfg = _config(config, r2_bucket_imagens="balde-imagens")
+    criados = []
+
+    def fabrica(**kwargs):
+        criados.append(ClienteImagens(**kwargs))
+        return criados[-1]
+
+    enviador = r2.EnviadorR2(
+        cfg, fabrica, bucket=cfg.r2_bucket_imagens, chaves=cfg.chaves_r2_imagens()
+    )
+    enviador.enviar_bytes(b"x", "produtos/p1-abc.webp", "image/webp", "public, immutable")
+    (put,) = criados[0].puts
+    assert put["Bucket"] == "balde-imagens" and put["Bucket"] != cfg.r2_bucket
+    assert put["ContentType"] == "image/webp" and put["CacheControl"] == "public, immutable"
+    assert put["Key"] == "produtos/p1-abc.webp" and put["Body"] == b"x"
+
+
+def test_criar_enviador_imagens_nunca_cai_no_bucket_dos_backups(config):
+    assert r2.criar_enviador_imagens(_config(config)) is None  # só o bucket dos backups: nada de imagens
+    enviador = r2.criar_enviador_imagens(_config(config, r2_bucket_imagens=" balde-imagens "))
+    assert enviador is not None
+    assert enviador._bucket == "balde-imagens" and enviador._bucket != "balde"
+
+
+class ClienteImagens(ClienteFake):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.puts = []
+
+    def put_object(self, **kwargs):
+        self.puts.append(kwargs)

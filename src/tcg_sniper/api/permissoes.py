@@ -16,6 +16,7 @@ from tcg_sniper.db.models import Papel
 
 class Permissao(StrEnum):
     VER_AREA_NEGOCIO = "ver_area_negocio"
+    VER_OPORTUNIDADES = "ver_oportunidades"
     VER_AREA_GESTAO = "ver_area_gestao"
     GERIR_USUARIOS = "gerir_usuarios"
     GERIR_ACESSOS = "gerir_acessos"
@@ -32,6 +33,10 @@ DEFINICOES: dict[Permissao, DefinicaoPermissao] = {
     Permissao.VER_AREA_NEGOCIO: DefinicaoPermissao(
         "Entrar na área de negócio", "Ver a área de negócio (oportunidades e resultados do grupo)."
     ),
+    Permissao.VER_OPORTUNIDADES: DefinicaoPermissao(
+        "Ver oportunidades",
+        "Ver as oportunidades, o histórico dos produtos e as quase oportunidades na área de negócio.",
+    ),
     Permissao.VER_AREA_GESTAO: DefinicaoPermissao(
         "Entrar na área de gestão", "Ver o menu e as telas da área administrativa."
     ),
@@ -46,8 +51,10 @@ DEFINICOES: dict[Permissao, DefinicaoPermissao] = {
 ROTULOS_PAPEL = {Papel.GRUPO: "Grupo", Papel.OPERADOR: "Operador", Papel.ADMIN: "Admin"}
 PAPEIS_EDITAVEIS = (Papel.GRUPO, Papel.OPERADOR)
 PADROES: dict[Papel, frozenset[Permissao]] = {
-    Papel.GRUPO: frozenset({Permissao.VER_AREA_NEGOCIO}),
-    Papel.OPERADOR: frozenset({Permissao.VER_AREA_NEGOCIO, Permissao.VER_AREA_GESTAO}),
+    Papel.GRUPO: frozenset({Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES}),
+    Papel.OPERADOR: frozenset(
+        {Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES, Permissao.VER_AREA_GESTAO}
+    ),
     Papel.ADMIN: frozenset(Permissao),
 }
 TTL_CACHE_S = 5.0

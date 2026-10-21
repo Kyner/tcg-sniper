@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-20 22:00 (fim da oportunidade em produção desde 21:50; lista reorganizada: pequenas agrupadas por área, pré-requisito do sub-projeto B destacado, itens resolvidos movidos para "Concluídas").
+Última revisão: 2026-10-21 (sub-projeto B, Oportunidades na área de negócio, pronto para o merge; falta implantar).
 
 ## Ordem sugerida
 
-1. **Site novo, fase 2, sub-projeto B (Oportunidades)**: começa pelo brainstorming e pela spec; primeira tarefa do plano é mover `consultas_catalogo` (ver seção 4).
+1. Implantar o sub-projeto B (notas em `docs/IMPLANTACOES.md`: bucket de imagens no R2 e `.env`).
 2. Acompanhar ao longo dos dias (seção 3), sem prazo: primeiro os avisos de encerramento de 2026-10-21.
 3. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 4. Site novo, fase 3 (área administrativa + auditoria de layout + botões do par), depois fase 4.
@@ -77,6 +77,11 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela).
 - [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes.
 
+### Oportunidades na área de negócio
+
+- [ ] Tooltip da curva de preço sem o nome do anúncio e sem as cores do tema (pequena, a fazer).
+- [ ] "Quase lá" sem limite padrão na API (pequena): hoje o limite vem do front.
+
 ### Código e dependências
 
 - [ ] `openai` fixada em `<3` no `pyproject.toml`: a 3.x troca a biblioteca de rede e exige refazer os testes do pacote `ia`.
@@ -85,6 +90,11 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
 
 ## 3. Acompanhar (sem código)
+
+### Oportunidades na área de negócio (depois do deploy)
+
+- [ ] Trocar o `r2.dev` por domínio próprio (Custom Domains → `img.<domínio>`) antes de publicar na internet; o `r2.dev` é limitado e não serve para produção.
+- [ ] Primeiros dias: a cópia das imagens (100 por hora, as das oportunidades primeiro) termina e as fotos aparecem em Oportunidades e Produto; conferir a tela `/` e uma página de produto.
 
 ### Fim da oportunidade (desde 2026-10-20 21:50)
 
@@ -113,8 +123,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 - [ ] **Site novo, fase 2 — área de negócio**, em três sub-projetos (decidido em 2026-10-20: a informação estratégica é o produto; telas com gráficos e acompanhamento), na ordem A → B → C:
   - [x] **A. Fim da oportunidade** (merge `000fa6d`, em produção desde 2026-10-20 21:50): detalhe em "Concluídas".
-  - [ ] **B. Oportunidades**: ativas e encerradas, linha do tempo e curva de preço (do `preco_amazon`), duração (`aberta_em` até `deixou_de_valer_em`), motivo do encerramento, recorrência por produto, quase oportunidades (casados com desconto entre 10% e o mínimo) e números do período; permissão `ver_oportunidades`. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo`.
-    - [ ] Pré-requisito (primeira tarefa do plano): mover `admin/consultas_catalogo.py` (situação do catálogo por produto) para um pacote neutro (ex.: `tcg_sniper/consultas/`) antes de a API importá-lo: a fase 4 apaga o pacote `admin`.
+  - [x] **B. Oportunidades** (merge `pendente`; detalhe em "Concluídas"): ativas e encerradas, linha do tempo e curva de preço (do `preco_amazon`), duração (`aberta_em` até `deixou_de_valer_em`), motivo do encerramento, recorrência por produto, quase oportunidades (casados com desconto entre 10% e o mínimo) e números do período; permissão `ver_oportunidades`. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo`.
   - [ ] **C. Mercado (LigaMagic)**: preço subindo ou caindo (7 e 30 dias), nº de lojas caindo (escassez), esgotou na Liga, preço fora da média de venda, lançamentos, volatilidade; talvez avisos de tendência. Permissão `ver_resultados` (ou `ver_mercado`). Começar com ~3 semanas de histórico (coleta desde 2026-10-13, ou seja, a partir de ~2026-11-03).
 - [ ] **Site novo, fase 3 — área administrativa**: migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem. Pequenas do admin antigo (seção 2) entram junto.
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
@@ -125,11 +134,11 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] **Limite de exposição por produto** (quanto o grupo aceita comprar de cada item). Pré-requisito: registrar compras e estoque (hoje não existe). Faz sentido depois da margem.
 - [ ] **Outros sites** de compra, um por vez. Candidatos: Magalu, Shopee e lojas de TCG.
 - [ ] **Migrar para servidor**, modelo híbrido: API, front, banco e serviços num VPS (mínimo 4 GB de RAM); **os dois coletores** (LigaMagic e Amazon) continuam em casa, ligados ao banco do VPS por rede privada (Tailscale ou WireGuard), por causa do IP e da conta da Amazon. Antes, testar a Liga e a Amazon alguns dias com o IP do VPS.
-- [ ] Imagens no R2 da Cloudflare: só se for preciso mostrar fotos no admin ou guardar histórico de imagem (hoje a IA baixa direto da loja).
 - [ ] Ideia, fora do escopo agora: pipeline de deploy separado por serviço (o monorepo permite).
 
 ## 5. Riscos conhecidos (decisão, não código)
 
+- [ ] As imagens copiadas para o R2 são da LigaMagic e da Amazon (uso de imagem de terceiros): rever antes de vender acesso.
 - [ ] O PC é ponto único de falha (ver "Migrar para servidor"). Ninguém fica sabendo quando ele cai: o vigia e o notificador caem junto. Vale um aviso externo simples (batida de vida para um serviço de fora, que avisa se parar).
 - [ ] O número do WhatsApp pode ser banido: usar chip secundário.
 - [ ] Conta da Amazon dedicada ao coletor (com Prime): evita o "carrinho ocupado" que desliga a conferência e protege a conta pessoal numa futura migração para servidor (logar a conta pessoal de IP de datacenter é o risco mais sério).
@@ -161,6 +170,17 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Oportunidades na área de negócio (merge `pendente`; ainda não implantado)
+
+Spec `docs/superpowers/specs/2026-10-20-oportunidades-area-negocio-design.md`, plano `docs/superpowers/plans/2026-10-20-oportunidades-area-negocio.md`; migração `f3b8d1c7a9e2`. Sub-projeto B da fase 2 do site novo.
+
+- [x] Telas Oportunidades (`/`: números do período, ativas, quase lá, por dia, encerradas) e Produto (`/produtos/<id>`: curva de preço, faixas de oportunidade, recorrência), carregadas sob demanda.
+- [x] API `/api/oportunidades/*` e `/api/produtos/{id}/historico`; permissão `ver_oportunidades` (grupo e operador sim, admin sempre).
+- [x] Piso da quase oportunidade configurável (Configurações → Amazon, padrão 10%) e índice no `preco_amazon`.
+- [x] Imagens de produto copiadas para um bucket público do R2 (lotes de 100 por hora, as das oportunidades primeiro); `consultas_catalogo` movido para `tcg_sniper/consultas/`.
+- [x] Ponta a ponta (login do grupo, oportunidade ativa, abrir o produto) e layout das telas novas, inclusive a página de produto.
+- [x] Revisão final: "Quase lá" com um item por produto (o anúncio mais perto do mínimo) e sem produto que já tem oportunidade aberta, também no selo do produto; link das encerradas leva o período (`?periodo=`) e a página do produto abre nele, para a oportunidade destacada estar na curva; sem spinner eterno nas encerradas quando a primeira carga falha; "nenhuma oportunidade em 30 dias" no lugar de "0ª"; "Histórico do produto" das ativas só com o produto ativo; cópia das imagens pula por 24 h (em memória) o item que não baixou ou não converteu, sem segurar a fila; imagem acima de 40 megapixels recusada antes de decodificar; aviso no log quando só uma das chaves `R2_IMAGENS_*` está preenchida.
 
 ### Fim da oportunidade (merge `000fa6d`, em produção desde 2026-10-20 21:50; 13 abertas marcadas "alerta sem registro")
 

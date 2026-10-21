@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.avisos import vigia
@@ -27,8 +28,8 @@ from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db import retencao
 from tcg_sniper.db.models import COLETOR_MANUTENCAO, EstadoColetorTipo, StatusManutencao
 from tcg_sniper.formatacao import formatar_bytes
-from tcg_sniper.manutencao import backup
-from tcg_sniper.manutencao.r2 import Enviador
+from tcg_sniper.manutencao import backup, imagens
+from tcg_sniper.manutencao.r2 import Enviador, criar_enviador_imagens
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +58,8 @@ class ServicoManutencao:
         executar: backup.Executar = backup.executar_comando,
         relogio: Callable[[], datetime] | None = None,
         dormir: Callable[[float], None] | None = None,
+        enviador_imagens: imagens.EnviadorImagens | None = None,
+        http: httpx.Client | None = None,
     ):
         self._sessoes = sessoes
         self._config_env = config_env
@@ -70,6 +73,13 @@ class ServicoManutencao:
         self._conexao = backup.conexao_do_banco(config_env.database_url)
         self._segredos = (*getattr(enviador, "segredos", ()), self._conexao.senha or "")
         self._vigia_desde = self._relogio()
+        self._enviador_imagens = enviador_imagens or criar_enviador_imagens(config_env)
+        self._http = http
+        if self._enviador_imagens is not None and self._http is None:
+            self._http = httpx.Client()
+        self._imagens_em: datetime | None = None
+        self._falhas_imagens: dict[imagens.ChaveFalha, float] = {}  # pula por 24 h o que falhou (só em memória)
+        self._ativo = False
 
     def parar(self) -> None:
         """Pede o encerramento: a execução em andamento termina e `rodar` volta."""
@@ -86,7 +96,33 @@ class ServicoManutencao:
             self._avisador.avisar(TipoAviso.BACKUP_INTERROMPIDO, CHAVE_GERAL, dados)
 
     def tick(self) -> bool:
-        """Registra que está vivo e roda a execução do dia se for a hora. Devolve se rodou."""
+        """Registra que está vivo, roda a execução do dia se for a hora (devolve se rodou) e, depois dela,
+        o lote de imagens da hora: o backup nunca espera a cópia das imagens."""
+        self._ativo = False
+        try:
+            return self._tick_backup()
+        finally:
+            if self._ativo:  # manutenção desligada em Serviços: nada de lote
+                self._copiar_imagens()
+
+    def _copiar_imagens(self) -> None:
+        enviador = self._enviador_imagens
+        if enviador is None:
+            return
+        agora = self._relogio()
+        if self._imagens_em is not None and agora - self._imagens_em < timedelta(hours=1):
+            return
+        self._imagens_em = agora
+        segredos = (*getattr(enviador, "segredos", ()), *self._segredos)
+        try:
+            imagens.copiar_lote(
+                self._sessoes, enviador, self._http, limpar=lambda t: limpar_texto(t, segredos),
+                parar=self._parar.is_set, falhas_recentes=self._falhas_imagens,
+            )
+        except Exception as erro:  # noqa: BLE001 - a cópia das imagens nunca derruba a manutenção
+            log.error("erro inesperado na cópia das imagens: %s", limpar_texto(f"{type(erro).__name__}: {erro}", segredos))
+
+    def _tick_backup(self) -> bool:
         agora = self._relogio()
         try:  # apaga o código de acesso vencido mesmo com o notificador parado
             with self._sessoes() as s, s.begin():
@@ -98,6 +134,7 @@ class ServicoManutencao:
             vigia.verificar(s, agora, self._vigia_desde)  # roda também com o backup desligado
             if repo.obter_estado(s, agora, COLETOR_MANUTENCAO).estado is not EstadoColetorTipo.ATIVO:
                 return False
+            self._ativo = True
             zona = ZoneInfo(repo.obter_config_geral(s, self._config_env).fuso)
             local = agora.astimezone(zona)
             inicio_do_dia = local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -198,6 +235,14 @@ class ServicoManutencao:
         log.info("manutenção iniciada (backup diário às %s)", f"{HORA_BACKUP:%H:%M}")
         if self._enviador is None:
             log.warning("R2_* vazias no .env: o backup fica só no PC (só local)")
+        if self._config_env.bucket_imagens_igual_ao_dos_backups:
+            log.warning("R2_BUCKET_IMAGENS igual ao bucket dos backups: cópia das imagens desligada "
+                        "(o bucket das imagens é público)")
+        elif self._enviador_imagens is None:
+            log.warning("R2_BUCKET_IMAGENS vazia: sem cópia das imagens (as telas saem sem foto)")
+        proprias = (self._config_env.r2_imagens_access_key_id, self._config_env.r2_imagens_secret_access_key)
+        if sum(bool(c and c.get_secret_value().strip()) for c in proprias) == 1:
+            log.warning("Só uma das chaves R2_IMAGENS_* preenchida: usando as chaves dos backups")
         self.inicializar()
         while not self._parar.is_set():
             try:
@@ -208,4 +253,6 @@ class ServicoManutencao:
                 self._dormir(PASSO_S)
             else:
                 self._parar.wait(PASSO_S)
+        if self._http is not None:
+            self._http.close()
         log.info("manutenção encerrada")

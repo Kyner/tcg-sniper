@@ -67,7 +67,7 @@ Pacote neutro, importado pela API e pelo admin antigo (a fase 4 apaga o pacote `
   - `quase_la(s, regras, piso_pct, agora, limite)`: anúncios com casamento confirmado em produto ativo e sem oportunidade aberta; junta `preco_atual_amazon`, `preco_atual_liga` e o vendedor, monta `motor.Leitura` e `motor.RefLiga` como o monitor (mesmas funções de montagem, extraídas se preciso para não duplicar) e aplica `motor.motivo_inelegivel`. Entra quem dá `preco_subiu` ou `liga_caiu` e tem desconto ≥ `piso_pct`. Devolve desconto atual e quanto falta (R$ e pontos percentuais) para o desconto mínimo. Ordem: mais perto do mínimo primeiro.
   - `historico_produto(s, produto_id, desde, agora)`: cabeçalho; curva da Amazon = **menor preço por hora** entre os anúncios com casamento confirmado do produto, só leituras com preço e vendedor elegível (`motor.vendedor_elegivel`), com o anúncio do ponto; por dia quando o período passa de 90 dias; curva da Liga = `preco_listagem.preco_a_partir` e `resumo_preco.preco_medio` no período; preço alvo; faixas `[aberta_em, coalesce(deixou_de_valer_em, fechada_em, agora)]` das oportunidades do produto; recorrência = oportunidades abertas nos últimos 30 dias; situação "quase lá" atual.
 
-Agregação no SQL (`date_trunc` no fuso), nunca carregar as leituras brutas na memória.
+Agregação (decisão do plano): a curva da Amazon carrega só as linhas de mudança de preço dos anúncios confirmados daquele produto (não as leituras brutas de todo o catálogo) e agrega em Python, para usar a regra do motor (`motor.vendedor_elegivel`) sem duplicá-la em SQL; o ponto de cada intervalo (hora, ou dia acima de 90 dias) é o menor preço elegível do intervalo.
 
 ## Banco (migração nova)
 

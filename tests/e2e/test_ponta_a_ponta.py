@@ -15,6 +15,8 @@ import sys
 import time
 from pathlib import Path
 
+import fakes
+import fakes_oportunidades
 import httpx
 import pytest
 from fakes_api import SEGREDO_TESTE
@@ -22,7 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from tcg_sniper.db import repositorio_acesso as repo_acesso
-from tcg_sniper.db.models import Papel
+from tcg_sniper.db.models import Papel, StatusCasamento
 from tcg_sniper.db.repositorio import agora_utc
 
 pytestmark = pytest.mark.skipif(os.environ.get("TCG_E2E") != "1", reason="ponta a ponta: rode com TCG_E2E=1")
@@ -31,7 +33,10 @@ RAIZ = Path(__file__).resolve().parents[2]
 PORTA_API, PORTA_WEB = 8101, 4174
 BASE = f"http://127.0.0.1:{PORTA_WEB}"
 ADMIN, GRUPO = "+5511900000001", "+5511900000002"
-TABELAS = "sessao, codigo_acesso, pedido_codigo, permissao_papel, mensagem_saida, estado_aviso, usuario"
+TABELAS = (
+    "sessao, codigo_acesso, pedido_codigo, permissao_papel, mensagem_saida, estado_aviso, usuario, "
+    "oportunidade, preco_atual_amazon, preco_amazon, casamento, preco_atual_liga, anuncio_amazon, produto_liga"
+)
 
 
 def esperar(url: str, limite_s: float = 40) -> None:
@@ -98,10 +103,14 @@ def servidores(engine):
 
 @pytest.fixture
 def usuarios(engine):
-    """Superadmin e grupo gravados de verdade (a API roda em outro processo); tudo apagado no fim."""
+    """Superadmin, grupo e um produto com oportunidade aberta gravados de verdade (a API roda em outro processo); tudo apagado no fim."""
     with sessionmaker(bind=engine)() as s, s.begin():
         repo_acesso.criar_superadmin(s, "Pessoa Admin", ADMIN, agora_utc())
         repo_acesso.criar_usuario(s, "Pessoa Grupo", GRUPO, Papel.GRUPO, agora_utc())
+        produto = fakes.criar_produto(s)
+        fakes.criar_preco_liga(s, produto, "1000")
+        anuncio = fakes.criar_anuncio(s, produto=produto, status=StatusCasamento.CONFIRMADO)
+        fakes_oportunidades.criar_oportunidade(s, anuncio, produto, aberta_em=agora_utc())
     yield
     with engine.begin() as conexao:
         conexao.execute(text(f"TRUNCATE {TABELAS} RESTART IDENTITY CASCADE"))
@@ -128,7 +137,7 @@ def entrar(pagina, expect, engine, numero: str, digitado: str) -> None:
     campo.fill(ler_codigo(engine, numero))
     pagina.get_by_role("button", name="Entrar", exact=True).click()
     # Espera a tela inicial: sem isso o próximo goto pode cortar a resposta do entrar antes de o cookie ser gravado.
-    expect(pagina.get_by_role("heading", name="Área de negócio")).to_be_visible()
+    expect(pagina.get_by_role("heading", name="Oportunidades", exact=True)).to_be_visible()
 
 
 def test_grupo_so_entra_na_gestao_depois_de_liberado(servidores, usuarios, engine):
@@ -139,7 +148,7 @@ def test_grupo_so_entra_na_gestao_depois_de_liberado(servidores, usuarios, engin
         try:
             grupo = navegador.new_context().new_page()
             entrar(grupo, expect, engine, GRUPO, "(11) 90000-0002")
-            expect(grupo.get_by_role("heading", name="Área de negócio")).to_be_visible()
+            expect(grupo.get_by_role("heading", name="Oportunidades", exact=True)).to_be_visible()
             grupo.goto(BASE + "/gestao")
             expect(grupo.get_by_role("heading", name="Sem acesso")).to_be_visible()
             assert grupo.request.get(BASE + "/api/usuarios").status == 403  # direto na API também
@@ -155,6 +164,24 @@ def test_grupo_so_entra_na_gestao_depois_de_liberado(servidores, usuarios, engin
 
             grupo.goto(BASE + "/gestao")
             expect(grupo.get_by_role("heading", name="Gestão", exact=True)).to_be_visible()
+        finally:
+            navegador.close()
+
+
+def test_grupo_ve_oportunidade_e_abre_o_produto(servidores, usuarios, engine):
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        try:
+            pagina = navegador.new_context().new_page()
+            erros_csp = []
+            pagina.on("console", lambda m: erros_csp.append(m.text) if "Content Security Policy" in m.text else None)
+            entrar(pagina, expect, engine, GRUPO, "(11) 90000-0002")
+            expect(pagina.get_by_role("region", name="Ativas agora")).to_be_visible()
+            pagina.get_by_role("link", name="Histórico do produto").first.click()
+            expect(pagina.get_by_role("figure", name=re.compile("Curva de preço"))).to_be_visible()
+            assert erros_csp == []
         finally:
             navegador.close()
 

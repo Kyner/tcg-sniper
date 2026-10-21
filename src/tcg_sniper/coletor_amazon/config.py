@@ -35,6 +35,7 @@ CAMPOS = (
     "checkout_validade_h",
     "descoberta_casados_dias",
     "carencia_encerramento_min",
+    "quase_oportunidade_min_pct",
 )
 
 ROTULOS = {
@@ -61,6 +62,7 @@ ROTULOS = {
     "checkout_validade_h": "Conferência de checkout vale por (h)",
     "descoberta_casados_dias": "Buscar de novo produtos já casados a cada (dias)",
     "carencia_encerramento_min": "Carência para encerrar uma oportunidade (min)",
+    "quase_oportunidade_min_pct": "Quase oportunidade a partir de (%)",
 }
 
 EXPLICACOES = {
@@ -101,6 +103,10 @@ EXPLICACOES = {
     "carencia_encerramento_min": (
         "Minutos que uma oportunidade avisada espera, depois de deixar de valer, antes de encerrar e avisar o "
         "grupo. Oscilação mais curta que isso não gera aviso. 0: encerra na primeira leitura ruim."
+    ),
+    "quase_oportunidade_min_pct": (
+        "Desconto a partir do qual um anúncio elegível aparece como \"quase lá\" na área de negócio (abaixo do "
+        "desconto mínimo). Não gera aviso."
     ),
 }
 
@@ -154,6 +160,12 @@ def validar_config(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[s
         and valores["monitor_janela_inicio"] >= valores["monitor_janela_fim"]
     ):
         erros["monitor_janela_fim"] = "O fim da janela do monitor precisa ser depois do início."
+    if (
+        "quase_oportunidade_min_pct" in valores
+        and "desconto_min_pct" in valores
+        and valores["quase_oportunidade_min_pct"] >= valores["desconto_min_pct"]
+    ):
+        erros["quase_oportunidade_min_pct"] = "O piso da quase oportunidade precisa ficar abaixo do desconto mínimo."
     return valores, erros
 
 

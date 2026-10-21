@@ -60,14 +60,14 @@ export const EU_GRUPO: Eu = {
   nome: "Pessoa Grupo",
   papel: "grupo",
   superadmin: false,
-  permissoes: ["ver_area_negocio"],
+  permissoes: ["ver_area_negocio", "ver_oportunidades"],
 };
 export const EU_OPERADOR: Eu = {
   id: 3,
   nome: "Pessoa Operador",
   papel: "operador",
   superadmin: false,
-  permissoes: ["ver_area_negocio", "ver_area_gestao"],
+  permissoes: ["ver_area_negocio", "ver_oportunidades", "ver_area_gestao"],
 };
 /** Admin comum: gere operador e grupo, não mexe em admins. */
 export const EU_ADMIN: Eu = {
@@ -75,7 +75,24 @@ export const EU_ADMIN: Eu = {
   nome: "Pessoa Admin",
   papel: "admin",
   superadmin: false,
-  permissoes: ["ver_area_negocio", "ver_area_gestao", "gerir_usuarios", "gerir_acessos", "ver_documentacao_api"],
+  permissoes: [
+    "ver_area_negocio", "ver_oportunidades", "ver_area_gestao", "gerir_usuarios", "gerir_acessos",
+    "ver_documentacao_api",
+  ],
 };
 /** O dono do sistema: o único que mexe em admins. */
 export const EU_SUPERADMIN: Eu = { ...EU_ADMIN, id: 10, nome: "Pessoa Superadmin", superadmin: true };
+
+/** Respostas da página Oportunidades sem nada (período 7d): para os testes que só passam por ela. */
+export function respostasOportunidadesVazias(): Record<string, RespostaFalsa> {
+  return {
+    "GET /api/oportunidades/resumo?periodo=7d": ok({
+      periodo: "7d",
+      numeros: { diferenca_bruta: "0.00", oportunidades: 0, desconto_medio: null, duracao_media_min: null, produtos: 0 },
+      por_dia: [{ dia: "2026-10-20", oportunidades: 0 }],
+    }),
+    "GET /api/oportunidades/ativas": ok({ ativas: [], ultima_aberta_em: null }),
+    "GET /api/oportunidades/quase?limite=20": ok({ itens: [], desconto_min_pct: 20, piso_pct: 10 }),
+    "GET /api/oportunidades/encerradas?periodo=7d&pagina=1": ok({ itens: [], total: 0, pagina: 1, por_pagina: 25 }),
+  };
+}

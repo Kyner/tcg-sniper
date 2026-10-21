@@ -10,8 +10,8 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.admin.consultas import casa_nome
-from tcg_sniper.admin.consultas_catalogo import classificar
 from tcg_sniper.coletor_amazon.termo import termo_busca
+from tcg_sniper.consultas.catalogo import classificar
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
@@ -109,7 +109,7 @@ class LinhaProdutoCasamento:
 
     @property
     def situacao_produto(self) -> str:
-        """Situação do produto no catálogo (`consultas_catalogo.SITUACOES_PRODUTO`)."""
+        """Situação do produto no catálogo (`consultas.catalogo.SITUACOES_PRODUTO`)."""
         return classificar(self.confirmados, self.pendentes, self.sugestoes)
 
 

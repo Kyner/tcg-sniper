@@ -53,6 +53,11 @@ class Config(BaseSettings):
     r2_access_key_id: SecretStr | None = None
     r2_secret_access_key: SecretStr | None = None
     r2_bucket: str | None = None
+    # Imagens dos produtos e anúncios (área de negócio): bucket PÚBLICO próprio, nunca o dos backups.
+    r2_bucket_imagens: str | None = None
+    r2_imagens_access_key_id: SecretStr | None = None  # vazias: usa as chaves dos backups
+    r2_imagens_secret_access_key: SecretStr | None = None
+    url_publica_imagens: str | None = None  # https://pub-<código>.r2.dev ou https://img.<domínio>, sem barra no fim
 
     @field_validator("liga_categorias")
     @classmethod
@@ -97,6 +102,26 @@ class Config(BaseSettings):
         segredos = (self.r2_access_key_id, self.r2_secret_access_key)
         textos = (self.r2_account_id, self.r2_bucket, *(s.get_secret_value() if s else None for s in segredos))
         return all((texto or "").strip() for texto in textos)
+
+    def chaves_r2_imagens(self) -> tuple[str, str] | None:
+        proprias = (self.r2_imagens_access_key_id, self.r2_imagens_secret_access_key)
+        chaves = proprias if all(proprias) else (self.r2_access_key_id, self.r2_secret_access_key)
+        if not all(chaves):
+            return None
+        valores = tuple(c.get_secret_value().strip() for c in chaves if c is not None)
+        return (valores[0], valores[1]) if len(valores) == 2 and all(valores) else None
+
+    @property
+    def imagens_configuradas(self) -> bool:
+        bucket = (self.r2_bucket_imagens or "").strip()
+        if bucket == (self.r2_bucket or "").strip():  # o das imagens é público: nunca o dos backups
+            return False
+        return bool((self.r2_account_id or "").strip() and bucket and self.chaves_r2_imagens())
+
+    @property
+    def bucket_imagens_igual_ao_dos_backups(self) -> bool:
+        bucket = (self.r2_bucket_imagens or "").strip()
+        return bool(bucket) and bucket == (self.r2_bucket or "").strip()
 
     @property
     def zona(self) -> ZoneInfo:

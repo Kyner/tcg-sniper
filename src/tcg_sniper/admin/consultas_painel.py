@@ -11,15 +11,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens
-from tcg_sniper.admin.consultas_catalogo import (
+from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
+from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
+from tcg_sniper.config import Config
+from tcg_sniper.consultas.catalogo import (
     SituacaoCatalogo,
     inicio_do_dia,
     produtos_avaliados_desde,
     situacao_catalogo,
 )
-from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
-from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
-from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
@@ -521,7 +521,7 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
 
 
 def numeros(s: Session, agora: datetime, config_efetiva: Config) -> Numeros:
-    """Números do Dashboard; casamentos e IA por produto ativo (`consultas_catalogo`)."""
+    """Números do Dashboard; casamentos e IA por produto ativo (`consultas.catalogo`)."""
     catalogo = situacao_catalogo(s, agora, config_efetiva.zona)
     cfg_ia = repo_ia.obter_config_ia(s, agora)
     inicio_dia = inicio_do_dia(agora, config_efetiva.zona)

@@ -1,8 +1,9 @@
 // Rotas do site. /entrar é aberta; o resto exige sessão e, cada tela, a sua permissão.
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Outlet, Route, Routes } from "react-router";
+import { Carregando } from "./componentes/Carregando";
 import { Exige, RotaProtegida } from "./componentes/RotaProtegida";
 import { Acessos } from "./paginas/Acessos";
-import { AreaNegocio } from "./paginas/AreaNegocio";
 import { Entrar } from "./paginas/Entrar";
 import { Gestao } from "./paginas/Gestao";
 import { Indisponivel } from "./paginas/Indisponivel";
@@ -10,6 +11,10 @@ import { NaoEncontrada } from "./paginas/NaoEncontrada";
 import { SemAcesso } from "./paginas/SemAcesso";
 import { Usuarios } from "./paginas/Usuarios";
 import { SessaoProvider, useSessao } from "./sessao";
+
+// As páginas Oportunidades e Produto trazem o Recharts: vão em pedaços próprios, carregados só ao abrir a rota.
+const Oportunidades = lazy(() => import("./paginas/Oportunidades").then((m) => ({ default: m.Oportunidades })));
+const Produto = lazy(() => import("./paginas/Produto").then((m) => ({ default: m.Produto })));
 
 export function Rotas() {
   const { sessao, recarregar } = useSessao();
@@ -22,7 +27,23 @@ export function Rotas() {
           path="/"
           element={
             <Exige permissao="ver_area_negocio">
-              <AreaNegocio />
+              <Exige permissao="ver_oportunidades">
+                <Suspense fallback={<Carregando />}>
+                  <Oportunidades />
+                </Suspense>
+              </Exige>
+            </Exige>
+          }
+        />
+        <Route
+          path="/produtos/:id"
+          element={
+            <Exige permissao="ver_area_negocio">
+              <Exige permissao="ver_oportunidades">
+                <Suspense fallback={<Carregando />}>
+                  <Produto />
+                </Suspense>
+              </Exige>
             </Exige>
           }
         />

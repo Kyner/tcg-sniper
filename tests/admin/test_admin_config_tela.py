@@ -105,6 +105,7 @@ FORMULARIO_AMAZON = {
     "checkout_validade_h": "6",
     "descoberta_casados_dias": "7",
     "carencia_encerramento_min": "30",
+    "quase_oportunidade_min_pct": "10",
 }
 
 

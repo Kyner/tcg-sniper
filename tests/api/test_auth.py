@@ -54,7 +54,7 @@ def test_fluxo_completo_com_numero_formatado(cliente, sessoes):
     r = entrar(cliente, codigo_da_fila(sessoes), numero="+55 11 90000 0002")
     assert r.status_code == 200
     assert {k: r.json()[k] for k in ("nome", "papel", "superadmin", "permissoes")} == {
-        "nome": "Pessoa Grupo", "papel": "grupo", "superadmin": False, "permissoes": ["ver_area_negocio"]
+        "nome": "Pessoa Grupo", "papel": "grupo", "superadmin": False, "permissoes": ["ver_area_negocio", "ver_oportunidades"]
     }
     cookie = r.headers["set-cookie"]
     for parte in ("sessao=", "HttpOnly", "Max-Age=2592000", "Path=/", "SameSite=strict"):
@@ -195,7 +195,7 @@ def test_codigo_de_acesso_desligado_nao_enfileira(cliente, sessoes):
 def test_eu_devolve_permissoes_e_renova_o_cookie(cliente, logar):
     logar(Papel.OPERADOR)
     r = cliente.get("/api/auth/eu")
-    assert r.json()["permissoes"] == ["ver_area_negocio", "ver_area_gestao"]
+    assert r.json()["permissoes"] == ["ver_area_negocio", "ver_oportunidades", "ver_area_gestao"]
     assert "Max-Age=2592000" in r.headers["set-cookie"]
 
 
@@ -209,7 +209,7 @@ def test_eu_diz_quem_e_o_superadmin(cliente, logar):
     logar(Papel.ADMIN, numero="+5511900000004", superadmin=True)
     eu = cliente.get("/api/auth/eu").json()
     assert (eu["papel"], eu["superadmin"]) == ("admin", True)
-    assert len(eu["permissoes"]) == 5  # todas
+    assert len(eu["permissoes"]) == 6  # todas
 
 
 @pytest.mark.parametrize(

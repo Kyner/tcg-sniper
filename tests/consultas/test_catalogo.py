@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from fakes import catalogo_exemplo, criar_anuncio, criar_produto
 
-from tcg_sniper.admin.consultas_catalogo import situacao_catalogo
+from tcg_sniper.consultas.catalogo import situacao_catalogo
 from tcg_sniper.db.models import AvaliacaoIA, Casamento, StatusCasamento
 
 SP = ZoneInfo("America/Sao_Paulo")
