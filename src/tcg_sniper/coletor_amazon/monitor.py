@@ -49,7 +49,6 @@ from tcg_sniper.db.models import (
     Oportunidade,
     OrigemPreco,
     PrecoAtualAmazon,
-    PrecoAtualLiga,
     SituacaoCheckout,
     StatusMensagem,
     VendedorAmazon,
@@ -58,6 +57,7 @@ from tcg_sniper.navegador.modelos import Pagina
 from tcg_sniper.navegador.ritmo import com_um_retry, pausa_aleatoria
 from tcg_sniper.oportunidades import encerramento, motor
 from tcg_sniper.oportunidades.mensagens import Detalhes, dados_oportunidade
+from tcg_sniper.oportunidades.montagem import ref_liga, vendedor_do_motor
 from tcg_sniper.parsing import ErroParser
 
 log = logging.getLogger(__name__)
@@ -84,21 +84,6 @@ def preco_conferido(conferencia: ConferenciaCheckout) -> Decimal | None:
     """O preço que vale para a oportunidade quando há conferência: itens + impostos, SEM o frete
     (`motor.preco_conferido`, a única definição da regra)."""
     return motor.preco_conferido(conferencia.itens, conferencia.impostos, conferencia.total, conferencia.frete)
-
-
-def _info(vendedor: VendedorAmazon | None) -> motor.Vendedor | None:
-    if vendedor is None:
-        return None
-    return motor.Vendedor(vendedor.nome, vendedor.pct_positivas, vendedor.num_avaliacoes)
-
-
-def _ref(liga: PrecoAtualLiga | None) -> motor.RefLiga:
-    return motor.RefLiga(
-        preco_a_partir=liga.preco_a_partir if liga else None,
-        listagem_em=liga.listagem_em if liga else None,
-        num_lojas=liga.num_lojas if liga else None,
-        preco_medio=liga.preco_medio if liga else None,
-    )
 
 
 def abrir_ofertas(ctx: ContextoBusca, asin: str) -> Pagina:
@@ -271,7 +256,7 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
         if not linhas:  # o casamento foi desfeito no admin enquanto a página abria
             return
         linha = linhas[0]
-        ref = _ref(linha.liga)
+        ref = ref_liga(linha.liga)
         oferta = melhor.oferta if melhor else None
         conferencia = None
         if oferta is not None:
@@ -287,7 +272,7 @@ def _decidir(ctx: ContextoBusca, anuncio_id: int, melhor: _Avaliada | None) -> N
             return
         # Com conferência válida vale o preço conferido (itens + impostos, sem o frete).
         preco = conferido if conferido is not None else (oferta.preco if oferta else None)
-        leitura = motor.Leitura(preco, oferta.envio if oferta else Envio.DESCONHECIDO, _info(melhor.vendedor) if melhor else None)
+        leitura = motor.Leitura(preco, oferta.envio if oferta else Envio.DESCONHECIDO, vendedor_do_motor(melhor.vendedor) if melhor else None)
         aberta = repo.oportunidade_aberta(s, anuncio_id)
         decisao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, _aberta_motor(aberta))
         if decisao.acao is motor.Acao.REALERTAR and conferido is None and aberta.alerta_conferido:
@@ -323,7 +308,7 @@ def ler_anuncio(ctx: ContextoBusca, anuncio_id: int, asin: str) -> ResultadoMoni
     for oferta in ofertas:
         vendedor, abertas = _vendedor(ctx, oferta)
         paginas += abertas
-        elegivel = oferta.condicao == "novo" and motor.vendedor_elegivel(oferta.envio, _info(vendedor), regras)
+        elegivel = oferta.condicao == "novo" and motor.vendedor_elegivel(oferta.envio, vendedor_do_motor(vendedor), regras)
         avaliadas.append(_Avaliada(oferta, vendedor, elegivel))
     indice = _indice_melhor(avaliadas)
     melhor = avaliadas[indice] if indice is not None else None
@@ -403,9 +388,9 @@ def aplicar_conferencia(ctx: ContextoBusca, anuncio_id: int, conferencia_id: int
         conferido = preco_conferido(conferencia)
         if valida is None or valida.id != conferencia.id or conferido is None:
             return
-        ref = _ref(linha.liga)
+        ref = ref_liga(linha.liga)
         vendedor = s.get(VendedorAmazon, linha.atual.vendedor_id) if linha.atual.vendedor_id else None
-        leitura = motor.Leitura(conferido, linha.atual.envio, _info(vendedor))
+        leitura = motor.Leitura(conferido, linha.atual.envio, vendedor_do_motor(vendedor))
         aberta = repo.oportunidade_aberta(s, anuncio_id)
         decisao = motor.decidir(leitura, ref, motor.Regras.de(ctx.cfg), agora, _aberta_motor(aberta))
         op = _aplicar(s, decisao, aberta, linha, leitura, ref, linha.atual.vendedor_id, agora, True)
