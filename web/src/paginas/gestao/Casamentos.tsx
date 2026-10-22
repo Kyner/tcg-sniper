@@ -9,7 +9,8 @@ import { reais } from "../../formato";
 import { useSessao } from "../../sessao";
 import type { ListaCasamentos, ProdutoCasamento } from "../../tipos";
 
-const PADROES = {
+// A revisão de um produto (RevisaoCasamento) usa os mesmos padrões e a mesma query para navegar e voltar.
+export const PADROES = {
   busca: "", situacao: "esperando_decisao", categoria: "", com_preco: "", ordem: "preco_liga", pagina: "1",
 };
 const ORDEM_CHAVES = ["busca", "situacao", "categoria", "com_preco", "ordem", "pagina"] as const;
@@ -21,7 +22,7 @@ const SITUACOES: Record<string, string> = {
 };
 const ORDENS: Record<string, string> = { preco_liga: "Preço da Liga", pendentes: "Mais pendentes", nome: "Nome" };
 
-function montarQuery(filtros: Record<string, string>, comPagina: boolean): string {
+export function montarQuery(filtros: Record<string, string>, comPagina: boolean): string {
   const partes: string[] = [];
   for (const k of ORDEM_CHAVES) {
     if (k === "pagina" && !comPagina) continue;

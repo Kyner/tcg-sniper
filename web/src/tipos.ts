@@ -148,3 +148,82 @@ export interface ListaCasamentos {
   por_pagina: number;
   categorias: string[];
 }
+
+/** GET /api/gestao/casamentos/{id}: o produto da Liga em revisão. */
+export interface ProdutoLigaRevisao {
+  id: number;
+  nome: string;
+  nome_en: string | null;
+  imagem: string | null;
+  categoria: string | null;
+  url: string;
+  preco_liga: string | null;
+  lojas: number | null;
+  pistas: string[];
+}
+
+/** Produto da Liga parecido (ou candidato em "é de outro produto"). */
+export interface ProdutoParecido {
+  id: number;
+  nome: string;
+  imagem: string | null;
+  preco_liga: string | null;
+}
+
+export interface ParecerIa {
+  mesmo_produto: boolean;
+  confianca: number;
+  motivo: string;
+  idioma: string | null;
+}
+
+export type GrupoRevisao = "para_decidir" | "confirmados" | "ignorados";
+export type AcaoCasamento = "confirmar" | "ignorar" | "desfazer" | "trocar";
+
+/** Um anúncio da Amazon na revisão de um produto. */
+export interface AnuncioRevisao {
+  anuncio_id: number;
+  asin: string;
+  titulo: string;
+  url: string;
+  imagem: string | null;
+  preco: string | null;
+  vendedor: string | null;
+  termos_variacao: string[];
+  ia: ParecerIa | null;
+  origem: string | null;
+  revisado_em: string | null;
+  oportunidade: boolean;
+  casado_com: ProdutoParecido | null;
+}
+
+export interface NavegacaoRevisao {
+  posicao: number;
+  total: number;
+  anterior: number | null;
+  proximo: number | null;
+}
+
+export interface RevisaoCasamento {
+  produto: ProdutoLigaRevisao;
+  navegacao: NavegacaoRevisao;
+  para_decidir: AnuncioRevisao[];
+  confirmados: AnuncioRevisao[];
+  ignorados: AnuncioRevisao[];
+  parecidos: ProdutoParecido[];
+  termos: string[];
+  termos_pedidos: boolean;
+}
+
+/** POST /api/gestao/casamentos/{id}/anuncios/{anuncio}. */
+export interface DecisaoCasamento {
+  anuncio: AnuncioRevisao;
+  grupo: GrupoRevisao;
+  mensagem: string | null;
+}
+
+/** Resposta de Rebuscar, Reavaliar e Gerar termos. */
+export interface MensagemAcao {
+  tipo: "success" | "info" | "warning";
+  mensagem: string;
+}

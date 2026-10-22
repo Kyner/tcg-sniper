@@ -7,7 +7,7 @@ import { LayoutGestao } from "./componentes/LayoutGestao";
 import { Casamentos } from "./paginas/gestao/Casamentos";
 import { Catalogo } from "./paginas/gestao/Catalogo";
 import { ProdutoGestao } from "./paginas/gestao/ProdutoGestao";
-import { Revisao } from "./paginas/gestao/Revisao";
+import { RevisaoCasamento } from "./paginas/gestao/RevisaoCasamento";
 import { Exige, RotaProtegida } from "./componentes/RotaProtegida";
 import { Acessos } from "./paginas/Acessos";
 import { Entrar } from "./paginas/Entrar";
@@ -74,7 +74,7 @@ export function Rotas() {
             path="casamentos/:produtoId"
             element={
               <ExigeTodas permissoes={["ver_area_gestao", "revisar_casamentos"]}>
-                <Revisao />
+                <RevisaoCasamento />
               </ExigeTodas>
             }
           />
