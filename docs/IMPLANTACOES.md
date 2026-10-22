@@ -121,3 +121,25 @@ Depois do deploy, confira Serviços → Amazon (monitor e checkout): se aparecer
 3. Confira: em Configurações → Amazon, a seção "Monitor de preço" com os padrões (15 min, 08:00–22:00, 150 páginas por hora, margem 5, validade 6 h, descoberta dos casados a cada 7 dias); em Serviços, os interruptores do monitor e da conferência ligados e os cards Amazon (busca) e Amazon (monitor e checkout) ligados.
 4. Faça login na conta Amazon pelo noVNC (`http://<IP deste PC>:6081/vnc.html`). Sem login, a primeira conferência fica `sem_login`, o grupo admin é avisado e o monitor segue.
 5. Na primeira hora: Logs → Monitor com leituras chegando; Dashboard sem o aviso de "monitor não cabe no intervalo"; Logs → Checkout com as primeiras conferências e nenhuma marcada "item no carrinho".
+
+## Site novo, fase 3A (Casamentos e Catálogo na gestão)
+
+1. Backup do banco antes de tudo (há migração nova: `a1c4e7b9d2f6`, tabela `acao_gestao`, o registro das ações da gestão):
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-fase3a-<data>.dump
+   ```
+
+2. Atualize o código e recrie **todos** os serviços de uma vez (o `migrate` aplica a migração antes):
+
+   ```bash
+   git pull
+   docker compose up -d --build
+   ```
+
+3. Confira no site novo (`http://localhost:8090`), entrando como operador ou admin:
+   - o menu Gestão aparece com Casamentos (com o selo da quantidade esperando decisão) e Catálogo;
+   - Gestão → Casamentos lista os produtos esperando decisão; "Revisar em sequência" abre o primeiro, confirmar um anúncio move o cartão para Confirmados sem recarregar, "Próximo" segue e "Voltar à lista" mantém os filtros;
+   - Gestão → Catálogo: ligar e desligar um produto pela chave. O lote (marcar, Desligar, ver o número exato no modal) pode ser conferido com um filtro que traga poucos produtos, e desfeito com Ligar.
+4. Layout: o `verificar_layout.py` agora inclui `/gestao/casamentos` e `/gestao/catalogo` (veja o README, seção de testes, para rodar contra o site novo). As telas por produto (`/gestao/casamentos/<id>` e `/gestao/produtos/<id>`) o script não alcança, porque dependem de um id: confira à mão, no tamanho de celular (390 px), um produto de nome longo e outro sem foto, sem barra de rolagem horizontal. O teste ponta a ponta (`tests/e2e`) já cobre essas telas com dados de teste.

@@ -20,7 +20,7 @@ Feito para quem compra e revende selados: lojistas da LigaMagic, revendedores e 
 
 ## Estado do projeto
 
-Versão 0.1, em uso diário por um grupo de compra desde outubro de 2026. Coleta da LigaMagic, Amazon (busca, monitor e conferência de checkout), casamento com IA, avisos no WhatsApp e backup estão prontos. O site novo (React) está na fase 1 (login, usuários e acessos); as telas de negócio e de administração ainda estão no admin antigo e migram nas próximas fases. Ainda não está pronto para ficar exposto na internet (ver [Segurança](#segurança)). O que falta está no [Roadmap](#roadmap) e em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
+Versão 0.1, em uso diário por um grupo de compra desde outubro de 2026. Coleta da LigaMagic, Amazon (busca, monitor e conferência de checkout), casamento com IA, avisos no WhatsApp e backup estão prontos. O site novo (React) tem login, usuários e acessos, a área de oportunidades e, da administração, Casamentos e Catálogo (fase 3A); o restante da administração ainda está no admin antigo e migra nas próximas entregas. Ainda não está pronto para ficar exposto na internet (ver [Segurança](#segurança)). O que falta está no [Roadmap](#roadmap) e em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
 
 ## Formas de usar
 
@@ -301,6 +301,11 @@ A área de negócio do site novo tem duas telas, ambas atrás de `ver_oportunida
 
 - **Oportunidades** (`/`): números do período (7, 30 ou 90 dias), as oportunidades ativas agora (com o selo de risco), as quase lá (casados com desconto entre o piso e o mínimo), um gráfico por dia e a lista das encerradas, com duração e motivo.
 - **Produto** (`/produtos/<id>`): a curva de preço do produto (menor preço elegível da Amazon, "a partir de" e média da Liga, preço alvo), com as faixas em que houve oportunidade, a recorrência e as oportunidades do produto.
+
+A área de gestão (Gestão no menu, para quem tem `ver_area_gestao`) já tem duas telas do admin antigo:
+
+- **Casamentos** (`/gestao/casamentos`): os produtos da LigaMagic com busca, filtros e ordem; "Revisar em sequência" abre um produto por vez, com os anúncios da Amazon para decidir, confirmados e ignorados (confirmar, ignorar, passar para outro produto, casar por link, rebuscar, reavaliar com a IA e gerar termos de busca), e "Próximo" mantém os filtros da lista. Atalhos no computador: C confirma, I ignora, setas escolhem o anúncio e Enter vai ao próximo produto.
+- **Catálogo** (`/gestao/catalogo`): todos os produtos, com a chave para monitorar ou parar de monitorar, ações em lote com confirmação do número exato de produtos, e a página do produto (`/gestao/produtos/<id>`) com preços, casamentos e curva. Desligar um produto nunca apaga o histórico de preços.
 
 As imagens de produto são copiadas para um bucket público do R2 (`R2_BUCKET_IMAGENS`, `URL_PUBLICA_IMAGENS`); sem essas variáveis o site funciona sem fotos.
 
