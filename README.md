@@ -314,6 +314,16 @@ Permissões de cada papel (padrão; Gestão → Acessos muda as de grupo e opera
 | Gerir usuários (`gerir_usuarios`) | não | não | sempre |
 | Gerir acessos (`gerir_acessos`) | não | não | sempre |
 | Ver a documentação da API (`ver_documentacao_api`, `/api/docs`) | não | não | sempre |
+| Revisar casamentos (`revisar_casamentos`) | não | sim | sempre |
+| Ver o catálogo (`ver_catalogo`) | não | sim | sempre |
+| Editar o catálogo (`editar_catalogo`) | não | sim | sempre |
+| Ver serviços (`ver_servicos`) | não | sim | sempre |
+| Pausar serviços (`pausar_servicos`) | não | não | sempre |
+| Ver a atividade (`ver_logs`) | não | sim | sempre |
+| Ver mensagens (`ver_mensagens`) | não | sim | sempre |
+| Reenviar mensagens (`reenviar_mensagens`) | não | não | sempre |
+| Ver configurações (`ver_configuracoes`) | não | sim | sempre |
+| Editar configurações (`editar_configuracoes`) | não | não | sempre |
 
 Quem ganhar `gerir_usuarios` sem ser o superadmin não cria nem mexe em admins, nem muda o próprio papel ou a própria situação (ativo/inativo).
 

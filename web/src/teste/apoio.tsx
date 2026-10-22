@@ -67,7 +67,10 @@ export const EU_OPERADOR: Eu = {
   nome: "Pessoa Operador",
   papel: "operador",
   superadmin: false,
-  permissoes: ["ver_area_negocio", "ver_oportunidades", "ver_area_gestao"],
+  permissoes: [
+    "ver_area_negocio", "ver_oportunidades", "ver_area_gestao", "revisar_casamentos", "ver_catalogo",
+    "editar_catalogo", "ver_servicos", "ver_logs", "ver_mensagens", "ver_configuracoes",
+  ],
 };
 /** Admin comum: gere operador e grupo, não mexe em admins. */
 export const EU_ADMIN: Eu = {
@@ -77,7 +80,9 @@ export const EU_ADMIN: Eu = {
   superadmin: false,
   permissoes: [
     "ver_area_negocio", "ver_oportunidades", "ver_area_gestao", "gerir_usuarios", "gerir_acessos",
-    "ver_documentacao_api",
+    "ver_documentacao_api", "revisar_casamentos", "ver_catalogo", "editar_catalogo", "ver_servicos",
+    "pausar_servicos", "ver_logs", "ver_mensagens", "reenviar_mensagens", "ver_configuracoes",
+    "editar_configuracoes",
   ],
 };
 /** O dono do sistema: o único que mexe em admins. */

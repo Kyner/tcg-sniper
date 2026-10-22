@@ -8,7 +8,17 @@ export type Permissao =
   | "ver_area_gestao"
   | "gerir_usuarios"
   | "gerir_acessos"
-  | "ver_documentacao_api";
+  | "ver_documentacao_api"
+  | "revisar_casamentos"
+  | "ver_catalogo"
+  | "editar_catalogo"
+  | "ver_servicos"
+  | "pausar_servicos"
+  | "ver_logs"
+  | "ver_mensagens"
+  | "reenviar_mensagens"
+  | "ver_configuracoes"
+  | "editar_configuracoes";
 
 /** GET /api/auth/eu e POST /api/auth/entrar. `superadmin`: o dono do sistema (só ele mexe em admins). */
 export interface Eu {
