@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from tcg_sniper.admin import consultas_amazon, consultas_menu
 from tcg_sniper.admin import consultas_painel as painel
+from tcg_sniper.consultas import casamentos
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.session import config_alembic
 
@@ -152,7 +153,7 @@ def test_numeros_iguais_aos_de_antes_nos_dados_migrados(migrado, config):
         assert linhas == {
             "reg-1": (1, 1, 1, True), "reg-2": (1, 1, 0, False), "reg-3": (0, 0, 1, False), "reg-4": (0, 0, 0, False),
         }
-        detalhe = consultas_amazon.detalhe_casamento(s, ids["p1"], cfg, AGORA)
+        detalhe = casamentos.detalhe_casamento(s, ids["p1"], cfg, AGORA)
         assert (len(detalhe.pendentes), len(detalhe.confirmados), len(detalhe.ignorados)) == (1, 1, 1)
         situacao = repo_amz.situacao_monitor(s, AGORA, cfg.monitor_intervalo_min)
         assert (situacao.confirmados, situacao.nunca_lidos, situacao.vencidos) == (2, 0, 0)

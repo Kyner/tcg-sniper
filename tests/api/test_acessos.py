@@ -17,6 +17,8 @@ def test_padroes_e_linhas_salvas():
     assert padrao[Papel.GRUPO] == {Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES}
     assert padrao[Papel.OPERADOR] == {
         Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES, Permissao.VER_AREA_GESTAO,
+        Permissao.REVISAR_CASAMENTOS, Permissao.VER_CATALOGO, Permissao.EDITAR_CATALOGO,
+        Permissao.VER_SERVICOS, Permissao.VER_LOGS, Permissao.VER_MENSAGENS, Permissao.VER_CONFIGURACOES,
     }
     assert padrao[Papel.ADMIN] == set(Permissao)
     salvas = {
@@ -30,6 +32,8 @@ def test_padroes_e_linhas_salvas():
     assert grade[Papel.ADMIN] == set(Permissao)
     assert grade[Papel.OPERADOR] == {
         Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES, Permissao.VER_AREA_GESTAO,
+        Permissao.REVISAR_CASAMENTOS, Permissao.VER_CATALOGO, Permissao.EDITAR_CATALOGO,
+        Permissao.VER_SERVICOS, Permissao.VER_LOGS, Permissao.VER_MENSAGENS, Permissao.VER_CONFIGURACOES,
         Permissao.GERIR_USUARIOS,
     }
 

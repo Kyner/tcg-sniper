@@ -116,6 +116,13 @@ class Papel(enum.StrEnum):
     ADMIN = "admin"  # tudo, sempre (não editável na grade)
 
 
+class TipoAcaoGestao(enum.StrEnum):
+    CATALOGO_LOTE = "catalogo_lote"  # ação em lote no catálogo
+    CATALOGO_PRODUTO = "catalogo_produto"  # edição de um produto
+    SERVICO = "servico"  # ligar, desligar ou rodar um serviço (fase 3B)
+    CONFIGURACOES = "configuracoes"  # mudança de configurações (fase 3C)
+
+
 COLETOR_LIGA = "liga"
 COLETOR_AMAZON = "amazon"
 COLETOR_CASADOR = "casador"
@@ -856,6 +863,20 @@ class Usuario(Base):
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     superadmin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     criado_em: Mapped[datetime] = mapped_column(DATA)
+
+
+class AcaoGestao(Base):
+    """Registro das ações de gestão feitas no site. Nunca é apagado; `usuario_id` nulo = usuário apagado
+    (ON DELETE SET NULL)."""
+
+    __tablename__ = "acao_gestao"
+    __table_args__ = (Index("ix_acao_gestao_em", "em"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id", ondelete="SET NULL"))
+    em: Mapped[datetime] = mapped_column(DATA)
+    tipo: Mapped[TipoAcaoGestao] = mapped_column(_enum(TipoAcaoGestao, "tipo_acao_gestao"))
+    detalhe: Mapped[dict] = mapped_column(JSONB)
 
 
 class CodigoAcesso(Base):

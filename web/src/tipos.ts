@@ -8,7 +8,22 @@ export type Permissao =
   | "ver_area_gestao"
   | "gerir_usuarios"
   | "gerir_acessos"
-  | "ver_documentacao_api";
+  | "ver_documentacao_api"
+  | "revisar_casamentos"
+  | "ver_catalogo"
+  | "editar_catalogo"
+  | "ver_servicos"
+  | "pausar_servicos"
+  | "ver_logs"
+  | "ver_mensagens"
+  | "reenviar_mensagens"
+  | "ver_configuracoes"
+  | "editar_configuracoes";
+
+/** GET /api/gestao/menu: o selo do menu da gestão (0 para quem não revisa casamentos). */
+export interface MenuGestao {
+  casamentos_esperando: number;
+}
 
 /** GET /api/auth/eu e POST /api/auth/entrar. `superadmin`: o dono do sistema (só ele mexe em admins). */
 export interface Eu {
@@ -108,4 +123,147 @@ export interface Historico {
   oportunidades: OportunidadeLinha[];
   recorrencia_30d: number;
   quase_la: boolean;
+}
+
+/** GET /api/gestao/casamentos: uma linha da lista. */
+export interface ProdutoCasamento {
+  id: number;
+  nome: string;
+  nome_en: string | null;
+  imagem: string | null;
+  categoria: string | null;
+  preco_liga: string | null;
+  pendentes: number;
+  confirmados: number;
+  ignorados: number;
+  em_outro: number;
+  ia_sugere: number;
+  situacao: string;
+}
+
+export interface ListaCasamentos {
+  itens: ProdutoCasamento[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  categorias: string[];
+}
+
+/** GET /api/gestao/casamentos/{id}: o produto da Liga em revisão. */
+export interface ProdutoLigaRevisao {
+  id: number;
+  nome: string;
+  nome_en: string | null;
+  imagem: string | null;
+  categoria: string | null;
+  url: string;
+  preco_liga: string | null;
+  lojas: number | null;
+  pistas: string[];
+}
+
+/** Produto da Liga parecido (ou candidato em "é de outro produto"). */
+export interface ProdutoParecido {
+  id: number;
+  nome: string;
+  imagem: string | null;
+  preco_liga: string | null;
+}
+
+export interface ParecerIa {
+  mesmo_produto: boolean;
+  confianca: number;
+  motivo: string;
+  idioma: string | null;
+}
+
+export type GrupoRevisao = "para_decidir" | "confirmados" | "ignorados";
+export type AcaoCasamento = "confirmar" | "ignorar" | "desfazer" | "trocar";
+
+/** Um anúncio da Amazon na revisão de um produto. */
+export interface AnuncioRevisao {
+  anuncio_id: number;
+  asin: string;
+  titulo: string;
+  url: string;
+  imagem: string | null;
+  preco: string | null;
+  vendedor: string | null;
+  termos_variacao: string[];
+  ia: ParecerIa | null;
+  origem: string | null;
+  revisado_em: string | null;
+  oportunidade: boolean;
+  casado_com: ProdutoParecido | null;
+}
+
+export interface NavegacaoRevisao {
+  posicao: number;
+  total: number;
+  anterior: number | null;
+  proximo: number | null;
+}
+
+export interface RevisaoCasamento {
+  produto: ProdutoLigaRevisao;
+  navegacao: NavegacaoRevisao;
+  para_decidir: AnuncioRevisao[];
+  confirmados: AnuncioRevisao[];
+  ignorados: AnuncioRevisao[];
+  parecidos: ProdutoParecido[];
+  termos: string[];
+  termos_pedidos: boolean;
+}
+
+/** POST /api/gestao/casamentos/{id}/anuncios/{anuncio}. */
+export interface DecisaoCasamento {
+  anuncio: AnuncioRevisao;
+  grupo: GrupoRevisao;
+  mensagem: string | null;
+}
+
+/** Resposta de Rebuscar, Reavaliar e Gerar termos. */
+export interface MensagemAcao {
+  tipo: "success" | "info" | "warning";
+  mensagem: string;
+}
+
+/** GET /api/gestao/catalogo: uma linha da lista. */
+export interface LinhaCatalogo {
+  id: number;
+  nome: string;
+  nome_en: string | null;
+  imagem: string | null;
+  categoria: string | null;
+  monitorado: boolean;
+  preco_liga: string | null;
+  lojas: number | null;
+  situacao: string;
+  pendentes: number;
+  confirmados: number;
+  melhor_amazon: string | null;
+}
+
+export interface ListaCatalogo {
+  itens: LinhaCatalogo[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  categorias: string[];
+}
+
+/** POST /api/gestao/catalogo/lote. */
+export interface LoteCatalogo { alvo: number; alterados: number }
+
+/** GET /api/gestao/produtos/{id}: o produto na gestão. */
+export interface ProdutoGestaoDados {
+  produto: {
+    id: number; nome: string; nome_en: string | null; imagem: string | null; categoria: string | null;
+    url: string; pistas: string[];
+  };
+  monitorado: boolean;
+  liga: { preco: string | null; lojas: number | null; medio: string | null; lido_em: string | null };
+  melhor_amazon: { preco: string; diferenca_pct: string | null } | null;
+  casamentos: { pendentes: number; confirmados: number; ignorados: number };
+  curva: Historico | null;
 }

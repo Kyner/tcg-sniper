@@ -34,7 +34,17 @@ from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
+from tcg_sniper.consultas.casamentos import (
+    EXPLICACAO_REAVALIAR,
+    MENSAGENS_CASAMENTO,
+    SITUACOES_CASAMENTO,
+    buscar_produtos,
+    casador_parado,
+    detalhe_casamento,
+    sugestoes_para,
+)
 from tcg_sniper.consultas.catalogo import SITUACOES_PRODUTO
+from tcg_sniper.consultas.catalogo_gestao import FILTROS, alterar_ativo_em_lote, alternar_ativo, buscar_catalogo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
@@ -118,58 +128,6 @@ MENSAGENS_SERVICOS = {
 
 
 ABAS_LOGS = ("liga", "amazon", "monitor", "checkout", "ia", "manutencao")
-
-# O que "Reavaliar com a IA" devolve para ela (regra em repositorio_casamento.reavaliar_produto).
-EXPLICACAO_REAVALIAR = (
-    "Reavaliar com a IA: voltam para ela os pendentes, os ignorados pelo automático e os casados em outro "
-    "produto que deixaram de ser; suas decisões (manual ou sugerido pela IA) e os confirmados não mudam."
-)
-
-MENSAGENS_CASAMENTO: dict[str, tuple[str, str]] = {
-    "link_salvo": ("success", "Link salvo; o anúncio será lido em alguns minutos."),
-    "ja_confirmado": ("error", "Este anúncio já está confirmado para outro produto; nada mudou."),
-    "rebuscar": ("success", "Produto na frente da fila da Amazon; a busca roda em alguns minutos."),
-    "rebuscar_fora_da_fila": (
-        "warning",
-        "O produto ainda não entrou na fila da Amazon; ele entra sozinho em alguns minutos. Tente de novo depois.",
-    ),
-    "reavaliar": ("success", "Pares marcados para a IA reavaliar; o casador roda em instantes."),
-    "reavaliar_ia_desligada": (
-        "warning",
-        (
-            "Pares marcados para a IA reavaliar, mas a IA está desligada (Configurações → IA) ou sem chave: "
-            "a reavaliação sai quando ela for ligada."
-        ),
-    ),
-    "reavaliar_casador_pausado": (
-        "warning",
-        (
-            "Pares marcados para a IA reavaliar, mas o casador está pausado (Serviços): a reavaliação sai "
-            "quando ele for retomado."
-        ),
-    ),
-    "reavaliar_nada": (
-        "info",
-        (
-            "Nada para reavaliar: só voltam para a IA os pendentes, os ignorados pelo automático e os casados em "
-            "outro produto que deixaram de ser."
-        ),
-    ),
-    "termos_pedidos": ("success", "Pedido enviado: a IA gera os termos de busca em instantes, dentro do teto de gasto."),
-    "termos_ia_desligada": (
-        "warning",
-        "Pedido guardado, mas a IA está desligada (Configurações → IA) ou sem chave: os termos saem quando ela for ligada.",
-    ),
-    "termos_casador_pausado": (
-        "warning",
-        "Pedido guardado, mas o casador está pausado (Serviços): os termos saem quando ele for retomado.",
-    ),
-    "termos_ja_casado": (
-        "info",
-        "Nada pedido à IA: o produto já tem anúncio confirmado, e a busca alternativa só vale para produto sem casamento.",
-    ),
-    "termos_fora_da_fila": ("warning", "O produto ainda não entrou na fila da Amazon; tente de novo em alguns minutos."),
-}
 
 
 def com_mensagem(destino: str, chave: str) -> str:
@@ -803,7 +761,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         pagina: str = "1",
         msg: str = "",
     ):
-        if filtro not in consultas.FILTROS:
+        if filtro not in FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
         texto_pagina = pagina.strip()
         # Limite de dígitos: int() de um número gigante estoura (ValueError/500); acima disso vale 1.
@@ -814,7 +772,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             categorias = consultas.listar_categorias(s)
             if categoria and categoria not in categorias:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
-            linhas, total, numero, paginas = consultas.buscar_catalogo(
+            linhas, total, numero, paginas = buscar_catalogo(
                 s, busca, filtro, repo.agora_utc(), categoria or None, so_com_preco, numero
             )
             parametros = {"busca": busca, "filtro": filtro, "categoria": categoria}
@@ -838,7 +796,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "link_proxima": link(numero + 1) if numero < paginas else None,
                     "busca": busca,
                     "filtro": filtro,
-                    "filtros": consultas.FILTROS,
+                    "filtros": FILTROS,
                     "categoria": categoria,
                     "categorias": categorias,
                     "com_preco": so_com_preco,
@@ -854,14 +812,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         filtro = formulario.get("filtro", "todos")
         if acao not in ("ativar", "desativar"):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ação inválida: {acao}")
-        if filtro not in consultas.FILTROS:
+        if filtro not in FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
         ativar = acao == "ativar"
         so_com_preco = com_preco == "1"
         with sessoes() as s, s.begin():
             if categoria and categoria not in consultas.listar_categorias(s):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
-            alterados = consultas.alterar_ativo_em_lote(
+            alterados = alterar_ativo_em_lote(
                 s, ativar, busca, filtro, categoria or None, so_com_preco, repo.agora_utc()
             )
         parametros = {"busca": busca, "filtro": filtro, "categoria": categoria}
@@ -873,9 +831,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/produto/{produto_id}/ativo", response_class=HTMLResponse)
-    def alternar_ativo(request: Request, produto_id: int):
+    def alternar_ativo_produto(request: Request, produto_id: int):
         with sessoes() as s, s.begin():
-            resultado = consultas.alternar_ativo(s, produto_id)
+            resultado = alternar_ativo(s, produto_id)
             if resultado is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND)
             produto, atual = resultado
@@ -979,7 +937,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         pagina: str = "1",
         situacao_produto: str = "",
     ):
-        if situacao not in consultas_amazon.SITUACOES_CASAMENTO:
+        if situacao not in SITUACOES_CASAMENTO:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
         if situacao_produto and situacao_produto not in SITUACOES_PRODUTO:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação do produto inválida: {situacao_produto}")
@@ -1025,7 +983,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "categoria": categoria,
                     "categorias": categorias,
                     "situacao": situacao,
-                    "situacoes": consultas_amazon.SITUACOES_CASAMENTO,
+                    "situacoes": SITUACOES_CASAMENTO,
                     "situacao_produto": situacao_produto,
                     "situacoes_produto": SITUACOES_PRODUTO,
                     "com_preco": so_com_preco,
@@ -1037,7 +995,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         link_digitado: str, codigo: int,
     ):
         cfg = repo_amz.obter_config(s)
-        detalhe = consultas_amazon.detalhe_casamento(s, produto_id, cfg)
+        detalhe = detalhe_casamento(s, produto_id, cfg)
         if detalhe is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND)
         voltar = destino_seguro(voltar)
@@ -1144,8 +1102,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "busca": busca,
                     "de": de,
                     "confirmado_em": s.get(ProdutoLiga, confirmado.produto_id) if confirmado else None,
-                    "sugestoes": consultas_amazon.sugestoes_para(s, anuncio, excluir=excluir),
-                    "produtos": consultas_amazon.buscar_produtos(s, busca, excluir=excluir) if busca.strip() else [],
+                    "sugestoes": sugestoes_para(s, anuncio, excluir=excluir),
+                    "produtos": buscar_produtos(s, busca, excluir=excluir) if busca.strip() else [],
                 },
             )
 
@@ -1160,12 +1118,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     def _casador_parado(s: Session, agora: datetime) -> str | None:
-        """Por que o casador não vai rodar "em instantes": IA desligada/sem chave ou casador pausado."""
-        if not (repo_ia.obter_config_ia(s).ligado and (config.openai_api_key or "").strip()):
-            return "ia_desligada"
-        if repo.obter_estado(s, agora, COLETOR_CASADOR).estado is not EstadoColetorTipo.ATIVO:
-            return "casador_pausado"
-        return None
+        return casador_parado(s, agora, config)
 
     @app.post("/casamentos/produto/{produto_id}/rebuscar")
     async def rebuscar_produto(request: Request, produto_id: int):

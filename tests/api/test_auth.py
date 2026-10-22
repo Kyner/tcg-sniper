@@ -7,6 +7,7 @@ from fakes_api import NUMEROS, SEGREDO_TESTE, T0, criar_usuario, mensagens
 from sqlalchemy import select
 
 from tcg_sniper.api import acesso
+from tcg_sniper.api.permissoes import Permissao
 from tcg_sniper.api.rotas_auth import MENSAGEM_PEDIDO
 from tcg_sniper.api.segredos import hash_segredo
 from tcg_sniper.avisos import servico as avisos
@@ -195,7 +196,10 @@ def test_codigo_de_acesso_desligado_nao_enfileira(cliente, sessoes):
 def test_eu_devolve_permissoes_e_renova_o_cookie(cliente, logar):
     logar(Papel.OPERADOR)
     r = cliente.get("/api/auth/eu")
-    assert r.json()["permissoes"] == ["ver_area_negocio", "ver_oportunidades", "ver_area_gestao"]
+    assert r.json()["permissoes"] == [
+        "ver_area_negocio", "ver_oportunidades", "ver_area_gestao", "revisar_casamentos", "ver_catalogo",
+        "editar_catalogo", "ver_servicos", "ver_logs", "ver_mensagens", "ver_configuracoes",
+    ]
     assert "Max-Age=2592000" in r.headers["set-cookie"]
 
 
@@ -209,7 +213,7 @@ def test_eu_diz_quem_e_o_superadmin(cliente, logar):
     logar(Papel.ADMIN, numero="+5511900000004", superadmin=True)
     eu = cliente.get("/api/auth/eu").json()
     assert (eu["papel"], eu["superadmin"]) == ("admin", True)
-    assert len(eu["permissoes"]) == 6  # todas
+    assert len(eu["permissoes"]) == len(Permissao)  # todas
 
 
 @pytest.mark.parametrize(

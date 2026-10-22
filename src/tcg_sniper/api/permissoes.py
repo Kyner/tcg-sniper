@@ -21,6 +21,16 @@ class Permissao(StrEnum):
     GERIR_USUARIOS = "gerir_usuarios"
     GERIR_ACESSOS = "gerir_acessos"
     VER_DOCUMENTACAO_API = "ver_documentacao_api"
+    REVISAR_CASAMENTOS = "revisar_casamentos"
+    VER_CATALOGO = "ver_catalogo"
+    EDITAR_CATALOGO = "editar_catalogo"
+    VER_SERVICOS = "ver_servicos"
+    PAUSAR_SERVICOS = "pausar_servicos"
+    VER_LOGS = "ver_logs"
+    VER_MENSAGENS = "ver_mensagens"
+    REENVIAR_MENSAGENS = "reenviar_mensagens"
+    VER_CONFIGURACOES = "ver_configuracoes"
+    EDITAR_CONFIGURACOES = "editar_configuracoes"
 
 
 @dataclass(frozen=True)
@@ -47,13 +57,44 @@ DEFINICOES: dict[Permissao, DefinicaoPermissao] = {
     Permissao.VER_DOCUMENTACAO_API: DefinicaoPermissao(
         "Ver a documentação da API", "Abrir /api/docs (OpenAPI)."
     ),
+    Permissao.REVISAR_CASAMENTOS: DefinicaoPermissao(
+        "Revisar casamentos", "Ver e decidir casamentos, rebuscar, reavaliar com a IA e gerar termos de busca."
+    ),
+    Permissao.VER_CATALOGO: DefinicaoPermissao(
+        "Ver o catálogo", "Ver o catálogo, o produto de gestão e as ofertas."
+    ),
+    Permissao.EDITAR_CATALOGO: DefinicaoPermissao(
+        "Editar o catálogo", "Ligar e desligar o monitoramento de produtos, um a um e em lote."
+    ),
+    Permissao.VER_SERVICOS: DefinicaoPermissao("Ver serviços", "Ver a tela Serviços e a saúde no Dashboard."),
+    Permissao.PAUSAR_SERVICOS: DefinicaoPermissao(
+        "Pausar serviços", "Ligar e desligar serviços, rodar agora e retomar."
+    ),
+    Permissao.VER_LOGS: DefinicaoPermissao("Ver a atividade", "Ver a tela Atividade (registros e mensagens)."),
+    Permissao.VER_MENSAGENS: DefinicaoPermissao(
+        "Ver mensagens", "Ver o texto das mensagens enviadas na Atividade."
+    ),
+    Permissao.REENVIAR_MENSAGENS: DefinicaoPermissao("Reenviar mensagens", "Reenviar uma mensagem."),
+    Permissao.VER_CONFIGURACOES: DefinicaoPermissao("Ver configurações", "Ver a tela Configurações."),
+    Permissao.EDITAR_CONFIGURACOES: DefinicaoPermissao("Editar configurações", "Salvar as Configurações."),
 }
 ROTULOS_PAPEL = {Papel.GRUPO: "Grupo", Papel.OPERADOR: "Operador", Papel.ADMIN: "Admin"}
 PAPEIS_EDITAVEIS = (Papel.GRUPO, Papel.OPERADOR)
 PADROES: dict[Papel, frozenset[Permissao]] = {
     Papel.GRUPO: frozenset({Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES}),
     Papel.OPERADOR: frozenset(
-        {Permissao.VER_AREA_NEGOCIO, Permissao.VER_OPORTUNIDADES, Permissao.VER_AREA_GESTAO}
+        {
+            Permissao.VER_AREA_NEGOCIO,
+            Permissao.VER_OPORTUNIDADES,
+            Permissao.VER_AREA_GESTAO,
+            Permissao.REVISAR_CASAMENTOS,
+            Permissao.VER_CATALOGO,
+            Permissao.EDITAR_CATALOGO,
+            Permissao.VER_SERVICOS,
+            Permissao.VER_LOGS,
+            Permissao.VER_MENSAGENS,
+            Permissao.VER_CONFIGURACOES,
+        }
     ),
     Papel.ADMIN: frozenset(Permissao),
 }

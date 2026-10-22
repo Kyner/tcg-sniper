@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import ColumnElement, case, func, or_, select, update
+from sqlalchemy import ColumnElement, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.db.models import (
@@ -24,15 +24,6 @@ from tcg_sniper.db.models import (
     StatusColeta,
     TipoColeta,
 )
-
-FILTROS = ("todos", "ativos", "inativos", "novos")
-JANELA_NOVOS = timedelta(days=7)
-POR_PAGINA = 100
-
-
-def _escapar_like(texto: str) -> str:
-    return texto.replace("\x00", "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
 
 STATUS_HISTORICO = ("todos", "ok", "parcial", "falha", "pausada_desafio")
 POR_PAGINA_HISTORICO = 20
@@ -116,97 +107,6 @@ def listar_categorias(s: Session) -> list[str]:
             select(ProdutoLiga.tipo).where(ProdutoLiga.tipo.is_not(None)).distinct().order_by(ProdutoLiga.tipo)
         )
     )
-
-
-def casa_nome(busca: str) -> ColumnElement[bool]:
-    """O texto aparece no nome do produto ou no nome em inglês (`%` e `_` valem como texto)."""
-    padrao = f"%{_escapar_like(busca.strip())}%"
-    return or_(ProdutoLiga.nome.ilike(padrao, escape="\\"), ProdutoLiga.nome_en.ilike(padrao, escape="\\"))
-
-
-def condicoes_catalogo(
-    busca: str | None, filtro: str, categoria: str | None, com_preco: bool, agora: datetime
-) -> list[ColumnElement[bool]]:
-    """Condições WHERE do catálogo; compartilhadas pela listagem, pela contagem e pela alteração em lote.
-
-    `com_preco` referencia `PrecoAtualLiga`, então a consulta que as usar precisa do outer join."""
-    condicoes: list[ColumnElement[bool]] = []
-    if busca and busca.strip():
-        condicoes.append(casa_nome(busca))
-    if filtro == "ativos":
-        condicoes.append(ProdutoLiga.ativo.is_(True))
-    elif filtro == "inativos":
-        condicoes.append(ProdutoLiga.ativo.is_(False))
-    elif filtro == "novos":
-        condicoes.append(ProdutoLiga.visto_primeiro_em >= agora - JANELA_NOVOS)
-    if categoria:
-        condicoes.append(ProdutoLiga.tipo == categoria)
-    if com_preco:
-        condicoes.append(PrecoAtualLiga.preco_a_partir.is_not(None))
-    return condicoes
-
-
-def alterar_ativo_em_lote(
-    s: Session,
-    ativo: bool,
-    busca: str | None,
-    filtro: str,
-    categoria: str | None,
-    com_preco: bool,
-    agora: datetime,
-) -> int:
-    """Define `ativo` em todos os produtos do filtro (todas as páginas); devolve quantos mudaram de fato."""
-    condicoes = condicoes_catalogo(busca, filtro, categoria, com_preco, agora)
-    if com_preco:
-        juncao = ProdutoLiga.__table__.outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
-        condicoes_update = [ProdutoLiga.id.in_(select(ProdutoLiga.id).select_from(juncao).where(*condicoes))]
-    else:
-        condicoes_update = condicoes
-    comando = (
-        update(ProdutoLiga)
-        .where(*condicoes_update, ProdutoLiga.ativo != ativo)
-        .values(ativo=ativo)
-        .execution_options(synchronize_session=False)
-    )
-    return s.execute(comando).rowcount
-
-
-def buscar_catalogo(
-    s: Session,
-    busca: str | None,
-    filtro: str,
-    agora: datetime,
-    categoria: str | None = None,
-    com_preco: bool = False,
-    pagina: int = 1,
-    por_pagina: int = POR_PAGINA,
-) -> tuple[list[tuple[ProdutoLiga, PrecoAtualLiga | None]], int, int, int]:
-    """Uma página do catálogo: (linhas, total de produtos com os filtros, página efetiva, total de páginas).
-
-    A página pedida além do fim é reduzida para a última."""
-    condicoes = condicoes_catalogo(busca, filtro, categoria, com_preco, agora)
-    juncao = ProdutoLiga.__table__.outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
-    total = s.scalar(select(func.count()).select_from(juncao).where(*condicoes)) or 0
-    paginas = max(1, -(-total // por_pagina))
-    pagina = min(max(pagina, 1), paginas)
-    consulta = (
-        select(ProdutoLiga, PrecoAtualLiga)
-        .outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
-        .where(*condicoes)
-        .order_by(ProdutoLiga.ativo.desc(), ProdutoLiga.nome, ProdutoLiga.id)
-        .limit(por_pagina)
-        .offset((pagina - 1) * por_pagina)
-    )
-    return [(produto, atual) for produto, atual in s.execute(consulta)], total, pagina, paginas
-
-
-def alternar_ativo(s: Session, produto_id: int) -> tuple[ProdutoLiga, PrecoAtualLiga | None] | None:
-    produto = s.get(ProdutoLiga, produto_id)
-    if produto is None:
-        return None
-    produto.ativo = not produto.ativo
-    s.flush()
-    return produto, s.get(PrecoAtualLiga, produto_id)
 
 
 def detalhe_produto(

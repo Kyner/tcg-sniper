@@ -6,8 +6,6 @@ import { useSessao } from "../sessao";
 const TELAS_ANTIGAS = [
   ["Dashboard", ""],
   ["Serviços", "servicos"],
-  ["Casamentos", "casamentos"],
-  ["Catálogo", "catalogo"],
   ["Ofertas", "ofertas"],
   ["Mensagens", "mensagens"],
   ["Configurações", "configuracoes"],

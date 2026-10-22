@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.admin.consultas_amazon import FiltroOfertas
+from tcg_sniper.consultas import casamentos
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import Envio, OrigemCasamento, OrigemPreco, SituacaoCheckout, StatusCasamento
 
@@ -54,7 +55,7 @@ def cenario(sessoes):
 def test_detalhe_casamento_traz_as_ofertas_da_ultima_leitura_e_a_conferencia(sessoes, cenario):
     produto_id, _ = cenario
     with sessoes() as s:
-        d = consultas_amazon.detalhe_casamento(s, produto_id, repo_amz.obter_config(s), T0)
+        d = casamentos.detalhe_casamento(s, produto_id, repo_amz.obter_config(s), T0)
     [linha] = d.confirmados
     assert [(o.vendedor_nome, o.melhor) for o in linha.ofertas] == [("Shazaar", True), ("Amazon Global", False)]
     assert linha.conferencia.total == Decimal("285.99")
@@ -64,7 +65,7 @@ def test_detalhe_casamento_traz_as_ofertas_da_ultima_leitura_e_a_conferencia(ses
 def test_conferencia_vencida_ou_de_outra_oferta_nao_vale(sessoes, cenario):
     produto_id, _ = cenario
     with sessoes() as s:
-        d = consultas_amazon.detalhe_casamento(s, produto_id, repo_amz.obter_config(s), T0 + timedelta(hours=7))
+        d = casamentos.detalhe_casamento(s, produto_id, repo_amz.obter_config(s), T0 + timedelta(hours=7))
     assert d.confirmados[0].conferencia is None
 
 
@@ -144,7 +145,7 @@ def test_ofertas_busca_as_conferencias_de_uma_vez(sessoes, cliente, cenario, mon
     with sessoes() as s:
         [linha] = consultas_amazon.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
         assert linha.conferencia.total == Decimal("285.99")
-        d = consultas_amazon.detalhe_casamento(s, cenario[0], repo_amz.obter_config(s), T0)
+        d = casamentos.detalhe_casamento(s, cenario[0], repo_amz.obter_config(s), T0)
         assert d.confirmados[0].conferencia.total == Decimal("285.99")
     assert "conferido no checkout" in cliente.get("/ofertas").text
 

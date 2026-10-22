@@ -9,9 +9,9 @@ from fakes import T0, criar_produto
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 
-from tcg_sniper.admin import consultas
 from tcg_sniper.admin.app import criar_app, formatar_brl
 from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
+from tcg_sniper.consultas import catalogo_gestao
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db.models import EstadoColetorTipo, ProdutoLiga, StatusColeta, TipoColeta
 
@@ -370,8 +370,8 @@ def test_condicoes_catalogo_compartilhadas_com_buscar_catalogo(sessoes):
     criar_lote(sessoes)
     agora = repo.agora_utc()
     with sessoes() as s:
-        _, total, _, _ = consultas.buscar_catalogo(s, "caixa", "inativos", agora, "Caixas de Boosters", True)
-        condicoes = consultas.condicoes_catalogo("caixa", "inativos", "Caixas de Boosters", True, agora)
+        _, total, _, _ = catalogo_gestao.buscar_catalogo(s, "caixa", "inativos", agora, "Caixas de Boosters", True)
+        condicoes = catalogo_gestao.condicoes_catalogo("caixa", "inativos", "Caixas de Boosters", True, agora)
         assert total == 110 and len(condicoes) == 4
 
 
@@ -379,7 +379,7 @@ def test_lote_respeita_categoria_com_preco_busca_e_filtro_em_varias_paginas(sess
     criar_lote(sessoes)
     agora = repo.agora_utc()
     with sessoes() as s, s.begin():
-        n = consultas.alterar_ativo_em_lote(s, True, "caixa", "inativos", "Caixas de Boosters", True, agora)
+        n = catalogo_gestao.alterar_ativo_em_lote(s, True, "caixa", "inativos", "Caixas de Boosters", True, agora)
     assert n == 110  # 110 > POR_PAGINA: inclui as páginas seguintes; exclui sem preço, bundle e já ativa
     ativos = ids_ativos(sessoes)
     assert len(ativos) == 111 and "Caixa 109" in ativos and "Caixa 110" not in ativos
@@ -390,16 +390,16 @@ def test_lote_conta_so_linhas_que_mudaram(sessoes):
     criar_lote(sessoes)
     agora = repo.agora_utc()
     with sessoes() as s, s.begin():
-        assert consultas.alterar_ativo_em_lote(s, True, "", "todos", "Caixas de Boosters", False, agora) == 120
+        assert catalogo_gestao.alterar_ativo_em_lote(s, True, "", "todos", "Caixas de Boosters", False, agora) == 120
     with sessoes() as s, s.begin():  # "Caixa Ativa" já estava ativa e as demais agora também
-        assert consultas.alterar_ativo_em_lote(s, True, "", "todos", "Caixas de Boosters", False, agora) == 0
-        assert consultas.alterar_ativo_em_lote(s, False, "", "ativos", "Caixas de Boosters", False, agora) == 121
+        assert catalogo_gestao.alterar_ativo_em_lote(s, True, "", "todos", "Caixas de Boosters", False, agora) == 0
+        assert catalogo_gestao.alterar_ativo_em_lote(s, False, "", "ativos", "Caixas de Boosters", False, agora) == 121
 
 
 def test_lote_sem_com_preco_nao_precisa_de_juncao(sessoes):
     criar_lote(sessoes)
     with sessoes() as s, s.begin():
-        n = consultas.alterar_ativo_em_lote(s, True, "Bundle", "todos", None, False, repo.agora_utc())
+        n = catalogo_gestao.alterar_ativo_em_lote(s, True, "Bundle", "todos", None, False, repo.agora_utc())
     assert n == 1
 
 
@@ -416,7 +416,7 @@ def test_lote_nao_toca_outras_colunas_nem_produtos_fora_do_filtro(sessoes):
 
     antes = foto()
     with sessoes() as s, s.begin():
-        consultas.alterar_ativo_em_lote(s, True, "", "todos", "Bundles", False, agora)
+        catalogo_gestao.alterar_ativo_em_lote(s, True, "", "todos", "Bundles", False, agora)
     depois = foto()
     mudou = [i for i in antes if antes[i] != depois[i]]
     assert len(mudou) == 1

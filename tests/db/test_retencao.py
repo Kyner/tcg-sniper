@@ -10,6 +10,7 @@ from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import retencao
 from tcg_sniper.db.models import (
+    AcaoGestao,
     AvaliacaoIA,
     ChamadaIA,
     Coleta,
@@ -22,6 +23,7 @@ from tcg_sniper.db.models import (
     ResumoPreco,
     SituacaoCheckout,
     StatusColeta,
+    TipoAcaoGestao,
     TipoColeta,
 )
 
@@ -159,6 +161,16 @@ def test_precos_nunca_sao_apagados(s):
     for modelo in (PrecoListagem, ResumoPreco, PrecoAmazon):
         assert s.scalar(select(func.count()).select_from(modelo)) == 1, modelo.__tablename__
     assert coleta.id in _ids(s, Coleta)
+
+
+def test_limpeza_nao_apaga_acao_gestao(s):
+    antiga = AGORA - timedelta(days=3000)
+    s.add(AcaoGestao(usuario_id=None, em=antiga, tipo=TipoAcaoGestao.CATALOGO_LOTE, detalhe={}))
+    s.flush()
+
+    _limpar(s, AGORA)
+
+    assert s.scalar(select(func.count()).select_from(AcaoGestao)) == 1
 
 
 def test_nada_a_apagar_devolve_zeros(s):

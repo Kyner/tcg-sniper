@@ -34,7 +34,9 @@ FIXAS = [
     "/ofertas", "/mensagens", "/configuracoes", "/configuracoes?msg=avisos",
     "/logs", "/logs?aba=amazon", "/logs?aba=ia", "/logs?aba=checkout", "/logs?aba=monitor", "/logs?aba=manutencao",
 ]
-TELAS_WEB = ["/", "/gestao", "/gestao/usuarios", "/gestao/acessos", "/sem-acesso"]
+TELAS_WEB = [
+    "/", "/gestao", "/gestao/usuarios", "/gestao/acessos", "/sem-acesso", "/gestao/casamentos", "/gestao/catalogo",
+]  # as telas por produto (/gestao/casamentos/<id>, /gestao/produtos/<id>) o teste ponta a ponta confere com dados de teste
 TELAS_WEB_ANONIMAS = ["/entrar"]
 TAMANHOS = {"celular": (390, 844), "computador": (1440, 900)}
 SAIDA = Path(tempfile.gettempdir()) / "verificar_layout"

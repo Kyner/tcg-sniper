@@ -1,7 +1,13 @@
 // Rotas do site. /entrar é aberta; o resto exige sessão e, cada tela, a sua permissão.
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Outlet, Route, Routes } from "react-router";
+import { BrowserRouter, Route, Routes } from "react-router";
 import { Carregando } from "./componentes/Carregando";
+import { ExigeTodas } from "./componentes/ExigeTodas";
+import { LayoutGestao } from "./componentes/LayoutGestao";
+import { Casamentos } from "./paginas/gestao/Casamentos";
+import { Catalogo } from "./paginas/gestao/Catalogo";
+import { ProdutoGestao } from "./paginas/gestao/ProdutoGestao";
+import { RevisaoCasamento } from "./paginas/gestao/RevisaoCasamento";
 import { Exige, RotaProtegida } from "./componentes/RotaProtegida";
 import { Acessos } from "./paginas/Acessos";
 import { Entrar } from "./paginas/Entrar";
@@ -51,11 +57,43 @@ export function Rotas() {
           path="/gestao"
           element={
             <Exige permissao="ver_area_gestao">
-              <Outlet />
+              <LayoutGestao />
             </Exige>
           }
         >
           <Route index element={<Gestao />} />
+          <Route
+            path="casamentos"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "revisar_casamentos"]}>
+                <Casamentos />
+              </ExigeTodas>
+            }
+          />
+          <Route
+            path="casamentos/:produtoId"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "revisar_casamentos"]}>
+                <RevisaoCasamento />
+              </ExigeTodas>
+            }
+          />
+          <Route
+            path="catalogo"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "ver_catalogo"]}>
+                <Catalogo />
+              </ExigeTodas>
+            }
+          />
+          <Route
+            path="produtos/:id"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "ver_catalogo"]}>
+                <ProdutoGestao />
+              </ExigeTodas>
+            }
+          />
           <Route
             path="usuarios"
             element={

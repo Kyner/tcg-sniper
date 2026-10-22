@@ -1,6 +1,6 @@
 // Moldura das telas logadas: barra com o menu (só o que a pessoa pode), nome, papel, tema e Sair.
 import type { ReactNode } from "react";
-import { Link, NavLink, useNavigate } from "react-router";
+import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import { ROTULO_PAPEL } from "../permissoes";
 import { useSessao } from "../sessao";
 import { BotaoTema } from "./BotaoTema";
@@ -8,6 +8,7 @@ import { BotaoTema } from "./BotaoTema";
 export function Layout({ children }: { children: ReactNode }) {
   const { sessao, pode, sair } = useSessao();
   const navegar = useNavigate();
+  const emGestao = useLocation().pathname.startsWith("/gestao"); // a gestão tem menu lateral: precisa de mais largura
   if (sessao.estado !== "logado") return null;
   const { eu } = sessao;
 
@@ -61,7 +62,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </nav>
-      <main className="mx-auto max-w-5xl p-4">{children}</main>
+      <main className={emGestao ? "mx-auto max-w-7xl p-4" : "mx-auto max-w-5xl p-4"}>{children}</main>
     </div>
   );
 }

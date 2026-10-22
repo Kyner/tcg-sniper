@@ -186,6 +186,127 @@ def test_grupo_ve_oportunidade_e_abre_o_produto(servidores, usuarios, engine):
             navegador.close()
 
 
+NOME_LONGO = (
+    "Colecao Especial de Aniversario Edicao Limitada Caixa de Boosters de Colecionador Em Portugues Com Brinde Exclusivo "
+    "Numerado"
+)[:120]
+assert len(NOME_LONGO) == 120
+
+
+@pytest.fixture
+def gestao(usuarios, engine):
+    """Três produtos para as telas de gestão: dois da categoria "Booster Box" com anúncios pendentes e um de nome com
+    120 caracteres, sem foto, da categoria "Deck". O apagão no fim vem da fixture `usuarios`."""
+    with sessionmaker(bind=engine)() as s, s.begin():
+        alfa = fakes.criar_produto(s, "g-alfa", nome="Caixa Alfa")
+        beta = fakes.criar_produto(s, "g-beta", nome="Caixa Beta")
+        longo = fakes.criar_produto(s, "g-longo", nome=NOME_LONGO)
+        for produto, tipo, preco in ((alfa, "Booster Box", "100"), (beta, "Booster Box", "200"), (longo, "Deck", "300")):
+            produto.tipo = tipo
+            fakes.criar_preco_liga(s, produto, preco)
+        fakes.criar_anuncio(s, "B0ALFA0001", alfa)
+        fakes.criar_anuncio(s, "B0ALFA0002", alfa)
+        fakes.criar_anuncio(s, "B0BETA0001", beta)
+        fakes.criar_anuncio(s, "B0LONGO001", longo)
+        ids = {"alfa": alfa.id, "beta": beta.id, "longo": longo.id}
+    return ids
+
+
+def _ativo(engine, liga_id: str, esperado: bool, limite_s: float = 10) -> bool:
+    """O valor gravado de `ativo`, esperando até `limite_s` s que chegue ao `esperado` (a tela pinta antes de a API gravar)."""
+    fim = time.monotonic() + limite_s
+    while True:
+        with engine.connect() as conexao:
+            valor = conexao.execute(text("SELECT ativo FROM produto_liga WHERE liga_id = :l"), {"l": liga_id}).scalar_one()
+        if valor == esperado or time.monotonic() > fim:
+            return valor
+        time.sleep(0.2)
+
+
+def test_revisao_de_casamentos_e_catalogo_ponta_a_ponta(servidores, gestao, engine):
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        try:
+            pagina = navegador.new_context().new_page()
+            entrar(pagina, expect, engine, ADMIN, "11 90000-0001")
+
+            # Casamentos: filtra pela busca, revisa em sequência, confirma um anúncio sem recarregar, vai ao próximo
+            # produto e volta à lista com o filtro.
+            pagina.goto(BASE + "/gestao/casamentos")
+            pagina.get_by_label("Buscar").fill("Caixa")
+            expect(pagina).to_have_url(re.compile(r"busca=Caixa"))
+            pagina.get_by_role("link", name="Revisar em sequência").click()
+            expect(pagina.get_by_role("heading", name="Para decidir (", exact=False)).to_be_visible()
+            pagina.evaluate("window.__sem_recarga = true")
+            para_decidir = pagina.get_by_role("list", name="Para decidir")
+            antes = para_decidir.get_by_role("listitem").count()
+            assert antes >= 1
+            para_decidir.get_by_role("button", name=re.compile("é o mesmo")).first.click()
+            expect(pagina.get_by_role("heading", name=re.compile(r"Confirmados \(1\)"))).to_be_visible()
+            expect(para_decidir.get_by_role("listitem")).to_have_count(antes - 1)
+            assert pagina.evaluate("window.__sem_recarga === true")  # o cartão mudou de grupo sem recarregar a página
+            pagina.get_by_role("link", name=re.compile("Próximo")).click()
+            expect(pagina.get_by_role("heading", name=re.compile(r"Para decidir \("))).to_be_visible()
+            pagina.get_by_role("link", name="Voltar à lista").click()
+            expect(pagina).to_have_url(re.compile(r"/gestao/casamentos\?.*busca=Caixa"))
+            expect(pagina.get_by_label("Buscar")).to_have_value("Caixa")
+
+            # Catálogo: um produto desligado pela chave e um lote de 2 pelo filtro de categoria.
+            pagina.goto(BASE + "/gestao/catalogo")
+            chave = pagina.locator(f'input[aria-label="Monitorar {NOME_LONGO}"]:visible')
+            expect(chave).to_be_checked()
+            chave.click()
+            expect(chave).not_to_be_checked()
+            assert _ativo(engine, "g-longo", False) is False
+            pagina.get_by_label("Categoria").select_option(label="Booster Box")
+            expect(pagina.get_by_text("2 produtos", exact=True)).to_be_visible()  # a lista filtrada já chegou
+            pagina.get_by_label("Selecionar a página").check()
+            expect(pagina.get_by_text("2 selecionados")).to_be_visible()
+            pagina.get_by_role("button", name="Desligar", exact=True).click()
+            expect(pagina.get_by_text("Desligar 2 produtos?")).to_be_visible()
+            pagina.get_by_role("button", name="Confirmar").click()
+            expect(pagina.get_by_text("Desligar 2 produtos?")).to_be_hidden()
+            expect(pagina.locator('input[aria-label="Monitorar Caixa Alfa"]:visible')).not_to_be_checked()
+            assert _ativo(engine, "g-alfa", False) is False and _ativo(engine, "g-beta", False) is False
+        finally:
+            navegador.close()
+
+
+def test_telas_de_gestao_cabem_com_nome_de_120_caracteres(servidores, gestao, engine, tmp_path):
+    """As quatro telas novas, em 390 e 1440 px nos dois temas, com um produto de nome longo e sem foto."""
+    from playwright.sync_api import sync_playwright
+
+    httpx.post(BASE + "/api/auth/pedir-codigo", json={"numero": ADMIN}, timeout=10).raise_for_status()
+    layout = _verificar_layout()
+    telas = [
+        "/gestao/casamentos?situacao=todos", "/gestao/catalogo",
+        f"/gestao/casamentos/{gestao['longo']}", f"/gestao/produtos/{gestao['longo']}",
+    ]
+    problemas: list[str] = []
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        try:
+            estado = layout.entrar_no_web(navegador, BASE, ADMIN, ler_codigo(engine, ADMIN))
+            for nome, (largura, altura) in layout.TAMANHOS.items():
+                for tema in ("winter", "night"):
+                    contexto = navegador.new_context(viewport={"width": largura, "height": altura}, storage_state=estado)
+                    contexto.add_init_script(f"try {{ localStorage.setItem('tema', '{tema}'); }} catch (e) {{}}")
+                    pagina = contexto.new_page()
+                    erros: list[str] = []
+                    pagina.on("pageerror", lambda e, acumulado=erros: acumulado.append(str(e)))
+                    for caminho in telas:
+                        png = tmp_path / f"{nome}-{tema}-{abs(hash(caminho))}.png"
+                        problemas += layout.conferir(pagina, BASE + caminho, caminho, largura, f"{nome} {tema}", png, erros)
+                        if pagina.evaluate("document.documentElement.scrollWidth > window.innerWidth"):
+                            problemas.append(f"{caminho} {nome} {tema}: estourou a largura")
+                    contexto.close()
+        finally:
+            navegador.close()
+    assert problemas == []
+
+
 def _verificar_layout():
     spec = importlib.util.spec_from_file_location("verificar_layout", RAIZ / "scripts" / "verificar_layout.py")
     modulo = importlib.util.module_from_spec(spec)
