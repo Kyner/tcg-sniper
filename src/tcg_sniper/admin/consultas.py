@@ -146,7 +146,9 @@ def _pagina(total: int, pagina: int, por_pagina: int) -> tuple[int, int]:
 def _produto_da_linha(anuncio_id, instante) -> ColumnElement:
     """Nome do produto de uma linha de log do anúncio no `instante`: o da oportunidade aberta naquela hora;
     sem ela, o par do anúncio (o confirmado primeiro, senão o mexido por último). Assim a linha antiga
-    continua com produto depois de o par ser desfeito, ignorado ou trocado."""
+    continua com produto depois de o par ser desfeito, ignorado ou trocado. As duas subconsultas ficam aninhadas
+    num terceiro SELECT; sem `correlate_except`, elas só se ligariam a ele e trariam a tabela da linha para o
+    próprio FROM, dando o mesmo produto para todas as linhas."""
     da_oportunidade = (
         select(Oportunidade.produto_id)
         .where(
@@ -156,6 +158,7 @@ def _produto_da_linha(anuncio_id, instante) -> ColumnElement:
         )
         .order_by(Oportunidade.aberta_em.desc(), Oportunidade.id.desc())
         .limit(1)
+        .correlate_except(Oportunidade)
         .scalar_subquery()
     )
     do_par = (
@@ -167,6 +170,7 @@ def _produto_da_linha(anuncio_id, instante) -> ColumnElement:
             Casamento.produto_id,
         )
         .limit(1)
+        .correlate_except(Casamento)
         .scalar_subquery()
     )
     return (
