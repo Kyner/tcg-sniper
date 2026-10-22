@@ -23,16 +23,16 @@ describe("Casamentos", () => {
     renderizarEm("/gestao/casamentos");
     const tabela = await screen.findByRole("table");
     const link = within(tabela).getByRole("link", { name: /Lair of the Hydra/ });
-    expect(link).toHaveAttribute("href", "/gestao/casamentos/5?situacao=esperando_decisao&ordem=preco_liga");
+    expect(link).toHaveAttribute("href", "/gestao/casamentos/5?situacao=esperando_decisao&ordem=preco_liga&pagina=1");
     expect(within(tabela).getAllByText("R$ 1.589,00").length).toBeGreaterThan(0);
   });
 
   it("cartão leva à revisão com a mesma query", async () => {
-    apiFalsa({ ...base, [L("busca=lair&situacao=esperando_decisao&ordem=preco_liga&pagina=1")]: ok(LISTA) });
-    renderizarEm("/gestao/casamentos?busca=lair");
+    apiFalsa({ ...base, [L("busca=lair&situacao=esperando_decisao&ordem=preco_liga&pagina=3")]: ok(LISTA) });
+    renderizarEm("/gestao/casamentos?busca=lair&pagina=3");
     const lista = await screen.findByRole("list", { name: "Produtos" });
     expect(within(lista).getByRole("link", { name: /Lair of the Hydra/ })).toHaveAttribute(
-      "href", "/gestao/casamentos/5?busca=lair&situacao=esperando_decisao&ordem=preco_liga",
+      "href", "/gestao/casamentos/5?busca=lair&situacao=esperando_decisao&ordem=preco_liga&pagina=3",
     );
   });
 
@@ -66,7 +66,7 @@ describe("Casamentos", () => {
     renderizarEm("/gestao/casamentos?situacao=todos");
     await screen.findByRole("table");
     expect(screen.getByRole("link", { name: "Revisar em sequência" })).toHaveAttribute(
-      "href", "/gestao/casamentos/5?situacao=todos&ordem=preco_liga",
+      "href", "/gestao/casamentos/5?situacao=todos&ordem=preco_liga&pagina=1",
     );
   });
 
@@ -91,6 +91,9 @@ describe("Casamentos", () => {
     expect(screen.getByRole("searchbox", { name: "Buscar" })).toHaveValue("lair");
     expect(chamadas.some((c) => c.caminho.includes("pagina=3"))).toBe(true);
     expect(screen.getByText("Página 3 de 3")).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).getByRole("link", { name: /Lair of the Hydra/ })).toHaveAttribute(
+      "href", "/gestao/casamentos/5?busca=lair&situacao=esperando_decisao&ordem=preco_liga&pagina=3",
+    );
   });
 
   it("erro mostra alerta com Tentar de novo", async () => {

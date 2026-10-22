@@ -57,7 +57,7 @@ export function Casamentos() {
   const [dados, setDados] = useState<ListaCasamentos | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const caminho = `/api/gestao/casamentos?${montarQuery(filtros, true)}`;
-  const queryRevisao = montarQuery(filtros, false);
+  const queryRevisao = montarQuery(filtros, true);
 
   useEffect(() => { setTexto(filtros.busca); }, [filtros.busca]);
   useEffect(() => {
