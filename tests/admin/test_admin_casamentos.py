@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app, destino_seguro
+from tcg_sniper.consultas import casamentos
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
@@ -221,7 +222,7 @@ def test_sugestoes_para_acha_parecidos_e_exclui_o_atual(s):
     anuncio = criar_anuncio(s, "B0ZULU0001", produto=atual)
     anuncio.titulo = "Magic Zulu Colecionador Plus Booster Box"
     s.flush()
-    sugestoes = consultas_amazon.sugestoes_para(s, anuncio, excluir={atual.id})
+    sugestoes = casamentos.sugestoes_para(s, anuncio, excluir={atual.id})
     assert sugestoes[0][0].id == alvo.id
     assert all(p.id != atual.id for p, _ in sugestoes) and len(sugestoes) <= 3
 
@@ -234,9 +235,9 @@ def test_trocar_nao_oferece_produto_inativo(cliente, sessoes, cenario):
     texto = cliente.get(f"/casamentos/{alfa.id}/trocar", params={"busca": "Inativa"}).text
     assert f"/casamentos/produto/{cenario['e'].id}" not in texto
     with sessoes() as s:
-        assert all(p.ativo for p, _ in consultas_amazon.buscar_produtos(s, "Inativa"))
+        assert all(p.ativo for p, _ in casamentos.buscar_produtos(s, "Inativa"))
         anuncio = s.get(AnuncioAmazon, alfa.id)
-        assert all(p.ativo for p, _ in consultas_amazon.sugestoes_para(s, anuncio))
+        assert all(p.ativo for p, _ in casamentos.sugestoes_para(s, anuncio))
 
 
 def test_confirmar_para_produto_inativo_404_e_nao_grava(cliente, sessoes, cenario):
@@ -301,7 +302,7 @@ def test_nome_em_ingles_aparece_em_casamentos_cabecalho_e_trocar(cliente, sessoe
 
 def test_busca_de_casamentos_e_trocar_acha_pelo_nome_em_ingles(s, com_nome_en):
     assert nomes(s, busca="gamma box", situacao="todos") == ["Caixa Gama"]
-    assert [p.nome for p, _ in consultas_amazon.buscar_produtos(s, "Gamma Box")] == ["Caixa Gama"]
+    assert [p.nome for p, _ in casamentos.buscar_produtos(s, "Gamma Box")] == ["Caixa Gama"]
 
 
 def test_sugestoes_acham_pelo_nome_em_ingles(s):
@@ -313,7 +314,7 @@ def test_sugestoes_acham_pelo_nome_em_ingles(s):
     anuncio = criar_anuncio(s, "B0ZORB0001", produto=atual)
     anuncio.titulo = "Zorblax Wombat Collector Draft Box"
     s.flush()
-    assert consultas_amazon.sugestoes_para(s, anuncio)[0][0].id == alvo.id
+    assert casamentos.sugestoes_para(s, anuncio)[0][0].id == alvo.id
 
 
 def test_decisao_no_admin_grava_sugerido_ia_ou_manual(cliente, sessoes):

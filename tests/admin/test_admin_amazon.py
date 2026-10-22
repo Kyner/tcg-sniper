@@ -12,6 +12,7 @@ from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.admin.consultas_amazon import FiltroOfertas
 from tcg_sniper.coletor_amazon.modelos import AvaliacaoVendedor
+from tcg_sniper.consultas import casamentos
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import (
@@ -134,12 +135,12 @@ def test_candidatos_para_ignora_tokens_genericos_e_cai_para_todos():
     nomes += ["caixa de booster magic zulu colecionador", "display zulu especial"]
     indice: dict[str, set[str]] = {}
     for nome in nomes:
-        for token in consultas_amazon._tokens(nome):
+        for token in casamentos._tokens(nome):
             indice.setdefault(token, set()).add(nome)
-    candidatos = consultas_amazon.candidatos_para("caixa de booster magic zulu colecionador plus", nomes, indice)
+    candidatos = casamentos.candidatos_para("caixa de booster magic zulu colecionador plus", nomes, indice)
     assert candidatos == ["caixa de booster magic zulu colecionador", "display zulu especial"]
     assert len(candidatos) < len(nomes) / 50
-    assert consultas_amazon.candidatos_para("caixa de booster magic", nomes, indice) == nomes
+    assert casamentos.candidatos_para("caixa de booster magic", nomes, indice) == nomes
 
 
 def preparar_ofertas(s):

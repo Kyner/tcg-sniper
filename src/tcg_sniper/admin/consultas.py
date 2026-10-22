@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import ColumnElement, case, func, or_, select, update
 from sqlalchemy.orm import Session
 
+from tcg_sniper.consultas.catalogo import casa_nome
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     Casamento,
@@ -28,10 +29,6 @@ from tcg_sniper.db.models import (
 FILTROS = ("todos", "ativos", "inativos", "novos")
 JANELA_NOVOS = timedelta(days=7)
 POR_PAGINA = 100
-
-
-def _escapar_like(texto: str) -> str:
-    return texto.replace("\x00", "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 STATUS_HISTORICO = ("todos", "ok", "parcial", "falha", "pausada_desafio")
@@ -116,12 +113,6 @@ def listar_categorias(s: Session) -> list[str]:
             select(ProdutoLiga.tipo).where(ProdutoLiga.tipo.is_not(None)).distinct().order_by(ProdutoLiga.tipo)
         )
     )
-
-
-def casa_nome(busca: str) -> ColumnElement[bool]:
-    """O texto aparece no nome do produto ou no nome em inglês (`%` e `_` valem como texto)."""
-    padrao = f"%{_escapar_like(busca.strip())}%"
-    return or_(ProdutoLiga.nome.ilike(padrao, escape="\\"), ProdutoLiga.nome_en.ilike(padrao, escape="\\"))
 
 
 def condicoes_catalogo(

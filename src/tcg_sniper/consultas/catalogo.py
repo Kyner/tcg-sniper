@@ -9,12 +9,22 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from tcg_sniper.db.models import AvaliacaoIA, Casamento, ProdutoLiga, StatusCasamento
 
 SITUACOES_PRODUTO = ("casado", "esperando_decisao", "so_ignorados", "sem_candidato")
+
+
+def _escapar_like(texto: str) -> str:
+    return texto.replace("\x00", "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def casa_nome(busca: str) -> ColumnElement[bool]:
+    """O texto aparece no nome do produto ou no nome em inglês (`%` e `_` valem como texto)."""
+    padrao = f"%{_escapar_like(busca.strip())}%"
+    return or_(ProdutoLiga.nome.ilike(padrao, escape="\\"), ProdutoLiga.nome_en.ilike(padrao, escape="\\"))
 
 
 def inicio_do_dia(agora: datetime, zona: ZoneInfo) -> datetime:

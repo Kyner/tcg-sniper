@@ -6,8 +6,8 @@ import pytest
 from fakes import T0, criar_anuncio, criar_par, criar_produto
 from fastapi.testclient import TestClient
 
-from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import MENSAGENS_CASAMENTO, criar_app
+from tcg_sniper.consultas import casamentos
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
@@ -202,7 +202,7 @@ def test_trocar_nao_sugere_o_produto_de_onde_veio(sessoes, dois):
         anuncio = s.get(AnuncioAmazon, dois["anuncio"])
         anuncio.titulo = "Caixa de Jogo Colecionador"
         s.flush()
-        ids = {p.id for p, _ in consultas_amazon.sugestoes_para(s, anuncio, excluir={dois["jogo"]})}
+        ids = {p.id for p, _ in casamentos.sugestoes_para(s, anuncio, excluir={dois["jogo"]})}
     assert dois["jogo"] not in ids
 
 
