@@ -1,13 +1,13 @@
 // Moldura da gestão: menu lateral (gaveta no celular) com só o que a pessoa pode, e a página ao lado.
 import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 import { chamarApi } from "../api";
 import { enderecoAdminAntigo } from "../enderecos";
 import { useSessao } from "../sessao";
 import type { MenuGestao, Permissao } from "../tipos";
 
 const TELAS_ANTIGAS: readonly (readonly [string, string, Permissao])[] = [
-  ["Ofertas", "ofertas", "ver_servicos"],
+  ["Ofertas", "ofertas", "ver_catalogo"],
   ["Serviços", "servicos", "ver_servicos"],
   ["Mensagens", "mensagens", "ver_mensagens"],
   ["Configurações", "configuracoes", "ver_configuracoes"],
@@ -20,6 +20,11 @@ export function LayoutGestao() {
   const { pode } = useSessao();
   const [esperando, setEsperando] = useState(0);
   const veCasamentos = pode("revisar_casamentos");
+  const [aberto, setAberto] = useState(false);
+  const { pathname } = useLocation();
+
+  // No celular, trocar de tela fecha a gaveta.
+  useEffect(() => setAberto(false), [pathname]);
 
   useEffect(() => {
     if (!veCasamentos) return;
@@ -40,7 +45,13 @@ export function LayoutGestao() {
 
   return (
     <div className="drawer lg:drawer-open">
-      <input id="menu-gestao" type="checkbox" className="drawer-toggle" />
+      <input
+        id="menu-gestao"
+        type="checkbox"
+        className="drawer-toggle"
+        checked={aberto}
+        onChange={(e) => setAberto(e.target.checked)}
+      />
       <div className="drawer-content">
         <label htmlFor="menu-gestao" className="btn btn-ghost btn-sm mb-2 lg:hidden">
           ☰ Menu da gestão

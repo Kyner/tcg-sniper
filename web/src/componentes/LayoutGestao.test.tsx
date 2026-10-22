@@ -1,4 +1,5 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { apiFalsa, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../teste/apoio";
 
@@ -26,6 +27,25 @@ describe("LayoutGestao", () => {
     renderizarEm("/gestao");
     expect(await screen.findByRole("link", { name: "Usuários" })).toHaveAttribute("href", "/gestao/usuarios");
     expect(screen.getByRole("link", { name: "Acessos" })).toHaveAttribute("href", "/gestao/acessos");
+  });
+
+  it("Ofertas segue ver_catalogo, não ver_servicos", async () => {
+    const eu = { ...EU_OPERADOR, permissoes: EU_OPERADOR.permissoes.filter((p) => p !== "ver_servicos") };
+    apiFalsa({ "GET /api/auth/eu": ok(eu), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) });
+    renderizarEm("/gestao");
+    expect((await screen.findAllByRole("link", { name: "Ofertas" })).length).toBeGreaterThan(0);
+  });
+
+  it("a gaveta fecha ao trocar de tela", async () => {
+    apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) });
+    renderizarEm("/gestao");
+    const alternar = (await screen.findByText("☰ Menu da gestão")).closest("label")!;
+    await userEvent.click(alternar);
+    const caixa = document.getElementById("menu-gestao") as HTMLInputElement;
+    expect(caixa.checked).toBe(true);
+    await userEvent.click(screen.getByRole("link", { name: "Catálogo" }));
+    expect(await screen.findByRole("heading", { name: "Catálogo" })).toBeInTheDocument();
+    expect(caixa.checked).toBe(false);
   });
 
   it("rota de casamentos sem a permissão vai para Sem acesso", async () => {
