@@ -3,22 +3,24 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-22 (fase 3, entrega 3A pronta para o merge, ainda sem deploy; antes disso, sub-projeto B em produção, com avisos de encerramento, fotos no R2, backup diário e volume de avisos no grupo admin conferidos).
+Última revisão: 2026-10-22 (fase 3, entrega 3A em produção desde 11:37; próxima: 3B).
 
 ## Ordem sugerida
 
-1. Site novo, fase 3 (spec `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`): entregas 3A Casamentos e Catálogo → 3B Serviços, Atividade e Dashboard → 3C Configurações, Ofertas e Mensagens; depois fase 4. Antes ou junto: o bug do nome em Logs e o atraso do monitor (seção 0).
-2. Seção 1 (segurança do login), **obrigatória antes de publicar na internet ou vender acesso**.
-3. Acompanhar ao longo dos dias (seção 3), sem prazo: carga das coletas, gasto da IA e casamento por par.
-4. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
-5. Seção 2 (pequenas), junto com a próxima mexida no código de cada área.
-6. Margem líquida (seção 4), quando o grupo tiver os valores.
+1. Seção 0: o bug do nome em Logs (pequeno) e a decisão sobre o atraso do monitor da Amazon.
+2. Conferir a 3A em produção (seção 3, "Fase 3A").
+3. Site novo, fase 3, entrega 3B (Serviços, Atividade e Dashboard), depois 3C (Configurações, Ofertas e Mensagens) e a fase 4 (desligar o admin antigo). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+4. Seção 1 (segurança do login), **obrigatória antes de publicar na internet ou vender acesso**.
+5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
+6. Acompanhar ao longo dos dias (seção 3), sem prazo.
+7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão entram na 3B/3C).
+8. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
 
 Nenhum no momento.
 
-### Achados da auditoria de UX de 2026-10-21 (fora do desenho da fase 3)
+### Para resolver logo (achados da auditoria de UX de 2026-10-21)
 
 - [ ] **Logs › Monitor e Logs › Checkout mostram o mesmo produto em todas as linhas** (só exibição; os casamentos estão certos). `_produto_da_linha` (`admin/consultas.py`) monta duas subconsultas aninhadas que perdem a correlação: o SQL sai com `FROM oportunidade, conferencia_checkout`. Corrigir com `correlate_except` nas duas e um teste com dois anúncios de produtos diferentes. A Atividade da fase 3 já nasce certa.
 - [ ] **Monitor da Amazon atrasado (473 anúncios com leitura vencida em 2026-10-21)**: 521 confirmados a cada 15 min pedem ~2.084 páginas/h; o teto é 1.000, mas com pausa de 8–20 s um navegador faz ~257 páginas/h (conta aproximada, não medida). Decidir: intervalo maior (ex.: 30–35 min), pausas menores (mais risco de CAPTCHA) ou ler com prioridade os anúncios perto do desconto.
@@ -36,9 +38,21 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
-### Testes e site novo
+### Testes
 
 - [ ] Teste instável: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` falhou uma vez numa rodada completa e passa sozinho (suspeita de dependência do relógio ou da ordem). Investigar antes de confiar nele no CI.
+
+- [ ] Ponta a ponta da gestão entra como superadmin; acrescentar um operador para exercitar as permissões das telas novas.
+- [ ] Teste da migração `acao_gestao` não confere o `ON DELETE SET NULL` no schema; a lista de permissões do operador está fixa em `tests/api/test_auth.py` (derivar de `PADROES`).
+
+### Gestão do site novo (adiadas da revisão da 3A, 2026-10-22; entram na 3B/3C)
+
+- [ ] Catálogo: selo de situação sem tooltip; depois do lote não aparece quantos produtos mudaram; uma resposta antiga da lista pode desfazer na tela uma chave recém-trocada (só visual); a linha não mostra o nome em inglês, as lojas nem as contagens do casamento ("1 esperando você", "casado · 4 anúncios"), que a spec pede e a API já devolve; a chave registra a ação mesmo quando não muda nada.
+- [ ] Revisão de casamentos: Enter com o foco no menu ⋯ avança para o próximo produto; ↑/↓ não rolam até o cartão escolhido; "desfazer" muda o cartão destacado sem avisar; no celular a foto grande e os parecidos ficam acima dos anúncios (a spec pede a Liga compacta); `RevisaoCasamento.tsx` tem ~400 linhas (dividir); "Pular" e "Próximo" levam ao mesmo produto.
+- [ ] Lista de Casamentos: "Tentar de novo" sem cancelamento; depois de um erro, a lista antiga fica sob o alerta; página além da última sem link para a 1ª.
+- [ ] Menu da gestão: o botão do menu no celular não recebe foco pelo teclado; `GET /api/gestao/menu` monta a lista inteira de casamentos a cada 60 s só para contar (trocar por uma contagem); Mensagens e Logs ainda são itens separados até a Atividade (3B).
+- [ ] API da gestão: a navegação da revisão refaz a lista filtrada a cada pedido; `DecisaoSaida.mensagem` nunca é preenchida; os tipos `Literal` e a classe de filtros repetem à mão as listas de situação e de filtros; o lote conta e aplica sem trava (dois usuários ao mesmo tempo podem mudar 1–2 produtos a mais; fica registrado em `acao_gestao`).
+- [ ] Código: lambdas com parâmetro `l` e nomes parecidos `ORDENS_CASAMENTO`/`_ORDENS_CASAMENTO` (`consultas/casamentos.py`); `parecidos_na_liga` corta sufixos de forma agressiva e ordena por nome, não por proximidade.
 
 ### Oportunidades e monitor da Amazon
 
@@ -100,6 +114,13 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ## 3. Acompanhar (sem código)
 
+### Fase 3A (em produção desde 2026-10-22 11:37)
+
+- [ ] Abrir a gestão (`localhost:8090/gestao`): menu lateral, selo de Casamentos, lista com filtros, "Revisar em sequência", confirmar e ignorar um par, "Voltar à lista" na mesma página.
+- [ ] Catálogo: desligar e religar um produto pela chave e conferir o registro (`SELECT * FROM acao_gestao ORDER BY em DESC LIMIT 5`).
+- [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/casamentos` e `/gestao/catalogo`) e olhar à mão, no celular e nos temas claro e escuro, a revisão de um produto e a página do produto (roteiro em `docs/IMPLANTACOES.md`).
+- [ ] LigaMagic está desligada em Serviços desde 2026-10-21; religar quando quiser a coleta de volta.
+
 ### Oportunidades na área de negócio (depois do deploy)
 
 - [ ] Trocar o `r2.dev` por domínio próprio (Custom Domains → `img.<domínio>`) antes de publicar na internet; o `r2.dev` é limitado e não serve para produção.
@@ -130,7 +151,10 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
   - [x] **A. Fim da oportunidade** (merge `000fa6d`, em produção desde 2026-10-20 21:50): detalhe em "Concluídas".
   - [x] **B. Oportunidades** (merge `27e6364`, em produção desde 2026-10-21 08:44; detalhe em "Concluídas"): ativas e encerradas, linha do tempo e curva de preço (do `preco_amazon`), duração (`aberta_em` até `deixou_de_valer_em`), motivo do encerramento, recorrência por produto, quase oportunidades (casados com desconto entre 10% e o mínimo) e números do período; permissão `ver_oportunidades`. Os números de casamentos e IA por produto vêm de `consultas_catalogo.situacao_catalogo`.
   - [ ] **C. Mercado (LigaMagic)**: preço subindo ou caindo (7 e 30 dias), nº de lojas caindo (escassez), esgotou na Liga, preço fora da média de venda, lançamentos, volatilidade; talvez avisos de tendência. Permissão `ver_resultados` (ou `ver_mercado`). Começar com ~3 semanas de histórico (coleta desde 2026-10-13, ou seja, a partir de ~2026-11-03).
-- [ ] **Site novo, fase 3 — área administrativa.** A entrega 3A (Casamentos e Catálogo, com a migração `a1c4e7b9d2f6`) está pronta para o merge; faltam o merge, o deploy (roteiro em `docs/IMPLANTACOES.md`) e as entregas 3B e 3C. Spec de 2026-10-21: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, a partir da auditoria de UX por tarefa do mesmo dia; entregas 3A → 3B → 3C): migrar as telas do admin antigo, já corrigindo os 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`: 7 quebrados — contraste do tema claro, tabela de Ofertas cortada, Logs › Checkout, Configurações › LigaMagic no celular, botões de Trocar no celular, erros 404/400 em JSON cru, rótulo do Dashboard no celular —, 22 inconsistências e 23 melhorias), e o Dashboard reorganizado para UX/negócio (oportunidade em destaque, funil, saúde compacta, "precisa de você") e as permissões revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes. Incluir os botões do casamento por par ("Rebuscar agora", "Reavaliar com a IA", "Gerar termos de busca"), que nascem no admin antigo e migram para o site novo: a regra já está em `repositorio_casamento`/`repositorio_termos` (e `priorizar_na_fila`), o admin só chama e mostra a mensagem. Pequenas do admin antigo (seção 2) entram junto.
+- [ ] **Site novo, fase 3 — área administrativa**, organizada por tarefa (spec de 2026-10-21: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, a partir da auditoria de UX do mesmo dia), em três entregas:
+  - [x] **3A. Casamentos e Catálogo** (merge `43fdd04`, em produção desde 2026-10-22 11:37; detalhe em "Concluídas").
+  - [ ] **3B. Serviços, Atividade e Dashboard**: Serviços com estado único, "parado de verdade" e "Abrir" só para quem pode pausar e só na rede de casa; Atividade no lugar das 6 abas de Logs (busca por produto e ASIN, mensagens e ações de gestão); Dashboard com "precisa de você", saúde em uma linha, oportunidades agora e funil.
+  - [ ] **3C. Configurações, Ofertas e Mensagens**: Configurações por objetivo com a caixa "Efeito"; Ofertas no padrão novo; o que sobrar dos 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo (seção 2).
 - [ ] **Site novo, fase 4 — desligar o admin antigo.**
 - [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
 - [ ] **Vender acesso às oportunidades**: assinantes na área de negócio, no mesmo sistema (sem multi-cliente). Assinatura, pagamento e planos ficam num projeto próprio; a base de permissões finas já veio na fase 1. Depende da seção 1 e de publicar na internet.
@@ -175,6 +199,18 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Fase 3A — Casamentos e Catálogo na gestão (merge `43fdd04`, em produção desde 2026-10-22 11:37)
+
+Spec `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, plano `docs/superpowers/plans/2026-10-21-fase3a-casamentos-catalogo.md`; migração `a1c4e7b9d2f6`; backup antes do deploy em `dados/backups/tcg-antes-fase3a-2026-10-22.dump`. Suíte no merge: 2153 testes passando no back, 100 no front, ponta a ponta com 5.
+
+- [x] 10 permissões novas da fase 3 (revisar_casamentos, ver_catalogo, editar_catalogo, ver_servicos, pausar_servicos, ver_logs, ver_mensagens, reenviar_mensagens, ver_configuracoes, editar_configuracoes), com os padrões do operador; toda tela da gestão exige `ver_area_gestao` e a própria.
+- [x] Tabela `acao_gestao` (quem, quando, o quê), nunca apagada pela limpeza; registra a chave e o lote do Catálogo.
+- [x] Consultas de casamento e de catálogo movidas para o pacote neutro `tcg_sniper/consultas/` (o admin antigo continua igual); ordem "com preço na Liga primeiro", pistas de variação e parecidos na Liga.
+- [x] API `/api/gestao/casamentos` (lista, revisão, decisões C/I/desfazer/outro produto, link, rebuscar, reavaliar, termos), `/api/gestao/catalogo` (lista, lote que conta e depois aplica, 409 se a contagem mudou), `/api/gestao/produtos/{id}` e `/api/gestao/menu`.
+- [x] Telas: menu lateral da gestão com o selo de Casamentos; lista de Casamentos com filtros na URL e "Revisar em sequência"; revisão de um produto (Liga fixa, três grupos sem abas, C/I no lugar, teclado, "é de outro produto"); Catálogo com chave por linha e lote com confirmação do número exato; página do produto.
+- [x] Revisão final: resposta de C/I que chega depois de trocar de produto é descartada; seleção e lote do Catálogo nunca usam a lista antiga; limites de tamanho nas entradas da API; ponta a ponta com largura conferida em 390 e 1440 px, nos temas claro e escuro.
+- [x] O bug de seleção do Catálogo achado pelo ponta a ponta (lista antiga logo depois de trocar o filtro) foi corrigido antes do merge.
 
 ### Conferido em produção (2026-10-21, pelo usuário)
 
