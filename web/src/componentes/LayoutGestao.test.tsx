@@ -37,7 +37,7 @@ describe("LayoutGestao", () => {
   });
 
   it("a gaveta fecha ao trocar de tela", async () => {
-    apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) });
+    apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }), "GET /api/gestao/catalogo?monitorado=todos&pagina=1": ok({ itens: [], total: 0, pagina: 1, por_pagina: 25, categorias: [] }) });
     renderizarEm("/gestao");
     const alternar = (await screen.findByText("☰ Menu da gestão")).closest("label")!;
     await userEvent.click(alternar);

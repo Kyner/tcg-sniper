@@ -227,3 +227,43 @@ export interface MensagemAcao {
   tipo: "success" | "info" | "warning";
   mensagem: string;
 }
+
+/** GET /api/gestao/catalogo: uma linha da lista. */
+export interface LinhaCatalogo {
+  id: number;
+  nome: string;
+  nome_en: string | null;
+  imagem: string | null;
+  categoria: string | null;
+  monitorado: boolean;
+  preco_liga: string | null;
+  lojas: number | null;
+  situacao: string;
+  pendentes: number;
+  confirmados: number;
+  melhor_amazon: string | null;
+}
+
+export interface ListaCatalogo {
+  itens: LinhaCatalogo[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  categorias: string[];
+}
+
+/** POST /api/gestao/catalogo/lote. */
+export interface LoteCatalogo { alvo: number; alterados: number }
+
+/** GET /api/gestao/produtos/{id}: o produto na gestão. */
+export interface ProdutoGestaoDados {
+  produto: {
+    id: number; nome: string; nome_en: string | null; imagem: string | null; categoria: string | null;
+    url: string; pistas: string[];
+  };
+  monitorado: boolean;
+  liga: { preco: string | null; lojas: number | null; medio: string | null; lido_em: string | null };
+  melhor_amazon: { preco: string; diferenca_pct: string | null } | null;
+  casamentos: { pendentes: number; confirmados: number; ignorados: number };
+  curva: Historico | null;
+}
