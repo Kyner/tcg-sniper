@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
-1. Seção 0: o bug do nome em Logs (pequeno) e a decisão sobre o atraso do monitor da Amazon.
+1. Seção 0: a decisão sobre o atraso do monitor da Amazon.
 2. Conferir a 3A em produção (seção 3, "Fase 3A").
 3. Site novo, fase 3, entrega 3B (Serviços, Atividade e Dashboard), depois 3C (Configurações, Ofertas e Mensagens) e a fase 4 (desligar o admin antigo). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1 (segurança do login), **obrigatória antes de publicar na internet ou vender acesso**.
@@ -22,7 +22,6 @@ Nenhum no momento.
 
 ### Para resolver logo (achados da auditoria de UX de 2026-10-21)
 
-- [ ] **Logs › Monitor e Logs › Checkout mostram o mesmo produto em todas as linhas** (só exibição; os casamentos estão certos). `_produto_da_linha` (`admin/consultas.py`) monta duas subconsultas aninhadas que perdem a correlação: o SQL sai com `FROM oportunidade, conferencia_checkout`. Corrigir com `correlate_except` nas duas e um teste com dois anúncios de produtos diferentes. A Atividade da fase 3 já nasce certa.
 - [ ] **Monitor da Amazon atrasado (473 anúncios com leitura vencida em 2026-10-21)**: 521 confirmados a cada 15 min pedem ~2.084 páginas/h; o teto é 1.000, mas com pausa de 8–20 s um navegador faz ~257 páginas/h (conta aproximada, não medida). Decidir: intervalo maior (ex.: 30–35 min), pausas menores (mais risco de CAPTCHA) ou ler com prioridade os anúncios perto do desconto.
 - [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete.
 
@@ -199,6 +198,10 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Logs › Monitor e Checkout com o produto certo (2026-10-22)
+
+- [x] Todas as linhas de Logs › Monitor e Logs › Checkout mostravam o mesmo produto (só exibição; os casamentos estavam certos). `_produto_da_linha` (`admin/consultas.py`) aninhava duas subconsultas num terceiro SELECT e elas perdiam a ligação com a linha (o SQL saía com `FROM oportunidade, conferencia_checkout`). Corrigido com `correlate_except` nas duas; testes com dois anúncios de produtos diferentes nas duas abas.
 
 ### Fase 3A — Casamentos e Catálogo na gestão (merge `43fdd04`, em produção desde 2026-10-22 11:37)
 

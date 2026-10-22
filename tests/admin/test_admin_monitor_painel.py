@@ -115,6 +115,30 @@ def test_historico_do_monitor(s):
     ]
 
 
+def test_historico_das_conferencias_mostra_o_produto_de_cada_linha(s):
+    """Regressão: as subconsultas do nome perdiam a correlação e todas as linhas saíam com o mesmo produto."""
+    for i, asin in enumerate(("B0LOG00001", "B0LOG00002")):
+        a = confirmado(s, asin)
+        repo_amz.registrar_conferencia(
+            s, em=T0 + timedelta(minutes=i), anuncio_id=a.id, vendedor_nome="Shazaar",
+            preco_anunciado=Decimal("275.91"), itens=None, frete=None, impostos=None, total=None,
+            situacao=SituacaoCheckout.CARRINHO_OCUPADO, motivo=None, item_removido=True,
+        )
+    linhas, _, _ = consultas.historico_conferencias(s, "todas", 1)
+    assert [(l.asin, l.produto) for l in linhas] == [
+        ("B0LOG00002", "Produto B0LOG00002"), ("B0LOG00001", "Produto B0LOG00001"),
+    ]
+
+
+def test_historico_do_monitor_mostra_o_produto_de_cada_linha(s):
+    confirmado(s, "B0LOG00001", lido_em=T0)
+    confirmado(s, "B0LOG00002", lido_em=T0 + timedelta(minutes=1))
+    linhas, _, _ = consultas.historico_monitor(s, 1)
+    assert [(l.asin, l.produto) for l in linhas] == [
+        ("B0LOG00002", "Produto B0LOG00002"), ("B0LOG00001", "Produto B0LOG00001"),
+    ]
+
+
 def test_logs_tem_as_abas_monitor_e_checkout(cliente):
     texto = cliente.get("/logs?aba=checkout").text
     assert 'aria-label="Monitor"' in texto and 'aria-label="Checkout"' in texto
