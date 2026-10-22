@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 
 const ITEM = {
@@ -14,6 +14,19 @@ const LISTA = {
 const base = { "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) };
 const LISTAR = "GET /api/gestao/catalogo?monitorado=todos&pagina=1";
 const FILTRO = { busca: "", monitorado: "todos", categoria: null, situacao: null, com_preco: false };
+
+const LISTAR_SIM = "GET /api/gestao/catalogo?monitorado=sim&pagina=1";
+
+/** Segura as chamadas que casam com o texto (a partir da n-ésima) até `soltar()`; as demais seguem direto. */
+function segurar(parte: string, apartirDe = 1) {
+  const original = globalThis.fetch;
+  let vistas = 0;
+  let soltar: () => void = () => {};
+  const porta = new Promise<void>((res) => { soltar = res; });
+  vi.stubGlobal("fetch", (entrada: RequestInfo | URL, init?: RequestInit) =>
+    String(entrada).includes(parte) && ++vistas >= apartirDe ? porta.then(() => original(entrada, init)) : original(entrada, init));
+  return () => soltar();
+}
 
 async function tabela() {
   return within(await screen.findByRole("table"));
@@ -114,5 +127,59 @@ describe("Catálogo", () => {
     expect(t.getByRole("link", { name: /Lair of the Hydra/ })).toHaveAttribute(
       "href", "/gestao/produtos/5?busca=lair&monitorado=todos&pagina=2",
     );
+  });
+
+  it("trocar o filtro com a lista nova pendente trava a seleção da lista antiga", async () => {
+    apiFalsa({ ...base, [LISTAR]: ok(LISTA), [LISTAR_SIM]: ok({ ...LISTA, itens: [ITEM], total: 1 }) });
+    const soltar = segurar("monitorado=sim");
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Monitoramento" }), "sim");
+    expect(screen.getByRole("checkbox", { name: "Selecionar a página" })).toBeDisabled();
+    expect(t.getByRole("checkbox", { name: "Selecionar Goblin Box" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Selecionar a página" }));
+    expect(screen.queryByRole("region", { name: "Ação em lote" })).not.toBeInTheDocument();
+    soltar();
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Selecionar a página" })).toBeEnabled());
+    expect(screen.queryByRole("checkbox", { name: "Selecionar Goblin Box" })).not.toBeInTheDocument();
+  });
+
+  it("contagem do filtro que chega depois de trocar o filtro é descartada", async () => {
+    apiFalsa({
+      ...base, [LISTAR]: ok(LISTA), [LISTAR_SIM]: ok({ ...LISTA, itens: [ITEM], total: 1 }),
+      "POST /api/gestao/catalogo/lote": ok({ alvo: 412, alterados: 0 }),
+    });
+    const soltar = segurar("/catalogo/lote");
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    await userEvent.click(t.getByRole("checkbox", { name: "Selecionar Lair of the Hydra" }));
+    await userEvent.click(screen.getByRole("button", { name: /Selecionar todos os 412 do filtro/ }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Monitoramento" }), "sim");
+    soltar();
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Selecionar a página" })).toBeEnabled());
+    expect(screen.queryByText("412 selecionados")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Ação em lote" })).not.toBeInTheDocument();
+  });
+
+  it("Escape durante a nova contagem do 409 não fecha o modal", async () => {
+    apiFalsa({
+      ...base, [LISTAR]: ok(LISTA),
+      "POST /api/gestao/catalogo/lote": [
+        ok({ alvo: 412, alterados: 0 }),
+        { status: 409, corpo: { erro: "contagem_mudou", mensagem: "A lista mudou: agora são 400 produtos." } },
+        ok({ alvo: 400, alterados: 0 }),
+      ],
+    });
+    const soltar = segurar("/catalogo/lote", 3); // a nova contagem fica pendente
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    await userEvent.click(t.getByRole("checkbox", { name: "Selecionar Lair of the Hydra" }));
+    await userEvent.click(screen.getByRole("button", { name: /Selecionar todos os 412 do filtro/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Desligar" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByText("Desligar 412 produtos?")).toBeInTheDocument();
+    soltar();
+    expect(await screen.findByText("Desligar 400 produtos?")).toBeInTheDocument();
   });
 });

@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tcg_sniper.api.dependencias import Contexto, exige_todas
 from tcg_sniper.api.erros import ErroApi
@@ -57,7 +57,7 @@ class ListaCatalogoSaida(BaseModel):
 
 class FiltroEntrada(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    busca: str = ""
+    busca: str = Field("", max_length=200)
     monitorado: q.Monitorado = "todos"
     categoria: str | None = None
     situacao: Situacao | None = None
@@ -72,7 +72,7 @@ class Filtros:
 
     def __init__(
         self,
-        busca: str = "",
+        busca: Annotated[str, Query(max_length=200)] = "",
         monitorado: q.Monitorado = "todos",
         categoria: str | None = None,
         situacao: Situacao | None = None,
@@ -93,7 +93,7 @@ class AtivoEntrada(BaseModel):
 class LoteEntrada(BaseModel):
     model_config = ConfigDict(extra="forbid")
     acao: Literal["ligar", "desligar"]
-    ids: list[int] | None = None
+    ids: list[int] | None = Field(None, max_length=1000)
     filtro: FiltroEntrada | None = None
     esperado: int
     confirmar: bool

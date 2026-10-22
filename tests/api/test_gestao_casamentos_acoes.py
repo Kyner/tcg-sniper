@@ -257,3 +257,11 @@ def test_produto_inativo_404_nas_acoes_de_produto(cliente, logar, sessoes):
     logar(Papel.OPERADOR)
     for rota in ("rebuscar", "reavaliar", "termos"):
         assert cliente.post(f"{BASE}/{inativo}/{rota}").status_code == 404
+
+def test_busca_e_link_com_tamanho_maximo(cliente, logar, dois):
+    logar(Papel.OPERADOR)
+    assert cliente.get(BASE, params={"busca": "x" * 201}).status_code == 422
+    r = cliente.get(f"{BASE}/anuncios/{dois['anuncio']}/produtos", params={"busca": "x" * 201})
+    assert r.status_code == 422
+    r = cliente.post(f"{BASE}/{dois['jogo']}/link", json={"link": "https://www.amazon.com.br/dp/" + "x" * 500})
+    assert r.status_code == 422

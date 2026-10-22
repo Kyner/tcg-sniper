@@ -1,6 +1,6 @@
 // Gestão: catálogo da Liga (ativos e inativos). Busca, filtros e página ficam na URL; a chave de cada linha liga e
 // desliga o monitoramento no lugar; marcar linhas (ou "todos do filtro") abre a barra de lote.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { chamarApi, ErroApi } from "../../api";
 import { Carregando } from "../../componentes/Carregando";
@@ -39,6 +39,7 @@ export function Catalogo() {
   const [filtros, mudar] = useFiltrosUrl(PADROES_CATALOGO);
   const [texto, setTexto] = useState(filtros.busca);
   const [dados, setDados] = useState<ListaCatalogo | null>(null);
+  const [carregadoDe, setCarregadoDe] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
@@ -49,6 +50,11 @@ export function Catalogo() {
   const [enviando, setEnviando] = useState(false);
   const query = montarQueryCatalogo(filtros, true);
   const caminho = `/api/gestao/catalogo?${query}`;
+  // Sempre o caminho da tela agora: respostas que voltam depois de uma troca de filtro são descartadas.
+  const caminhoAtual = useRef(caminho);
+  caminhoAtual.current = caminho;
+  // A lista na tela só vale para a seleção quando foi carregada para o filtro de agora.
+  const listaAtual = dados !== null && carregadoDe === caminho;
 
   useEffect(() => { setTexto(filtros.busca); }, [filtros.busca]);
   useEffect(() => {
@@ -64,7 +70,7 @@ export function Catalogo() {
     const sinal = { cancelado: false };
     setErro(null);
     chamarApi<ListaCatalogo>(caminho).then(
-      (r) => { if (!sinal.cancelado) setDados(r); },
+      (r) => { if (!sinal.cancelado) { setDados(r); setCarregadoDe(caminho); } },
       (e: unknown) => { if (!sinal.cancelado) setErro(tratarErro(e)); },
     );
     return () => { sinal.cancelado = true; };
@@ -97,7 +103,7 @@ export function Catalogo() {
   }
 
   function marcarPagina(valor: boolean) {
-    setMarcados(valor && dados ? new Set(dados.itens.map((i) => i.id)) : new Set());
+    setMarcados(valor && dados && listaAtual ? new Set(dados.itens.map((i) => i.id)) : new Set());
   }
 
   function limparSelecao() { setMarcados(new Set()); setTodoFiltro(null); }
@@ -109,19 +115,22 @@ export function Catalogo() {
   }
 
   async function selecionarTodosDoFiltro() {
+    const de = caminho;
     setAviso(null);
     try {
       const r = await chamarApi<LoteCatalogo>("/api/gestao/catalogo/lote", {
         metodo: "POST", corpo: { acao: "desligar", filtro: filtroLote(), esperado: 0, confirmar: false },
       });
-      setTodoFiltro(r.alvo);
+      if (caminhoAtual.current === de) setTodoFiltro(r.alvo);
     } catch (e) {
+      if (caminhoAtual.current !== de) return;
       setAviso(tratarErro(e) ?? "Não foi possível contar os produtos do filtro.");
     }
   }
 
   async function confirmarLote() {
     if (!lote) return;
+    const de = caminho;
     setEnviando(true);
     try {
       await chamarApi<LoteCatalogo>("/api/gestao/catalogo/lote", { metodo: "POST", corpo: corpoLote(lote.acao, lote.alvo, true) });
@@ -134,9 +143,11 @@ export function Catalogo() {
           const r = await chamarApi<LoteCatalogo>("/api/gestao/catalogo/lote", {
             metodo: "POST", corpo: corpoLote(lote.acao, 0, false),
           });
+          if (caminhoAtual.current !== de) return; // a lista mudou: a seleção e o modal já foram descartados
           if (todoFiltro !== null) setTodoFiltro(r.alvo);
           setLote({ acao: lote.acao, alvo: r.alvo, aviso: e.message });
         } catch (e2) {
+          if (caminhoAtual.current !== de) return;
           setLote(null);
           setAviso(tratarErro(e2) ?? "Não foi possível conferir a contagem.");
         }
@@ -158,7 +169,7 @@ export function Catalogo() {
   const nSel = todoFiltro ?? marcados.size;
   const textoSel = `${nSel} ${nSel === 1 ? "selecionado" : "selecionados"}`;
   const estaMarcado = (id: number) => todoFiltro !== null || marcados.has(id);
-  const todosDaPagina = !!dados && dados.itens.length > 0 && dados.itens.every((i) => estaMarcado(i.id));
+  const todosDaPagina = listaAtual && !!dados && dados.itens.length > 0 && dados.itens.every((i) => estaMarcado(i.id));
 
   if (dados === null && !erro) return <Carregando />;
 
@@ -171,7 +182,7 @@ export function Catalogo() {
   const caixa = (p: LinhaCatalogo) => podeEditar && (
     <input
       type="checkbox" className="checkbox checkbox-sm" aria-label={`Selecionar ${p.nome}`}
-      checked={estaMarcado(p.id)} disabled={todoFiltro !== null} onChange={(ev) => marcar(p.id, ev.target.checked)}
+      checked={estaMarcado(p.id)} disabled={todoFiltro !== null || !listaAtual} onChange={(ev) => marcar(p.id, ev.target.checked)}
     />
   );
   const situacao = (p: LinhaCatalogo) => (
@@ -239,7 +250,7 @@ export function Catalogo() {
             {podeEditar && (
               <label className="label cursor-pointer gap-2">
                 <input type="checkbox" className="checkbox checkbox-sm" checked={todosDaPagina}
-                  disabled={todoFiltro !== null} onChange={(ev) => marcarPagina(ev.target.checked)} />
+                  disabled={todoFiltro !== null || !listaAtual} onChange={(ev) => marcarPagina(ev.target.checked)} />
                 <span>Selecionar a página</span>
               </label>
             )}
@@ -307,12 +318,12 @@ export function Catalogo() {
             <span className="font-semibold">{textoSel}</span>
             <div className="flex flex-wrap gap-2">
               {todoFiltro === null && dados && dados.total > marcados.size && (
-                <button type="button" className="btn btn-sm" onClick={() => void selecionarTodosDoFiltro()}>
+                <button type="button" className="btn btn-sm" disabled={!listaAtual} onClick={() => void selecionarTodosDoFiltro()}>
                   Selecionar todos os {dados.total} do filtro
                 </button>
               )}
-              <button type="button" className="btn btn-sm btn-success" onClick={() => setLote({ acao: "ligar", alvo: nSel, aviso: null })}>Ligar</button>
-              <button type="button" className="btn btn-sm btn-warning" onClick={() => setLote({ acao: "desligar", alvo: nSel, aviso: null })}>Desligar</button>
+              <button type="button" className="btn btn-sm btn-success" disabled={!listaAtual} onClick={() => setLote({ acao: "ligar", alvo: nSel, aviso: null })}>Ligar</button>
+              <button type="button" className="btn btn-sm btn-warning" disabled={!listaAtual} onClick={() => setLote({ acao: "desligar", alvo: nSel, aviso: null })}>Desligar</button>
               <button type="button" className="btn btn-sm btn-ghost" onClick={limparSelecao}>Limpar seleção</button>
             </div>
           </div>
@@ -322,7 +333,7 @@ export function Catalogo() {
       {lote && (
         <ModalConfirmarLote
           acao={lote.acao} alvo={lote.alvo} aviso={lote.aviso} ocupado={enviando}
-          aoConfirmar={() => void confirmarLote()} aoFechar={() => setLote(null)}
+          aoConfirmar={() => void confirmarLote()} aoFechar={() => { if (!enviando) setLote(null); }}
         />
       )}
     </section>

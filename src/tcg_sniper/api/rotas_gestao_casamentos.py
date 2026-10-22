@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tcg_sniper.api.dependencias import Contexto, exige, exige_todas
 from tcg_sniper.api.erros import ErroApi
@@ -120,7 +120,7 @@ class Filtros:
 
     def __init__(
         self,
-        busca: str = "",
+        busca: Annotated[str, Query(max_length=200)] = "",
         situacao: Situacao = "esperando_decisao",
         categoria: str | None = None,
         com_preco: bool = False,
@@ -257,7 +257,7 @@ class DecisaoSaida(BaseModel):
 
 class LinkEntrada(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    link: str
+    link: str = Field(max_length=500)
 
 
 class MensagemSaida(BaseModel):
@@ -335,7 +335,7 @@ def decidir(
 
 @roteador.get("/casamentos/anuncios/{anuncio_id}/produtos")
 def produtos_para_trocar(
-    request: Request, anuncio_id: int, _c: RevisarCasamentos, busca: str = "", de: int | None = None
+    request: Request, anuncio_id: int, _c: RevisarCasamentos, busca: Annotated[str, Query(max_length=200)] = "", de: int | None = None
 ) -> list[ParecidoSaida]:
     with request.app.state.sessoes() as s:
         anuncio = s.get(AnuncioAmazon, anuncio_id)

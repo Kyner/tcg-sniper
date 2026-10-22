@@ -118,7 +118,7 @@ class Papel(enum.StrEnum):
 
 class TipoAcaoGestao(enum.StrEnum):
     CATALOGO_LOTE = "catalogo_lote"  # ação em lote no catálogo
-    CATALOGO_PRODUTO = "catalogo_produto"  # edição de um produto (fase 3B)
+    CATALOGO_PRODUTO = "catalogo_produto"  # edição de um produto
     SERVICO = "servico"  # ligar, desligar ou rodar um serviço (fase 3B)
     CONFIGURACOES = "configuracoes"  # mudança de configurações (fase 3C)
 
@@ -866,8 +866,8 @@ class Usuario(Base):
 
 
 class AcaoGestao(Base):
-    """Registro das ações de gestão feitas no site. Nunca é apagado; `usuario_id` nulo = admin antigo
-    (ou usuário removido depois)."""
+    """Registro das ações de gestão feitas no site. Nunca é apagado; `usuario_id` nulo = usuário apagado
+    (ON DELETE SET NULL)."""
 
     __tablename__ = "acao_gestao"
     __table_args__ = (Index("ix_acao_gestao_em", "em"),)

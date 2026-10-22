@@ -182,3 +182,12 @@ def test_produto_de_gestao_inclusive_inativo(cliente, logar, catalogo):
     assert corpo["monitorado"] is False and corpo["curva"] is None and corpo["melhor_amazon"] is None
     assert corpo["liga"] == {"preco": None, "lojas": None, "medio": None, "lido_em": None}
     assert cliente.get(f"{PRODUTO}/999999").status_code == 404
+
+def test_limites_de_tamanho_do_lote_e_da_busca(cliente, logar, catalogo):
+    logar(Papel.OPERADOR)
+    base = {"acao": "ligar", "esperado": 0, "confirmar": False}
+    assert cliente.post(LOTE, json={**base, "ids": list(range(1, 1002))}).status_code == 422
+    assert cliente.post(LOTE, json={**base, "ids": list(range(1, 1001))}).status_code == 200
+    assert cliente.post(LOTE, json={**base, "filtro": {"busca": "x" * 201}}).status_code == 422
+    assert cliente.get(LISTA, params={"busca": "x" * 201}).status_code == 422
+    assert cliente.get(LISTA, params={"busca": "x" * 200}).status_code == 200
