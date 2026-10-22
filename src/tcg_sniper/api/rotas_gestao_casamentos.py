@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from tcg_sniper.api.dependencias import Contexto, exige_todas
+from tcg_sniper.api.dependencias import Contexto, exige, exige_todas
 from tcg_sniper.api.erros import ErroApi
 from tcg_sniper.api.imagens import base_imagens, com_imagens
 from tcg_sniper.api.permissoes import Permissao
@@ -140,6 +140,19 @@ def _linhas(s, filtros: Filtros) -> list[q.LinhaProdutoCasamento]:
 
 def _produto_saida(produto: ProdutoLiga, preco: Decimal | None) -> dict:
     return {"id": produto.id, "nome": produto.nome, "imagem_chave": produto.imagem_chave, "preco_liga": preco}
+
+
+class MenuSaida(BaseModel):
+    casamentos_esperando: int
+
+
+@roteador.get("/menu")
+def menu(request: Request, contexto: Annotated[Contexto, Depends(exige(Permissao.VER_AREA_GESTAO))]) -> MenuSaida:
+    """O selo do menu da gestão: produtos esperando decisão (0 para quem não revisa casamentos)."""
+    if Permissao.REVISAR_CASAMENTOS not in contexto.permissoes:
+        return MenuSaida(casamentos_esperando=0)
+    with request.app.state.sessoes() as s:
+        return MenuSaida(casamentos_esperando=len(_linhas(s, Filtros())))
 
 
 @roteador.get("/casamentos")

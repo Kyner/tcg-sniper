@@ -20,6 +20,11 @@ export type Permissao =
   | "ver_configuracoes"
   | "editar_configuracoes";
 
+/** GET /api/gestao/menu: o selo do menu da gestão (0 para quem não revisa casamentos). */
+export interface MenuGestao {
+  casamentos_esperando: number;
+}
+
 /** GET /api/auth/eu e POST /api/auth/entrar. `superadmin`: o dono do sistema (só ele mexe em admins). */
 export interface Eu {
   id: number;

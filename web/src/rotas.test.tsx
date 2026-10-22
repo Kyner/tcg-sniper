@@ -25,11 +25,16 @@ describe("proteção das rotas", () => {
   });
 
   it("operador entra na gestão, sem os cartões que não pode", async () => {
-    apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR) });
+    apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) });
     renderizarEm("/gestao");
     expect(await screen.findByRole("heading", { name: "Gestão" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Usuários/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Serviços" })).toHaveAttribute("href", "http://localhost:8000/servicos");
+    for (const link of screen.getAllByRole("link", { name: "Serviços" })) {
+      expect(link).toHaveAttribute("href", "http://localhost:8000/servicos");
+    }
+    // Casamentos e Catálogo já são telas novas: saem da lista do admin antigo (ficam só no menu lateral).
+    expect(screen.getAllByRole("link", { name: /Casamentos/ })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Catálogo" })).toHaveLength(1);
   });
 
   it("API fora: Sistema indisponível, e Tentar de novo volta quando a API responde", async () => {

@@ -150,3 +150,22 @@ def test_produto_inativo_404(cliente, logar, sessoes):
     assert r.status_code == 404
     assert r.json() == {"erro": "nao_encontrado", "mensagem": "Produto não está mais monitorado."}
     assert cliente.get(f"{LISTA}/999999").status_code == 404
+
+
+def test_menu_conta_os_esperando_e_zera_sem_revisar_casamentos(cliente, app_api, logar, sessoes):
+    assert cliente.get("/api/gestao/menu").status_code == 401
+    logar(Papel.GRUPO)
+    assert cliente.get("/api/gestao/menu").status_code == 403
+    with sessoes() as s, s.begin():
+        for i in range(2):
+            p = criar_produto(s, f"m{i}", nome=f"Esperando {i}")
+            criar_anuncio(s, f"B000000M{i}0", p)
+        casado = criar_produto(s, "mc", nome="Casado")
+        criar_anuncio(s, "B000000MC0", casado, StatusCasamento.CONFIRMADO)
+        criar_produto(s, "ms", nome="Sem candidato")
+    logar(Papel.OPERADOR)
+    assert cliente.get("/api/gestao/menu").json() == {"casamentos_esperando": 2}
+    with sessoes() as s, s.begin():
+        repo_acesso.salvar_permissao(s, Papel.OPERADOR, "revisar_casamentos", False)
+    app_api.state.grade.invalidar()
+    assert cliente.get("/api/gestao/menu").json() == {"casamentos_esperando": 0}
