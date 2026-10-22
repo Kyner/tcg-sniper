@@ -44,6 +44,7 @@ from tcg_sniper.consultas.casamentos import (
     sugestoes_para,
 )
 from tcg_sniper.consultas.catalogo import SITUACOES_PRODUTO
+from tcg_sniper.consultas.catalogo_gestao import FILTROS, alterar_ativo_em_lote, alternar_ativo, buscar_catalogo
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
@@ -760,7 +761,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         pagina: str = "1",
         msg: str = "",
     ):
-        if filtro not in consultas.FILTROS:
+        if filtro not in FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
         texto_pagina = pagina.strip()
         # Limite de dígitos: int() de um número gigante estoura (ValueError/500); acima disso vale 1.
@@ -771,7 +772,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             categorias = consultas.listar_categorias(s)
             if categoria and categoria not in categorias:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
-            linhas, total, numero, paginas = consultas.buscar_catalogo(
+            linhas, total, numero, paginas = buscar_catalogo(
                 s, busca, filtro, repo.agora_utc(), categoria or None, so_com_preco, numero
             )
             parametros = {"busca": busca, "filtro": filtro, "categoria": categoria}
@@ -795,7 +796,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "link_proxima": link(numero + 1) if numero < paginas else None,
                     "busca": busca,
                     "filtro": filtro,
-                    "filtros": consultas.FILTROS,
+                    "filtros": FILTROS,
                     "categoria": categoria,
                     "categorias": categorias,
                     "com_preco": so_com_preco,
@@ -811,14 +812,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         filtro = formulario.get("filtro", "todos")
         if acao not in ("ativar", "desativar"):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"ação inválida: {acao}")
-        if filtro not in consultas.FILTROS:
+        if filtro not in FILTROS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"filtro inválido: {filtro}")
         ativar = acao == "ativar"
         so_com_preco = com_preco == "1"
         with sessoes() as s, s.begin():
             if categoria and categoria not in consultas.listar_categorias(s):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
-            alterados = consultas.alterar_ativo_em_lote(
+            alterados = alterar_ativo_em_lote(
                 s, ativar, busca, filtro, categoria or None, so_com_preco, repo.agora_utc()
             )
         parametros = {"busca": busca, "filtro": filtro, "categoria": categoria}
@@ -830,9 +831,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     @app.post("/produto/{produto_id}/ativo", response_class=HTMLResponse)
-    def alternar_ativo(request: Request, produto_id: int):
+    def alternar_ativo_produto(request: Request, produto_id: int):
         with sessoes() as s, s.begin():
-            resultado = consultas.alternar_ativo(s, produto_id)
+            resultado = alternar_ativo(s, produto_id)
             if resultado is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND)
             produto, atual = resultado
