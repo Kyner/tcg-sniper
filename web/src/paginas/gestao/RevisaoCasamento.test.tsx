@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 
 const Q = "situacao=esperando_decisao&ordem=preco_liga&pagina=1";
@@ -154,6 +154,36 @@ describe("Revisão de um produto", () => {
     await userEvent.keyboard("{Enter}");
     expect(await screen.findByRole("heading", { name: "Goblin Box" })).toBeInTheDocument();
     expect(chamadas.some((c) => c.caminho === `/api/gestao/casamentos/32?${QL}`)).toBe(true);
+  });
+
+  it.each([
+    ["sucesso", ok({ anuncio: A1, grupo: "confirmados", mensagem: "Confirmado em Lair." })],
+    ["409", { status: 409, corpo: { erro: "ja_confirmado", mensagem: "Este anúncio já está confirmado em Goblin Box." } }],
+  ] as const)("decisão que responde (%s) depois de ir ao próximo produto não mexe nele", async (_nome, resposta) => {
+    const R32 = {
+      ...REVISAO_32, para_decidir: [anuncio(501, "Goblin pendente")], confirmados: [], ignorados: [],
+    };
+    apiFalsa({ ...base, [G(31)]: ok(REVISAO), [G(32)]: ok(R32), [P(101)]: resposta });
+    // Segura a resposta do POST até o teste soltar.
+    const falso = globalThis.fetch;
+    let soltar: () => void = () => {};
+    const portao = new Promise<void>((r) => { soltar = r; });
+    vi.stubGlobal("fetch", async (entrada: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") await portao;
+      return falso(entrada, init);
+    });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    await userEvent.keyboard("c{Enter}");
+    expect(await screen.findByRole("heading", { name: "Goblin Box" })).toBeInTheDocument();
+    soltar();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(within(grupo("Para decidir")).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(grupo("Para decidir")).getByText("Goblin pendente")).toBeInTheDocument();
+    expect(within(grupo("Confirmados")).queryAllByRole("listitem")).toHaveLength(0);
+    expect(within(grupo("Ignorados")).queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Lair of the Hydra Booster/)).toBeNull();
   });
 
   it("Ignorados começam fechados", async () => {

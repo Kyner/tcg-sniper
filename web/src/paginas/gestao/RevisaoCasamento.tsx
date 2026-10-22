@@ -74,6 +74,9 @@ export function RevisaoCasamento() {
   const [selecionado, setSelecionado] = useState(0);
   const [trocando, setTrocando] = useState<AnuncioRevisao | null>(null);
   const [link, setLink] = useState("");
+  // Cada carga da tela (outro produto ou a mesma de novo) ganha um número: resposta de ação pedida numa carga
+  // anterior chega tarde e é descartada, para não cair nos grupos nem no aviso do produto que está na tela agora.
+  const tela = useRef(0);
 
   const carregar = useCallback(
     async (sinal?: { cancelado: boolean }) => {
@@ -82,6 +85,8 @@ export function RevisaoCasamento() {
       setAviso(null);
       setProximoFora(null);
       setSelecionado(0);
+      setOcupados(new Set());
+      tela.current += 1;
       try {
         const r = await chamarApi<Revisao>(`/api/gestao/casamentos/${produtoId}${sufixo}`);
         if (sinal?.cancelado) return;
@@ -118,6 +123,7 @@ export function RevisaoCasamento() {
   const decidir = useCallback(
     async (anuncio: AnuncioRevisao, de: GrupoRevisao, acao: AcaoCasamento, para?: number) => {
       const id = anuncio.anuncio_id;
+      const minha = tela.current;
       const indice = grupos[de].findIndex((a) => a.anuncio_id === id);
       setAviso(null);
       setOcupados((o) => new Set(o).add(id));
@@ -127,14 +133,16 @@ export function RevisaoCasamento() {
         const r = await chamarApi<DecisaoCasamento>(`/api/gestao/casamentos/${produtoId}/anuncios/${id}`, {
           metodo: "POST", corpo,
         });
+        if (tela.current !== minha) return;
         setGrupos((g) => comAnuncio(g, r.grupo, r.anuncio));
         if (r.mensagem) setAviso({ tipo: "info", mensagem: r.mensagem });
       } catch (e) {
+        if (tela.current !== minha) return;
         setGrupos((g) => comAnuncio(g, de, anuncio, indice));
         const mensagem = tratarErro(e);
         if (mensagem) setAviso({ tipo: "error", mensagem });
       } finally {
-        setOcupados((o) => {
+        if (tela.current === minha) setOcupados((o) => {
           const novo = new Set(o);
           novo.delete(id);
           return novo;
@@ -147,10 +155,13 @@ export function RevisaoCasamento() {
   const acaoDoTopo = async (caminho: "rebuscar" | "reavaliar" | "termos") => {
     (document.activeElement as HTMLElement | null)?.blur(); // fecha o menu ⋯
     setAviso(null);
+    const minha = tela.current;
     try {
       const r = await chamarApi<MensagemAcao>(`/api/gestao/casamentos/${produtoId}/${caminho}`, { metodo: "POST" });
+      if (tela.current !== minha) return;
       setAviso({ tipo: r.tipo, mensagem: r.mensagem });
     } catch (e) {
+      if (tela.current !== minha) return;
       const mensagem = tratarErro(e);
       if (mensagem) setAviso({ tipo: "error", mensagem });
     }
@@ -160,15 +171,18 @@ export function RevisaoCasamento() {
     const valor = link.trim();
     if (!valor) return;
     setAviso(null);
+    const minha = tela.current;
     try {
       const novo = await chamarApi<AnuncioRevisao>(`/api/gestao/casamentos/${produtoId}/link`, {
         metodo: "POST", corpo: { link: valor },
       });
+      if (tela.current !== minha) return;
       setGrupos((g) => comAnuncio(g, "confirmados", novo));
       setLink("");
       (document.activeElement as HTMLElement | null)?.blur();
       setAviso({ tipo: "success", mensagem: "Anúncio casado com este produto." });
     } catch (e) {
+      if (tela.current !== minha) return;
       const mensagem = tratarErro(e);
       if (mensagem) setAviso({ tipo: "error", mensagem });
     }
