@@ -1,20 +1,26 @@
-"""Gestão: revisão dos casamentos (anúncio da Amazon × produto da Liga). Só leitura; exige `ver_area_gestao` e
-`revisar_casamentos`."""
+"""Gestão: revisão dos casamentos (anúncio da Amazon × produto da Liga): leitura e ações. Exige `ver_area_gestao`
+e `revisar_casamentos`."""
 
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from tcg_sniper.api.dependencias import Contexto, exige_todas
 from tcg_sniper.api.erros import ErroApi
 from tcg_sniper.api.imagens import base_imagens, com_imagens
 from tcg_sniper.api.permissoes import Permissao
+from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.consultas import casamentos as q
 from tcg_sniper.consultas.variacao import pistas_variacao, termos_variacao
-from tcg_sniper.db.models import PrecoAtualLiga, ProdutoLiga
+from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_amazon as repo_amz
+from tcg_sniper.db import repositorio_casamento as repo_casamento
+from tcg_sniper.db import repositorio_ia as repo_ia
+from tcg_sniper.db import repositorio_termos as repo_termos
+from tcg_sniper.db.models import COLETOR_CASADOR, AnuncioAmazon, OrigemCasamento, PrecoAtualLiga, ProdutoLiga
 from tcg_sniper.db.repositorio_amazon import obter_config
 
 roteador = APIRouter(prefix="/api/gestao", tags=["gestão"])
@@ -216,3 +222,173 @@ def revisao(
             "termos_pedidos": detalhe.termos_pedidos_em is not None,
         }
     return RevisaoSaida.model_validate(com_imagens(saida, base_imagens(request)))
+
+
+class DecisaoEntrada(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    acao: Literal["confirmar", "ignorar", "desfazer", "trocar"]
+    para_produto_id: int | None = None
+
+    @model_validator(mode="after")
+    def _trocar_pede_o_destino(self):
+        if self.acao == "trocar" and self.para_produto_id is None:
+            raise ValueError("para_produto_id é obrigatório em trocar")
+        return self
+
+
+class DecisaoSaida(BaseModel):
+    anuncio: AnuncioRevisaoSaida
+    grupo: Literal["para_decidir", "confirmados", "ignorados"]
+    mensagem: str | None = None
+
+
+class LinkEntrada(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    link: str
+
+
+class MensagemSaida(BaseModel):
+    tipo: Literal["success", "info", "warning"]
+    mensagem: str
+
+
+# Os tipos de MENSAGENS_CASAMENTO (herdados do admin antigo) para os da API.
+_TIPO_DA_MENSAGEM = {"success": "success", "info": "info", "warning": "warning", "error": "warning"}
+
+
+def _produto_ativo_ou_404(s, produto_id: int) -> ProdutoLiga:
+    produto = s.get(ProdutoLiga, produto_id)
+    if produto is None or not produto.ativo:
+        raise ErroApi(404, "nao_encontrado", "Produto não está mais monitorado.")
+    return produto
+
+
+def _mensagem(chave: str) -> MensagemSaida:
+    tipo, texto = q.MENSAGENS_CASAMENTO[chave]
+    return MensagemSaida(tipo=_TIPO_DA_MENSAGEM[tipo], mensagem=texto)
+
+
+def _anuncio_agora(request: Request, s, produto_id: int, anuncio_id: int) -> tuple[AnuncioRevisaoSaida, str]:
+    """O anúncio como está agora na tela do produto, e em que grupo."""
+    estado = request.app.state
+    detalhe = q.detalhe_casamento(s, produto_id, obter_config(s), estado.relogio())
+    if detalhe is not None:
+        grupos = (
+            ("para_decidir", detalhe.pendentes), ("confirmados", detalhe.confirmados), ("ignorados", detalhe.ignorados)
+        )
+        for grupo, linhas in grupos:
+            for linha in linhas:
+                if linha.anuncio.id == anuncio_id:
+                    saida = AnuncioRevisaoSaida.model_validate(com_imagens(_anuncio(linha), base_imagens(request)))
+                    return saida, grupo
+    raise ErroApi(404, "nao_encontrado", "Anúncio não está mais nesta revisão.")
+
+
+@roteador.post("/casamentos/{produto_id}/anuncios/{anuncio_id}")
+def decidir(
+    request: Request, produto_id: int, anuncio_id: int, entrada: DecisaoEntrada, _c: RevisarCasamentos
+) -> DecisaoSaida:
+    estado = request.app.state
+    acao, para = entrada.acao, entrada.para_produto_id
+    with estado.sessoes() as s, s.begin():
+        agora = estado.relogio()
+        if s.get(AnuncioAmazon, anuncio_id) is None:
+            raise ErroApi(404, "nao_encontrado", "Anúncio não encontrado.")
+        _produto_ativo_ou_404(s, produto_id)
+        if acao == "trocar":
+            _produto_ativo_ou_404(s, para)
+        if acao != "confirmar" and repo_casamento.obter_par(s, anuncio_id, produto_id) is None:
+            raise ErroApi(404, "nao_encontrado", "Este anúncio não está na revisão deste produto.")
+        origem = repo_ia.origem_da_decisao(s, anuncio_id, para if acao == "trocar" else produto_id)
+        try:
+            if acao == "confirmar":
+                repo_casamento.confirmar(s, anuncio_id, produto_id, agora, origem)
+            elif acao == "trocar":
+                repo_casamento.trocar(s, anuncio_id, para, agora, origem)
+                if para != produto_id:
+                    # "É de outro produto": não é o produto de onde você veio (decisão sua sobre o par).
+                    repo_casamento.ignorar(s, anuncio_id, produto_id, agora, OrigemCasamento.MANUAL)
+            elif acao == "ignorar":
+                repo_casamento.ignorar(s, anuncio_id, produto_id, agora, origem)
+            else:
+                repo_casamento.desfazer(s, anuncio_id, produto_id, agora)
+        except repo_casamento.JaConfirmado as erro:
+            confirmado = s.get(ProdutoLiga, erro.produto_id)
+            nome = confirmado.nome if confirmado is not None else "outro produto"
+            raise ErroApi(409, "ja_confirmado", f"Este anúncio já está confirmado em {nome}.") from None
+        anuncio, grupo = _anuncio_agora(request, s, produto_id, anuncio_id)
+    return DecisaoSaida(anuncio=anuncio, grupo=grupo)
+
+
+@roteador.get("/casamentos/anuncios/{anuncio_id}/produtos")
+def produtos_para_trocar(
+    request: Request, anuncio_id: int, _c: RevisarCasamentos, busca: str = "", de: int | None = None
+) -> list[ParecidoSaida]:
+    with request.app.state.sessoes() as s:
+        anuncio = s.get(AnuncioAmazon, anuncio_id)
+        if anuncio is None:
+            raise ErroApi(404, "nao_encontrado", "Anúncio não encontrado.")
+        confirmado = repo_casamento.confirmado_do_anuncio(s, anuncio_id)
+        excluir = {i for i in (de, confirmado.produto_id if confirmado else None) if i is not None}
+        if busca.strip():
+            achados = q.buscar_produtos(s, busca, excluir=excluir)
+        else:
+            achados = q.sugestoes_para(s, anuncio, excluir=excluir)
+        itens = [_produto_saida(p, preco) for p, preco in achados]
+    return [ParecidoSaida.model_validate(i) for i in com_imagens(itens, base_imagens(request))]
+
+
+@roteador.post("/casamentos/{produto_id}/link")
+def casar_link(request: Request, produto_id: int, entrada: LinkEntrada, _c: RevisarCasamentos) -> AnuncioRevisaoSaida:
+    estado = request.app.state
+    with estado.sessoes() as s, s.begin():
+        _produto_ativo_ou_404(s, produto_id)
+        try:
+            asin = extrair_asin(entrada.link)
+        except LinkInvalido as erro:
+            raise ErroApi(400, "link_invalido", str(erro)) from None
+        anuncio = repo_amz.casar_link_manual(s, produto_id, asin, estado.relogio())
+        saida, _grupo = _anuncio_agora(request, s, produto_id, anuncio.id)
+    return saida
+
+
+@roteador.post("/casamentos/{produto_id}/rebuscar")
+def rebuscar(request: Request, produto_id: int, _c: RevisarCasamentos) -> MensagemSaida:
+    estado = request.app.state
+    with estado.sessoes() as s, s.begin():
+        _produto_ativo_ou_404(s, produto_id)
+        na_fila = repo_amz.priorizar_na_fila(s, produto_id, estado.relogio())
+    return _mensagem("rebuscar" if na_fila else "rebuscar_fora_da_fila")
+
+
+@roteador.post("/casamentos/{produto_id}/reavaliar")
+def reavaliar(request: Request, produto_id: int, _c: RevisarCasamentos) -> MensagemSaida:
+    estado = request.app.state
+    with estado.sessoes() as s, s.begin():
+        agora = estado.relogio()
+        _produto_ativo_ou_404(s, produto_id)
+        marcados = repo_casamento.reavaliar_produto(s, produto_id, agora)
+        if marcados:
+            repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
+        parado = q.casador_parado(s, agora, estado.config)
+    if not marcados:
+        return _mensagem("reavaliar_nada")
+    return _mensagem(f"reavaliar_{parado}" if parado else "reavaliar")
+
+
+@roteador.post("/casamentos/{produto_id}/termos")
+def gerar_termos(request: Request, produto_id: int, _c: RevisarCasamentos) -> MensagemSaida:
+    estado = request.app.state
+    with estado.sessoes() as s, s.begin():
+        agora = estado.relogio()
+        _produto_ativo_ou_404(s, produto_id)
+        casado = repo_casamento.produto_casado(s, produto_id)
+        pedido = not casado and repo_termos.pedir_termos(s, produto_id, agora)
+        if pedido:
+            repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
+        parado = q.casador_parado(s, agora, estado.config)
+    if casado:
+        return _mensagem("termos_ja_casado")
+    if not pedido:
+        return _mensagem("termos_fora_da_fila")
+    return _mensagem(f"termos_{parado}" if parado else "termos_pedidos")

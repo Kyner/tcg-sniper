@@ -39,6 +39,7 @@ from tcg_sniper.consultas.casamentos import (
     MENSAGENS_CASAMENTO,
     SITUACOES_CASAMENTO,
     buscar_produtos,
+    casador_parado,
     detalhe_casamento,
     sugestoes_para,
 )
@@ -1116,12 +1117,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
 
     def _casador_parado(s: Session, agora: datetime) -> str | None:
-        """Por que o casador não vai rodar "em instantes": IA desligada/sem chave ou casador pausado."""
-        if not (repo_ia.obter_config_ia(s).ligado and (config.openai_api_key or "").strip()):
-            return "ia_desligada"
-        if repo.obter_estado(s, agora, COLETOR_CASADOR).estado is not EstadoColetorTipo.ATIVO:
-            return "casador_pausado"
-        return None
+        return casador_parado(s, agora, config)
 
     @app.post("/casamentos/produto/{produto_id}/rebuscar")
     async def rebuscar_produto(request: Request, produto_id: int):

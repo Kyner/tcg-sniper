@@ -13,18 +13,21 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from tcg_sniper.coletor_amazon.termo import termo_busca
+from tcg_sniper.config import Config
 from tcg_sniper.consultas.catalogo import casa_nome, classificar
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_termos as repo_termos
 from tcg_sniper.db.models import (
+    COLETOR_CASADOR,
     AnuncioAmazon,
     AvaliacaoIA,
     Casamento,
     ConferenciaCheckout,
     ConfigAmazon,
     Envio,
+    EstadoColetorTipo,
     FilaAmazon,
     OfertaAmazon,
     OrigemCasamento,
@@ -89,6 +92,16 @@ MENSAGENS_CASAMENTO: dict[str, tuple[str, str]] = {
     ),
     "termos_fora_da_fila": ("warning", "O produto ainda não entrou na fila da Amazon; tente de novo em alguns minutos."),
 }
+
+
+def casador_parado(s: Session, agora: datetime, config: Config) -> str | None:
+    """Por que o casador não vai rodar "em instantes": IA desligada/sem chave ("ia_desligada") ou casador
+    pausado ("casador_pausado"); None se vai rodar."""
+    if not (repo_ia.obter_config_ia(s).ligado and (config.openai_api_key or "").strip()):
+        return "ia_desligada"
+    if repo.obter_estado(s, agora, COLETOR_CASADOR).estado is not EstadoColetorTipo.ATIVO:
+        return "casador_pausado"
+    return None
 
 
 def _normalizar(texto: str) -> str:
