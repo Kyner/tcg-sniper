@@ -117,6 +117,13 @@ SITUACOES_CASAMENTO = ("pendentes", "oportunidade", "sem_par", "casados", "todos
 ORDENS_CASAMENTO = ("preco_liga", "pendentes", "nome")
 
 
+def categorias_da_liga(s: Session) -> list[str]:
+    """Categorias (tipos) dos produtos da Liga, em ordem alfabética, para o filtro da lista."""
+    return list(
+        s.scalars(select(ProdutoLiga.tipo).where(ProdutoLiga.tipo.is_not(None)).distinct().order_by(ProdutoLiga.tipo))
+    )
+
+
 @dataclass(frozen=True)
 class LinhaProdutoCasamento:
     produto: ProdutoLiga

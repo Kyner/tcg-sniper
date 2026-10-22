@@ -72,3 +72,15 @@ def exige(permissao: Permissao) -> Callable[..., Contexto]:
 
     dependencia.permissao = permissao  # o teste das rotas confere que toda rota declara uma
     return dependencia
+
+
+def exige_todas(*permissoes: Permissao) -> Callable[..., Contexto]:
+    """Dependência que exige todas as permissões dadas (403 se faltar qualquer uma)."""
+
+    def dependencia(contexto: Annotated[Contexto, Depends(usuario_logado)]) -> Contexto:
+        if not all(p in contexto.permissoes for p in permissoes):
+            raise ErroApi(403, "sem_permissao", "Seu acesso não permite isto.")
+        return contexto
+
+    dependencia.permissao = permissoes[-1]  # o teste das rotas confere que toda rota declara uma
+    return dependencia

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from tcg_sniper.api.dependencias import Contexto, exige
 from tcg_sniper.api.erros import ErroApi
+from tcg_sniper.api.imagens import base_imagens, com_imagens
 from tcg_sniper.api.permissoes import Permissao
 from tcg_sniper.avisos.servico import zona_e_host
 from tcg_sniper.consultas import oportunidades as q
@@ -152,26 +153,6 @@ class HistoricoSaida(BaseModel):
     quase_la: bool
 
 
-def _imagens(dados, base: str | None):
-    """Troca cada `imagem_chave` das consultas por `imagem`: a URL pública da cópia, ou None sem cópia ou sem
-    `URL_PUBLICA_IMAGENS` (a tela sai sem foto; nunca aponta para a Liga ou a Amazon)."""
-    if isinstance(dados, list):
-        return [_imagens(d, base) for d in dados]
-    if not isinstance(dados, dict):
-        return dados
-    saida = {}
-    for chave, valor in dados.items():
-        if chave == "imagem_chave":
-            saida["imagem"] = f"{base.rstrip('/')}/{valor}" if base and valor else None
-        else:
-            saida[chave] = _imagens(valor, base)
-    return saida
-
-
-def _base(request: Request) -> str | None:
-    return request.app.state.config.url_publica_imagens
-
-
 def _desde(periodo: str, agora: datetime) -> datetime | None:
     try:
         return q.desde_do_periodo(periodo, agora)
@@ -195,7 +176,7 @@ def resumo(request: Request, _c: VerOportunidades, periodo: str = "7d") -> Resum
 @roteador.get("/oportunidades/ativas")
 def ativas(request: Request, _c: VerOportunidades) -> AtivasSaida:
     with request.app.state.sessoes() as s:
-        return AtivasSaida(ativas=[AtivaSaida.model_validate(_imagens(asdict(a), _base(request))) for a in q.ativas(s)],
+        return AtivasSaida(ativas=[AtivaSaida.model_validate(com_imagens(asdict(a), base_imagens(request))) for a in q.ativas(s)],
                            ultima_aberta_em=q.ultima_aberta_em(s))
 
 
@@ -209,7 +190,7 @@ def encerradas(
     desde = _desde(periodo, agora)
     with estado.sessoes() as s:
         resultado = q.encerradas(s, desde, motivo, pagina, agora)
-    return EncerradasSaida.model_validate(_imagens(asdict(resultado), _base(request)))
+    return EncerradasSaida.model_validate(com_imagens(asdict(resultado), base_imagens(request)))
 
 
 def _regras_e_piso(s) -> tuple[Regras, int]:
@@ -225,7 +206,7 @@ def quase(
     with estado.sessoes() as s:
         regras, piso = _regras_e_piso(s)
         itens = quase_la(s, regras, piso, estado.relogio(), limite=limite)
-    return QuaseListaSaida(itens=[QuaseSaida.model_validate(_imagens(asdict(i), _base(request))) for i in itens],
+    return QuaseListaSaida(itens=[QuaseSaida.model_validate(com_imagens(asdict(i), base_imagens(request))) for i in itens],
                            desconto_min_pct=regras.desconto_min_pct, piso_pct=piso)
 
 
@@ -240,4 +221,4 @@ def historico(request: Request, produto_id: int, _c: VerOportunidades, periodo: 
         h = historico_produto(s, produto_id, desde, agora, regras, piso, zona)
     if h is None:
         raise ErroApi(404, "nao_encontrado", "Produto não encontrado.")
-    return HistoricoSaida.model_validate({**_imagens(asdict(h), _base(request)), "periodo": periodo})
+    return HistoricoSaida.model_validate({**com_imagens(asdict(h), base_imagens(request)), "periodo": periodo})

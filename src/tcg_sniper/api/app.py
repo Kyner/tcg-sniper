@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.api import rotas_acessos, rotas_auth, rotas_oportunidades, rotas_usuarios
+from tcg_sniper.api import rotas_acessos, rotas_auth, rotas_gestao_casamentos, rotas_oportunidades, rotas_usuarios
 from tcg_sniper.api.dependencias import Contexto, exige
 from tcg_sniper.api.erros import ErroApi, instalar_tratadores
 from tcg_sniper.api.permissoes import GradePermissoes, Permissao
@@ -38,6 +38,7 @@ def criar_app(
     app.include_router(rotas_usuarios.roteador)
     app.include_router(rotas_auth.roteador)
     app.include_router(rotas_oportunidades.roteador)
+    app.include_router(rotas_gestao_casamentos.roteador)
 
     VerDocumentacao = Annotated[Contexto, Depends(exige(Permissao.VER_DOCUMENTACAO_API))]
 
