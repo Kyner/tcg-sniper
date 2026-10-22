@@ -124,3 +124,27 @@ export interface Historico {
   recorrencia_30d: number;
   quase_la: boolean;
 }
+
+/** GET /api/gestao/casamentos: uma linha da lista. */
+export interface ProdutoCasamento {
+  id: number;
+  nome: string;
+  nome_en: string | null;
+  imagem: string | null;
+  categoria: string | null;
+  preco_liga: string | null;
+  pendentes: number;
+  confirmados: number;
+  ignorados: number;
+  em_outro: number;
+  ia_sugere: number;
+  situacao: string;
+}
+
+export interface ListaCasamentos {
+  itens: ProdutoCasamento[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  categorias: string[];
+}
