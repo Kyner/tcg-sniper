@@ -6,6 +6,7 @@ import { apiFalsa, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 const ITEM = {
   id: 5, nome: "Lair of the Hydra", nome_en: null, imagem: null, categoria: "Booster", monitorado: true,
   preco_liga: "1589.00", lojas: 4, situacao: "casado", pendentes: 0, confirmados: 2, melhor_amazon: "1200.00",
+  medio_liga: "1700.00", diferenca_media_pct: "29.41", sem_vendedor_desde: null,
 };
 const LISTA = {
   itens: [ITEM, { ...ITEM, id: 6, nome: "Goblin Box", monitorado: false }], total: 412, pagina: 1, por_pagina: 25,
@@ -13,7 +14,17 @@ const LISTA = {
 };
 const base = { "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) };
 const LISTAR = "GET /api/gestao/catalogo?monitorado=todos&pagina=1";
-const FILTRO = { busca: "", monitorado: "todos", categoria: null, situacao: null, com_preco: false };
+const FILTRO = { busca: "", monitorado: "todos", categoria: null, situacao: null, preco_liga: "todos" };
+const LISTAR_ESGOTADO = "GET /api/gestao/catalogo?monitorado=todos&preco_liga=esgotado&pagina=1";
+const ESGOTADOS = {
+  ...LISTA, total: 2,
+  itens: [
+    { ...ITEM, preco_liga: null, melhor_amazon: "100.00", medio_liga: "200.00", diferenca_media_pct: "50.00",
+      sem_vendedor_desde: "2026-10-10T13:00:00+00:00" },
+    { ...ITEM, id: 6, nome: "Goblin Box", preco_liga: null, melhor_amazon: "80.00", medio_liga: null,
+      diferenca_media_pct: null, sem_vendedor_desde: null },
+  ],
+};
 
 const LISTAR_SIM = "GET /api/gestao/catalogo?monitorado=sim&pagina=1";
 
@@ -127,6 +138,40 @@ describe("Catálogo", () => {
     expect(t.getByRole("link", { name: /Lair of the Hydra/ })).toHaveAttribute(
       "href", "/gestao/produtos/5?busca=lair&monitorado=todos&pagina=2",
     );
+  });
+
+  it("Preço na Liga: esgotado grava preco_liga na URL e mostra média, diferença e sem vendedor desde", async () => {
+    const chamadas = apiFalsa({ ...base, [LISTAR]: ok(LISTA), [LISTAR_ESGOTADO]: ok(ESGOTADOS) });
+    renderizarEm("/gestao/catalogo");
+    await tabela();
+    expect(screen.queryByRole("columnheader", { name: "Média Liga" })).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Preço na Liga" }), "esgotado");
+    const t = within(await screen.findByRole("table"));
+    expect(await t.findByRole("columnheader", { name: "Média Liga" })).toBeInTheDocument();
+    expect(t.getByRole("columnheader", { name: "Diferença" })).toBeInTheDocument();
+    expect(t.getByRole("columnheader", { name: "Sem vendedor desde" })).toBeInTheDocument();
+    expect(t.getByText("R$ 200,00")).toBeInTheDocument();
+    expect(t.getByText("50%")).toBeInTheDocument();
+    expect(t.getByText("10/10/2026")).toBeInTheDocument();
+    expect(t.getByText("sem registro de preço")).toBeInTheDocument();
+    expect(chamadas.some((c) => c.caminho === "/api/gestao/catalogo?monitorado=todos&preco_liga=esgotado&pagina=1")).toBe(true);
+    expect(t.getByRole("link", { name: /Lair of the Hydra/ })).toHaveAttribute(
+      "href", "/gestao/produtos/5?monitorado=todos&preco_liga=esgotado&pagina=1",
+    );
+  });
+
+  it("lote com o filtro esgotado manda preco_liga", async () => {
+    const chamadas = apiFalsa({
+      ...base, [LISTAR_ESGOTADO]: ok(ESGOTADOS), "POST /api/gestao/catalogo/lote": ok({ alvo: 2, alterados: 0 }),
+    });
+    renderizarEm("/gestao/catalogo?preco_liga=esgotado");
+    const t = await tabela();
+    await userEvent.click(t.getByRole("checkbox", { name: "Selecionar Lair of the Hydra" }));
+    await userEvent.click(screen.getByRole("button", { name: /Selecionar todos os 2 do filtro/ }));
+    await waitFor(() => expect(chamadas.filter((c) => c.metodo === "POST")).toHaveLength(1));
+    expect(chamadas.find((c) => c.metodo === "POST")?.corpo).toEqual({
+      acao: "desligar", filtro: { ...FILTRO, preco_liga: "esgotado" }, esperado: 0, confirmar: false,
+    });
   });
 
   it("trocar o filtro com a lista nova pendente trava a seleção da lista antiga", async () => {

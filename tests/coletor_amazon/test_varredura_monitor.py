@@ -115,14 +115,14 @@ def test_conferencia_desligada_nao_confere(engine, sessoes, config):
 
 def test_monitor_e_conferencia_somam_no_mesmo_teto(engine, sessoes, config):
     confirmado(sessoes, "cand", "B0CAND0001", "700.00")
-    confirmado(sessoes, "venc", "B0VENC0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=20))
+    confirmado(sessoes, "venc", "B0VENC0001", "850.00", lido_em=MEIO_DIA - timedelta(minutes=20))
     with sessoes() as s, s.begin():
         aplicar_config(s, {"monitor_max_paginas_hora": 5, "max_buscas_hora": 1}, MEIO_DIA)
     um_item = carrinho("B0CAND0001", subtotal="R$ 700,00")
     paginas = {
         URL_CARRINHO: [carrinho(), um_item, um_item, carrinho()],
         url_painel_ofertas("B0CAND0001"): painel("B0CAND0001", "R$ 700,00"),
-        url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 990,00"),
+        url_ofertas("B0VENC0001"): ofertas("B0VENC0001", "R$ 850,00"),
     }
     v, navegador, _, relogio = varredura(
         engine, sessoes, config, paginas, [um_item, checkout_resumo("R$ 700,00", "R$ 0,00", None, "R$ 700,00"), carrinho()]
@@ -587,11 +587,11 @@ def test_leitura_que_falha_conta_no_teto_todas_as_paginas_abertas(engine, sessoe
 
 
 def test_rodada_do_monitor_avisa_quando_fica_em_dia(engine, sessoes, config):
-    confirmado(sessoes, "a", "B0AAAA0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=20))
+    confirmado(sessoes, "a", "B0AAAA0001", "850.00", lido_em=MEIO_DIA - timedelta(minutes=20))
     confirmado(sessoes, "b", "B0BBBB0001")
     paginas = {
-        url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 950,00"),
-        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 990,00"),
+        url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 840,00"),
+        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 850,00"),
     }
     v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0 and v.passo() == 0
@@ -599,14 +599,74 @@ def test_rodada_do_monitor_avisa_quando_fica_em_dia(engine, sessoes, config):
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
     assert dados.linhas == (
-        "Anúncios lidos: 2", "Preços em queda: 1", "Conferências de checkout: 0", "Duração: menos de 1 min",
+        "Voltas da fila rápida: 1", "Anúncios lidos: 2", "Preços em queda: 1", "Conferências de checkout: 0",
+        "Duração: menos de 1 min",
     )
     assert v.passo() == ESPERA_OCIOSA_S
     assert len(avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)) == 1
 
 
+def test_volta_so_com_a_fila_rapida(engine, sessoes, config):
+    um_min = MEIO_DIA - timedelta(minutes=1)
+    confirmado(sessoes, "rapido", "B0RAPI0001", "850.00", lido_em=um_min)  # 15% abaixo da Liga: fila rápida
+    confirmado(sessoes, "lento", "B0LENT0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=20))  # 1%: lento
+    paginas = {
+        url_ofertas("B0RAPI0001"): ofertas("B0RAPI0001", "R$ 850,00"),
+        url_ofertas("B0LENT0001"): ofertas("B0LENT0001", "R$ 990,00"),
+    }
+    v, navegador, avisador, relogio = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and navegador.visitadas == [url_ofertas("B0LENT0001")]  # o rápido ainda está em dia
+    assert v.passo() == ESPERA_OCIOSA_S
+    assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()  # a volta espera só pelo rápido
+    relogio.agora += timedelta(minutes=16)
+    assert v.passo() == 0 and navegador.visitadas[-1] == url_ofertas("B0RAPI0001")
+    assert v.passo() == 0  # fecha a volta (o lento já vencido de novo é lido na seguinte)
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[:2] == ("Voltas da fila rápida: 1", "Anúncios lidos: 1")
+    assert "Fora da fila rápida: 1 lentos · 0 esgotados lidos" in dados.linhas
+
+
+def test_queda_de_preco_do_lento_conta_na_rodada(engine, sessoes, config):
+    confirmado(sessoes, "rapido", "B0RAPI0001", "850.00", lido_em=MEIO_DIA - timedelta(minutes=1))  # em dia
+    confirmado(sessoes, "lento", "B0LENT0001", "995.00", lido_em=MEIO_DIA - timedelta(minutes=20))
+    paginas = {
+        url_ofertas("B0RAPI0001"): ofertas("B0RAPI0001", "R$ 850,00"),
+        url_ofertas("B0LENT0001"): ofertas("B0LENT0001", "R$ 990,00"),  # caiu, mas segue lento
+    }
+    v, navegador, avisador, relogio = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and navegador.visitadas == [url_ofertas("B0LENT0001")]  # dentro da volta do rápido
+    relogio.agora += timedelta(minutes=16)
+    assert v.passo() == 0 and navegador.visitadas[-1] == url_ofertas("B0RAPI0001")
+    v.passo()  # fecha a volta
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[1:3] == ("Anúncios lidos: 1", "Preços em queda: 1")
+    assert "Fora da fila rápida: 1 lentos · 0 esgotados lidos" in dados.linhas
+
+
+def test_sem_fila_rapida_nao_abre_volta_nem_avisa(engine, sessoes, config):
+    confirmado(sessoes, "lento", "B0LENT0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=20))
+    v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas("B0LENT0001"): ofertas("B0LENT0001", "R$ 990,00")})
+    for _ in range(4):
+        v.passo()
+        assert v._rodada is None
+        relogio.agora += timedelta(minutes=16)
+    assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
+
+
+def test_monitor_le_rapido_antes_do_lento(engine, sessoes, config):
+    confirmado(sessoes, "lento", "B0LENT0001", "990.00", lido_em=MEIO_DIA - timedelta(minutes=40))  # o mais atrasado
+    confirmado(sessoes, "rapido", "B0RAPI0001", "850.00", lido_em=MEIO_DIA - timedelta(minutes=20))
+    paginas = {
+        url_ofertas("B0RAPI0001"): ofertas("B0RAPI0001", "R$ 850,00"),
+        url_ofertas("B0LENT0001"): ofertas("B0LENT0001", "R$ 990,00"),
+    }
+    v, navegador, _, _ = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and v.passo() == 0
+    assert navegador.visitadas == [url_ofertas("B0RAPI0001"), url_ofertas("B0LENT0001")]
+
+
 def test_monitor_ocioso_nao_avisa_rodada(engine, sessoes, config):
-    confirmado(sessoes, "a", "B0AAAA0001", "990.00")  # lido agora: em dia
+    confirmado(sessoes, "a", "B0AAAA0001", "850.00")  # lido agora: em dia
     v, _, avisador, _ = varredura(engine, sessoes, config, {})
     for _ in range(3):
         assert v.passo() == ESPERA_OCIOSA_S
@@ -644,7 +704,7 @@ def test_conferencia_ok_resolve_o_aviso_de_sem_login_e_o_de_captcha(engine, sess
 
 def test_leitura_do_monitor_sem_captcha_resolve_o_aviso_de_captcha(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
-    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 990,00")})
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 850,00")})
     assert v.passo() == 0
     assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) in avisador.resolvidos
 
@@ -652,7 +712,7 @@ def test_leitura_do_monitor_sem_captcha_resolve_o_aviso_de_captcha(engine, sesso
 def test_captcha_do_monitor_resolve_na_primeira_leitura_limpa_depois_de_retomar(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
     url = url_ofertas("B0AAAA0001")
-    v, _, avisador, _ = varredura(engine, sessoes, config, {url: [pagina_html(CAPTCHA, url=url), ofertas("B0AAAA0001", "R$ 990,00")]})
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url: [pagina_html(CAPTCHA, url=url), ofertas("B0AAAA0001", "R$ 850,00")]})
     assert v.passo() == ESPERA_OCIOSA_S
     assert (TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL) not in avisador.resolvidos
     with sessoes() as s, s.begin():
@@ -679,30 +739,36 @@ def test_monitor_nunca_busca(engine, sessoes, config):
         assert s.scalar(select(Coleta)) is None
 
 
-def test_rodada_avisa_ao_fim_de_cada_volta_mesmo_com_o_monitor_sempre_atrasado(engine, sessoes, config):
+def test_rodada_avisa_no_maximo_uma_vez_por_hora_com_as_voltas_somadas(engine, sessoes, config):
     asins = ("B0AAAA0001", "B0BBBB0001", "B0CCCC0001")
     for i, asin in enumerate(asins):
         confirmado(sessoes, f"p{i}", asin)  # nunca lidos
-    v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas(a): ofertas(a, "R$ 990,00") for a in asins})
+    v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas(a): ofertas(a, "R$ 850,00") for a in asins})
     for _ in range(3):
         assert v.passo() == 0
         relogio.agora += timedelta(minutes=16)  # intervalo de 15 min: o lido já venceu de novo
     assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
-    assert v.passo() == 0  # fecha a volta e já começa a seguinte
+    assert v.passo() == 0  # fecha a 1ª volta (48 min): o primeiro aviso sai na hora
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 3"
+    assert dados.linhas[:2] == ("Voltas da fila rápida: 1", "Anúncios lidos: 3")
     for _ in range(3):
         relogio.agora += timedelta(minutes=16)
-        assert v.passo() == 0
-    assert [d.linhas[0] for d in avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)] == [
-        "Anúncios lidos: 3", "Anúncios lidos: 3",
-    ]
+        assert v.passo() == 0  # a 2ª volta fecha 48 min depois do aviso: fica somada, sem aviso
+    assert len(avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)) == 1
+    for _ in range(3):
+        relogio.agora += timedelta(minutes=16)
+        assert v.passo() == 0  # a 3ª volta fecha 96 min depois do aviso: sai o resumo das duas
+    _, dados = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas == (
+        "Voltas da fila rápida: 2", "Anúncios lidos: 6", "Preços em queda: 0", "Conferências de checkout: 0",
+        "Duração: 1 h 36 min",
+    )
 
 
 def test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada(engine, sessoes, config):
     for asin in ("B0AAAA0001", "B0BBBB0001"):
         confirmado(sessoes, asin, asin)
-    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001")}
+    paginas = {url_ofertas(a): ofertas(a, "R$ 850,00") for a in ("B0AAAA0001", "B0BBBB0001")}
     v, _, avisador, relogio = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0  # lê um dos dois
     relogio.agora = MEIO_DIA.replace(hour=23)
@@ -712,13 +778,13 @@ def test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada(engine, sessoes, c
     assert v.passo() == 0 and v.passo() == 0
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 2"  # só a volta do dia seguinte
+    assert dados.linhas[:2] == ("Voltas da fila rápida: 1", "Anúncios lidos: 2")  # só a volta do dia seguinte
 
 
 def test_anuncio_que_sai_do_monitor_no_meio_da_volta_nao_prende_a_rodada(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
     b_id, _ = confirmado(sessoes, "b", "B0BBBB0001")
-    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001")}
+    paginas = {url_ofertas(a): ofertas(a, "R$ 850,00") for a in ("B0AAAA0001", "B0BBBB0001")}
     v, navegador, avisador, _ = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0
     assert navegador.visitadas == [url_ofertas("B0AAAA0001")]  # nunca lidos: pela ordem do id
@@ -726,7 +792,7 @@ def test_anuncio_que_sai_do_monitor_no_meio_da_volta_nao_prende_a_rodada(engine,
         s.get(ProdutoLiga, b_id).ativo = False  # o outro sai do monitor sem ser lido
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 1"
+    assert dados.linhas[1] == "Anúncios lidos: 1"
 
 
 def test_anuncio_que_falha_sai_da_volta(engine, sessoes, config):
@@ -734,13 +800,13 @@ def test_anuncio_que_falha_sai_da_volta(engine, sessoes, config):
     confirmado(sessoes, "b", "B0BBBB0001")
     paginas = {
         url_ofertas("B0AAAA0001"): pagina_html("<html><body>layout novo</body></html>", url=url_ofertas("B0AAAA0001")),
-        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 990,00"),
+        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 850,00"),
     }
     v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0 and v.passo() == 0
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 1"
+    assert dados.linhas[1] == "Anúncios lidos: 1"
 
 
 def test_rodada_com_falha_avisa_a_contagem_de_falhas(engine, sessoes, config):
@@ -748,13 +814,14 @@ def test_rodada_com_falha_avisa_a_contagem_de_falhas(engine, sessoes, config):
     confirmado(sessoes, "b", "B0BBBB0001")
     paginas = {
         url_ofertas("B0AAAA0001"): pagina_html("<html><body>layout novo</body></html>", url=url_ofertas("B0AAAA0001")),
-        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 990,00"),
+        url_ofertas("B0BBBB0001"): ofertas("B0BBBB0001", "R$ 850,00"),
     }
     v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0 and v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
     assert dados.linhas == (
-        "Anúncios lidos: 1", "Preços em queda: 0", "Conferências de checkout: 0", "Falhas: 1", "Duração: menos de 1 min",
+        "Voltas da fila rápida: 1", "Anúncios lidos: 1", "Preços em queda: 0", "Conferências de checkout: 0", "Falhas: 1",
+        "Duração: menos de 1 min",
     )
 
 
@@ -764,12 +831,12 @@ def test_rodada_sem_nenhuma_leitura_mas_com_falha_nao_fecha_calada(engine, sesso
     v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 0" and "Falhas: 1" in dados.linhas
+    assert dados.linhas[1] == "Anúncios lidos: 0" and "Falhas: 1" in dados.linhas
 
 
 def test_rodada_sem_falha_nao_tem_linha_de_falhas(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
-    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 990,00")})
+    v, _, avisador, _ = varredura(engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 850,00")})
     assert v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
     assert not any(linha.startswith("Falhas") for linha in dados.linhas)
@@ -778,7 +845,7 @@ def test_rodada_sem_falha_nao_tem_linha_de_falhas(engine, sessoes, config):
 def test_monitor_pausado_descarta_a_rodada_aberta(engine, sessoes, config):
     for asin in ("B0AAAA0001", "B0BBBB0001"):
         confirmado(sessoes, asin, asin)
-    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001")}
+    paginas = {url_ofertas(a): ofertas(a, "R$ 850,00") for a in ("B0AAAA0001", "B0BBBB0001")}
     v, _, avisador, relogio = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0  # lê um dos dois: volta aberta
     assert v._rodada is not None
@@ -809,7 +876,7 @@ def test_falhas_seguidas_pausam_so_o_monitor(engine, sessoes, config):
 def test_janela_do_monitor_fechada_fecha_o_navegador(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
     v, _, fabrica, _, relogio = criar_laco(
-        VarreduraMonitor, engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 990,00")}
+        VarreduraMonitor, engine, sessoes, config, {url_ofertas("B0AAAA0001"): ofertas("B0AAAA0001", "R$ 850,00")}
     )
     assert v.passo() == 0 and fabrica.abertos == 1
     relogio.agora = MEIO_DIA.replace(hour=23)
@@ -828,22 +895,26 @@ def test_rodada_com_relogio_real_avisa_uma_vez_por_volta_inteira(engine, sessoes
         confirmado(sessoes, asin, asin)  # nunca lidos
     with sessoes() as s, s.begin():
         aplicar_config(s, {"monitor_intervalo_min": intervalo_min, "monitor_max_paginas_hora": 1000}, MEIO_DIA)
-    v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas(a): ofertas(a, "R$ 990,00") for a in asins})
+    v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas(a): ofertas(a, "R$ 850,00") for a in asins})
     leituras = 0
-    for _ in range(40 * 3):  # 40 min, um passo a cada 20 s
+    for _ in range(130 * 3):  # 130 min, um passo a cada 20 s
         leituras += v.passo() == 0
         relogio.agora += timedelta(seconds=20)
-    contagens = [d.linhas[0] for d in avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)]
-    assert len(contagens) >= 3 and leituras >= 3 * quantos
-    assert set(contagens) == {f"Anúncios lidos: {quantos}"}  # nunca uma "volta" pequena depois da primeira
+    avisos = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert len(avisos) == 3 and leituras >= 3 * quantos  # o primeiro na hora, depois um por hora
+    assert avisos[0].linhas[:2] == ("Voltas da fila rápida: 1", f"Anúncios lidos: {quantos}")
+    for dados in avisos:  # cada volta somada é inteira: nunca uma "volta" pequena depois da primeira
+        voltas = int(dados.linhas[0].removeprefix("Voltas da fila rápida: "))
+        assert dados.linhas[1] == f"Anúncios lidos: {voltas * quantos}"
+    assert int(avisos[1].linhas[0].removeprefix("Voltas da fila rápida: ")) > 1
 
 
 def test_anuncio_desconfirmado_no_meio_da_volta_sai_e_a_volta_fecha(engine, sessoes, config):
     confirmado(sessoes, "a", "B0AAAA0001")
     um_min = MEIO_DIA - timedelta(minutes=1)
-    confirmado(sessoes, "b", "B0BBBB0001", "990.00", lido_em=um_min)  # lido há 1 min: em dia, mas na volta
-    _, c_id = confirmado(sessoes, "c", "B0CCCC0001", "990.00", lido_em=um_min)
-    paginas = {url_ofertas(a): ofertas(a, "R$ 990,00") for a in ("B0AAAA0001", "B0BBBB0001", "B0CCCC0001")}
+    confirmado(sessoes, "b", "B0BBBB0001", "850.00", lido_em=um_min)  # lido há 1 min: em dia, mas na volta
+    _, c_id = confirmado(sessoes, "c", "B0CCCC0001", "850.00", lido_em=um_min)
+    paginas = {url_ofertas(a): ofertas(a, "R$ 850,00") for a in ("B0AAAA0001", "B0BBBB0001", "B0CCCC0001")}
     v, navegador, avisador, relogio = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0 and navegador.visitadas == [url_ofertas("B0AAAA0001")]
     assert v.passo() == ESPERA_OCIOSA_S  # b e c em dia: a volta espera por eles
@@ -856,4 +927,4 @@ def test_anuncio_desconfirmado_no_meio_da_volta_sai_e_a_volta_fecha(engine, sess
     assert v.passo() == 0  # b venceu e é lido; c saiu do monitor
     assert v.passo() == 0  # a fecha a volta (só a, b) e abre a seguinte lendo a de novo
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 2"
+    assert dados.linhas[1] == "Anúncios lidos: 2"

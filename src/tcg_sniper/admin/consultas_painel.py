@@ -32,6 +32,7 @@ from tcg_sniper.db.models import (
     COLETOR_NOTIFICADOR,
     ChamadaIA,
     Coleta,
+    ConfigAmazon,
     EstadoColetorTipo,
     FilaAmazon,
     MensagemSaida,
@@ -192,11 +193,14 @@ def _resumo_monitor(s: Session, agora: datetime, cfg: Config) -> str:
     if not cfg_amazon.monitor_ligado:
         monitor = "monitor desligado"
     else:
-        situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon.monitor_intervalo_min)
+        situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon)
         if situacao.ultima is None:
             monitor = "monitor: nenhuma leitura ainda"
         else:
             monitor = f"monitor: última leitura {_quando(situacao.ultima, agora, cfg.zona)}"
+            monitor += f" · rápida {situacao.rapidos} · lenta {situacao.lentos} · esgotado {situacao.esgotados}"
+            if situacao.nunca_lidos:
+                monitor += f" · nunca lidos {situacao.nunca_lidos}"
             if situacao.vencidos:
                 monitor += f", {situacao.vencidos} na fila"
     if not cfg_amazon.checkout_ligado:
@@ -206,6 +210,18 @@ def _resumo_monitor(s: Session, agora: datetime, cfg: Config) -> str:
     else:
         conferencia = "conferência ligada"
     return f"{monitor} · {conferencia}"
+
+
+SEGUNDOS_POR_PAGINA = 3  # estimativa do tempo de abrir a página, somado à pausa média entre leituras
+
+
+def capacidade_por_hora(cfg: ConfigAmazon) -> int:
+    """Quantas páginas por hora o monitor consegue ler com as pausas configuradas.
+
+    Conta otimista: supõe uma página e uma pausa por anúncio. "Exibir mais" das ofertas, perfis de vendedor,
+    páginas do checkout e do carrinho também abrem páginas e entram no teto `monitor_max_paginas_hora`, então a
+    leitura real de anúncios por hora fica abaixo deste número."""
+    return math.floor(3600 / ((cfg.pausa_min_s + cfg.pausa_max_s) / 2 + SEGUNDOS_POR_PAGINA))
 
 
 NOME_BUSCA = "Amazon (busca)"
@@ -485,15 +501,17 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
     if not cfg_amazon.monitor_ligado:
         return lista
     intervalo = cfg_amazon.monitor_intervalo_min
-    situacao = repo_amz.situacao_monitor(s, agora, intervalo)
-    exigido = math.ceil(situacao.confirmados * 60 / intervalo)
-    if exigido > cfg_amazon.monitor_max_paginas_hora:
+    situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon)
+    exigido = math.ceil(situacao.rapidos * 60 / intervalo)
+    limite = min(cfg_amazon.monitor_max_paginas_hora, capacidade_por_hora(cfg_amazon))
+    if exigido > limite:
         lista.append(
             Aviso(
                 "warning",
-                f"O monitor precisa de {exigido} páginas por hora para ler os {situacao.confirmados} anúncios "
-                f"confirmados a cada {intervalo} min, acima do teto de {cfg_amazon.monitor_max_paginas_hora}: "
-                "as leituras vão atrasar.",
+                f"O monitor precisa de {exigido} páginas por hora para ler os {situacao.rapidos} anúncios da fila "
+                f"rápida a cada {intervalo} min, acima do que cabe ({limite} por hora: teto "
+                f"{cfg_amazon.monitor_max_paginas_hora}, pausas de {cfg_amazon.pausa_min_s}–{cfg_amazon.pausa_max_s} s): "
+                "as leituras da fila rápida vão atrasar.",
                 "/configuracoes",
                 "Ajustar em Configurações",
             )
@@ -507,8 +525,8 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
         cfg_amazon.monitor_janela_inicio <= local.time() < cfg_amazon.monitor_janela_fim and local - abertura >= dois_intervalos
     )
     ativo = repo.obter_estado(s, agora, COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
-    if ativo and aberta_ha_tempo and situacao.mais_antiga is not None and agora - situacao.mais_antiga >= dois_intervalos:
-        minutos = int((agora - situacao.mais_antiga).total_seconds() // 60)
+    if ativo and aberta_ha_tempo and situacao.mais_antiga_rapida is not None and agora - situacao.mais_antiga_rapida >= dois_intervalos:
+        minutos = int((agora - situacao.mais_antiga_rapida).total_seconds() // 60)
         lista.append(
             Aviso(
                 "warning",

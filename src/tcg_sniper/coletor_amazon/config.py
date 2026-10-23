@@ -31,6 +31,7 @@ CAMPOS = (
     "monitor_janela_inicio",
     "monitor_janela_fim",
     "monitor_max_paginas_hora",
+    "monitor_esgotado_dias",
     "margem_candidata_pp",
     "checkout_validade_h",
     "descoberta_casados_dias",
@@ -54,10 +55,11 @@ ROTULOS = {
     "vendedor_min_positivas_pct": "Lojista FBA: mínimo de positivas (%)",
     "vendedor_min_avaliacoes": "Lojista FBA: mínimo de avaliações",
     "vendedor_reavaliar_dias": "Reavaliar lojista a cada (dias)",
-    "monitor_intervalo_min": "Ler cada anúncio confirmado a cada (min)",
+    "monitor_intervalo_min": "Fila rápida: ler a cada (min)",
     "monitor_janela_inicio": "Início do monitor",
     "monitor_janela_fim": "Fim do monitor",
     "monitor_max_paginas_hora": "Máximo de páginas por hora (monitor e checkout)",
+    "monitor_esgotado_dias": "Esgotado na Liga: ler a cada (dias)",
     "margem_candidata_pp": "Conferir no checkout a partir de (pontos abaixo do desconto mínimo)",
     "checkout_validade_h": "Conferência de checkout vale por (h)",
     "descoberta_casados_dias": "Buscar de novo produtos já casados a cada (dias)",
@@ -87,12 +89,19 @@ EXPLICACOES = {
     "vendedor_min_positivas_pct": "Percentual mínimo de avaliações positivas de um lojista com envio pela Amazon.",
     "vendedor_min_avaliacoes": "Número mínimo de avaliações de um lojista com envio pela Amazon.",
     "vendedor_reavaliar_dias": "De quantos em quantos dias reler o perfil de um lojista.",
-    "monitor_intervalo_min": "De quantos em quantos minutos ler a lista de ofertas de cada anúncio confirmado.",
+    "monitor_intervalo_min": (
+        "Fila rápida: oportunidades abertas e anúncios com desconto a partir do \"quase lá\" são relidos a cada "
+        "tantos minutos. Os demais usam a sobra do teto e nunca antes deste intervalo."
+    ),
     "monitor_janela_inicio": "Hora (HH:MM) em que o monitor começa, com variação de até 15 minutos.",
     "monitor_janela_fim": "Hora (HH:MM) em que o monitor para, com variação de até 15 minutos.",
     "monitor_max_paginas_hora": (
         "Teto de páginas por hora do navegador logado, somando monitor, conferência de checkout e retirada de "
         "itens do carrinho. A Amazon vê a soma deste teto com o da busca, no mesmo endereço."
+    ),
+    "monitor_esgotado_dias": (
+        "Anúncio com preço na Amazon de produto sem vendedor na Liga (\"a partir de\" vazio): relido uma vez a "
+        "cada tantos dias. Aparece em Catálogo → esgotado na Liga."
     ),
     "margem_candidata_pp": (
         "Uma oferta com desconto anunciado de pelo menos (desconto mínimo − este valor) vai ao checkout "
@@ -106,7 +115,7 @@ EXPLICACOES = {
     ),
     "quase_oportunidade_min_pct": (
         "Desconto a partir do qual um anúncio elegível aparece como \"quase lá\" na área de negócio (abaixo do "
-        "desconto mínimo). Não gera aviso."
+        "desconto mínimo). Não gera aviso. Também decide a fila rápida do monitor."
     ),
 }
 

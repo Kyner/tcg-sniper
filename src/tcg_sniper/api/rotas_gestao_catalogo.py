@@ -45,6 +45,9 @@ class LinhaCatalogoSaida(BaseModel):
     pendentes: int
     confirmados: int
     melhor_amazon: Decimal | None
+    medio_liga: Decimal | None
+    diferenca_media_pct: Decimal | None  # quanto a Amazon está abaixo da média da Liga (negativo: acima)
+    sem_vendedor_desde: datetime | None  # última coleta da listagem com "a partir de"; None = sem registro
 
 
 class ListaCatalogoSaida(BaseModel):
@@ -61,10 +64,10 @@ class FiltroEntrada(BaseModel):
     monitorado: q.Monitorado = "todos"
     categoria: str | None = None
     situacao: Situacao | None = None
-    com_preco: bool = False
+    preco_liga: q.PrecoLiga = "todos"
 
     def filtro(self) -> q.FiltroCatalogo:
-        return q.FiltroCatalogo(self.busca, self.monitorado, self.categoria or None, self.situacao, self.com_preco)
+        return q.FiltroCatalogo(self.busca, self.monitorado, self.categoria or None, self.situacao, self.preco_liga)
 
 
 class Filtros:
@@ -76,13 +79,13 @@ class Filtros:
         monitorado: q.Monitorado = "todos",
         categoria: str | None = None,
         situacao: Situacao | None = None,
-        com_preco: bool = False,
+        preco_liga: q.PrecoLiga = "todos",
     ):
         self.busca, self.monitorado, self.categoria = busca, monitorado, categoria or None
-        self.situacao, self.com_preco = situacao, com_preco
+        self.situacao, self.preco_liga = situacao, preco_liga
 
     def filtro(self) -> q.FiltroCatalogo:
-        return q.FiltroCatalogo(self.busca, self.monitorado, self.categoria, self.situacao, self.com_preco)
+        return q.FiltroCatalogo(self.busca, self.monitorado, self.categoria, self.situacao, self.preco_liga)
 
 
 class AtivoEntrada(BaseModel):
@@ -141,6 +144,7 @@ class ContagemCasamentosSaida(BaseModel):
 class ProdutoGestaoSaida(BaseModel):
     produto: ProdutoGestao
     monitorado: bool
+    esgotado_liga: bool  # ativo, sem "a partir de" na Liga, com anúncio confirmado com preço (lista "esgotado" do catálogo)
     liga: LigaSaida
     melhor_amazon: MelhorAmazonSaida | None
     casamentos: ContagemCasamentosSaida
@@ -153,7 +157,8 @@ def _linha(linha: q.LinhaCatalogo) -> dict:
         "id": p.id, "nome": p.nome, "nome_en": p.nome_en, "imagem_chave": p.imagem_chave, "categoria": p.tipo,
         "monitorado": p.ativo, "preco_liga": linha.preco_liga, "lojas": linha.lojas,
         "situacao": linha.situacao_casamento, "pendentes": linha.pendentes, "confirmados": linha.confirmados,
-        "melhor_amazon": linha.melhor_amazon,
+        "melhor_amazon": linha.melhor_amazon, "medio_liga": linha.medio_liga,
+        "diferenca_media_pct": linha.diferenca_media_pct, "sem_vendedor_desde": linha.sem_vendedor_desde,
     }
 
 
@@ -170,7 +175,7 @@ def lista(
     with request.app.state.sessoes() as s:
         resultado = q.linhas_catalogo(
             s, busca=f.busca, monitorado=f.monitorado, categoria=f.categoria, situacao=f.situacao,
-            com_preco=f.com_preco, pagina=pagina,
+            preco_liga=f.preco_liga, pagina=pagina,
         )
         categorias = categorias_da_liga(s)
         itens = [_linha(linha) for linha in resultado.itens]
@@ -255,6 +260,7 @@ def produto_gestao(request: Request, produto_id: int, _c: VerCatalogo) -> Produt
                 "pistas": pistas_variacao(produto.nome),
             },
             "monitorado": produto.ativo,
+            "esgotado_liga": produto.ativo and preco_liga is None and melhor is not None,
             "liga": {
                 "preco": preco_liga, "lojas": linha.lojas,
                 "medio": atual.preco_medio if atual else None, "lido_em": atual.listagem_em if atual else None,

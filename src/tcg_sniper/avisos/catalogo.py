@@ -196,10 +196,15 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
         Dados(titulo_extra="ciclo 42", linhas=("Buscas: 37 ok · 1 falha", "Duração: 2 h 5 min")),
     ),
     TipoAviso.AMAZON_MONITOR_CONCLUIDO: _evento(
-        C, "Amazon · rodada do monitor", MONITOR, "O monitor terminou uma volta: leu todos os anúncios acompanhados quando ela começou.",
+        C, "Amazon · rodada do monitor", MONITOR,
+        "Resumo das voltas da fila rápida do monitor (cada volta lê todos os rápidos e nunca lidos de quando ela "
+        "começou); no máximo um aviso por hora.",
         None,
         Dados(
-            linhas=("Anúncios lidos: 24", "Preços em queda: 2", "Conferências de checkout: 1", "Duração: 14 min")
+            linhas=(
+                "Voltas da fila rápida: 4", "Anúncios lidos: 96", "Preços em queda: 2", "Conferências de checkout: 1",
+                "Duração: 58 min",
+            )
         ),
     ),
     TipoAviso.AMAZON_BUSCA_PARCIAL: _evento(

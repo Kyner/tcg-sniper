@@ -29,12 +29,12 @@ def cliente(sessoes, config):
     return TestClient(criar_app(sessoes, c), headers={"Authorization": basic("admin", "segredo")})
 
 
-def confirmado(s, asin, lido_em=None):
+def confirmado(s, asin, lido_em=None, preco="700.00"):
     produto = criar_produto(s, f"p-{asin}", nome=f"Produto {asin}")
     criar_preco_liga(s, produto, "1000.00", listagem_em=AGORA)
     anuncio = criar_anuncio(s, asin, produto=produto, status=StatusCasamento.CONFIRMADO)
     if lido_em is not None:
-        o = oferta_lista("700.00", vendedor="Amazon.com.br", seller_id="amazon", envio=Envio.AMAZON, posicao=0)
+        o = oferta_lista(preco, vendedor="Amazon.com.br", seller_id="amazon", envio=Envio.AMAZON, posicao=0)
         repo_amz.gravar_ofertas(s, anuncio.id, lido_em, [repo_amz.OfertaAvaliada(o, None, True, True)])
         repo_amz.registrar_preco(s, anuncio.id, o.preco, OrigemPreco.OFERTAS, None, Envio.AMAZON, lido_em, SP)
     return anuncio
@@ -149,7 +149,9 @@ def test_logs_tem_as_abas_monitor_e_checkout(cliente):
 def test_card_da_amazon_mostra_monitor_e_conferencia(s, config):
     confirmado(s, "B0LOG00001", lido_em=AGORA - timedelta(minutes=5))
     detalhe = {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon (monitor e checkout)"].detalhe
-    assert detalhe.endswith("monitor: última leitura hoje 16:35 · conferência ligada")
+    assert detalhe.endswith(
+        "monitor: última leitura hoje 16:35 · rápida 1 · lenta 0 · esgotado 0 · conferência ligada"
+    )
     aplicar_config(s, {"checkout_sem_login_em": AGORA}, AGORA)
     detalhe = {x.nome: x for x in painel.saude_servicos(s, AGORA, config, True)}["Amazon (monitor e checkout)"].detalhe
     assert detalhe.endswith("conferência parada: conta sem login")
@@ -182,6 +184,26 @@ def test_dashboard_avisa_monitor_que_nao_cabe_no_intervalo(s, config):
     aplicar_config(s, {"monitor_max_paginas_hora": 10}, AGORA)  # 3 anúncios a cada 15 min = 12 páginas/h
     [aviso] = avisos_de(s, config)
     assert aviso.tipo == "warning" and "12 páginas por hora" in aviso.texto and aviso.link == "/configuracoes"
+
+
+def test_capacidade_por_hora_usa_as_pausas_e_o_tempo_da_pagina(s):
+    assert painel.capacidade_por_hora(repo_amz.obter_config(s)) == 211  # pausas 8-20 s (média 14) + 3 s por página
+
+
+def test_aviso_de_capacidade_conta_so_a_fila_rapida_e_usa_o_menor_limite(s, config):
+    for i in range(18):
+        confirmado(s, f"B0LOGR{i:04}", lido_em=AGORA - timedelta(seconds=30))
+    for i in range(5):
+        confirmado(s, f"B0LOGL{i:04}", lido_em=AGORA - timedelta(seconds=30), preco="990.00")  # lentos
+    aplicar_config(s, {"monitor_max_paginas_hora": 500, "monitor_intervalo_min": 5}, AGORA)
+    [aviso] = avisos_de(s, config)  # 18 rápidos a cada 5 min = 216/h, acima da capacidade de 211 (o teto é 500)
+    assert "precisa de 216 páginas por hora para ler os 18 anúncios da fila rápida a cada 5 min" in aviso.texto
+    assert "(211 por hora: teto 500, pausas de 8–20 s)" in aviso.texto and aviso.link == "/configuracoes"
+
+
+def test_lentos_atrasados_nao_geram_aviso_de_atraso(s, config):
+    confirmado(s, "B0LOG00001", lido_em=AGORA - timedelta(hours=3), preco="990.00")
+    assert avisos_de(s, config) == []
 
 
 def test_dashboard_avisa_monitor_atrasado_so_dentro_da_janela(s, config):
@@ -282,3 +304,12 @@ def test_ja_conferi_so_vale_para_conferencia_a_conferir_a_mao(cliente, sessoes):
         conf = s.get(ConferenciaCheckout, a_mao)
         assert (conf.item_removido, conf.conferir_a_mao_em) == (True, None)
     assert cliente.post(f"/amazon/carrinho/{a_mao}/conferido", follow_redirects=False).status_code == 404
+
+
+def test_servicos_mostra_a_leitura_mais_antiga_do_lento(cliente, sessoes):
+    agora = datetime.now(UTC)
+    with sessoes() as s, s.begin():
+        confirmado(s, "B0LENT0001", lido_em=agora - timedelta(hours=3), preco="990.00")  # 1% abaixo: lento
+        confirmado(s, "B0LENT0002", lido_em=agora - timedelta(hours=1), preco="990.00")
+    texto = cliente.get("/servicos").text
+    assert "lenta 2 (a mais antiga lida há ~3 h)" in texto

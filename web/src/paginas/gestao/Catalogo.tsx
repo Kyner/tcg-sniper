@@ -7,12 +7,14 @@ import { Carregando } from "../../componentes/Carregando";
 import { Foto } from "../../componentes/Foto";
 import { ModalConfirmarLote } from "../../componentes/ModalConfirmarLote";
 import { useFiltrosUrl } from "../../filtrosUrl";
-import { reais } from "../../formato";
+import { dataComAno, pct, reais } from "../../formato";
 import { useSessao } from "../../sessao";
 import type { LinhaCatalogo, ListaCatalogo, LoteCatalogo } from "../../tipos";
 
-export const PADROES_CATALOGO = { busca: "", monitorado: "todos", categoria: "", situacao: "", com_preco: "", pagina: "1" };
-const ORDEM_CHAVES = ["busca", "monitorado", "categoria", "situacao", "com_preco", "pagina"] as const;
+export const PADROES_CATALOGO = {
+  busca: "", monitorado: "todos", categoria: "", situacao: "", preco_liga: "todos", pagina: "1",
+};
+const ORDEM_CHAVES = ["busca", "monitorado", "categoria", "situacao", "preco_liga", "pagina"] as const;
 const ESPERA_BUSCA_MS = 350;
 
 const MONITORADOS: Record<string, string> = { todos: "Todos", sim: "Monitorados", nao: "Não monitorados" };
@@ -20,13 +22,17 @@ const SITUACOES: Record<string, string> = {
   "": "Qualquer situação", casado: "Casado", esperando_decisao: "Esperando decisão", so_ignorados: "Só ignorados",
   sem_candidato: "Sem candidato",
 };
+const PRECOS_LIGA: Record<string, string> = {
+  todos: "Com ou sem preço", com: "Com preço", esgotado: "Esgotado (com anúncio casado)",
+};
 
-/** Query canônica: ordem fixa e vazios fora; a mesma vai para a API, para o produto e para o "voltar". */
+/** Query canônica: ordem fixa, vazios e o "preco_liga" padrão fora; a mesma vai para a API, para o produto e para o "voltar". */
 export function montarQueryCatalogo(filtros: Record<string, string>, comPagina: boolean): string {
   const partes: string[] = [];
   for (const k of ORDEM_CHAVES) {
     if (k === "pagina" && !comPagina) continue;
-    if (filtros[k] !== "") partes.push(`${k}=${encodeURIComponent(filtros[k])}`);
+    if (filtros[k] === "" || (k === "preco_liga" && filtros[k] === PADROES_CATALOGO.preco_liga)) continue;
+    partes.push(`${k}=${encodeURIComponent(filtros[k])}`);
   }
   return partes.join("&");
 }
@@ -78,7 +84,7 @@ export function Catalogo() {
 
   const filtroLote = useCallback(() => ({
     busca: filtros.busca, monitorado: filtros.monitorado, categoria: filtros.categoria || null,
-    situacao: filtros.situacao || null, com_preco: filtros.com_preco === "true",
+    situacao: filtros.situacao || null, preco_liga: filtros.preco_liga,
   }), [filtros]);
 
   async function alternar(p: LinhaCatalogo) {
@@ -185,6 +191,13 @@ export function Catalogo() {
       checked={estaMarcado(p.id)} disabled={todoFiltro !== null || !listaAtual} onChange={(ev) => marcar(p.id, ev.target.checked)}
     />
   );
+  const esgotado = listaAtual && filtros.preco_liga === "esgotado";
+  const diferenca = (p: LinhaCatalogo) => (
+    <span className={Number(p.diferenca_media_pct) > 0 ? "badge badge-success badge-sm" : "badge badge-ghost badge-sm"}>
+      {pct(p.diferenca_media_pct)}
+    </span>
+  );
+  const semVendedor = (p: LinhaCatalogo) => (p.sem_vendedor_desde ? dataComAno(p.sem_vendedor_desde) : "sem registro de preço");
   const situacao = (p: LinhaCatalogo) => (
     <span className="badge badge-outline badge-sm">{SITUACOES[p.situacao] ?? p.situacao}</span>
   );
@@ -212,11 +225,10 @@ export function Catalogo() {
           onChange={(ev) => mudar({ situacao: ev.target.value })}>
           {Object.entries(SITUACOES).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
         </select>
-        <label className="label cursor-pointer justify-start gap-2">
-          <input type="checkbox" className="checkbox checkbox-sm" checked={filtros.com_preco === "true"}
-            onChange={(ev) => mudar({ com_preco: ev.target.checked ? "true" : "" })} />
-          <span>Só com preço</span>
-        </label>
+        <select className="select w-full" aria-label="Preço na Liga" value={filtros.preco_liga}
+          onChange={(ev) => mudar({ preco_liga: ev.target.value })}>
+          {Object.entries(PRECOS_LIGA).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+        </select>
       </fieldset>
 
       {erro && (
@@ -236,7 +248,7 @@ export function Catalogo() {
         <div className="space-y-3 py-6 text-center">
           <p className="opacity-70">{filtrado ? "Nenhum produto com esses filtros" : "O catálogo está vazio"}</p>
           {filtrado && (
-            <button type="button" className="btn btn-sm" onClick={() => { setTexto(""); mudar({ busca: "", monitorado: "todos", categoria: "", situacao: "", com_preco: "" }); }}>
+            <button type="button" className="btn btn-sm" onClick={() => { setTexto(""); mudar({ busca: "", monitorado: "todos", categoria: "", situacao: "", preco_liga: "todos" }); }}>
               Limpar filtros
             </button>
           )}
@@ -264,6 +276,13 @@ export function Catalogo() {
                   <div className="text-xs opacity-70">
                     {reais(p.preco_liga)}{p.categoria ? ` · ${p.categoria}` : ""}
                   </div>
+                  {esgotado && (
+                    <div className="flex flex-wrap items-center gap-1 text-xs">
+                      <span>Amazon {reais(p.melhor_amazon)} · média Liga {reais(p.medio_liga)}</span>
+                      {diferenca(p)}
+                      <span className="opacity-70">sem vendedor desde {semVendedor(p)}</span>
+                    </div>
+                  )}
                   {situacao(p)}
                 </div>
                 {podeEditar && <div className="flex flex-col items-center gap-2">{chave(p)}{caixa(p)}</div>}
@@ -275,7 +294,9 @@ export function Catalogo() {
               <thead>
                 <tr>
                   {podeEditar && <th>Seleção</th>}
-                  <th></th><th>Produto</th><th>Categoria</th><th>Preço Liga</th><th>Melhor Amazon</th><th>Situação</th>
+                  <th></th><th>Produto</th><th>Categoria</th><th>Preço Liga</th><th>Melhor Amazon</th>
+                  {esgotado && <><th>Média Liga</th><th>Diferença</th><th>Sem vendedor desde</th></>}
+                  <th>Situação</th>
                   {podeEditar && <th>Monitorar</th>}
                 </tr>
               </thead>
@@ -292,6 +313,7 @@ export function Catalogo() {
                     <td>{p.categoria ?? "—"}</td>
                     <td>{reais(p.preco_liga)}</td>
                     <td>{reais(p.melhor_amazon)}</td>
+                    {esgotado && <><td>{reais(p.medio_liga)}</td><td>{diferenca(p)}</td><td>{semVendedor(p)}</td></>}
                     <td>{situacao(p)}</td>
                     {podeEditar && <td>{chave(p)}</td>}
                   </tr>

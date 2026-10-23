@@ -3,6 +3,8 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from fakes import T0, criar_anuncio, criar_par, criar_preco_liga, criar_produto, oferta_lista
+from fakes_oportunidades import criar_oportunidade
+from sqlalchemy import select
 
 from tcg_sniper.db import repositorio_amazon as repo
 from tcg_sniper.db.models import (
@@ -12,6 +14,7 @@ from tcg_sniper.db.models import (
     OrigemCasamento,
     OrigemPreco,
     PrecoAtualAmazon,
+    ProdutoLiga,
     SituacaoCheckout,
     StatusCasamento,
 )
@@ -23,6 +26,11 @@ def confirmado(s, asin, liga="1000.00", listagem_em=T0, ativo=True):
     produto = criar_produto(s, f"p-{asin}", ativo=ativo)
     criar_preco_liga(s, produto, liga, listagem_em=listagem_em)
     return criar_anuncio(s, asin, produto=produto, status=StatusCasamento.CONFIRMADO)
+
+
+def produto_de(s, anuncio):
+    """O produto que `confirmado` criou para o anúncio."""
+    return s.scalar(select(ProdutoLiga).where(ProdutoLiga.liga_id == f"p-{anuncio.asin}"))
 
 
 def ler(s, anuncio, quando, *ofertas):
@@ -79,20 +87,173 @@ def test_proximo_do_monitor_nunca_lido_primeiro_depois_o_mais_antigo(s):
     repo.registrar_preco(s, nunca.id, Decimal("10.00"), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, T0, SP)
     ler(s, velho, T0 - timedelta(minutes=40), oferta_lista())
     ler(s, novo, T0 - timedelta(minutes=5), oferta_lista())
-    assert repo.proximo_do_monitor(s, T0, 15) == (nunca.id, "B0MON00001")
-    assert repo.proximo_do_monitor(s, T0, 15, excluir={nunca.id}) == (velho.id, "B0MON00002")
-    assert repo.proximo_do_monitor(s, T0, 15, excluir={nunca.id, velho.id}) is None
-
-
-def test_situacao_do_monitor(s):
-    confirmado(s, "B0MON00001")
-    velho = confirmado(s, "B0MON00002")
-    novo = confirmado(s, "B0MON00003")
-    ler(s, velho, T0 - timedelta(minutes=40), oferta_lista())
-    ler(s, novo, T0 - timedelta(minutes=5), oferta_lista())
-    assert repo.situacao_monitor(s, T0, 15) == repo.SituacaoMonitor(
-        confirmados=3, nunca_lidos=1, vencidos=2, mais_antiga=T0 - timedelta(minutes=40), ultima=T0 - timedelta(minutes=5)
+    cfg = repo.obter_config(s)
+    assert repo.proximo_do_monitor(s, T0, cfg) == repo.ProximoMonitor(nunca.id, "B0MON00001", repo.GrupoMonitor.NUNCA_LIDO)
+    assert repo.proximo_do_monitor(s, T0, cfg, excluir={nunca.id}) == repo.ProximoMonitor(
+        velho.id, "B0MON00002", repo.GrupoMonitor.RAPIDO
     )
+    assert repo.proximo_do_monitor(s, T0, cfg, excluir={nunca.id, velho.id}) is None
+
+
+def grupos(s, piso=10):
+    """Grupo de cada anúncio monitorado, pelo ASIN."""
+    consulta = repo._monitorados(select(AnuncioAmazon.asin, repo._grupo_do_monitor(piso)))
+    return {asin: repo.GrupoMonitor(grupo) for asin, grupo in s.execute(consulta)}
+
+
+def test_grupos_do_monitor(s):
+    confirmado(s, "B0GRP00001")
+    rapido = confirmado(s, "B0GRP00002")
+    perto = confirmado(s, "B0GRP00003")
+    caro = confirmado(s, "B0GRP00004")
+    esgotado = confirmado(s, "B0GRP00005", liga=None)
+    ler(s, rapido, T0, oferta_lista("850.00"))  # 15% abaixo da Liga: passa o piso de 10% do "quase lá"
+    ler(s, perto, T0, oferta_lista("990.00"))  # 1%: lento
+    ler(s, caro, T0, oferta_lista("1200.00"))  # acima da Liga: lento
+    ler(s, esgotado, T0, oferta_lista("850.00"))  # Liga sem "a partir de": esgotado
+    g = repo.GrupoMonitor
+    assert grupos(s) == {
+        "B0GRP00001": g.NUNCA_LIDO, "B0GRP00002": g.RAPIDO, "B0GRP00003": g.LENTO,
+        "B0GRP00004": g.LENTO, "B0GRP00005": g.ESGOTADO,
+    }
+
+
+def test_oportunidade_aberta_fica_no_rapido_mesmo_esgotado(s):
+    aberta = confirmado(s, "B0OPA00001", liga=None)
+    fechada = confirmado(s, "B0OPA00002", liga=None)
+    for anuncio in (aberta, fechada):
+        ler(s, anuncio, T0, oferta_lista("990.00"))
+    criar_oportunidade(s, aberta, produto_de(s, aberta), aberta_em=T0 - timedelta(hours=1))
+    criar_oportunidade(
+        s, fechada, produto_de(s, fechada), aberta_em=T0 - timedelta(hours=2), fechada_em=T0 - timedelta(hours=1)
+    )
+    assert grupos(s) == {"B0OPA00001": repo.GrupoMonitor.RAPIDO, "B0OPA00002": repo.GrupoMonitor.ESGOTADO}
+
+
+def test_piso_do_quase_la_muda_o_grupo(s):
+    a = confirmado(s, "B0PIS00001")
+    ler(s, a, T0, oferta_lista("850.00"))
+    assert grupos(s, 15) == {"B0PIS00001": repo.GrupoMonitor.RAPIDO}  # 15% exatos contam
+    assert grupos(s, 20) == {"B0PIS00001": repo.GrupoMonitor.LENTO}
+
+
+def test_ordem_nunca_lido_rapido_esgotado_lento(s):
+    cfg = repo.obter_config(s)
+    lento = confirmado(s, "B0ORD00001")
+    esgotado = confirmado(s, "B0ORD00002", liga=None)
+    rapido = confirmado(s, "B0ORD00003")
+    nunca = confirmado(s, "B0ORD00004")
+    ler(s, lento, T0 - timedelta(days=30), oferta_lista("990.00"))  # a leitura mais antiga, mas é lento
+    ler(s, esgotado, T0 - timedelta(days=20), oferta_lista("990.00"))
+    ler(s, rapido, T0 - timedelta(minutes=20), oferta_lista("850.00"))
+    ordem, de_lado = [], set()
+    while (proximo := repo.proximo_do_monitor(s, T0, cfg, de_lado)) is not None:
+        ordem.append((proximo.anuncio_id, proximo.grupo))
+        de_lado.add(proximo.anuncio_id)
+    g = repo.GrupoMonitor
+    assert ordem == [(nunca.id, g.NUNCA_LIDO), (rapido.id, g.RAPIDO), (esgotado.id, g.ESGOTADO), (lento.id, g.LENTO)]
+
+
+def test_dentro_do_grupo_a_leitura_mais_antiga_primeiro(s):
+    cfg = repo.obter_config(s)
+    novo = confirmado(s, "B0ANT00001")
+    velho = confirmado(s, "B0ANT00002")
+    ler(s, novo, T0 - timedelta(minutes=20), oferta_lista("990.00"))
+    ler(s, velho, T0 - timedelta(hours=3), oferta_lista("990.00"))
+    assert repo.proximo_do_monitor(s, T0, cfg).anuncio_id == velho.id
+
+
+def test_lento_nao_e_relido_antes_do_intervalo(s):
+    cfg = repo.obter_config(s)  # intervalo de 15 min
+    a = confirmado(s, "B0LEN00001")
+    ler(s, a, T0 - timedelta(minutes=10), oferta_lista("990.00"))
+    assert repo.proximo_do_monitor(s, T0, cfg) is None
+    assert repo.proximo_do_monitor(s, T0 + timedelta(minutes=5), cfg).grupo is repo.GrupoMonitor.LENTO
+
+
+def test_esgotado_so_vence_depois_dos_dias(s):
+    cfg = repo.obter_config(s)  # esgotado: a cada 7 dias
+    a = confirmado(s, "B0ESG00001", liga=None)
+    ler(s, a, T0 - timedelta(days=6), oferta_lista("990.00"))
+    assert repo.proximo_do_monitor(s, T0, cfg) is None
+    assert repo.proximo_do_monitor(s, T0 + timedelta(days=1), cfg).grupo is repo.GrupoMonitor.ESGOTADO
+
+
+def test_cruzar_a_linha_muda_de_grupo(s):
+    a = confirmado(s, "B0CRU00001")
+    ler(s, a, T0 - timedelta(minutes=30), oferta_lista("990.00"))
+    assert grupos(s) == {"B0CRU00001": repo.GrupoMonitor.LENTO}
+    ler(s, a, T0 - timedelta(minutes=15), oferta_lista("850.00"))
+    assert grupos(s) == {"B0CRU00001": repo.GrupoMonitor.RAPIDO}
+    ler(s, a, T0, oferta_lista("990.00"))
+    assert grupos(s) == {"B0CRU00001": repo.GrupoMonitor.LENTO}
+
+
+def test_situacao_do_monitor_por_grupo(s):
+    cfg = repo.obter_config(s)
+    confirmado(s, "B0SIT00001")
+    rapido_velho = confirmado(s, "B0SIT00002")
+    rapido_novo = confirmado(s, "B0SIT00003")
+    lento = confirmado(s, "B0SIT00004")
+    esgotado = confirmado(s, "B0SIT00005", liga=None)
+    ler(s, rapido_velho, T0 - timedelta(minutes=40), oferta_lista())
+    ler(s, rapido_novo, T0 - timedelta(minutes=5), oferta_lista())
+    ler(s, lento, T0 - timedelta(hours=5), oferta_lista("990.00"))  # vencido, mas o lento não conta
+    ler(s, esgotado, T0 - timedelta(days=10), oferta_lista("990.00"))
+    assert repo.situacao_monitor(s, T0, cfg) == repo.SituacaoMonitor(
+        confirmados=5, nunca_lidos=1, rapidos=2, lentos=1, esgotados=1, vencidos=2,
+        mais_antiga_rapida=T0 - timedelta(minutes=40), mais_antiga_lenta=T0 - timedelta(hours=5),
+        ultima=T0 - timedelta(minutes=5),
+    )
+
+
+def buscar(s, anuncio, quando, preco):
+    """Um preço lido no cartão da busca (não é leitura do monitor)."""
+    repo.registrar_preco(s, anuncio.id, Decimal(preco), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, quando, SP)
+
+
+def test_preco_da_busca_nao_faz_o_lento_virar_nunca_lido_nem_muda_o_prazo(s):
+    cfg = repo.obter_config(s)  # intervalo de 15 min: a busca troca o preço atual depois de 30 min
+    lento = confirmado(s, "B0BUS00001")
+    ler(s, lento, T0 - timedelta(minutes=40), oferta_lista("990.00"))
+    buscar(s, lento, T0 - timedelta(minutes=5), "995.00")
+    atual = s.get(PrecoAtualAmazon, lento.id, populate_existing=True)
+    assert (atual.preco, atual.origem) == (Decimal("995.00"), OrigemPreco.BUSCA)  # a busca trocou o preço atual
+    assert grupos(s) == {"B0BUS00001": repo.GrupoMonitor.LENTO}
+    assert repo.ids_da_volta(s, cfg.quase_oportunidade_min_pct) == set()
+    situacao = repo.situacao_monitor(s, T0, cfg)
+    assert (situacao.nunca_lidos, situacao.lentos, situacao.vencidos) == (0, 1, 0)
+    assert situacao.mais_antiga_lenta == situacao.ultima == T0 - timedelta(minutes=40)  # o prazo é da leitura do monitor
+    s.refresh(lento)
+    assert lento.monitor_lido_em == T0 - timedelta(minutes=40)
+
+
+def test_preco_da_busca_decide_o_grupo_mas_nao_o_prazo(s):
+    cfg = repo.obter_config(s)
+    a = confirmado(s, "B0BUS00002")
+    ler(s, a, T0 - timedelta(minutes=40), oferta_lista("990.00"))
+    buscar(s, a, T0 - timedelta(minutes=5), "850.00")  # o preço atual (da busca) entra no "quase lá"
+    assert grupos(s) == {"B0BUS00002": repo.GrupoMonitor.RAPIDO}
+    assert repo.proximo_do_monitor(s, T0, cfg) == repo.ProximoMonitor(a.id, "B0BUS00002", repo.GrupoMonitor.RAPIDO)
+    assert repo.proximo_do_monitor(s, T0 - timedelta(minutes=30), cfg) is None  # lido há 10 min: ainda não venceu
+
+
+def test_anuncio_lido_so_pela_busca_e_nunca_lido(s):
+    cfg = repo.obter_config(s)
+    a = confirmado(s, "B0BUS00003")
+    buscar(s, a, T0 - timedelta(minutes=5), "990.00")
+    assert grupos(s) == {"B0BUS00003": repo.GrupoMonitor.NUNCA_LIDO}
+    assert repo.proximo_do_monitor(s, T0, cfg) == repo.ProximoMonitor(a.id, "B0BUS00003", repo.GrupoMonitor.NUNCA_LIDO)
+    assert repo.ids_da_volta(s, cfg.quase_oportunidade_min_pct) == {a.id}
+
+
+def test_esgotado_com_oportunidade_aberta_entra_na_volta_como_rapido(s):
+    cfg = repo.obter_config(s)
+    a = confirmado(s, "B0BUS00004", liga=None)
+    ler(s, a, T0 - timedelta(minutes=20), oferta_lista("990.00"))
+    criar_oportunidade(s, a, produto_de(s, a), aberta_em=T0 - timedelta(hours=1))
+    assert repo.ids_da_volta(s, cfg.quase_oportunidade_min_pct) == {a.id}
+    assert repo.proximo_do_monitor(s, T0, cfg) == repo.ProximoMonitor(a.id, "B0BUS00004", repo.GrupoMonitor.RAPIDO)
 
 
 def test_busca_nao_sobrescreve_o_preco_lido_nas_ofertas(s):
@@ -270,8 +431,8 @@ def test_monitor_e_checkout_usam_so_o_par_confirmado(s):
     so_pendente = criar_anuncio(s, "B0PAR00002", produto=barato)  # só pendente: fora do monitor e do checkout
     ler(s, anuncio, T0, oferta_lista("700.00"))
     ler(s, so_pendente, T0, oferta_lista("50.00"))
-    assert repo.situacao_monitor(s, T0, 15).confirmados == 1
-    assert repo.proximo_do_monitor(s, T0, 15) is None  # o único confirmado acabou de ser lido
+    assert repo.situacao_monitor(s, T0, cfg).confirmados == 1
+    assert repo.proximo_do_monitor(s, T0, cfg) is None  # o único confirmado acabou de ser lido
     [linha] = repo.confirmados_com_referencia(s, [anuncio.id, so_pendente.id])
     assert linha.produto.liga_id == "p-B0PAR00001" and linha.liga.preco_a_partir == Decimal("1000.00")
     assert [c.asin for c in repo.candidatas_ao_checkout(s, T0, cfg)] == ["B0PAR00001"]  # 30% abaixo de 1.000
@@ -280,8 +441,9 @@ def test_monitor_e_checkout_usam_so_o_par_confirmado(s):
 def test_confirmado_de_produto_inativo_sai_do_monitor_mesmo_com_par_pendente_ativo(s):
     anuncio = confirmado(s, "B0PAR00003", ativo=False)
     criar_par(s, anuncio, criar_produto(s, "ativo-par"))  # corrida: pendente para um produto ativo
-    assert repo.situacao_monitor(s, T0, 15).confirmados == 0
-    assert repo.proximo_do_monitor(s, T0, 15) is None
+    cfg = repo.obter_config(s)
+    assert repo.situacao_monitor(s, T0, cfg).confirmados == 0
+    assert repo.proximo_do_monitor(s, T0, cfg) is None
 
 
 def test_anuncio_so_com_pares_pendentes_ou_ignorados_fica_fora_do_monitor_e_do_checkout(s):
@@ -303,20 +465,22 @@ def test_anuncio_so_com_pares_pendentes_ou_ignorados_fica_fora_do_monitor_e_do_c
     )
     for anuncio in (pendente, ignorado, pelo_automatico):
         ler(s, anuncio, T0 - timedelta(days=1), oferta_lista("100.00"))  # baratos e com leitura vencida
-    situacao = repo.situacao_monitor(s, T0, 15)
+    situacao = repo.situacao_monitor(s, T0, cfg)
     assert (situacao.confirmados, situacao.nunca_lidos, situacao.vencidos) == (1, 0, 0)
-    assert repo.proximo_do_monitor(s, T0, 15) is None
+    assert repo.proximo_do_monitor(s, T0, cfg) is None
     ids = [casado.id, pendente.id, ignorado.id, pelo_automatico.id]
     assert [linha.produto.liga_id for linha in repo.confirmados_com_referencia(s, ids)] == ["p-B0PURO0001"]
     assert repo.candidatas_ao_checkout(s, T0, cfg) == []
 
 
-def test_ids_do_monitor_sao_todos_os_confirmados_ativos_lidos_ou_nao(s):
+def test_ids_da_volta_so_nunca_lidos_e_rapidos(s):
     nunca = confirmado(s, "B0NUNC0001")
-    velho = confirmado(s, "B0VELH0001")
-    novo = confirmado(s, "B0NOVO0001")
+    rapido = confirmado(s, "B0RAPI0001")
+    lento = confirmado(s, "B0LENT0001")
+    esgotado = confirmado(s, "B0ESGO0001", liga=None)
     confirmado(s, "B0INAT0001", ativo=False)  # produto desativado: fora
     criar_anuncio(s, "B0PEND0001", produto=criar_produto(s, "pendente"))  # par pendente: fora
-    ler(s, velho, T0 - timedelta(minutes=20), oferta_lista("990.00", posicao=0))
-    ler(s, novo, T0 - timedelta(minutes=5), oferta_lista("990.00", posicao=0))
-    assert repo.ids_do_monitor(s) == {nunca.id, velho.id, novo.id}
+    ler(s, rapido, T0 - timedelta(minutes=5), oferta_lista("850.00"))  # lido há pouco: entra na volta mesmo assim
+    ler(s, lento, T0 - timedelta(hours=5), oferta_lista("990.00", posicao=0))
+    ler(s, esgotado, T0 - timedelta(days=10), oferta_lista("990.00", posicao=0))
+    assert repo.ids_da_volta(s, 10) == {nunca.id, rapido.id}

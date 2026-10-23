@@ -78,6 +78,7 @@ export function ProdutoGestao() {
           <h1 className="text-2xl font-bold">{produto.nome}</h1>
           {produto.nome_en && produto.nome_en !== produto.nome && <p className="text-sm opacity-70">{produto.nome_en}</p>}
           <p className="text-sm opacity-70">{produto.categoria ?? "Sem categoria"}</p>
+          {dados.esgotado_liga && <span className="badge badge-warning">Esgotado na Liga</span>}
           {produto.pistas.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {produto.pistas.map((p) => <span key={p} className="badge badge-outline badge-sm">{p}</span>)}

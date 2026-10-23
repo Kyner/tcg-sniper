@@ -88,10 +88,11 @@ ESPERADOS = {
     ),
     TipoAviso.AMAZON_MONITOR_CONCLUIDO: (
         "✅ *Amazon · rodada do monitor*\n"
-        "• Anúncios lidos: 24\n"
+        "• Voltas da fila rápida: 4\n"
+        "• Anúncios lidos: 96\n"
         "• Preços em queda: 2\n"
         "• Conferências de checkout: 1\n"
-        "• Duração: 14 min\n"
+        "• Duração: 58 min\n"
         "_18/10 10:42 · monitor Amazon_"
     ),
     TipoAviso.AMAZON_BUSCA_PARCIAL: (

@@ -16,12 +16,17 @@ Em qualquer outro caso (ou depois de `MAX_TENTATIVAS_RETIRADA` falhas) não clic
 "conferir à mão", o grupo admin recebe um aviso (`AMAZON_CARRINHO`, um por ASIN) e o admin mostra o alerta
 com "Já conferi". Com o monitor pausado, a retirada também para.
 
-Rodada do monitor (`AMAZON_MONITOR_CONCLUIDO`) = uma volta inteira: começa no primeiro trabalho com a
-foto de todos os anúncios que o monitor acompanha (confirmados, de produto ativo) e termina quando cada um
-deles foi lido uma vez desde então (ou posto de lado por falha, ou saiu do monitor: desconfirmado ou produto
-desativado), mesmo que outros já tenham vencido de novo; a volta seguinte começa no próximo trabalho. Nunca
-fecha "a cada brecha" (uma volta de só os poucos vencidos naquele instante). A janela que fecha no meio
-descarta a volta sem aviso."""
+O monitor lê em grupos, nesta ordem: nunca lidos, fila rápida (oportunidade aberta ou desconto no piso do
+"quase lá"), esgotados na Liga (relidos a cada `monitor_esgotado_dias`) e lentos (o resto, com a capacidade
+que sobra). Rodada do monitor (`AMAZON_MONITOR_CONCLUIDO`) = uma volta da fila rápida: começa no primeiro
+trabalho com a foto dos nunca lidos e da fila rápida (de anúncios confirmados, de produto ativo) e termina
+quando cada um deles foi lido uma vez desde então (ou posto de lado por falha, ou saiu do monitor:
+desconfirmado ou produto desativado), mesmo que outros já tenham vencido de novo; a volta seguinte começa no
+próximo trabalho. Sem ninguém nessa foto não há volta (nem aviso). Lentos e esgotados lidos durante a volta
+só entram na contagem à parte. Nunca fecha "a cada brecha" (uma volta de só os poucos vencidos naquele
+instante). A janela que fecha no meio descarta a volta sem aviso. Com a fila rápida a volta fecha a cada
+~15 min: as voltas fechadas se somam em memória e sai no máximo um aviso por `INTERVALO_AVISO_RODADA` (o
+primeiro sai na hora), com o total de voltas e das contagens desde o aviso anterior."""
 
 import dataclasses
 import logging
@@ -54,6 +59,7 @@ ESPERA_RETIRADA = timedelta(minutes=15)  # item nosso que não saiu do carrinho:
 RETIRADA_AUTOMATICA_MAX = timedelta(minutes=30)  # marca mais velha que isso: só à mão (o carrinho pode ter mudado)
 MAX_TENTATIVAS_RETIRADA = 3  # falhas da retirada automática antes de passar para "conferir à mão"
 ERROS_DE_PAGINA = (ErroParser, ErroRede, CliqueProibido, SeletorAusente)
+INTERVALO_AVISO_RODADA = timedelta(hours=1)  # no máximo um aviso de rodada do monitor por hora
 MOTIVO_EM_ANDAMENTO = "conferência em andamento (interrompida?): o item pode ter ficado no carrinho"
 
 
@@ -86,6 +92,31 @@ class _Rodada:
     quedas: int = 0
     conferencias: int = 0
     falhas: int = 0  # leituras postas de lado por falha durante a volta
+    lentos: int = 0  # lentos lidos com a capacidade que sobrou (fora da fila rápida)
+    esgotados: int = 0  # esgotados na Liga relidos durante a volta
+
+
+@dataclass
+class _Resumo:
+    """Voltas fechadas desde o último aviso de rodada (o aviso sai no máximo a cada `INTERVALO_AVISO_RODADA`)."""
+
+    inicio: datetime  # início da primeira volta somada
+    voltas: int = 0
+    lidos: int = 0
+    quedas: int = 0
+    conferencias: int = 0
+    falhas: int = 0
+    lentos: int = 0
+    esgotados: int = 0
+
+    def somar(self, rodada: _Rodada) -> None:
+        self.voltas += 1
+        self.lidos += rodada.lidos
+        self.quedas += rodada.quedas
+        self.conferencias += rodada.conferencias
+        self.falhas += rodada.falhas
+        self.lentos += rodada.lentos
+        self.esgotados += rodada.esgotados
 
 
 class _NavegadorContado:
@@ -117,6 +148,8 @@ class VarreduraMonitor(VarreduraBase):
         self._espera: dict[int, datetime] = {}  # anúncio que falhou -> não reler antes de
         self._limpeza_em: date | None = None
         self._rodada: _Rodada | None = None
+        self._resumo: _Resumo | None = None  # voltas fechadas ainda não avisadas
+        self._aviso_rodada_em: datetime | None = None
 
     def inicializar(self) -> None:
         super().inicializar()
@@ -189,17 +222,28 @@ class VarreduraMonitor(VarreduraBase):
             self._fechar_rodada()
 
     def _fechar_rodada(self) -> None:
+        """Soma a volta fechada ao resumo e avisa se o último aviso foi há `INTERVALO_AVISO_RODADA` ou mais."""
         rodada, self._rodada = self._rodada, None
         if rodada is None or (rodada.lidos == 0 and rodada.falhas == 0):
             return
+        if self._resumo is None:
+            self._resumo = _Resumo(rodada.inicio)
+        self._resumo.somar(rodada)
+        agora = self._relogio()
+        if self._aviso_rodada_em is not None and agora - self._aviso_rodada_em < INTERVALO_AVISO_RODADA:
+            return
+        resumo, self._resumo, self._aviso_rodada_em = self._resumo, None, agora
         linhas = [
-            f"Anúncios lidos: {rodada.lidos}",
-            f"Preços em queda: {rodada.quedas}",
-            f"Conferências de checkout: {rodada.conferencias}",
+            f"Voltas da fila rápida: {resumo.voltas}",
+            f"Anúncios lidos: {resumo.lidos}",
+            f"Preços em queda: {resumo.quedas}",
+            f"Conferências de checkout: {resumo.conferencias}",
         ]
-        if rodada.falhas:
-            linhas.append(f"Falhas: {rodada.falhas}")
-        linhas.append(f"Duração: {formatar_duracao(self._relogio() - rodada.inicio)}")
+        if resumo.falhas:
+            linhas.append(f"Falhas: {resumo.falhas}")
+        if resumo.lentos or resumo.esgotados:
+            linhas.append(f"Fora da fila rápida: {resumo.lentos} lentos · {resumo.esgotados} esgotados lidos")
+        linhas.append(f"Duração: {formatar_duracao(agora - resumo.inicio)}")
         dados = Dados(linhas=tuple(linhas))
         self._avisador.avisar(TipoAviso.AMAZON_MONITOR_CONCLUIDO, CHAVE_GERAL, dados)
 
@@ -223,16 +267,16 @@ class VarreduraMonitor(VarreduraBase):
             proximo = None
             acompanhados: set[int] = set()
             if cfg.monitor_ligado:
-                acompanhados = repo_amz.ids_do_monitor(s)
-                proximo = repo_amz.proximo_do_monitor(s, agora, cfg.monitor_intervalo_min, de_lado)
+                acompanhados = repo_amz.ids_da_volta(s, cfg.quase_oportunidade_min_pct)
+                proximo = repo_amz.proximo_do_monitor(s, agora, cfg, de_lado)
         self._talvez_fechar_rodada(acompanhados)
         if not candidatas and proximo is None:
             return None
-        if self._rodada is None:  # foto da volta: todos os acompanhados, não só os vencidos agora
+        if self._rodada is None and acompanhados:  # foto da volta: toda a fila rápida, não só os vencidos agora
             self._rodada = _Rodada(self._relogio(), faltam=set(acompanhados))
         if candidatas:
             return self._conferir(candidatas[0], cfg)
-        return self._monitorar(*proximo, cfg)
+        return self._monitorar(proximo, cfg)
 
     def _talvez_retirar(self, cfg: ConfigAmazon) -> float | None:
         """Tenta tirar do carrinho o item de uma conferência que pode ter ficado lá (marca "em andamento" de
@@ -388,7 +432,8 @@ class VarreduraMonitor(VarreduraBase):
         self._pagina_ok()
         return 0
 
-    def _monitorar(self, anuncio_id: int, asin: str, cfg: ConfigAmazon) -> float:
+    def _monitorar(self, proximo: repo_amz.ProximoMonitor, cfg: ConfigAmazon) -> float:
+        anuncio_id, asin = proximo.anuncio_id, proximo.asin
         ctx = self._contexto(cfg, f"amazon-monitor-{asin}", self._cota_falhas)
         contado = _NavegadorContado(ctx.navegador)
         ctx = dataclasses.replace(ctx, navegador=contado)
@@ -411,9 +456,15 @@ class VarreduraMonitor(VarreduraBase):
         self._registrar_paginas(resultado.paginas)
         self._falhas_seguidas = 0
         self._erros_seguidos = 0
-        rodada = self._rodada_atual()  # aberta em `_passo_monitor`
-        rodada.faltam.discard(anuncio_id)
-        rodada.lidos += 1
-        rodada.quedas += resultado.caiu
+        rodada = self._rodada  # aberta em `_passo_monitor`; None quando a fila rápida está vazia
+        if rodada is not None:
+            rodada.faltam.discard(anuncio_id)
+            rodada.quedas += resultado.caiu  # queda de qualquer grupo (o lento pode cair até o "quase lá")
+            if proximo.grupo is repo_amz.GrupoMonitor.LENTO:
+                rodada.lentos += 1
+            elif proximo.grupo is repo_amz.GrupoMonitor.ESGOTADO:
+                rodada.esgotados += 1
+            else:
+                rodada.lidos += 1
         self._pagina_ok()
         return 0

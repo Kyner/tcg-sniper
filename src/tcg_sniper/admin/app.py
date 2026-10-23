@@ -341,6 +341,11 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         efetiva = request.state.config
         with sessoes() as s, s.begin():
             cfg_amazon = repo_amz.obter_config(s)
+            agora = repo.agora_utc()
+            monitor = repo_amz.situacao_monitor(s, agora, cfg_amazon)
+            lenta_ha_horas = (
+                max(1, round((agora - monitor.mais_antiga_lenta).total_seconds() / 3600)) if monitor.mais_antiga_lenta else None
+            )
             desafio = situacao_desafio(s, repo.agora_utc(), efetiva.zona, efetiva.esfriar_desafio_min)
             return templates.TemplateResponse(
                 request,
@@ -362,7 +367,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "cfg_amazon": cfg_amazon,
                     "a_conferir_a_mao": repo_amz.conferencias_a_conferir_a_mao(s),
                     "janela_monitor": (f"{cfg_amazon.monitor_janela_inicio:%H:%M}", f"{cfg_amazon.monitor_janela_fim:%H:%M}"),
-                    "monitor": repo_amz.situacao_monitor(s, repo.agora_utc(), cfg_amazon.monitor_intervalo_min),
+                    "monitor": monitor,
+                    "lenta_ha_horas": lenta_ha_horas,
                     "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
                     "cfg_ia": repo_ia.obter_config_ia(s),
                     "ia_chave": bool((config.openai_api_key or "").strip()),

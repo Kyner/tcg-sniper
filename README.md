@@ -270,6 +270,8 @@ O item adicionado sai do carrinho na própria conferência, também depois de um
 
 Tudo em Configurações → Amazon → Monitor de preço; liga e desliga em Serviços.
 
+O monitor divide os anúncios confirmados em quatro grupos, nesta ordem de prioridade: (1) **nunca lidos**, lidos primeiro; (2) **fila rápida**, com as oportunidades abertas e os anúncios com desconto a partir do "quase lá", lidos a cada "Fila rápida: ler a cada (min)" (padrão 15; a rodada e o aviso de atraso contam só esta fila); (3) **esgotado na Liga**, produtos sem preço na Liga, lidos uma vez por semana (Configurações → Amazon → "Esgotado na Liga: ler a cada (dias)", padrão 7); (4) **lento**, o resto, lido com a capacidade que sobrar. O card em Serviços mostra as contagens "rápida · lenta · esgotado".
+
 **Login da conta Amazon.** A conferência precisa da conta Amazon logada no Chromium do coletor: entre no noVNC em `http://<IP deste PC>:6081/vnc.html` e faça login. Se a Amazon pedir login (situação `sem_login`), a conferência para (o monitor continua), o item é retirado, o grupo admin recebe um aviso uma vez e, depois de logar de novo pelo noVNC na porta 6081, clique em **Retomar conferência** em Serviços (o botão aparece também com o monitor pausado por CAPTCHA).
 
 Para capturar páginas reais para os testes (só quando o layout da Amazon mudar):

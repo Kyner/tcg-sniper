@@ -155,7 +155,7 @@ def test_numeros_iguais_aos_de_antes_nos_dados_migrados(migrado, config):
         }
         detalhe = casamentos.detalhe_casamento(s, ids["p1"], cfg, AGORA)
         assert (len(detalhe.pendentes), len(detalhe.confirmados), len(detalhe.ignorados)) == (1, 1, 1)
-        situacao = repo_amz.situacao_monitor(s, AGORA, cfg.monitor_intervalo_min)
+        situacao = repo_amz.situacao_monitor(s, AGORA, cfg)
         assert (situacao.confirmados, situacao.nunca_lidos, situacao.vencidos) == (2, 0, 0)
         assert [c.asin for c in repo_amz.candidatas_ao_checkout(s, AGORA, cfg)] == ["BREG000001"]
         ofertas = {

@@ -262,6 +262,9 @@ class AnuncioAmazon(Base):
     url: Mapped[str] = mapped_column(Text)
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
+    # Última leitura das ofertas pelo monitor (NULL se nunca leu). A busca pode trocar o preço atual
+    # (`PrecoAtualAmazon`) sem ser leitura do monitor: o prazo e a ordem do monitor vêm daqui.
+    monitor_lido_em: Mapped[datetime | None] = mapped_column(DATA)
 
     @property
     def titulo_exibicao(self) -> str:
@@ -481,6 +484,7 @@ LIMITES_CONFIG_AMAZON: dict[str, tuple[int, int]] = {
     "vendedor_reavaliar_dias": (1, 90),
     "monitor_intervalo_min": (5, 1440),
     "monitor_max_paginas_hora": (1, 1000),
+    "monitor_esgotado_dias": (1, 30),
     "margem_candidata_pp": (0, 50),
     "checkout_validade_h": (1, 72),
     "descoberta_casados_dias": (1, 60),
@@ -508,6 +512,7 @@ PADROES_CONFIG_AMAZON: dict[str, object] = {
     "monitor_janela_inicio": time(8, 0),
     "monitor_janela_fim": time(22, 0),
     "monitor_max_paginas_hora": 150,
+    "monitor_esgotado_dias": 7,
     "margem_candidata_pp": 5,
     "checkout_validade_h": 6,
     "descoberta_casados_dias": 7,
@@ -552,6 +557,7 @@ class ConfigAmazon(Base):
     monitor_janela_fim: Mapped[time] = mapped_column(Time)
     monitor_intervalo_min: Mapped[int] = mapped_column(Integer)
     monitor_max_paginas_hora: Mapped[int] = mapped_column(Integer)
+    monitor_esgotado_dias: Mapped[int] = mapped_column(Integer)
     margem_candidata_pp: Mapped[int] = mapped_column(Integer)
     checkout_validade_h: Mapped[int] = mapped_column(Integer)
     descoberta_casados_dias: Mapped[int] = mapped_column(Integer)
