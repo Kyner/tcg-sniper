@@ -126,8 +126,8 @@ def esgotados(sessoes):
     """Sem "a partir de" na Liga: com média e anúncio confirmado com preço (A: 50%, C: 10%), sem média (B, sem linha
     na Liga), com anúncio confirmado sem preço (D) e só com pendente com preço (E); F tem preço na Liga."""
     with sessoes() as s, s.begin():
-        def produto(chave, nome, liga=None, medio=None, sem_liga=False):
-            p = criar_produto(s, chave, nome=nome)
+        def produto(chave, nome, liga=None, medio=None, sem_liga=False, ativo=True):
+            p = criar_produto(s, chave, nome=nome, ativo=ativo)
             if not sem_liga:
                 criar_preco_liga(s, p, liga, preco_medio=medio)
             return p
@@ -148,16 +148,19 @@ def esgotados(sessoes):
         anuncio("B0ESGOTE01", e, "10.00", PENDENTE)
         f = produto("f", "Fi F", liga="100.00", medio="100.00")
         anuncio("B0ESGOTF01", f, "50.00")
+        g = produto("g", "Gama G inativo", medio="300.00", ativo=False)  # esgotado, mas não monitorado: fica fora
+        anuncio("B0ESGOTG01", g, "100.00")
         criar_listagem_liga(s, a, "150.00", T0 - timedelta(days=10))
         criar_listagem_liga(s, a, "140.00", T0 - timedelta(days=5))
         criar_listagem_liga(s, a, None, T0 - timedelta(days=2))
         criar_listagem_liga(s, c, None, T0 - timedelta(days=1))
-        return {"a": a.id, "b": b.id, "c": c.id, "d": d.id, "e": e.id, "f": f.id}
+        return {"a": a.id, "b": b.id, "c": c.id, "d": d.id, "e": e.id, "f": f.id, "g": g.id}
 
 
 def test_filtro_esgotado_so_com_anuncio_com_preco(sessoes, esgotados):
     with sessoes() as s:
-        assert set(_nomes(s, preco_liga="esgotado")) == {"Zeta A", "Alfa B", "Beta C"}
+        assert set(_nomes(s, preco_liga="esgotado")) == {"Zeta A", "Alfa B", "Beta C"}  # sem o inativo G
+        assert _nomes(s, preco_liga="esgotado", monitorado="nao") == []
         assert _nomes(s, preco_liga="com") == ["Fi F"]
         with pytest.raises(ValueError):
             _nomes(s, preco_liga="talvez")
@@ -196,6 +199,10 @@ def test_contar_filtro_esgotado_igual_a_lista(sessoes, esgotados):
         assert contar_filtro(s, filtro) == pagina.total == 3 and len(pagina.itens) == 2
         assert [i.produto.nome for i in pagina.itens] == ["Zeta A", "Beta C"]
         assert contar_filtro(s, FiltroCatalogo(preco_liga="esgotado", busca="beta")) == 1
+        assert contar_filtro(s, FiltroCatalogo(preco_liga="esgotado", busca="gama")) == 0  # inativo fora
+    with sessoes() as s, s.begin():
+        assert aplicar_lote(s, True, filtro, T0) == 0  # não liga o inativo G
+    assert _ativos(sessoes) == {"a", "b", "c", "d", "e", "f"}
     with sessoes() as s, s.begin():
         assert aplicar_lote(s, False, filtro, T0) == 3
     assert _ativos(sessoes) == {"d", "e", "f"}

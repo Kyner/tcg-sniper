@@ -194,7 +194,10 @@ def esgotado(sessoes, catalogo):
         criar_atual_amazon(s, criar_anuncio(s, "B0CATESG01", p, StatusCasamento.CONFIRMADO), "100.00")
         criar_listagem_liga(s, p, "150.00", T0 - timedelta(days=3))
         criar_listagem_liga(s, p, None, T0 - timedelta(days=1))
-        return p.id
+        inativo = criar_produto(s, "esg-off", ativo=False, nome="Esgotado Inativo")  # fora da lista esgotado
+        criar_preco_liga(s, inativo, None, preco_medio="300.00")
+        criar_atual_amazon(s, criar_anuncio(s, "B0CATESG02", inativo, StatusCasamento.CONFIRMADO), "100.00")
+        return {"ativo": p.id, "inativo": inativo.id}
 
 
 def test_lista_esgotado_com_media_diferenca_e_sem_vendedor_desde(cliente, logar, esgotado):
@@ -202,7 +205,7 @@ def test_lista_esgotado_com_media_diferenca_e_sem_vendedor_desde(cliente, logar,
     corpo = cliente.get(LISTA, params={"preco_liga": "esgotado"}).json()
     assert corpo["total"] == 1
     [item] = corpo["itens"]
-    assert item["id"] == esgotado and item["preco_liga"] is None
+    assert item["id"] == esgotado["ativo"] and item["preco_liga"] is None  # o inativo fica fora
     assert Decimal(item["melhor_amazon"]) == Decimal("100.00") and Decimal(item["medio_liga"]) == Decimal("200.00")
     assert Decimal(item["diferenca_media_pct"]) == Decimal("50.00")
     assert datetime.fromisoformat(item["sem_vendedor_desde"]) == T0 - timedelta(days=3)
@@ -211,7 +214,7 @@ def test_lista_esgotado_com_media_diferenca_e_sem_vendedor_desde(cliente, logar,
     assert Decimal(caixa["diferenca_media_pct"]) == Decimal("41.67")
     assert cliente.get(LISTA, params={"preco_liga": "com"}).json()["total"] == 3
     assert cliente.get(LISTA, params={"preco_liga": "x"}).status_code == 422
-    assert cliente.get(LISTA, params={"com_preco": True}).json()["total"] == 6  # parâmetro antigo é ignorado
+    assert cliente.get(LISTA, params={"com_preco": True}).json()["total"] == 7  # parâmetro antigo é ignorado
 
 
 def test_lote_esgotado_aplica_aos_mesmos_da_lista(cliente, logar, sessoes, esgotado):
@@ -219,6 +222,9 @@ def test_lote_esgotado_aplica_aos_mesmos_da_lista(cliente, logar, sessoes, esgot
     filtro = {"preco_liga": "esgotado"}
     r = cliente.post(LOTE, json={"acao": "desligar", "filtro": filtro, "esperado": 0, "confirmar": False})
     assert r.json() == {"alvo": 1, "alterados": 0}
+    r = cliente.post(LOTE, json={"acao": "ligar", "filtro": filtro, "esperado": 1, "confirmar": True})
+    assert r.json() == {"alvo": 1, "alterados": 0}  # o inativo não é ligado
+    assert "esg-off" not in _ativos(sessoes)
     r = cliente.post(LOTE, json={"acao": "desligar", "filtro": filtro, "esperado": 1, "confirmar": True})
     assert r.status_code == 200 and r.json() == {"alvo": 1, "alterados": 1}
     assert _ativos(sessoes) == {"cx0", "cx1", "cx2"}
@@ -230,7 +236,8 @@ def test_lote_esgotado_aplica_aos_mesmos_da_lista(cliente, logar, sessoes, esgot
 
 def test_produto_de_gestao_diz_se_esta_esgotado_na_liga(cliente, logar, catalogo, esgotado):
     logar(Papel.OPERADOR)
-    assert cliente.get(f"{PRODUTO}/{esgotado}").json()["esgotado_liga"] is True
+    assert cliente.get(f"{PRODUTO}/{esgotado['ativo']}").json()["esgotado_liga"] is True
+    assert cliente.get(f"{PRODUTO}/{esgotado['inativo']}").json()["esgotado_liga"] is False
     assert cliente.get(f"{PRODUTO}/{catalogo['cx0']}").json()["esgotado_liga"] is False
     assert cliente.get(f"{PRODUTO}/{catalogo['bd0']}").json()["esgotado_liga"] is False  # sem anúncio com preço
 

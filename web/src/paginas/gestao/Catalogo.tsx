@@ -197,7 +197,7 @@ export function Catalogo() {
       {pct(p.diferenca_media_pct)}
     </span>
   );
-  const semVendedor = (p: LinhaCatalogo) => (p.sem_vendedor_desde ? dataComAno(p.sem_vendedor_desde) : "sem registro");
+  const semVendedor = (p: LinhaCatalogo) => (p.sem_vendedor_desde ? dataComAno(p.sem_vendedor_desde) : "sem registro de preço");
   const situacao = (p: LinhaCatalogo) => (
     <span className="badge badge-outline badge-sm">{SITUACOES[p.situacao] ?? p.situacao}</span>
   );

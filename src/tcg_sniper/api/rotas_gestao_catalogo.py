@@ -144,7 +144,7 @@ class ContagemCasamentosSaida(BaseModel):
 class ProdutoGestaoSaida(BaseModel):
     produto: ProdutoGestao
     monitorado: bool
-    esgotado_liga: bool  # sem "a partir de" na Liga e com anúncio confirmado com preço (lista "esgotado" do catálogo)
+    esgotado_liga: bool  # ativo, sem "a partir de" na Liga, com anúncio confirmado com preço (lista "esgotado" do catálogo)
     liga: LigaSaida
     melhor_amazon: MelhorAmazonSaida | None
     casamentos: ContagemCasamentosSaida
@@ -260,7 +260,7 @@ def produto_gestao(request: Request, produto_id: int, _c: VerCatalogo) -> Produt
                 "pistas": pistas_variacao(produto.nome),
             },
             "monitorado": produto.ativo,
-            "esgotado_liga": preco_liga is None and melhor is not None,
+            "esgotado_liga": produto.ativo and preco_liga is None and melhor is not None,
             "liga": {
                 "preco": preco_liga, "lojas": linha.lojas,
                 "medio": atual.preco_medio if atual else None, "lido_em": atual.listagem_em if atual else None,

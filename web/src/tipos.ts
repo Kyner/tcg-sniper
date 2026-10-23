@@ -245,7 +245,7 @@ export interface LinhaCatalogo {
   medio_liga: string | null;
   /** Quanto a Amazon está abaixo da média de venda da Liga (negativo: acima). */
   diferenca_media_pct: string | null;
-  /** Última coleta da listagem em que o produto teve "a partir de"; null = sem registro. */
+  /** Última coleta da listagem em que o produto teve "a partir de"; null = sem registro de preço. */
   sem_vendedor_desde: string | null;
 }
 

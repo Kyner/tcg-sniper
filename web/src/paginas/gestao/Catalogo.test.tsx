@@ -153,7 +153,7 @@ describe("Catálogo", () => {
     expect(t.getByText("R$ 200,00")).toBeInTheDocument();
     expect(t.getByText("50%")).toBeInTheDocument();
     expect(t.getByText("10/10/2026")).toBeInTheDocument();
-    expect(t.getByText("sem registro")).toBeInTheDocument();
+    expect(t.getByText("sem registro de preço")).toBeInTheDocument();
     expect(chamadas.some((c) => c.caminho === "/api/gestao/catalogo?monitorado=todos&preco_liga=esgotado&pagina=1")).toBe(true);
     expect(t.getByRole("link", { name: /Lair of the Hydra/ })).toHaveAttribute(
       "href", "/gestao/produtos/5?monitorado=todos&preco_liga=esgotado&pagina=1",

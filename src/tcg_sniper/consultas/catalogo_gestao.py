@@ -130,7 +130,7 @@ class FiltroCatalogo:
     monitorado: Monitorado = "todos"
     categoria: str | None = None
     situacao: str | None = None  # uma de SITUACOES_PRODUTO; None = todas
-    # "com": com "a partir de" na Liga; "esgotado": sem "a partir de" e com anúncio confirmado com preço na Amazon
+    # "com": com "a partir de" na Liga; "esgotado": ativo, sem "a partir de" e com anúncio confirmado com preço
     preco_liga: PrecoLiga = "todos"
 
 
@@ -215,7 +215,8 @@ def _consulta(filtro: FiltroCatalogo, *colunas):
     if filtro.preco_liga == "com":
         condicoes.append(PrecoAtualLiga.preco_a_partir.is_not(None))
     elif filtro.preco_liga == "esgotado":
-        # sem linha em preco_atual_liga também conta (outer join); a subconsulta do IN não é correlacionada
+        # só produto ativo; sem linha em preco_atual_liga também conta (outer join); o IN não é correlacionado
+        condicoes.append(ProdutoLiga.ativo.is_(True))
         condicoes.append(PrecoAtualLiga.preco_a_partir.is_(None))
         condicoes.append(ProdutoLiga.id.in_(select(_confirmados_com_preco().subquery().c.produto_id)))
     if filtro.situacao is not None:
