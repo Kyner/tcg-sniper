@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-23 (fase 3, entrega 3A em produção desde 2026-10-22 11:37; próxima: 3B; monitor por grupo pronto para o merge).
+Última revisão: 2026-10-23 (monitor por grupo e atualizações de segurança em produção desde 13:28; os serviços de coleta seguem pausados no admin até a liberação do usuário; próxima entrega: 3B).
 
 ## Ordem sugerida
 
-1. Monitor por grupo: mesclar e implantar junto com as atualizações de segurança (a produção está parada até lá); depois acompanhar a primeira semana (seção 3).
+1. Retomar os serviços de coleta (pausados no admin desde a parada de segurança de 2026-10-23), conferir a Amazon logada no noVNC do monitor e acompanhar a primeira semana do monitor por grupo (seção 3).
 2. Conferir a 3A em produção (seção 3, "Fase 3A").
 3. Site novo, fase 3, entrega 3B (Serviços, Atividade e Dashboard), depois 3C (Configurações, Ofertas e Mensagens) e a fase 4 (desligar o admin antigo). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1 (segurança do login), **obrigatória antes de publicar na internet ou vender acesso**.
@@ -22,8 +22,6 @@ Nenhum no momento.
 
 ### Para resolver logo (achados da auditoria de UX de 2026-10-21)
 
-- [ ] **Monitor da Amazon atrasado**: a correção (grupos de prioridade: nunca lidos, fila rápida, esgotado na Liga semanal e lento com a sobra) está pronta para o merge; o deploy vai junto com as atualizações de segurança (ver `docs/IMPLANTACOES.md`). Spec: `docs/superpowers/specs/2026-10-22-monitor-prioridade-design.md`; plano em `docs/superpowers/plans/`.
-- [ ] **Atualizações de segurança de 2026-10-23** (pesquisa de alertas recentes de Node, Python e PHP; PHP não é usado): certifi ≥ 2026.10.19 (CAs comprometidas, GHSA-6q48-6c7w-9gw2), Playwright 1.64.1 (Chromium com o zero-day do V8 CVE-2026-87491 corrigido), Pillow 13.0.0 (estouro no decodificador JPEG e outros; imagens agora só JPEG/PNG/WEBP/GIF) e a imagem do build do site em Node 24.22.1. Prontas para o merge; o deploy vai junto com o monitor por grupo. A produção ficou parada de propósito em 2026-10-23 até este deploy.
 - [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete.
 
 ## 1. Segurança antes da internet (prioridade alta)
@@ -127,8 +125,10 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/casamentos` e `/gestao/catalogo`) e olhar à mão, no celular e nos temas claro e escuro, a revisão de um produto e a página do produto (roteiro em `docs/IMPLANTACOES.md`).
 - [ ] LigaMagic está desligada em Serviços desde 2026-10-21; religar quando quiser a coleta de volta.
 
-### Monitor por grupo (depois do deploy)
+### Monitor por grupo e atualizações de segurança (em produção desde 2026-10-23 13:28)
 
+- [ ] Retomar em Serviços a LigaMagic, a Amazon (busca e monitor) e o casador, pausados no admin durante a parada de segurança, e conferir no noVNC `:6081` que a Amazon segue logada com o Chromium novo (Playwright 1.64.1); na primeira coleta da Liga, conferir que o Cloudflare não pede desafio.
+- [ ] Primeira rodada de cópia de fotos com a Pillow 13 (Logs → Manutenção): falha só nos itens fora de JPEG/PNG/WEBP/GIF.
 - [ ] Primeira semana: conferir o ritmo da fila rápida (card em Serviços), quão velhas ficam as leituras do grupo lento e o tamanho da lista "esgotado na Liga" (Catálogo), vendo se algum desses produtos merece ação.
 - [ ] Se a fila rápida crescer demais, ajustar `quase_oportunidade_min_pct` ou o intervalo da fila rápida.
 
@@ -213,6 +213,19 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Monitor da Amazon com prioridade por grupo (merge `f98b44d`, em produção desde 2026-10-23 13:28)
+
+Spec `docs/superpowers/specs/2026-10-22-monitor-prioridade-design.md`, plano `docs/superpowers/plans/2026-10-22-monitor-prioridade.md`; migrações `c5e1a8d3f7b2` (`monitor_esgotado_dias`) e `e7b3d9f1a4c6` (`anuncio_amazon.monitor_lido_em`, preenchida com a última leitura das ofertas); backup em `dados/backups/tcg-antes-monitor-e-seguranca-2026-10-23.dump`. No deploy: 657 confirmados — 32 na fila rápida, 486 lentos, 135 esgotados na Liga, 4 nunca lidos; intervalo da fila rápida de volta a 15 min.
+
+- [x] Grupos de leitura: nunca lidos primeiro; fila rápida (oportunidade aberta ou desconto ≥ piso do "quase lá") a cada `monitor_intervalo_min`; esgotado na Liga a cada `monitor_esgotado_dias` (7); lento com a sobra, nunca antes do intervalo. Grupo pelo preço atual; "lido" pela hora própria do monitor (a busca não embaralha mais a fila).
+- [x] Volta do monitor só com a fila rápida; aviso "rodada do monitor" no máximo uma vez por hora (resumo das voltas).
+- [x] Painel: card com "rápida · lenta · esgotado"; aviso de capacidade conta só a fila rápida e compara com o teto e com a capacidade pelas pausas; aviso de atraso só para a fila rápida.
+- [x] Catálogo da gestão: filtro "Esgotado (com anúncio casado)" (só produtos ativos) com preço da Amazon, média de venda da Liga, diferença e desde quando sem vendedor; selo no produto.
+
+### Atualizações de segurança (merge `39235f0`, em produção desde 2026-10-23 13:28)
+
+- [x] certifi 2026.10.23 (≥ 2026.10.19, CAs comprometidas, GHSA-6q48-6c7w-9gw2, travado por `constraint-dependencies`), Playwright 1.64.1 (Chromium com o zero-day do V8 corrigido), Pillow 13.0.0 (imagens só JPEG/PNG/WEBP/GIF; `ValueError` tratado) e a imagem do build do site em Node 24.22.1. PHP não é usado. A produção ficou parada de propósito das ~11h às 13:28 de 2026-10-23.
 
 ### Logs › Monitor e Checkout com o produto certo (2026-10-22)
 

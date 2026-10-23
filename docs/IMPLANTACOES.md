@@ -4,7 +4,7 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 
 Da mais nova para a mais antiga.
 
-## Monitor da Amazon com prioridade por grupo (2026-10-23)
+## Monitor da Amazon com prioridade por grupo (2026-10-23, implantado às 13:28)
 
 Sai no mesmo deploy das atualizações de segurança (seção abaixo), numa subida só; a produção ficou parada de propósito até este deploy.
 
@@ -29,7 +29,7 @@ Sai no mesmo deploy das atualizações de segurança (seção abaixo), numa subi
    - no site novo, Gestão → Catálogo → filtro "Preço na Liga" → "Esgotado (com anúncio casado)" lista só produtos monitorados, para decidir o que fazer com eles;
    - o aviso "Amazon · rodada do monitor" sai no máximo uma vez por hora (somando as voltas da fila rápida, que fecham a cada ~15 min), começando por "Voltas da fila rápida: N".
 
-## Atualizações de segurança (2026-10-23)
+## Atualizações de segurança (2026-10-23, implantadas às 13:28)
 
 Vão no mesmo deploy do monitor por grupo (a produção ficou parada de propósito até aqui). Sem migração própria (as do monitor pedem o backup).
 
