@@ -101,6 +101,7 @@ FORMULARIO_AMAZON = {
     "monitor_janela_inicio": "08:00",
     "monitor_janela_fim": "22:00",
     "monitor_max_paginas_hora": "150",
+    "monitor_esgotado_dias": "7",
     "margem_candidata_pp": "5",
     "checkout_validade_h": "6",
     "descoberta_casados_dias": "7",
