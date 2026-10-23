@@ -207,6 +207,55 @@ def test_situacao_do_monitor_por_grupo(s):
     )
 
 
+def buscar(s, anuncio, quando, preco):
+    """Um preço lido no cartão da busca (não é leitura do monitor)."""
+    repo.registrar_preco(s, anuncio.id, Decimal(preco), OrigemPreco.BUSCA, None, Envio.DESCONHECIDO, quando, SP)
+
+
+def test_preco_da_busca_nao_faz_o_lento_virar_nunca_lido_nem_muda_o_prazo(s):
+    cfg = repo.obter_config(s)  # intervalo de 15 min: a busca troca o preço atual depois de 30 min
+    lento = confirmado(s, "B0BUS00001")
+    ler(s, lento, T0 - timedelta(minutes=40), oferta_lista("990.00"))
+    buscar(s, lento, T0 - timedelta(minutes=5), "995.00")
+    atual = s.get(PrecoAtualAmazon, lento.id, populate_existing=True)
+    assert (atual.preco, atual.origem) == (Decimal("995.00"), OrigemPreco.BUSCA)  # a busca trocou o preço atual
+    assert grupos(s) == {"B0BUS00001": repo.GrupoMonitor.LENTO}
+    assert repo.ids_da_volta(s, cfg.quase_oportunidade_min_pct) == set()
+    situacao = repo.situacao_monitor(s, T0, cfg)
+    assert (situacao.nunca_lidos, situacao.lentos, situacao.vencidos) == (0, 1, 0)
+    assert situacao.mais_antiga_lenta == situacao.ultima == T0 - timedelta(minutes=40)  # o prazo é da leitura do monitor
+    s.refresh(lento)
+    assert lento.monitor_lido_em == T0 - timedelta(minutes=40)
+
+
+def test_preco_da_busca_decide_o_grupo_mas_nao_o_prazo(s):
+    cfg = repo.obter_config(s)
+    a = confirmado(s, "B0BUS00002")
+    ler(s, a, T0 - timedelta(minutes=40), oferta_lista("990.00"))
+    buscar(s, a, T0 - timedelta(minutes=5), "850.00")  # o preço atual (da busca) entra no "quase lá"
+    assert grupos(s) == {"B0BUS00002": repo.GrupoMonitor.RAPIDO}
+    assert repo.proximo_do_monitor(s, T0, cfg) == repo.ProximoMonitor(a.id, "B0BUS00002", repo.GrupoMonitor.RAPIDO)
+    assert repo.proximo_do_monitor(s, T0 - timedelta(minutes=30), cfg) is None  # lido há 10 min: ainda não venceu
+
+
+def test_anuncio_lido_so_pela_busca_e_nunca_lido(s):
+    cfg = repo.obter_config(s)
+    a = confirmado(s, "B0BUS00003")
+    buscar(s, a, T0 - timedelta(minutes=5), "990.00")
+    assert grupos(s) == {"B0BUS00003": repo.GrupoMonitor.NUNCA_LIDO}
+    assert repo.proximo_do_monitor(s, T0, cfg) == repo.ProximoMonitor(a.id, "B0BUS00003", repo.GrupoMonitor.NUNCA_LIDO)
+    assert repo.ids_da_volta(s, cfg.quase_oportunidade_min_pct) == {a.id}
+
+
+def test_esgotado_com_oportunidade_aberta_entra_na_volta_como_rapido(s):
+    cfg = repo.obter_config(s)
+    a = confirmado(s, "B0BUS00004", liga=None)
+    ler(s, a, T0 - timedelta(minutes=20), oferta_lista("990.00"))
+    criar_oportunidade(s, a, produto_de(s, a), aberta_em=T0 - timedelta(hours=1))
+    assert repo.ids_da_volta(s, cfg.quase_oportunidade_min_pct) == {a.id}
+    assert repo.proximo_do_monitor(s, T0, cfg) == repo.ProximoMonitor(a.id, "B0BUS00004", repo.GrupoMonitor.RAPIDO)
+
+
 def test_busca_nao_sobrescreve_o_preco_lido_nas_ofertas(s):
     a = confirmado(s, "B0MON00001")
     ler(s, a, T0, oferta_lista("700.00", vendedor="Amazon.com.br", seller_id="amazon", envio=Envio.AMAZON, posicao=0))

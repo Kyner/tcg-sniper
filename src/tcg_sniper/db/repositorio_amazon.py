@@ -217,6 +217,7 @@ def registrar_preco(
     leitura do dia. Vendedor/envio só mudam numa leitura de origem `produto` ou `ofertas`; a busca
     não troca o preço atual lido nas ofertas enquanto essa leitura tem até 2 × `monitor_intervalo_min`
     (depois disso troca, para o preço não congelar com o monitor desligado ou fora do anúncio).
+    A leitura das ofertas marca `AnuncioAmazon.monitor_lido_em` (prazo e ordem do monitor), que a busca não mexe.
 
     Contrato com o monitor: a leitura das ofertas chama `gravar_ofertas(lida_em=agora)` e esta função
     com o mesmo `agora`; `PrecoAtualAmazon.coletado_em` aponta a leitura atual das ofertas
@@ -242,6 +243,8 @@ def registrar_preco(
                 vendedor_id=vendedor_id, envio=envio,
             )
         )
+    if origem is OrigemPreco.OFERTAS:
+        s.execute(update(AnuncioAmazon).where(AnuncioAmazon.id == anuncio_id).values(monitor_lido_em=agora))
     if origem is OrigemPreco.BUSCA:
         leitura_atual = s.execute(
             select(PrecoAtualAmazon.origem, PrecoAtualAmazon.coletado_em).where(PrecoAtualAmazon.anuncio_id == anuncio_id)
@@ -493,11 +496,6 @@ def marcar_visto(s: Session, anuncio_id: int, agora: datetime) -> None:
     s.flush()
 
 
-def _leitura_do_monitor():
-    """Quando o monitor leu o anúncio pela última vez (NULL se a última leitura não foi das ofertas)."""
-    return case((PrecoAtualAmazon.origem == OrigemPreco.OFERTAS, PrecoAtualAmazon.coletado_em), else_=None)
-
-
 def _confirmados_ativos(consulta):
     """Anúncios com par confirmado de produto ativo (o par confirmado é um só por anúncio)."""
     return (
@@ -525,7 +523,8 @@ def _monitorados(consulta):
 def _grupo_do_monitor(piso_pct: int) -> ColumnElement[str]:
     """O grupo do anúncio pela última leitura (sobre `_monitorados`). O desconto é só preço, como em
     `motor.atinge_desconto`: Amazon atual contra o "a partir de" atual da Liga, sem filtro de vendedor nem
-    de idade do preço da Liga. Oportunidade aberta fica no rápido até fechar."""
+    de idade do preço da Liga, qualquer que seja a origem do preço atual (a busca pode tê-lo trocado).
+    Nunca lido é quem o monitor nunca leu (`monitor_lido_em` nulo). Oportunidade aberta fica no rápido até fechar."""
     amazon, liga = PrecoAtualAmazon.preco, PrecoAtualLiga.preco_a_partir
     aberta = (
         select(Oportunidade.id)
@@ -534,7 +533,7 @@ def _grupo_do_monitor(piso_pct: int) -> ColumnElement[str]:
     )
     no_piso = and_(amazon > 0, liga > 0, amazon * 100 <= liga * (100 - piso_pct))
     return case(
-        (_leitura_do_monitor().is_(None), GrupoMonitor.NUNCA_LIDO.value),
+        (AnuncioAmazon.monitor_lido_em.is_(None), GrupoMonitor.NUNCA_LIDO.value),
         (aberta, GrupoMonitor.RAPIDO.value),
         (no_piso, GrupoMonitor.RAPIDO.value),
         (liga.is_(None), GrupoMonitor.ESGOTADO.value),
@@ -543,13 +542,14 @@ def _grupo_do_monitor(piso_pct: int) -> ColumnElement[str]:
 
 
 def _grupos(piso_pct: int):
-    """Subconsulta (id, asin, grupo, leitura) de cada anúncio que o monitor acompanha."""
+    """Subconsulta (id, asin, grupo, leitura) de cada anúncio que o monitor acompanha; `leitura` é a última
+    leitura do monitor (`monitor_lido_em`), não a do preço atual."""
     return _monitorados(
         select(
             AnuncioAmazon.id,
             AnuncioAmazon.asin,
             _grupo_do_monitor(piso_pct).label("grupo"),
-            _leitura_do_monitor().label("leitura"),
+            AnuncioAmazon.monitor_lido_em.label("leitura"),
         )
     ).subquery()
 

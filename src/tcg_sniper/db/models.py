@@ -262,6 +262,9 @@ class AnuncioAmazon(Base):
     url: Mapped[str] = mapped_column(Text)
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
+    # Última leitura das ofertas pelo monitor (NULL se nunca leu). A busca pode trocar o preço atual
+    # (`PrecoAtualAmazon`) sem ser leitura do monitor: o prazo e a ordem do monitor vêm daqui.
+    monitor_lido_em: Mapped[datetime | None] = mapped_column(DATA)
 
     @property
     def titulo_exibicao(self) -> str:
