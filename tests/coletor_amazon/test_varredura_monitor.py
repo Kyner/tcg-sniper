@@ -599,7 +599,8 @@ def test_rodada_do_monitor_avisa_quando_fica_em_dia(engine, sessoes, config):
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
     assert dados.linhas == (
-        "Anúncios lidos: 2", "Preços em queda: 1", "Conferências de checkout: 0", "Duração: menos de 1 min",
+        "Voltas da fila rápida: 1", "Anúncios lidos: 2", "Preços em queda: 1", "Conferências de checkout: 0",
+        "Duração: menos de 1 min",
     )
     assert v.passo() == ESPERA_OCIOSA_S
     assert len(avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)) == 1
@@ -621,7 +622,24 @@ def test_volta_so_com_a_fila_rapida(engine, sessoes, config):
     assert v.passo() == 0 and navegador.visitadas[-1] == url_ofertas("B0RAPI0001")
     assert v.passo() == 0  # fecha a volta (o lento já vencido de novo é lido na seguinte)
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 1"
+    assert dados.linhas[:2] == ("Voltas da fila rápida: 1", "Anúncios lidos: 1")
+    assert "Fora da fila rápida: 1 lentos · 0 esgotados lidos" in dados.linhas
+
+
+def test_queda_de_preco_do_lento_conta_na_rodada(engine, sessoes, config):
+    confirmado(sessoes, "rapido", "B0RAPI0001", "850.00", lido_em=MEIO_DIA - timedelta(minutes=1))  # em dia
+    confirmado(sessoes, "lento", "B0LENT0001", "995.00", lido_em=MEIO_DIA - timedelta(minutes=20))
+    paginas = {
+        url_ofertas("B0RAPI0001"): ofertas("B0RAPI0001", "R$ 850,00"),
+        url_ofertas("B0LENT0001"): ofertas("B0LENT0001", "R$ 990,00"),  # caiu, mas segue lento
+    }
+    v, navegador, avisador, relogio = varredura(engine, sessoes, config, paginas)
+    assert v.passo() == 0 and navegador.visitadas == [url_ofertas("B0LENT0001")]  # dentro da volta do rápido
+    relogio.agora += timedelta(minutes=16)
+    assert v.passo() == 0 and navegador.visitadas[-1] == url_ofertas("B0RAPI0001")
+    v.passo()  # fecha a volta
+    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas[1:3] == ("Anúncios lidos: 1", "Preços em queda: 1")
     assert "Fora da fila rápida: 1 lentos · 0 esgotados lidos" in dados.linhas
 
 
@@ -721,7 +739,7 @@ def test_monitor_nunca_busca(engine, sessoes, config):
         assert s.scalar(select(Coleta)) is None
 
 
-def test_rodada_avisa_ao_fim_de_cada_volta_mesmo_com_o_monitor_sempre_atrasado(engine, sessoes, config):
+def test_rodada_avisa_no_maximo_uma_vez_por_hora_com_as_voltas_somadas(engine, sessoes, config):
     asins = ("B0AAAA0001", "B0BBBB0001", "B0CCCC0001")
     for i, asin in enumerate(asins):
         confirmado(sessoes, f"p{i}", asin)  # nunca lidos
@@ -730,15 +748,21 @@ def test_rodada_avisa_ao_fim_de_cada_volta_mesmo_com_o_monitor_sempre_atrasado(e
         assert v.passo() == 0
         relogio.agora += timedelta(minutes=16)  # intervalo de 15 min: o lido já venceu de novo
     assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
-    assert v.passo() == 0  # fecha a volta e já começa a seguinte
+    assert v.passo() == 0  # fecha a 1ª volta (48 min): o primeiro aviso sai na hora
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 3"
+    assert dados.linhas[:2] == ("Voltas da fila rápida: 1", "Anúncios lidos: 3")
     for _ in range(3):
         relogio.agora += timedelta(minutes=16)
-        assert v.passo() == 0
-    assert [d.linhas[0] for d in avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)] == [
-        "Anúncios lidos: 3", "Anúncios lidos: 3",
-    ]
+        assert v.passo() == 0  # a 2ª volta fecha 48 min depois do aviso: fica somada, sem aviso
+    assert len(avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)) == 1
+    for _ in range(3):
+        relogio.agora += timedelta(minutes=16)
+        assert v.passo() == 0  # a 3ª volta fecha 96 min depois do aviso: sai o resumo das duas
+    _, dados = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert dados.linhas == (
+        "Voltas da fila rápida: 2", "Anúncios lidos: 6", "Preços em queda: 0", "Conferências de checkout: 0",
+        "Duração: 1 h 36 min",
+    )
 
 
 def test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada(engine, sessoes, config):
@@ -754,7 +778,7 @@ def test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada(engine, sessoes, c
     assert v.passo() == 0 and v.passo() == 0
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 2"  # só a volta do dia seguinte
+    assert dados.linhas[:2] == ("Voltas da fila rápida: 1", "Anúncios lidos: 2")  # só a volta do dia seguinte
 
 
 def test_anuncio_que_sai_do_monitor_no_meio_da_volta_nao_prende_a_rodada(engine, sessoes, config):
@@ -768,7 +792,7 @@ def test_anuncio_que_sai_do_monitor_no_meio_da_volta_nao_prende_a_rodada(engine,
         s.get(ProdutoLiga, b_id).ativo = False  # o outro sai do monitor sem ser lido
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 1"
+    assert dados.linhas[1] == "Anúncios lidos: 1"
 
 
 def test_anuncio_que_falha_sai_da_volta(engine, sessoes, config):
@@ -782,7 +806,7 @@ def test_anuncio_que_falha_sai_da_volta(engine, sessoes, config):
     assert v.passo() == 0 and v.passo() == 0
     assert v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 1"
+    assert dados.linhas[1] == "Anúncios lidos: 1"
 
 
 def test_rodada_com_falha_avisa_a_contagem_de_falhas(engine, sessoes, config):
@@ -796,7 +820,8 @@ def test_rodada_com_falha_avisa_a_contagem_de_falhas(engine, sessoes, config):
     assert v.passo() == 0 and v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
     assert dados.linhas == (
-        "Anúncios lidos: 1", "Preços em queda: 0", "Conferências de checkout: 0", "Falhas: 1", "Duração: menos de 1 min",
+        "Voltas da fila rápida: 1", "Anúncios lidos: 1", "Preços em queda: 0", "Conferências de checkout: 0", "Falhas: 1",
+        "Duração: menos de 1 min",
     )
 
 
@@ -806,7 +831,7 @@ def test_rodada_sem_nenhuma_leitura_mas_com_falha_nao_fecha_calada(engine, sesso
     v, _, avisador, _ = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0 and v.passo() == ESPERA_OCIOSA_S
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 0" and "Falhas: 1" in dados.linhas
+    assert dados.linhas[1] == "Anúncios lidos: 0" and "Falhas: 1" in dados.linhas
 
 
 def test_rodada_sem_falha_nao_tem_linha_de_falhas(engine, sessoes, config):
@@ -872,12 +897,16 @@ def test_rodada_com_relogio_real_avisa_uma_vez_por_volta_inteira(engine, sessoes
         aplicar_config(s, {"monitor_intervalo_min": intervalo_min, "monitor_max_paginas_hora": 1000}, MEIO_DIA)
     v, _, avisador, relogio = varredura(engine, sessoes, config, {url_ofertas(a): ofertas(a, "R$ 850,00") for a in asins})
     leituras = 0
-    for _ in range(40 * 3):  # 40 min, um passo a cada 20 s
+    for _ in range(130 * 3):  # 130 min, um passo a cada 20 s
         leituras += v.passo() == 0
         relogio.agora += timedelta(seconds=20)
-    contagens = [d.linhas[0] for d in avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)]
-    assert len(contagens) >= 3 and leituras >= 3 * quantos
-    assert set(contagens) == {f"Anúncios lidos: {quantos}"}  # nunca uma "volta" pequena depois da primeira
+    avisos = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
+    assert len(avisos) == 3 and leituras >= 3 * quantos  # o primeiro na hora, depois um por hora
+    assert avisos[0].linhas[:2] == ("Voltas da fila rápida: 1", f"Anúncios lidos: {quantos}")
+    for dados in avisos:  # cada volta somada é inteira: nunca uma "volta" pequena depois da primeira
+        voltas = int(dados.linhas[0].removeprefix("Voltas da fila rápida: "))
+        assert dados.linhas[1] == f"Anúncios lidos: {voltas * quantos}"
+    assert int(avisos[1].linhas[0].removeprefix("Voltas da fila rápida: ")) > 1
 
 
 def test_anuncio_desconfirmado_no_meio_da_volta_sai_e_a_volta_fecha(engine, sessoes, config):
@@ -898,4 +927,4 @@ def test_anuncio_desconfirmado_no_meio_da_volta_sai_e_a_volta_fecha(engine, sess
     assert v.passo() == 0  # b venceu e é lido; c saiu do monitor
     assert v.passo() == 0  # a fecha a volta (só a, b) e abre a seguinte lendo a de novo
     [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[0] == "Anúncios lidos: 2"
+    assert dados.linhas[1] == "Anúncios lidos: 2"

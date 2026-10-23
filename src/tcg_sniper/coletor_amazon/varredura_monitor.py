@@ -24,7 +24,9 @@ quando cada um deles foi lido uma vez desde então (ou posto de lado por falha, 
 desconfirmado ou produto desativado), mesmo que outros já tenham vencido de novo; a volta seguinte começa no
 próximo trabalho. Sem ninguém nessa foto não há volta (nem aviso). Lentos e esgotados lidos durante a volta
 só entram na contagem à parte. Nunca fecha "a cada brecha" (uma volta de só os poucos vencidos naquele
-instante). A janela que fecha no meio descarta a volta sem aviso."""
+instante). A janela que fecha no meio descarta a volta sem aviso. Com a fila rápida a volta fecha a cada
+~15 min: as voltas fechadas se somam em memória e sai no máximo um aviso por `INTERVALO_AVISO_RODADA` (o
+primeiro sai na hora), com o total de voltas e das contagens desde o aviso anterior."""
 
 import dataclasses
 import logging
@@ -57,6 +59,7 @@ ESPERA_RETIRADA = timedelta(minutes=15)  # item nosso que não saiu do carrinho:
 RETIRADA_AUTOMATICA_MAX = timedelta(minutes=30)  # marca mais velha que isso: só à mão (o carrinho pode ter mudado)
 MAX_TENTATIVAS_RETIRADA = 3  # falhas da retirada automática antes de passar para "conferir à mão"
 ERROS_DE_PAGINA = (ErroParser, ErroRede, CliqueProibido, SeletorAusente)
+INTERVALO_AVISO_RODADA = timedelta(hours=1)  # no máximo um aviso de rodada do monitor por hora
 MOTIVO_EM_ANDAMENTO = "conferência em andamento (interrompida?): o item pode ter ficado no carrinho"
 
 
@@ -93,6 +96,29 @@ class _Rodada:
     esgotados: int = 0  # esgotados na Liga relidos durante a volta
 
 
+@dataclass
+class _Resumo:
+    """Voltas fechadas desde o último aviso de rodada (o aviso sai no máximo a cada `INTERVALO_AVISO_RODADA`)."""
+
+    inicio: datetime  # início da primeira volta somada
+    voltas: int = 0
+    lidos: int = 0
+    quedas: int = 0
+    conferencias: int = 0
+    falhas: int = 0
+    lentos: int = 0
+    esgotados: int = 0
+
+    def somar(self, rodada: _Rodada) -> None:
+        self.voltas += 1
+        self.lidos += rodada.lidos
+        self.quedas += rodada.quedas
+        self.conferencias += rodada.conferencias
+        self.falhas += rodada.falhas
+        self.lentos += rodada.lentos
+        self.esgotados += rodada.esgotados
+
+
 class _NavegadorContado:
     """Conta as páginas que o monitor abre (também as de uma leitura que falha no meio: o teto cobra
     todas). Só navega; o resto (inclusive o clique, que só `cliques.py` usa) vai direto ao navegador."""
@@ -122,6 +148,8 @@ class VarreduraMonitor(VarreduraBase):
         self._espera: dict[int, datetime] = {}  # anúncio que falhou -> não reler antes de
         self._limpeza_em: date | None = None
         self._rodada: _Rodada | None = None
+        self._resumo: _Resumo | None = None  # voltas fechadas ainda não avisadas
+        self._aviso_rodada_em: datetime | None = None
 
     def inicializar(self) -> None:
         super().inicializar()
@@ -194,19 +222,28 @@ class VarreduraMonitor(VarreduraBase):
             self._fechar_rodada()
 
     def _fechar_rodada(self) -> None:
+        """Soma a volta fechada ao resumo e avisa se o último aviso foi há `INTERVALO_AVISO_RODADA` ou mais."""
         rodada, self._rodada = self._rodada, None
         if rodada is None or (rodada.lidos == 0 and rodada.falhas == 0):
             return
+        if self._resumo is None:
+            self._resumo = _Resumo(rodada.inicio)
+        self._resumo.somar(rodada)
+        agora = self._relogio()
+        if self._aviso_rodada_em is not None and agora - self._aviso_rodada_em < INTERVALO_AVISO_RODADA:
+            return
+        resumo, self._resumo, self._aviso_rodada_em = self._resumo, None, agora
         linhas = [
-            f"Anúncios lidos: {rodada.lidos}",
-            f"Preços em queda: {rodada.quedas}",
-            f"Conferências de checkout: {rodada.conferencias}",
+            f"Voltas da fila rápida: {resumo.voltas}",
+            f"Anúncios lidos: {resumo.lidos}",
+            f"Preços em queda: {resumo.quedas}",
+            f"Conferências de checkout: {resumo.conferencias}",
         ]
-        if rodada.falhas:
-            linhas.append(f"Falhas: {rodada.falhas}")
-        if rodada.lentos or rodada.esgotados:
-            linhas.append(f"Fora da fila rápida: {rodada.lentos} lentos · {rodada.esgotados} esgotados lidos")
-        linhas.append(f"Duração: {formatar_duracao(self._relogio() - rodada.inicio)}")
+        if resumo.falhas:
+            linhas.append(f"Falhas: {resumo.falhas}")
+        if resumo.lentos or resumo.esgotados:
+            linhas.append(f"Fora da fila rápida: {resumo.lentos} lentos · {resumo.esgotados} esgotados lidos")
+        linhas.append(f"Duração: {formatar_duracao(agora - resumo.inicio)}")
         dados = Dados(linhas=tuple(linhas))
         self._avisador.avisar(TipoAviso.AMAZON_MONITOR_CONCLUIDO, CHAVE_GERAL, dados)
 
@@ -422,12 +459,12 @@ class VarreduraMonitor(VarreduraBase):
         rodada = self._rodada  # aberta em `_passo_monitor`; None quando a fila rápida está vazia
         if rodada is not None:
             rodada.faltam.discard(anuncio_id)
+            rodada.quedas += resultado.caiu  # queda de qualquer grupo (o lento pode cair até o "quase lá")
             if proximo.grupo is repo_amz.GrupoMonitor.LENTO:
                 rodada.lentos += 1
             elif proximo.grupo is repo_amz.GrupoMonitor.ESGOTADO:
                 rodada.esgotados += 1
             else:
                 rodada.lidos += 1
-                rodada.quedas += resultado.caiu
         self._pagina_ok()
         return 0
