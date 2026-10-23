@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-22 (fase 3, entrega 3A em produção desde 11:37; próxima: 3B).
+Última revisão: 2026-10-23 (fase 3, entrega 3A em produção desde 2026-10-22 11:37; próxima: 3B; monitor por grupo pronto para o merge).
 
 ## Ordem sugerida
 
-1. Seção 0: a decisão sobre o atraso do monitor da Amazon.
+1. Monitor por grupo: mesclar e implantar junto com as atualizações de segurança (a produção está parada até lá); depois acompanhar a primeira semana (seção 3).
 2. Conferir a 3A em produção (seção 3, "Fase 3A").
 3. Site novo, fase 3, entrega 3B (Serviços, Atividade e Dashboard), depois 3C (Configurações, Ofertas e Mensagens) e a fase 4 (desligar o admin antigo). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1 (segurança do login), **obrigatória antes de publicar na internet ou vender acesso**.
@@ -22,7 +22,7 @@ Nenhum no momento.
 
 ### Para resolver logo (achados da auditoria de UX de 2026-10-21)
 
-- [ ] **Monitor da Amazon atrasado (473 anúncios com leitura vencida em 2026-10-21)**: 521 confirmados a cada 15 min pedem ~2.084 páginas/h; o teto é 1.000, mas com pausa de 8–20 s um navegador faz ~257 páginas/h (conta aproximada, não medida). Decidir: intervalo maior (ex.: 30–35 min), pausas menores (mais risco de CAPTCHA) ou ler com prioridade os anúncios perto do desconto.
+- [ ] **Monitor da Amazon atrasado**: a correção (grupos de prioridade: nunca lidos, fila rápida, esgotado na Liga semanal e lento com a sobra) está pronta para o merge no ramo `worktree-monitor-prioridade`; o deploy vai junto com as atualizações de segurança (ver `docs/IMPLANTACOES.md`). Spec: `docs/superpowers/specs/2026-10-22-monitor-prioridade-design.md`; plano em `docs/superpowers/plans/`.
 - [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete.
 
 ## 1. Segurança antes da internet (prioridade alta)
@@ -119,6 +119,11 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Catálogo: desligar e religar um produto pela chave e conferir o registro (`SELECT * FROM acao_gestao ORDER BY em DESC LIMIT 5`).
 - [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/casamentos` e `/gestao/catalogo`) e olhar à mão, no celular e nos temas claro e escuro, a revisão de um produto e a página do produto (roteiro em `docs/IMPLANTACOES.md`).
 - [ ] LigaMagic está desligada em Serviços desde 2026-10-21; religar quando quiser a coleta de volta.
+
+### Monitor por grupo (depois do deploy)
+
+- [ ] Primeira semana: conferir o ritmo da fila rápida (card em Serviços), quão velhas ficam as leituras do grupo lento e o tamanho da lista "esgotado na Liga" (Catálogo), vendo se algum desses produtos merece ação.
+- [ ] Se a fila rápida crescer demais, ajustar `quase_oportunidade_min_pct` ou o intervalo da fila rápida.
 
 ### Oportunidades na área de negócio (depois do deploy)
 
