@@ -254,10 +254,12 @@ def _diferenca(melhor: Decimal | None, medio: Decimal | None) -> Decimal | None:
     return desconto_pct(melhor, medio) if melhor is not None and medio is not None and medio > 0 else None
 
 
-def _montar(s: Session, linhas) -> list[LinhaCatalogo]:
+def _montar(s: Session, linhas, esgotado: bool = False) -> list[LinhaCatalogo]:
+    """Monta as linhas; "desde quando sem vendedor" só com o filtro `esgotado` (fora dele vem None: a consulta ao
+    histórico `preco_listagem` só vale para a lista de esgotados)."""
     ids = [produto.id for produto, *_ in linhas]
     melhores = _melhores_amazon(s, ids)
-    ultimas = _ultimas_com_vendedor(s, ids)
+    ultimas = _ultimas_com_vendedor(s, ids) if esgotado else {}
     saida = []
     for produto, atual, confirmados, pendentes, ignorados, total in linhas:
         melhor = melhores.get(produto.id)
@@ -311,11 +313,12 @@ def linhas_catalogo(
         .limit(por_pagina)
         .offset((pagina - 1) * por_pagina)
     )
-    return PaginaCatalogo(_montar(s, s.execute(consulta).all()), total, pagina, por_pagina)
+    itens = _montar(s, s.execute(consulta).all(), esgotado=filtro.preco_liga == "esgotado")
+    return PaginaCatalogo(itens, total, pagina, por_pagina)
 
 
 def linha_produto(s: Session, produto_id: int) -> LinhaCatalogo | None:
-    """A linha de um produto (ativo ou não), como sai na lista."""
+    """A linha de um produto (ativo ou não), como sai na lista sem filtro (sem "desde quando sem vendedor")."""
     linhas = s.execute(_consulta(FiltroCatalogo()).where(ProdutoLiga.id == produto_id)).all()
     return _montar(s, linhas)[0] if linhas else None
 

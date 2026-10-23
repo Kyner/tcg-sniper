@@ -304,3 +304,12 @@ def test_ja_conferi_so_vale_para_conferencia_a_conferir_a_mao(cliente, sessoes):
         conf = s.get(ConferenciaCheckout, a_mao)
         assert (conf.item_removido, conf.conferir_a_mao_em) == (True, None)
     assert cliente.post(f"/amazon/carrinho/{a_mao}/conferido", follow_redirects=False).status_code == 404
+
+
+def test_servicos_mostra_a_leitura_mais_antiga_do_lento(cliente, sessoes):
+    agora = datetime.now(UTC)
+    with sessoes() as s, s.begin():
+        confirmado(s, "B0LENT0001", lido_em=agora - timedelta(hours=3), preco="990.00")  # 1% abaixo: lento
+        confirmado(s, "B0LENT0002", lido_em=agora - timedelta(hours=1), preco="990.00")
+    texto = cliente.get("/servicos").text
+    assert "lenta 2 (a mais antiga lida há ~3 h)" in texto

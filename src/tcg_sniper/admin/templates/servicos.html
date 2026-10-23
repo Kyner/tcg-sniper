@@ -112,7 +112,7 @@
       <span class="text-sm font-medium">Monitor de preço</span>
       {{ chave("/amazon/monitor/desligar" if cfg_amazon.monitor_ligado else "/amazon/monitor/ligar", cfg_amazon.monitor_ligado, "monitor de preço") }}
     </div>
-    <p class="text-sm">Fila rápida a cada {{ cfg_amazon.monitor_intervalo_min }} min, das {{ janela_monitor[0] }} às {{ janela_monitor[1] }}{% if monitor.ultima %} · última leitura {{ monitor.ultima|data }}{% endif %} · rápida {{ monitor.rapidos }} · lenta {{ monitor.lentos }}{% if lenta_ha_horas %} (lida há ~{{ lenta_ha_horas }} h){% endif %} · esgotado {{ monitor.esgotados }}{% if monitor.nunca_lidos %} · nunca lidos {{ monitor.nunca_lidos }}{% endif %}{% if monitor.vencidos %} · {{ monitor.vencidos }} na fila{% endif %}.</p>
+    <p class="text-sm">Fila rápida a cada {{ cfg_amazon.monitor_intervalo_min }} min, das {{ janela_monitor[0] }} às {{ janela_monitor[1] }}{% if monitor.ultima %} · última leitura {{ monitor.ultima|data }}{% endif %} · rápida {{ monitor.rapidos }} · lenta {{ monitor.lentos }}{% if lenta_ha_horas %} (a mais antiga lida há ~{{ lenta_ha_horas }} h){% endif %} · esgotado {{ monitor.esgotados }}{% if monitor.nunca_lidos %} · nunca lidos {{ monitor.nunca_lidos }}{% endif %}{% if monitor.vencidos %} · {{ monitor.vencidos }} na fila{% endif %}.</p>
     <div class="flex flex-wrap items-center justify-between gap-3">
       <span class="text-sm font-medium">Conferência de checkout</span>
       {{ chave("/amazon/checkout/desligar" if cfg_amazon.checkout_ligado else "/amazon/checkout/ligar", cfg_amazon.checkout_ligado, "conferência de checkout") }}

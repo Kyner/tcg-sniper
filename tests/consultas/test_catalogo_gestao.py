@@ -5,6 +5,7 @@ import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from fakes_oportunidades import criar_atual_amazon, criar_listagem_liga
 
+from tcg_sniper.consultas import catalogo_gestao
 from tcg_sniper.consultas.catalogo_gestao import (
     FiltroCatalogo,
     aplicar_lote,
@@ -182,11 +183,37 @@ def test_ordem_esgotado_por_diferenca_media_nulos_no_fim(sessoes, esgotados):
         assert _nomes(s)[:3] == ["Alfa B", "Beta C", "Delta D"]
 
 
+def _esgotados(s):
+    itens = linhas_catalogo(
+        s, busca="", monitorado="todos", categoria=None, situacao=None, preco_liga="esgotado", pagina=1
+    ).itens
+    return {i.produto.id: i for i in itens}
+
+
 def test_sem_vendedor_desde_pela_ultima_listagem_com_preco(sessoes, esgotados):
     with sessoes() as s:
-        assert linha_produto(s, esgotados["a"]).sem_vendedor_desde == T0 - timedelta(days=5)
-        assert linha_produto(s, esgotados["b"]).sem_vendedor_desde is None
-        assert linha_produto(s, esgotados["c"]).sem_vendedor_desde is None  # só leituras sem preço
+        itens = _esgotados(s)
+        assert itens[esgotados["a"]].sem_vendedor_desde == T0 - timedelta(days=5)
+        assert itens[esgotados["b"]].sem_vendedor_desde is None
+        assert itens[esgotados["c"]].sem_vendedor_desde is None  # só leituras sem preço
+
+
+def test_sem_vendedor_desde_so_com_o_filtro_esgotado(sessoes, esgotados, monkeypatch):
+    chamadas = []
+    original = catalogo_gestao._ultimas_com_vendedor
+    monkeypatch.setattr(
+        catalogo_gestao, "_ultimas_com_vendedor", lambda s, ids: chamadas.append(ids) or original(s, ids)
+    )
+    with sessoes() as s:
+        for preco_liga in ("todos", "com"):
+            itens = linhas_catalogo(
+                s, busca="", monitorado="todos", categoria=None, situacao=None, preco_liga=preco_liga, pagina=1
+            ).itens
+            assert all(i.sem_vendedor_desde is None for i in itens)
+        assert linha_produto(s, esgotados["a"]).sem_vendedor_desde is None
+        assert chamadas == []
+        assert _esgotados(s)[esgotados["a"]].sem_vendedor_desde == T0 - timedelta(days=5)
+        assert len(chamadas) == 1
 
 
 def test_contar_filtro_esgotado_igual_a_lista(sessoes, esgotados):

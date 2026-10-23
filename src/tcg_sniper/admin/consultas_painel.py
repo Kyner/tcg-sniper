@@ -216,7 +216,11 @@ SEGUNDOS_POR_PAGINA = 3  # estimativa do tempo de abrir a página, somado à pau
 
 
 def capacidade_por_hora(cfg: ConfigAmazon) -> int:
-    """Quantas páginas por hora o monitor consegue ler com as pausas configuradas."""
+    """Quantas páginas por hora o monitor consegue ler com as pausas configuradas.
+
+    Conta otimista: supõe uma página e uma pausa por anúncio. "Exibir mais" das ofertas, perfis de vendedor,
+    páginas do checkout e do carrinho também abrem páginas e entram no teto `monitor_max_paginas_hora`, então a
+    leitura real de anúncios por hora fica abaixo deste número."""
     return math.floor(3600 / ((cfg.pausa_min_s + cfg.pausa_max_s) / 2 + SEGUNDOS_POR_PAGINA))
 
 
