@@ -11,7 +11,15 @@ from sqlalchemy import ColumnElement, case, func, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.consultas.catalogo import SITUACOES_PRODUTO, casa_nome, classificar
-from tcg_sniper.db.models import Casamento, PrecoAtualAmazon, PrecoAtualLiga, ProdutoLiga, StatusCasamento
+from tcg_sniper.db.models import (
+    Casamento,
+    PrecoAtualAmazon,
+    PrecoAtualLiga,
+    PrecoListagem,
+    ProdutoLiga,
+    StatusCasamento,
+)
+from tcg_sniper.oportunidades.motor import desconto_pct
 
 # --- admin antigo ---
 
@@ -109,6 +117,8 @@ def alternar_ativo(s: Session, produto_id: int) -> tuple[ProdutoLiga, PrecoAtual
 
 Monitorado = Literal["todos", "sim", "nao"]
 MONITORADO = ("todos", "sim", "nao")
+PrecoLiga = Literal["todos", "com", "esgotado"]
+PRECO_LIGA = ("todos", "com", "esgotado")
 POR_PAGINA = 25
 
 
@@ -120,7 +130,8 @@ class FiltroCatalogo:
     monitorado: Monitorado = "todos"
     categoria: str | None = None
     situacao: str | None = None  # uma de SITUACOES_PRODUTO; None = todas
-    com_preco: bool = False
+    # "com": com "a partir de" na Liga; "esgotado": sem "a partir de" e com anúncio confirmado com preço na Amazon
+    preco_liga: PrecoLiga = "todos"
 
 
 @dataclass(frozen=True)
@@ -133,6 +144,9 @@ class LinhaCatalogo:
     confirmados: int
     ignorados: int
     melhor_amazon: Decimal | None  # menor preço atual entre os anúncios confirmados
+    medio_liga: Decimal | None  # média de venda da Liga (`preco_medio`)
+    diferenca_media_pct: Decimal | None  # quanto a Amazon está abaixo da média (negativo: acima)
+    sem_vendedor_desde: datetime | None  # última coleta da listagem com "a partir de"; None = sem registro
 
 
 @dataclass(frozen=True)
@@ -163,6 +177,18 @@ def _validar(filtro: FiltroCatalogo) -> None:
         raise ValueError(f"monitorado desconhecido: {filtro.monitorado}")
     if filtro.situacao is not None and filtro.situacao not in SITUACOES_PRODUTO:
         raise ValueError(f"situação desconhecida: {filtro.situacao}")
+    if filtro.preco_liga not in PRECO_LIGA:
+        raise ValueError(f"preço na Liga desconhecido: {filtro.preco_liga}")
+
+
+def _confirmados_com_preco():
+    """Por produto, o menor preço atual entre os anúncios confirmados (só os que têm preço)."""
+    return (
+        select(Casamento.produto_id, func.min(PrecoAtualAmazon.preco).label("preco"))
+        .join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == Casamento.anuncio_id)
+        .where(Casamento.status == StatusCasamento.CONFIRMADO, PrecoAtualAmazon.preco.is_not(None))
+        .group_by(Casamento.produto_id)
+    )
 
 
 def _consulta(filtro: FiltroCatalogo, *colunas):
@@ -186,8 +212,12 @@ def _consulta(filtro: FiltroCatalogo, *colunas):
         condicoes.append(ProdutoLiga.ativo.is_(False))
     if filtro.categoria:
         condicoes.append(ProdutoLiga.tipo == filtro.categoria)
-    if filtro.com_preco:
+    if filtro.preco_liga == "com":
         condicoes.append(PrecoAtualLiga.preco_a_partir.is_not(None))
+    elif filtro.preco_liga == "esgotado":
+        # sem linha em preco_atual_liga também conta (outer join); a subconsulta do IN não é correlacionada
+        condicoes.append(PrecoAtualLiga.preco_a_partir.is_(None))
+        condicoes.append(ProdutoLiga.id.in_(select(_confirmados_com_preco().subquery().c.produto_id)))
     if filtro.situacao is not None:
         condicoes.append(situacao == filtro.situacao)
     colunas = colunas or (ProdutoLiga, PrecoAtualLiga, conf, pend, ign, total)
@@ -203,23 +233,35 @@ def _consulta(filtro: FiltroCatalogo, *colunas):
 def _melhores_amazon(s: Session, ids: list[int]) -> dict[int, Decimal]:
     if not ids:
         return {}
+    return dict(s.execute(_confirmados_com_preco().where(Casamento.produto_id.in_(ids))).all())
+
+
+def _ultimas_com_vendedor(s: Session, ids: list[int]) -> dict[int, datetime]:
+    """Por produto, a última coleta da listagem em que ele teve "a partir de" (histórico `preco_listagem`). Só os
+    `ids` da página, numa consulta agrupada."""
+    if not ids:
+        return {}
     consulta = (
-        select(Casamento.produto_id, func.min(PrecoAtualAmazon.preco))
-        .join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == Casamento.anuncio_id)
-        .where(
-            Casamento.produto_id.in_(ids),
-            Casamento.status == StatusCasamento.CONFIRMADO,
-            PrecoAtualAmazon.preco.is_not(None),
-        )
-        .group_by(Casamento.produto_id)
+        select(PrecoListagem.produto_id, func.max(PrecoListagem.coletado_em))
+        .where(PrecoListagem.produto_id.in_(ids), PrecoListagem.preco_a_partir.is_not(None))
+        .group_by(PrecoListagem.produto_id)
     )
     return dict(s.execute(consulta).all())
 
 
+def _diferenca(melhor: Decimal | None, medio: Decimal | None) -> Decimal | None:
+    return desconto_pct(melhor, medio) if melhor is not None and medio is not None and medio > 0 else None
+
+
 def _montar(s: Session, linhas) -> list[LinhaCatalogo]:
-    melhores = _melhores_amazon(s, [produto.id for produto, *_ in linhas])
-    return [
-        LinhaCatalogo(
+    ids = [produto.id for produto, *_ in linhas]
+    melhores = _melhores_amazon(s, ids)
+    ultimas = _ultimas_com_vendedor(s, ids)
+    saida = []
+    for produto, atual, confirmados, pendentes, ignorados, total in linhas:
+        melhor = melhores.get(produto.id)
+        medio = atual.preco_medio if atual else None
+        saida.append(LinhaCatalogo(
             produto=produto,
             preco_liga=atual.preco_a_partir if atual else None,
             lojas=atual.num_lojas if atual else None,
@@ -227,10 +269,12 @@ def _montar(s: Session, linhas) -> list[LinhaCatalogo]:
             pendentes=pendentes,
             confirmados=confirmados,
             ignorados=ignorados,
-            melhor_amazon=melhores.get(produto.id),
-        )
-        for produto, atual, confirmados, pendentes, ignorados, total in linhas
-    ]
+            melhor_amazon=melhor,
+            medio_liga=medio,
+            diferenca_media_pct=_diferenca(melhor, medio),
+            sem_vendedor_desde=ultimas.get(produto.id),
+        ))
+    return saida
 
 
 def linhas_catalogo(
@@ -240,17 +284,29 @@ def linhas_catalogo(
     monitorado: Monitorado,
     categoria: str | None,
     situacao: str | None,
-    com_preco: bool,
+    preco_liga: PrecoLiga,
     pagina: int,
     por_pagina: int = POR_PAGINA,
 ) -> PaginaCatalogo:
-    """Uma página do catálogo inteiro (monitorados primeiro, depois por nome). Página além do fim vem vazia."""
-    filtro = FiltroCatalogo(busca, monitorado, categoria, situacao, com_preco)
+    """Uma página do catálogo inteiro (monitorados primeiro, depois por nome). Página além do fim vem vazia.
+
+    Com `preco_liga="esgotado"` a ordem é a diferença contra a média de venda da Liga (maior primeiro, sem média no
+    fim; a conta arredondada de `desconto_pct`) e depois o nome."""
+    filtro = FiltroCatalogo(busca, monitorado, categoria, situacao, preco_liga)
     total = contar_filtro(s, filtro)
     pagina = max(pagina, 1)
+    consulta = _consulta(filtro)
+    if filtro.preco_liga == "esgotado":
+        melhores = _confirmados_com_preco().subquery()
+        medio = PrecoAtualLiga.preco_medio
+        diferenca = case((medio > 0, func.round((1 - melhores.c.preco / medio) * 100, 2)), else_=None)
+        consulta = consulta.outerjoin(melhores, melhores.c.produto_id == ProdutoLiga.id).order_by(
+            diferenca.desc().nulls_last(), ProdutoLiga.nome, ProdutoLiga.id
+        )
+    else:
+        consulta = consulta.order_by(ProdutoLiga.ativo.desc(), ProdutoLiga.nome, ProdutoLiga.id)
     consulta = (
-        _consulta(filtro)
-        .order_by(ProdutoLiga.ativo.desc(), ProdutoLiga.nome, ProdutoLiga.id)
+        consulta
         .limit(por_pagina)
         .offset((pagina - 1) * por_pagina)
     )

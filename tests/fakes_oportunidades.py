@@ -74,8 +74,9 @@ def _coleta(s, tipo, quando) -> Coleta:
 
 
 def criar_listagem_liga(s, produto, preco, coletado_em) -> PrecoListagem:
+    """`preco` None: a coleta viu o produto sem "a partir de" (ninguém vendendo na Liga)."""
     linha = PrecoListagem(produto_id=produto.id, coleta_id=_coleta(s, TipoColeta.LISTAGEM, coletado_em).id,
-                          preco_a_partir=Decimal(preco), coletado_em=coletado_em)
+                          preco_a_partir=None if preco is None else Decimal(preco), coletado_em=coletado_em)
     s.add(linha)
     s.flush()
     return linha

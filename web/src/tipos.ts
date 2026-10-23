@@ -242,6 +242,11 @@ export interface LinhaCatalogo {
   pendentes: number;
   confirmados: number;
   melhor_amazon: string | null;
+  medio_liga: string | null;
+  /** Quanto a Amazon está abaixo da média de venda da Liga (negativo: acima). */
+  diferenca_media_pct: string | null;
+  /** Última coleta da listagem em que o produto teve "a partir de"; null = sem registro. */
+  sem_vendedor_desde: string | null;
 }
 
 export interface ListaCatalogo {
@@ -262,6 +267,7 @@ export interface ProdutoGestaoDados {
     url: string; pistas: string[];
   };
   monitorado: boolean;
+  esgotado_liga: boolean;
   liga: { preco: string | null; lojas: number | null; medio: string | null; lido_em: string | null };
   melhor_amazon: { preco: string; diferenca_pct: string | null } | null;
   casamentos: { pendentes: number; confirmados: number; ignorados: number };

@@ -6,6 +6,7 @@ import { apiFalsa, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 const DADOS = {
   produto: { id: 5, nome: "Lair of the Hydra", nome_en: null, imagem: null, categoria: "Booster", url: "https://liga.test/5", pistas: [] },
   monitorado: true,
+  esgotado_liga: false,
   liga: { preco: "1589.00", lojas: 4, medio: "1700.00", lido_em: "2026-10-21T10:00:00-03:00" },
   melhor_amazon: { preco: "1200.00", diferenca_pct: "24.5" },
   casamentos: { pendentes: 3, confirmados: 2, ignorados: 1 },
@@ -28,6 +29,16 @@ describe("ProdutoGestao", () => {
       "href", "/gestao/catalogo?busca=lair&monitorado=todos&pagina=2",
     );
     expect(screen.getByText(/Ainda não há leituras suficientes/)).toBeInTheDocument();
+    expect(screen.queryByText("Esgotado na Liga")).not.toBeInTheDocument();
+  });
+
+  it("produto esgotado na Liga mostra o selo", async () => {
+    apiFalsa({
+      ...base,
+      "GET /api/gestao/produtos/5": ok({ ...DADOS, esgotado_liga: true, liga: { ...DADOS.liga, preco: null } }),
+    });
+    renderizarEm("/gestao/produtos/5");
+    expect(await screen.findByText("Esgotado na Liga")).toHaveClass("badge", "badge-warning");
   });
 
   it("a chave muda no lugar e erro devolve", async () => {

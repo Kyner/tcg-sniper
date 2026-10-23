@@ -5,6 +5,7 @@ const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL
 const PCT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 const DATA_HORA = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const DATA = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
+const DATA_ANO = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 export function reais(valor: string | null): string {
   // O Intl usa espaço não separável depois de "R$"; trocamos por espaço comum.
@@ -27,6 +28,7 @@ export function duracao(minutos: number | null): string {
 
 export const dataHora = (iso: string) => DATA_HORA.format(new Date(iso));
 export const dataCurta = (iso: string) => DATA.format(new Date(iso));
+export const dataComAno = (iso: string) => DATA_ANO.format(new Date(iso));
 
 /** Iguais aos dos avisos do WhatsApp (oportunidades/mensagens.ROTULOS_MOTIVO). */
 export const ROTULOS_MOTIVO: Record<Motivo, string> = {

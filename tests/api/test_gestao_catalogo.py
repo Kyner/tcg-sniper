@@ -1,8 +1,9 @@
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from fakes import criar_anuncio, criar_preco_liga, criar_produto
-from fakes_oportunidades import criar_atual_amazon
+from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
+from fakes_oportunidades import criar_atual_amazon, criar_listagem_liga
 from sqlalchemy import select
 
 from tcg_sniper.db import repositorio_acesso as repo_acesso
@@ -88,7 +89,7 @@ def test_lista_com_filtros_e_categorias(cliente, logar, catalogo):
         "Bundle 0", "Bundle 1"
     ]
     assert cliente.get(LISTA, params={"situacao": "casado"}).json()["total"] == 1
-    assert cliente.get(LISTA, params={"categoria": "Caixas", "com_preco": True}).json()["total"] == 3
+    assert cliente.get(LISTA, params={"categoria": "Caixas", "preco_liga": "com"}).json()["total"] == 3
     assert cliente.get(LISTA, params={"situacao": "x"}).status_code == 422
     assert cliente.get(LISTA, params={"monitorado": "talvez"}).status_code == 422
 
@@ -139,7 +140,7 @@ def test_lote_por_filtro_de_categoria_altera_so_ela_e_grava_acao(cliente, logar,
     assert quem == usuario and tipo == TipoAcaoGestao.CATALOGO_LOTE
     assert detalhe == {
         "acao": "ligar",
-        "filtro": {"busca": "", "monitorado": "todos", "categoria": "Bundles", "situacao": None, "com_preco": False},
+        "filtro": {"busca": "", "monitorado": "todos", "categoria": "Bundles", "situacao": None, "preco_liga": "todos"},
         "alvo": 2,
         "alterados": 2,
     }
@@ -182,6 +183,56 @@ def test_produto_de_gestao_inclusive_inativo(cliente, logar, catalogo):
     assert corpo["monitorado"] is False and corpo["curva"] is None and corpo["melhor_amazon"] is None
     assert corpo["liga"] == {"preco": None, "lojas": None, "medio": None, "lido_em": None}
     assert cliente.get(f"{PRODUTO}/999999").status_code == 404
+
+
+@pytest.fixture
+def esgotado(sessoes, catalogo):
+    """Sem "a partir de" na Liga, média 200 e anúncio confirmado a 100; teve vendedor até T0 - 3 dias."""
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "esg", nome="Esgotado X")
+        criar_preco_liga(s, p, None, preco_medio="200.00")
+        criar_atual_amazon(s, criar_anuncio(s, "B0CATESG01", p, StatusCasamento.CONFIRMADO), "100.00")
+        criar_listagem_liga(s, p, "150.00", T0 - timedelta(days=3))
+        criar_listagem_liga(s, p, None, T0 - timedelta(days=1))
+        return p.id
+
+
+def test_lista_esgotado_com_media_diferenca_e_sem_vendedor_desde(cliente, logar, esgotado):
+    logar(Papel.OPERADOR)
+    corpo = cliente.get(LISTA, params={"preco_liga": "esgotado"}).json()
+    assert corpo["total"] == 1
+    [item] = corpo["itens"]
+    assert item["id"] == esgotado and item["preco_liga"] is None
+    assert Decimal(item["melhor_amazon"]) == Decimal("100.00") and Decimal(item["medio_liga"]) == Decimal("200.00")
+    assert Decimal(item["diferenca_media_pct"]) == Decimal("50.00")
+    assert datetime.fromisoformat(item["sem_vendedor_desde"]) == T0 - timedelta(days=3)
+    caixa = cliente.get(LISTA, params={"busca": "Caixa 0"}).json()["itens"][0]
+    assert Decimal(caixa["medio_liga"]) == Decimal("120.00") and caixa["sem_vendedor_desde"] is None
+    assert Decimal(caixa["diferenca_media_pct"]) == Decimal("41.67")
+    assert cliente.get(LISTA, params={"preco_liga": "com"}).json()["total"] == 3
+    assert cliente.get(LISTA, params={"preco_liga": "x"}).status_code == 422
+    assert cliente.get(LISTA, params={"com_preco": True}).json()["total"] == 6  # parâmetro antigo é ignorado
+
+
+def test_lote_esgotado_aplica_aos_mesmos_da_lista(cliente, logar, sessoes, esgotado):
+    logar(Papel.OPERADOR)
+    filtro = {"preco_liga": "esgotado"}
+    r = cliente.post(LOTE, json={"acao": "desligar", "filtro": filtro, "esperado": 0, "confirmar": False})
+    assert r.json() == {"alvo": 1, "alterados": 0}
+    r = cliente.post(LOTE, json={"acao": "desligar", "filtro": filtro, "esperado": 1, "confirmar": True})
+    assert r.status_code == 200 and r.json() == {"alvo": 1, "alterados": 1}
+    assert _ativos(sessoes) == {"cx0", "cx1", "cx2"}
+    corpo = {"acao": "ligar", "filtro": {"preco_liga": "x"}, "esperado": 0, "confirmar": False}
+    assert cliente.post(LOTE, json=corpo).status_code == 422
+    corpo = {"acao": "ligar", "filtro": {"com_preco": True}, "esperado": 0, "confirmar": False}
+    assert cliente.post(LOTE, json=corpo).status_code == 422
+
+
+def test_produto_de_gestao_diz_se_esta_esgotado_na_liga(cliente, logar, catalogo, esgotado):
+    logar(Papel.OPERADOR)
+    assert cliente.get(f"{PRODUTO}/{esgotado}").json()["esgotado_liga"] is True
+    assert cliente.get(f"{PRODUTO}/{catalogo['cx0']}").json()["esgotado_liga"] is False
+    assert cliente.get(f"{PRODUTO}/{catalogo['bd0']}").json()["esgotado_liga"] is False  # sem anúncio com preço
 
 def test_limites_de_tamanho_do_lote_e_da_busca(cliente, logar, catalogo):
     logar(Papel.OPERADOR)
