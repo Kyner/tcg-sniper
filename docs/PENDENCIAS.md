@@ -20,10 +20,6 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 Nenhum no momento.
 
-### Para resolver logo (achados da auditoria de UX de 2026-10-21)
-
-- [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete.
-
 ## 1. Segurança antes da internet (prioridade alta)
 
 Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são menos de 20 pessoas, mas o acesso vai ser vendido: limites e sessões precisam ser pensados para crescer.
@@ -37,7 +33,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
   1. Endereço de escuta configurável no `docker-compose.yml`: `"${ADMIN_ESCUTA:-0.0.0.0}:8000:8000"` e `"${VNC_ESCUTA:-0.0.0.0}:6080:6080"` (idem 6081/6082). O padrão continua o de hoje; ninguém perde acesso no deploy.
   2. Quando quiser fechar: `ADMIN_ESCUTA=127.0.0.1` e `VNC_ESCUTA=127.0.0.1` no `.env` e `docker compose up -d` (só recria os containers que mudaram). De outra máquina, o acesso passa a ser por túnel SSH ou pela VPN (Tailscale), não pela rede aberta.
   3. Senha do noVNC: trocar o `x11vnc -passwdfile` (8 caracteres) por autenticação na frente do websockify (ex.: o próprio Caddy com `basic_auth` e senha longa, ou só pela VPN). Manter `VNC_SENHA` como segunda barreira.
-  4. Os links "Abrir" da gestão (3B) já são só para quem pode pausar serviços e só funcionam na rede de casa; com o passo 2 passam a funcionar só no próprio PC (o tooltip avisa).
+  4. Os links "Abrir" da gestão (entrega 3B, ainda por fazer) vão aparecer só para quem pode pausar serviços e só funcionar na rede de casa; com o passo 2 passam a funcionar só no próprio PC (o tooltip avisa).
   5. Antes de publicar na internet: Cloudflare Access (item acima) na frente do que for exposto; admin antigo e noVNC **nunca** publicados.
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
@@ -45,7 +41,6 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 ### Testes
 
 - [ ] Teste instável: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` falhou uma vez numa rodada completa e passa sozinho (suspeita de dependência do relógio ou da ordem). Investigar antes de confiar nele no CI.
-
 - [ ] Ponta a ponta da gestão entra como superadmin; acrescentar um operador para exercitar as permissões das telas novas.
 - [ ] Teste da migração `acao_gestao` não confere o `ON DELETE SET NULL` no schema; a lista de permissões do operador está fixa em `tests/api/test_auth.py` (derivar de `PADROES`).
 
@@ -123,7 +118,6 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Abrir a gestão (`localhost:8090/gestao`): menu lateral, selo de Casamentos, lista com filtros, "Revisar em sequência", confirmar e ignorar um par, "Voltar à lista" na mesma página.
 - [ ] Catálogo: desligar e religar um produto pela chave e conferir o registro (`SELECT * FROM acao_gestao ORDER BY em DESC LIMIT 5`).
 - [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/casamentos` e `/gestao/catalogo`) e olhar à mão, no celular e nos temas claro e escuro, a revisão de um produto e a página do produto (roteiro em `docs/IMPLANTACOES.md`).
-- [ ] LigaMagic está desligada em Serviços desde 2026-10-21; religar quando quiser a coleta de volta.
 
 ### Monitor por grupo e atualizações de segurança (em produção desde 2026-10-23 13:28)
 
@@ -132,7 +126,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Primeira semana: conferir o ritmo da fila rápida (card em Serviços), quão velhas ficam as leituras do grupo lento e o tamanho da lista "esgotado na Liga" (Catálogo), vendo se algum desses produtos merece ação.
 - [ ] Se a fila rápida crescer demais, ajustar `quase_oportunidade_min_pct` ou o intervalo da fila rápida.
 
-### Oportunidades na área de negócio (depois do deploy)
+### Antes de publicar na internet
 
 - [ ] Trocar o `r2.dev` por domínio próprio (Custom Domains → `img.<domínio>`) antes de publicar na internet; o `r2.dev` é limitado e não serve para produção.
 
@@ -144,9 +138,10 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 - [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: a etapa dos produtos da Liga lê ~450–500 páginas por dia (leitura por interesse; eram ~10 h com todos os ativos); a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
 - [ ] Acompanhar uma semana sem desafio com ~500 páginas/dia (leitura por interesse, desde a implantação): avisos "Liga · desafio do Cloudflare" e a linha "Produtos: … de … · casados, candidatos, novos, rodízio" do resumo diário. Se o desafio voltar, baixar o rodízio (por exemplo para 14 dias) ou subir as pausas em Configurações → LigaMagic. No fim, revisar também o máximo de cliques em "Exibir mais" com os números reais.
-- [ ] CAPTCHA da Amazon com os dois navegadores somando ~270 páginas/h no mesmo endereço (busca 90/h + monitor 180/h, desde a separação). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
+- [ ] CAPTCHA da Amazon com os dois navegadores no mesmo endereço: busca até 90/h e monitor limitado na prática pelas pausas (~211 páginas/h com 8–20 s; o teto configurado é 1.000). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
 - [ ] Quantos produtos ativos ainda não foram buscados (card Amazon (busca) no Dashboard; eram 1941 de 1969 sem candidato em 2026-10-19). Com 90 buscas/h e a janela de 14 h, a primeira passada nos ~2000 produtos leva cerca de 2 dias.
 - [ ] Primeira semana do casamento por par: quantos ignorados foram recuperados (anúncios confirmados para um produto que antes estavam ignorados para outro: `SELECT count(*) FROM casamento c WHERE c.status = 'confirmado' AND EXISTS (SELECT 1 FROM casamento o WHERE o.anuncio_id = c.anuncio_id AND o.produto_id <> c.produto_id AND o.status = 'ignorado' AND o.origem <> 'outro_confirmado')`) e quantos produtos entraram na busca alternativa (`SELECT count(DISTINCT produto_id) FROM termo_busca`; com tentativa sem termo válido: `SELECT count(*) FROM fila_amazon WHERE termos_tentados_em IS NOT NULL`). Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
+- [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete depois de retomar o casador.
 - [ ] Resultado dos 19 pares em inglês reabertos em 2026-10-19 (`reabrir-ingles --aplicar`): quantos a IA confirmou e quantos voltaram a ignorado.
 - [ ] Fila e gasto da IA nos primeiros dias depois de implantar o casamento por par (volume aceito; o teto de gasto protege): pares pendentes esperando a IA (Dashboard → "esperando você" e Casamentos), gasto do dia e do mês em Logs → IA (filtro "termos de busca" para a busca alternativa, 5 produtos por ciclo) e se o teto do dia está sendo atingido cedo. Se a fila não baixar, ajustar o lote ou os tetos em Configurações → IA.
 
@@ -192,6 +187,9 @@ Nenhuma no momento.
 
 ## Decisões registradas
 
+- 2026-10-23: produção parada por segurança das ~11h às 13:28 para aplicar certifi, Playwright, Pillow e a imagem do build em Node 24.22.1 (PHP não é usado); os serviços de coleta só voltam quando o usuário liberar. Admin antigo e noVNC continuam abertos na rede de casa por enquanto; o plano de restringir está na seção 1, sem mexer no que roda.
+- 2026-10-22: monitor da Amazon por prioridade: fila rápida a cada 15 min com as oportunidades abertas e os anúncios a partir do "quase lá" (10%); esgotado na Liga lido 1 vez por semana e só listado no Catálogo para analisar (sem alerta no WhatsApp, só produtos ativos); o resto com a sobra. Tendência de mercado (lojas e preço subindo ou caindo) fica no sub-projeto C, não no Catálogo.
+- 2026-10-22: fase 3 da área administrativa organizada por tarefa, em três entregas (3A Casamentos e Catálogo, 3B Serviços, Atividade e Dashboard, 3C Configurações, Ofertas e Mensagens); mobile first; status curto com detalhe no tooltip; revisão de casamentos um produto por vez (Liga à esquerda, Amazon à direita, C/I, sem abas). Os links "Abrir" de Serviços só para quem pode pausar serviços e só na rede de casa; ações de gestão (lote do catálogo, ligar/desligar serviço, salvar configurações) registradas com quem e quando.
 - 2026-10-20: fase 2 do site novo dividida em A (fim da oportunidade), B (oportunidades) e C (mercado da Liga); a informação estratégica (tendências, histórico, gráficos) é o que se vende.
 - 2026-10-20: fim da oportunidade com carência de 30 min (configurável, 0 a 240); motivos de mercado avisam o grupo de oportunidades ("Oferta encerrada"), motivos técnicos o grupo admin, casamento desfeito ou trocado avisa "Alerta corrigido" no grupo de oportunidades; o aviso de fim só sai se o alerta de abertura chegou ao grupo.
 - 2026-10-20: README pronto para publicar o repositório e preparar a venda, licença MIT mantida; aviso de vulnerabilidade privado pelo GitHub ativado; assinatura descrita só como "em preparação".
