@@ -4,11 +4,13 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, delete, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from tcg_sniper.coletor_amazon.modelos import SELLER_AMAZON, AvaliacaoVendedor, OfertaLista, ResultadoBusca
 from tcg_sniper.db import repositorio_casamento as repo_casamento
@@ -506,45 +508,125 @@ def _confirmados_ativos(consulta):
     )
 
 
-def proximo_do_monitor(
-    s: Session, agora: datetime, intervalo_min: int, excluir: Collection[int] = ()
-) -> tuple[int, str] | None:
-    """O anúncio confirmado (de produto ativo) com a leitura de ofertas mais antiga já vencida; os
-    nunca lidos primeiro. `excluir`: anúncios que falharam há pouco (a varredura guarda)."""
-    leitura = _leitura_do_monitor()
-    consulta = _confirmados_ativos(select(AnuncioAmazon.id, AnuncioAmazon.asin)).where(
-        or_(leitura.is_(None), leitura <= agora - timedelta(minutes=intervalo_min))
+class GrupoMonitor(StrEnum):
+    """Grupo de leitura do monitor, nesta ordem de prioridade."""
+
+    NUNCA_LIDO = "nunca_lido"
+    RAPIDO = "rapido"  # oportunidade aberta ou desconto no piso do "quase lá"
+    ESGOTADO = "esgotado"  # sem "a partir de" na Liga: relido a cada `monitor_esgotado_dias`
+    LENTO = "lento"  # o resto: relido com a capacidade que sobra
+
+
+def _monitorados(consulta):
+    """`_confirmados_ativos` com o preço atual da Liga (para `_grupo_do_monitor`)."""
+    return _confirmados_ativos(consulta).outerjoin(PrecoAtualLiga, PrecoAtualLiga.produto_id == ProdutoLiga.id)
+
+
+def _grupo_do_monitor(piso_pct: int) -> ColumnElement[str]:
+    """O grupo do anúncio pela última leitura (sobre `_monitorados`). O desconto é só preço, como em
+    `motor.atinge_desconto`: Amazon atual contra o "a partir de" atual da Liga, sem filtro de vendedor nem
+    de idade do preço da Liga. Oportunidade aberta fica no rápido até fechar."""
+    amazon, liga = PrecoAtualAmazon.preco, PrecoAtualLiga.preco_a_partir
+    aberta = (
+        select(Oportunidade.id)
+        .where(Oportunidade.anuncio_id == AnuncioAmazon.id, Oportunidade.fechada_em.is_(None))
+        .exists()
     )
+    no_piso = and_(amazon > 0, liga > 0, amazon * 100 <= liga * (100 - piso_pct))
+    return case(
+        (_leitura_do_monitor().is_(None), GrupoMonitor.NUNCA_LIDO.value),
+        (aberta, GrupoMonitor.RAPIDO.value),
+        (no_piso, GrupoMonitor.RAPIDO.value),
+        (liga.is_(None), GrupoMonitor.ESGOTADO.value),
+        else_=GrupoMonitor.LENTO.value,
+    )
+
+
+def _grupos(piso_pct: int):
+    """Subconsulta (id, asin, grupo, leitura) de cada anúncio que o monitor acompanha."""
+    return _monitorados(
+        select(
+            AnuncioAmazon.id,
+            AnuncioAmazon.asin,
+            _grupo_do_monitor(piso_pct).label("grupo"),
+            _leitura_do_monitor().label("leitura"),
+        )
+    ).subquery()
+
+
+@dataclass(frozen=True)
+class ProximoMonitor:
+    anuncio_id: int
+    asin: str
+    grupo: GrupoMonitor
+
+
+def proximo_do_monitor(
+    s: Session, agora: datetime, cfg: ConfigAmazon, excluir: Collection[int] = ()
+) -> ProximoMonitor | None:
+    """O próximo anúncio a ler: os nunca lidos, depois o rápido vencido, o esgotado vencido e por fim o lento
+    vencido; dentro do grupo, a leitura mais antiga primeiro. Rápido e lento vencem em `monitor_intervalo_min`,
+    o esgotado em `monitor_esgotado_dias`. `excluir`: anúncios que falharam há pouco (a varredura guarda)."""
+    g = _grupos(cfg.quase_oportunidade_min_pct)
+    limite = agora - timedelta(minutes=cfg.monitor_intervalo_min)
+    limite_esgotado = agora - timedelta(days=cfg.monitor_esgotado_dias)
+    vencido = or_(
+        g.c.grupo == GrupoMonitor.NUNCA_LIDO.value,
+        and_(g.c.grupo == GrupoMonitor.ESGOTADO.value, g.c.leitura <= limite_esgotado),
+        and_(g.c.grupo.in_([GrupoMonitor.RAPIDO.value, GrupoMonitor.LENTO.value]), g.c.leitura <= limite),
+    )
+    prioridade = case(
+        (g.c.grupo == GrupoMonitor.NUNCA_LIDO.value, 0),
+        (g.c.grupo == GrupoMonitor.RAPIDO.value, 1),
+        (g.c.grupo == GrupoMonitor.ESGOTADO.value, 2),
+        else_=3,
+    )
+    consulta = select(g.c.id, g.c.asin, g.c.grupo).where(vencido)
     if excluir:
-        consulta = consulta.where(AnuncioAmazon.id.not_in(list(excluir)))
-    linha = s.execute(consulta.order_by(leitura.asc().nulls_first(), AnuncioAmazon.id).limit(1)).first()
-    return (linha.id, linha.asin) if linha else None
+        consulta = consulta.where(g.c.id.not_in(list(excluir)))
+    linha = s.execute(consulta.order_by(prioridade, g.c.leitura.asc().nulls_first(), g.c.id).limit(1)).first()
+    return ProximoMonitor(linha.id, linha.asin, GrupoMonitor(linha.grupo)) if linha else None
 
 
-def ids_do_monitor(s: Session) -> set[int]:
-    """Todos os anúncios que o monitor acompanha (confirmados, de produto ativo), lidos ou não: a foto da
-    volta do monitor que começa agora (ver `varredura_monitor._Rodada`)."""
-    return set(s.scalars(_confirmados_ativos(select(AnuncioAmazon.id))))
+def ids_da_volta(s: Session, piso_pct: int) -> set[int]:
+    """Os anúncios da volta do monitor que começa agora (nunca lidos e rápidos, lidos há pouco ou não; ver
+    `varredura_monitor._Rodada`). O lento e o esgotado não entram na volta."""
+    g = _grupos(piso_pct)
+    return set(s.scalars(select(g.c.id).where(g.c.grupo.in_([GrupoMonitor.NUNCA_LIDO.value, GrupoMonitor.RAPIDO.value]))))
 
 
 @dataclass(frozen=True)
 class SituacaoMonitor:
     confirmados: int
     nunca_lidos: int
-    vencidos: int  # leitura mais velha que o intervalo (ou nunca lidos)
-    mais_antiga: datetime | None  # leitura de ofertas mais antiga entre os já lidos
+    rapidos: int
+    lentos: int
+    esgotados: int
+    vencidos: int  # nunca lidos + rápidos com leitura mais velha que o intervalo
+    mais_antiga_rapida: datetime | None  # leitura mais antiga entre os rápidos
+    mais_antiga_lenta: datetime | None  # leitura mais antiga entre os lentos
     ultima: datetime | None
 
 
-def situacao_monitor(s: Session, agora: datetime, intervalo_min: int) -> SituacaoMonitor:
-    leitura = _leitura_do_monitor()
-    vencido = or_(leitura.is_(None), leitura <= agora - timedelta(minutes=intervalo_min))
-    consulta = _confirmados_ativos(
-        select(func.count(), func.count(leitura), func.count().filter(vencido), func.min(leitura), func.max(leitura))
-        .select_from(AnuncioAmazon)
-    )
-    total, lidos, vencidos, mais_antiga, ultima = s.execute(consulta).one()
-    return SituacaoMonitor(total, total - lidos, vencidos, mais_antiga, ultima)
+def situacao_monitor(s: Session, agora: datetime, cfg: ConfigAmazon) -> SituacaoMonitor:
+    g = _grupos(cfg.quase_oportunidade_min_pct)
+    nunca, rapido = g.c.grupo == GrupoMonitor.NUNCA_LIDO.value, g.c.grupo == GrupoMonitor.RAPIDO.value
+    lento, esgotado = g.c.grupo == GrupoMonitor.LENTO.value, g.c.grupo == GrupoMonitor.ESGOTADO.value
+    limite = agora - timedelta(minutes=cfg.monitor_intervalo_min)
+    linha = s.execute(
+        select(
+            func.count(),
+            func.count().filter(nunca),
+            func.count().filter(rapido),
+            func.count().filter(lento),
+            func.count().filter(esgotado),
+            func.count().filter(or_(nunca, and_(rapido, g.c.leitura <= limite))),
+            func.min(g.c.leitura).filter(rapido),
+            func.min(g.c.leitura).filter(lento),
+            func.max(g.c.leitura),
+        ).select_from(g)
+    ).one()
+    return SituacaoMonitor(*linha)
 
 
 # --- conferência de checkout ----------------------------------------------------------------

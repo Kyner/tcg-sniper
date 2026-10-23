@@ -192,7 +192,7 @@ def _resumo_monitor(s: Session, agora: datetime, cfg: Config) -> str:
     if not cfg_amazon.monitor_ligado:
         monitor = "monitor desligado"
     else:
-        situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon.monitor_intervalo_min)
+        situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon)
         if situacao.ultima is None:
             monitor = "monitor: nenhuma leitura ainda"
         else:
@@ -485,7 +485,7 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
     if not cfg_amazon.monitor_ligado:
         return lista
     intervalo = cfg_amazon.monitor_intervalo_min
-    situacao = repo_amz.situacao_monitor(s, agora, intervalo)
+    situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon)
     exigido = math.ceil(situacao.confirmados * 60 / intervalo)
     if exigido > cfg_amazon.monitor_max_paginas_hora:
         lista.append(
@@ -507,8 +507,8 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
         cfg_amazon.monitor_janela_inicio <= local.time() < cfg_amazon.monitor_janela_fim and local - abertura >= dois_intervalos
     )
     ativo = repo.obter_estado(s, agora, COLETOR_AMAZON).estado is EstadoColetorTipo.ATIVO
-    if ativo and aberta_ha_tempo and situacao.mais_antiga is not None and agora - situacao.mais_antiga >= dois_intervalos:
-        minutos = int((agora - situacao.mais_antiga).total_seconds() // 60)
+    if ativo and aberta_ha_tempo and situacao.mais_antiga_rapida is not None and agora - situacao.mais_antiga_rapida >= dois_intervalos:
+        minutos = int((agora - situacao.mais_antiga_rapida).total_seconds() // 60)
         lista.append(
             Aviso(
                 "warning",

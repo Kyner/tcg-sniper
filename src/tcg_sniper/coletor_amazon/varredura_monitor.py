@@ -223,8 +223,8 @@ class VarreduraMonitor(VarreduraBase):
             proximo = None
             acompanhados: set[int] = set()
             if cfg.monitor_ligado:
-                acompanhados = repo_amz.ids_do_monitor(s)
-                proximo = repo_amz.proximo_do_monitor(s, agora, cfg.monitor_intervalo_min, de_lado)
+                acompanhados = repo_amz.ids_da_volta(s, cfg.quase_oportunidade_min_pct)
+                proximo = repo_amz.proximo_do_monitor(s, agora, cfg, de_lado)
         self._talvez_fechar_rodada(acompanhados)
         if not candidatas and proximo is None:
             return None
@@ -232,7 +232,7 @@ class VarreduraMonitor(VarreduraBase):
             self._rodada = _Rodada(self._relogio(), faltam=set(acompanhados))
         if candidatas:
             return self._conferir(candidatas[0], cfg)
-        return self._monitorar(*proximo, cfg)
+        return self._monitorar(proximo.anuncio_id, proximo.asin, cfg)
 
     def _talvez_retirar(self, cfg: ConfigAmazon) -> float | None:
         """Tenta tirar do carrinho o item de uma conferência que pode ter ficado lá (marca "em andamento" de

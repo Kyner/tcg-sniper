@@ -362,7 +362,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "cfg_amazon": cfg_amazon,
                     "a_conferir_a_mao": repo_amz.conferencias_a_conferir_a_mao(s),
                     "janela_monitor": (f"{cfg_amazon.monitor_janela_inicio:%H:%M}", f"{cfg_amazon.monitor_janela_fim:%H:%M}"),
-                    "monitor": repo_amz.situacao_monitor(s, repo.agora_utc(), cfg_amazon.monitor_intervalo_min),
+                    "monitor": repo_amz.situacao_monitor(s, repo.agora_utc(), cfg_amazon),
                     "estado_casador": repo.obter_estado(s, coletor=COLETOR_CASADOR),
                     "cfg_ia": repo_ia.obter_config_ia(s),
                     "ia_chave": bool((config.openai_api_key or "").strip()),
