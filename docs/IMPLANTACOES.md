@@ -8,7 +8,7 @@ Da mais nova para a mais antiga.
 
 **Não implantar antes das atualizações de segurança** (certifi, Playwright, Pillow e a imagem de build do Node, em outro ramo): a produção está parada de propósito até elas serem mescladas, e este deploy sai junto com elas, numa subida só.
 
-1. Backup do banco antes de tudo (há migração nova: `c5e1a8d3f7b2`, que acrescenta `monitor_esgotado_dias` a `config_amazon`, padrão 7 dias):
+1. Backup do banco antes de tudo (há duas migrações novas: `c5e1a8d3f7b2`, que acrescenta `monitor_esgotado_dias` a `config_amazon`, padrão 7 dias, e `e7b3d9f1a4c6`, que acrescenta `monitor_lido_em` a `anuncio_amazon` e a preenche com a última leitura das ofertas de cada anúncio):
 
    ```bash
    mkdir -p dados/backups
@@ -26,7 +26,8 @@ Da mais nova para a mais antiga.
 4. Confira:
    - o card do monitor em Serviços mostra as contagens "rápida · lenta · esgotado" (e "nunca lidos" quando houver);
    - o aviso "atrasado" vale só para a fila rápida: anúncios do grupo lento ou esgotados com leitura antiga não o acendem;
-   - Catálogo → Preço na Liga → "esgotado na Liga" lista só produtos monitorados, para decidir o que fazer com eles.
+   - no site novo, Gestão → Catálogo → filtro "Preço na Liga" → "Esgotado (com anúncio casado)" lista só produtos monitorados, para decidir o que fazer com eles;
+   - o aviso "Amazon · rodada do monitor" sai no máximo uma vez por hora (somando as voltas da fila rápida, que fecham a cada ~15 min), começando por "Voltas da fila rápida: N".
 
 ## Site novo, fase 3A: Casamentos e Catálogo na gestão (2026-10-22, implantada às 11:37)
 

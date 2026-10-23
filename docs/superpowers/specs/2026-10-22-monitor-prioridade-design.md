@@ -23,6 +23,8 @@ Medida provisória em produção desde 2026-10-22: intervalo do monitor em 30 mi
 
 O desconto de um anúncio, para escolher o grupo, é **só preço**: o preço atual da Amazon (`preco_atual_amazon.preco`) contra o "a partir de" atual da Liga, com a mesma conta de `motor.desconto_pct`, pela última leitura. **Não** passa pelo filtro de elegibilidade do "quase lá" e da oportunidade (vendedor aceito, idade do preço da Liga): a melhor oferta pode trocar de vendedor na leitura seguinte, e o monitor existe justamente para descobrir isso (chamada minha; o retrato de 32 rápidos foi contado assim). Preço da Liga velho (coleta da Liga parada) continua "com preço" e vai para o grupo pelo desconto; problema na coleta da Liga tem aviso próprio (chamada minha).
 
+A "leitura do monitor" (nunca lido, vencimento, ordem, mais antiga) é `anuncio_amazon.monitor_lido_em`, gravado a cada leitura das ofertas; a busca pode trocar o preço atual (quando a leitura do monitor tem mais de 2 intervalos) sem mexer nesse prazo. O grupo continua decidido pelo preço atual, qualquer que seja a origem (revisão final).
+
 Regras de desempate (chamadas minhas, coerentes com o que o usuário pediu):
 - **Oportunidade aberta sempre fica no grupo rápido**, mesmo que a Liga fique sem preço ou o desconto caia, até ela fechar (o fim da oportunidade depende de leitura nova).
 - O grupo é por anúncio (o par confirmado é um só por anúncio): vários anúncios do mesmo produto esgotado ficam todos no grupo "esgotado".
@@ -49,8 +51,8 @@ Com os números de 2026-10-22: o rápido (32) pede ~128 páginas/h; o lento (449
 
 - `situacao_monitor` passa a contar por grupo (quantos em cada um e quantos vencidos). O "vencido" do aviso "monitor atrasado" e do "N na fila" passa a ser **só o do grupo rápido** (e o dos nunca lidos): o lento não tem prazo, e o esgotado vence por dias.
 - O aviso "o monitor precisa de X páginas por hora…" passa a fazer a conta só com o grupo rápido (`rápidos × 60 / intervalo`) e compara com o teto e com a capacidade estimada pelas pausas (3600 / pausa média).
-- A tela de Serviços (card do monitor, admin antigo) e o Dashboard mostram as quatro contagens em uma linha ("rápida 32 · lenta 449 · esgotado 119 · nunca lidos 15"), e de quanto em quanto tempo o lento está sendo relido (idade média da leitura do grupo lento).
-- "Rodada do monitor concluída" (`_Rodada` em `varredura_monitor.py`, aviso no grupo admin): a volta passa a ser **a dos grupos 1 e 2** (todos os rápidos e nunca lidos lidos uma vez); o lento e o esgotado não entram na volta. O texto do aviso diz quantos lentos e esgotados foram lidos durante a volta (contador em memória da própria volta, como `lidos` hoje). Sem nenhum rápido nem nunca lido, não há volta e não sai aviso (evita aviso em laço); chamada minha.
+- A tela de Serviços (card do monitor, admin antigo) e o Dashboard mostram as quatro contagens em uma linha ("rápida 32 · lenta 449 · esgotado 119 · nunca lidos 15"), e de quanto em quanto tempo o lento está sendo relido (leitura mais antiga do grupo lento).
+- "Rodada do monitor concluída" (`_Rodada` em `varredura_monitor.py`, aviso no grupo admin): a volta passa a ser **a dos grupos 1 e 2** (todos os rápidos e nunca lidos lidos uma vez); o lento e o esgotado não entram na volta. O texto do aviso diz quantos lentos e esgotados foram lidos durante a volta (contador em memória da própria volta, como `lidos` hoje). Sem nenhum rápido nem nunca lido, não há volta e não sai aviso (evita aviso em laço); chamada minha. Revisão final: com a volta só da fila rápida ela fecha a cada ~15 min, então as voltas se somam em memória e sai **no máximo um aviso por hora** (o primeiro na hora), começando por "Voltas da fila rápida: N"; as quedas de preço contam em qualquer grupo.
 
 ## Lista "Esgotado na Liga · analisar" (Catálogo da gestão)
 
@@ -67,7 +69,7 @@ Com os números de 2026-10-22: o rápido (32) pede ~128 páginas/h; o lento (449
 
 ## Implantação
 
-Migração (`monitor_esgotado_dias`) ⇒ backup antes. Depois do deploy, voltar `monitor_intervalo_min` para 15 (estava em 30 provisoriamente). Conferir no dia: contagens por grupo no card do monitor, aviso de atraso só com o grupo rápido, e a lista de esgotados no Catálogo.
+Migrações (`monitor_esgotado_dias` e `anuncio_amazon.monitor_lido_em`, preenchida pela última leitura das ofertas) ⇒ backup antes. Depois do deploy, voltar `monitor_intervalo_min` para 15 (estava em 30 provisoriamente). Conferir no dia: contagens por grupo no card do monitor, aviso de atraso só com o grupo rápido, e a lista de esgotados no Catálogo.
 
 ## Testes
 

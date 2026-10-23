@@ -22,7 +22,7 @@ Nenhum no momento.
 
 ### Para resolver logo (achados da auditoria de UX de 2026-10-21)
 
-- [ ] **Monitor da Amazon atrasado**: a correção (grupos de prioridade: nunca lidos, fila rápida, esgotado na Liga semanal e lento com a sobra) está pronta para o merge no ramo `worktree-monitor-prioridade`; o deploy vai junto com as atualizações de segurança (ver `docs/IMPLANTACOES.md`). Spec: `docs/superpowers/specs/2026-10-22-monitor-prioridade-design.md`; plano em `docs/superpowers/plans/`.
+- [ ] **Monitor da Amazon atrasado**: a correção (grupos de prioridade: nunca lidos, fila rápida, esgotado na Liga semanal e lento com a sobra) está pronta para o merge; o deploy vai junto com as atualizações de segurança (ver `docs/IMPLANTACOES.md`). Spec: `docs/superpowers/specs/2026-10-22-monitor-prioridade-design.md`; plano em `docs/superpowers/plans/`.
 - [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete.
 
 ## 1. Segurança antes da internet (prioridade alta)
