@@ -1,5 +1,5 @@
 # Build do front (Vite) numa etapa com Node; a imagem final é só o Caddy com os arquivos prontos.
-FROM node:24.4.1-alpine AS build
+FROM node:24.22.1-alpine AS build
 WORKDIR /web
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci

@@ -23,6 +23,7 @@ Nenhum no momento.
 ### Para resolver logo (achados da auditoria de UX de 2026-10-21)
 
 - [ ] **Monitor da Amazon atrasado**: a correção (grupos de prioridade: nunca lidos, fila rápida, esgotado na Liga semanal e lento com a sobra) está pronta para o merge; o deploy vai junto com as atualizações de segurança (ver `docs/IMPLANTACOES.md`). Spec: `docs/superpowers/specs/2026-10-22-monitor-prioridade-design.md`; plano em `docs/superpowers/plans/`.
+- [ ] **Atualizações de segurança de 2026-10-23** (pesquisa de alertas recentes de Node, Python e PHP; PHP não é usado): certifi ≥ 2026.10.19 (CAs comprometidas, GHSA-6q48-6c7w-9gw2), Playwright 1.64.1 (Chromium com o zero-day do V8 CVE-2026-87491 corrigido), Pillow 13.0.0 (estouro no decodificador JPEG e outros; imagens agora só JPEG/PNG/WEBP/GIF) e a imagem do build do site em Node 24.22.1. Prontas para o merge; o deploy vai junto com o monitor por grupo. A produção ficou parada de propósito em 2026-10-23 até este deploy.
 - [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete.
 
 ## 1. Segurança antes da internet (prioridade alta)
@@ -34,6 +35,12 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Sessões encerradas ou vencidas nunca são apagadas (pedidos e códigos são, depois de 1 dia). Com a venda de acesso o volume cresce: limpar na manutenção diária.
 - [ ] O texto do código de acesso fica legível na fila (`mensagem_saida`) enquanto está pendente (até 5 min; Admin → Mensagens já mostra "texto oculto"). Decidir se fica cifrado na fila.
 - [ ] Cloudflare Access na frente do noVNC e da gestão quando publicar (ver "Publicar na internet", seção 4).
+- [ ] **Restringir o admin antigo (8000) e o noVNC (6080–6082) — plano (decidido em 2026-10-23: não mexer no que está rodando agora; o acesso fica só nesta máquina por enquanto).** Hoje os quatro escutam em `0.0.0.0` (qualquer máquina da rede de casa alcança) e o noVNC do monitor é o navegador logado na Amazon; o VNC usa só os 8 primeiros caracteres de `VNC_SENHA`. Passos, cada um sem derrubar o que roda:
+  1. Endereço de escuta configurável no `docker-compose.yml`: `"${ADMIN_ESCUTA:-0.0.0.0}:8000:8000"` e `"${VNC_ESCUTA:-0.0.0.0}:6080:6080"` (idem 6081/6082). O padrão continua o de hoje; ninguém perde acesso no deploy.
+  2. Quando quiser fechar: `ADMIN_ESCUTA=127.0.0.1` e `VNC_ESCUTA=127.0.0.1` no `.env` e `docker compose up -d` (só recria os containers que mudaram). De outra máquina, o acesso passa a ser por túnel SSH ou pela VPN (Tailscale), não pela rede aberta.
+  3. Senha do noVNC: trocar o `x11vnc -passwdfile` (8 caracteres) por autenticação na frente do websockify (ex.: o próprio Caddy com `basic_auth` e senha longa, ou só pela VPN). Manter `VNC_SENHA` como segunda barreira.
+  4. Os links "Abrir" da gestão (3B) já são só para quem pode pausar serviços e só funcionam na rede de casa; com o passo 2 passam a funcionar só no próprio PC (o tooltip avisa).
+  5. Antes de publicar na internet: Cloudflare Access (item acima) na frente do que for exposto; admin antigo e noVNC **nunca** publicados.
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
@@ -145,6 +152,9 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 ### Operação
 
+- [ ] Evolution API (WhatsApp): o Node dentro da imagem (24.11.1) tem a falha de Brotli do lançamento de 2026-10-21 (corrigida no Node 24.22.1) e a versão 2.3.7 expõe `/metrics` sem senha (CVE-2026-91997). Risco baixo (só escuta em 127.0.0.1); atualizar a imagem quando sair uma versão com o Node corrigido.
+- [ ] Playwright: conferir na próxima versão se o Chromium empacotado traz todas as correções do Chrome estável (o 1.64.1 vem com um build anterior ao 156 estável).
+- [ ] Atualizar o Python do PC de desenvolvimento (3.12.10; CVE-2026-12003 é escalada local no Windows). Não afeta os containers (3.12.15).
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
 - [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida é uma thread de 60 s).

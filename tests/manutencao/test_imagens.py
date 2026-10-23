@@ -52,6 +52,25 @@ def test_para_webp_reduz_e_converte():
     assert imagem.format == "WEBP" and max(imagem.size) == 600
 
 
+def test_para_webp_recusa_formato_fora_da_lista():
+    """Só JPEG, PNG, WEBP e GIF: os decodificadores menos usados (TIFF, JPEG 2000…) ficam de fora."""
+    saida = io.BytesIO()
+    Image.new("RGB", (10, 10)).save(saida, "TIFF")
+    with pytest.raises(imagens.ErroImagem):
+        imagens.para_webp(saida.getvalue())
+
+
+def test_para_webp_trata_value_error_como_imagem_ruim(monkeypatch):
+    """O Pillow 13 levanta ValueError em alguns arquivos corrompidos (ex.: "Truncated cHRM chunk")."""
+
+    def abrir(*_args, **_kwargs):
+        raise ValueError("Truncated cHRM chunk")
+
+    monkeypatch.setattr(imagens.Image, "open", abrir)
+    with pytest.raises(imagens.ErroImagem):
+        imagens.para_webp(_png(10))
+
+
 def test_chave_muda_com_a_origem():
     a = imagens.chave_para("produtos", "p1", "https://x.test/a.jpg")
     b = imagens.chave_para("produtos", "p1", "https://x.test/b.jpg")
