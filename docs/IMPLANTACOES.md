@@ -4,6 +4,14 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 
 Da mais nova para a mais antiga.
 
+
+## Atualizações de segurança (2026-10-23)
+
+Vão no mesmo deploy do monitor por grupo (a produção ficou parada de propósito até aqui). Sem migração própria (as do monitor pedem o backup).
+
+1. `docker compose up -d --build`, como sempre. O `uv.lock` mudou, então o Docker refaz a instalação das dependências e a do Chromium do Playwright 1.64.1 (o `playwright install` vem depois do `uv sync` no `Dockerfile`); a primeira construção demora mais.
+2. Confira: os três noVNC abrem (`:6080`, `:6081`, `:6082`) e a Amazon segue logada no monitor; Logs → Manutenção sem erro de imagem na primeira rodada de cópia das fotos (Pillow 13; formato fora de JPEG/PNG/WEBP/GIF agora é recusado e só aparece como falha daquele item); o site (`:8090`) abre normalmente (build com Node 24.22.1).
+
 ## Site novo, fase 3A: Casamentos e Catálogo na gestão (2026-10-22, implantada às 11:37)
 
 1. Backup do banco antes de tudo (há migração nova: `a1c4e7b9d2f6`, tabela `acao_gestao`, o registro das ações da gestão):

@@ -64,14 +64,19 @@ def chave_para(tipo: str, ident: str, origem: str) -> str:
     return f"{tipo}/{ident}-{hashlib.sha1(origem.encode()).hexdigest()[:10]}.webp"
 
 
+# Só os formatos que a Liga e a Amazon servem: os decodificadores menos usados (TIFF, JPEG 2000…) concentram
+# as falhas de segurança do Pillow e nunca são necessários aqui.
+FORMATOS_ACEITOS = ("JPEG", "PNG", "WEBP", "GIF")
+
+
 def para_webp(dados: bytes) -> bytes:
     try:
-        imagem = Image.open(io.BytesIO(dados))
+        imagem = Image.open(io.BytesIO(dados), formats=FORMATOS_ACEITOS)
         largura, altura = imagem.size  # lido do cabeçalho, sem decodificar
         if largura * altura > MAX_PIXELS:
             raise ErroImagem(f"imagem grande demais ({largura}x{altura})")
         imagem.load()
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as erro:
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as erro:
         raise ErroImagem("não é uma imagem") from erro
     imagem = imagem.convert("RGBA" if imagem.mode in ("RGBA", "LA", "P") else "RGB")
     imagem.thumbnail((LADO_MAX, LADO_MAX))

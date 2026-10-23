@@ -45,6 +45,15 @@ def test_falhas_viram_none():
 
 
 @respx.mock
+def test_formato_fora_da_lista_vira_none():
+    saida = io.BytesIO()
+    Image.new("RGB", (10, 10)).save(saida, "TIFF")
+    respx.get("https://img.test/a.tif").mock(return_value=httpx.Response(200, content=saida.getvalue()))
+    with httpx.Client() as c:
+        assert preparar(c, "https://img.test/a.tif") is None
+
+
+@respx.mock
 def test_erro_que_nao_e_oserror_tambem_vira_none(monkeypatch):
     from tcg_sniper.ia import imagens
 
