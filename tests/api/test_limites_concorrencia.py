@@ -65,14 +65,14 @@ def test_dois_pedidos_ao_mesmo_tempo_nao_levam_a_ultima_vaga_do_numero(engine, l
     assert resultado is acesso.ResultadoPedido.LIMITE_NUMERO
 
 
-def test_dois_pedidos_ao_mesmo_tempo_nao_levam_a_ultima_vaga_do_total(engine, limpar, monkeypatch):
-    monkeypatch.setattr(acesso, "LIMITE_TOTAL", 1)
+def test_dois_numeros_ao_mesmo_tempo_sao_aceitos(engine, limpar):
+    """Sem limite total, pedidos de números diferentes não disputam vaga."""
     resultado = _corrida(
         engine,
         lambda s: acesso.pedir_codigo(s, NUMERO_A, T0, SEGREDO_TESTE),
         lambda s: acesso.pedir_codigo(s, NUMERO_B, T0, SEGREDO_TESTE),
     )
-    assert resultado is acesso.ResultadoPedido.LIMITE_TOTAL
+    assert resultado is acesso.ResultadoPedido.ACEITO
 
 
 def test_duas_entradas_ao_mesmo_tempo_nao_levam_a_ultima_vaga(engine, limpar, monkeypatch):

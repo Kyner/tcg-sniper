@@ -23,11 +23,9 @@ VALIDADE_CODIGO = timedelta(minutes=5)
 MAX_TENTATIVAS = 5
 LIMITE_POR_NUMERO = 3
 JANELA_NUMERO = timedelta(minutes=15)
-LIMITE_TOTAL = 20
-JANELA_TOTAL = timedelta(hours=1)
 LIMITE_ENTRADAS = 10  # tentativas de entrar por número (com ou sem cadastro) a cada 15 min
 JANELA_ENTRADAS = timedelta(minutes=15)
-CHAVE_TOTAL = "total"  # chave do `SEGURANCA_LIMITE` do limite total por hora
+CHAVE_TOTAL = "total"  # chave do antigo aviso de "limite total" (removido em 2026-10-24); só para fechá-lo se ficou aberto
 LINHAS_CODIGO = ("Vale por 5 minutos.", "Não passe este código para ninguém.")
 NAVEGADORES = (("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari"))
 SISTEMAS = (
@@ -39,7 +37,6 @@ SISTEMAS = (
 class ResultadoPedido(StrEnum):
     ACEITO = "aceito"
     LIMITE_NUMERO = "limite_numero"
-    LIMITE_TOTAL = "limite_total"
 
 
 def resumir_aparelho(user_agent: str | None) -> str:
@@ -65,12 +62,8 @@ def _chave_numero(numero_hash: str) -> str:
 
 def _recusar(s: Session, numero: str, numero_hash: str, resultado: ResultadoPedido, agora: datetime) -> ResultadoPedido:
     repo_acesso.registrar_pedido(s, numero_hash, resultado.value, agora)
-    if resultado is ResultadoPedido.LIMITE_TOTAL:
-        chave = CHAVE_TOTAL
-        linhas = (f"Limite: {LIMITE_TOTAL} pedidos por hora no total", "Vários números")
-    else:
-        chave = _chave_numero(numero_hash)
-        linhas = (f"Limite: {LIMITE_POR_NUMERO} códigos por número em 15 min", f"Número com final {numero[-2:]}")
+    chave = _chave_numero(numero_hash)
+    linhas = (f"Limite: {LIMITE_POR_NUMERO} códigos por número em 15 min", f"Número com final {numero[-2:]}")
     log.warning("pedido de código recusado (%s) para %s", resultado.value, mascarar_numero(numero))
     avisos.avisar(s, TipoAviso.SEGURANCA_LIMITE, chave, Dados(linhas=linhas), agora)
     return resultado
@@ -82,15 +75,12 @@ def pedir_codigo(s: Session, numero: str, agora: datetime, segredo: str) -> Resu
     O chamador responde igual para número com ou sem cadastro."""
     repo_acesso.limpar_antigos(s, agora)
     numero_hash = hash_segredo(segredo, numero)
-    # Sempre nesta ordem (total, depois número): sem impasse entre duas requisições.
-    repo_acesso.travar_limite(s, repo_acesso.TRAVA_PEDIDOS_TOTAL)
+    # Só limites por número: um limite total deixaria qualquer um trancar o login de todos.
     repo_acesso.travar_limite(s, repo_acesso.TRAVA_PEDIDOS_NUMERO, numero_hash)
-    if repo_acesso.contar_pedidos(s, agora - JANELA_TOTAL) >= LIMITE_TOTAL:
-        return _recusar(s, numero, numero_hash, ResultadoPedido.LIMITE_TOTAL, agora)
     if repo_acesso.contar_pedidos(s, agora - JANELA_NUMERO, numero_hash) >= LIMITE_POR_NUMERO:
         return _recusar(s, numero, numero_hash, ResultadoPedido.LIMITE_NUMERO, agora)
     repo_acesso.registrar_pedido(s, numero_hash, ResultadoPedido.ACEITO.value, agora)
-    avisos.resolver(s, TipoAviso.SEGURANCA_LIMITE, CHAVE_TOTAL, agora)  # aceito: o limite total já passou
+    avisos.resolver(s, TipoAviso.SEGURANCA_LIMITE, CHAVE_TOTAL, agora)  # fecha um aviso antigo de limite total
     usuario = repo_acesso.usuario_por_numero(s, numero)
     if usuario is None or not usuario.ativo:
         log.info("pedido de código para %s: sem usuário ativo, nada enviado", mascarar_numero(numero))
