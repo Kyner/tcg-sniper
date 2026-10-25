@@ -5,7 +5,7 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 Da mais nova para a mais antiga.
 
 
-## Segurança, etapa 1 (2026-10-24)
+## Segurança, etapa 1 (2026-10-24, implantada às 22:10)
 
 Sem migração. Mudam as portas do admin antigo e do noVNC (agora só neste PC por padrão), o login (sem o limite total de 20 pedidos por hora; ficam os limites por número) e a limpeza diária (sessões encerradas ou vencidas há mais de 30 dias).
 

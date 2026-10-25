@@ -3,14 +3,14 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-24 (segurança etapa 1 pronta para o merge; monitor por grupo e atualizações de segurança em produção desde 2026-10-23 13:28; os serviços de coleta seguem pausados no admin até a liberação do usuário; próxima entrega: 3B).
+Última revisão: 2026-10-24 (segurança etapa 1 em produção desde 22:10; monitor por grupo e atualizações de segurança desde 2026-10-23 13:28; os serviços de coleta seguem pausados no admin até a liberação do usuário; próxima entrega: 3B).
 
 ## Ordem sugerida
 
 1. Retomar os serviços de coleta (pausados no admin desde a parada de segurança de 2026-10-23), conferir a Amazon logada no noVNC do monitor e acompanhar a primeira semana do monitor por grupo (seção 3).
 2. Conferir a 3A em produção (seção 3, "Fase 3A").
 3. Site novo, fase 3, entrega 3B (Serviços, Atividade e Dashboard), depois 3C (Configurações, Ofertas e Mensagens) e a fase 4 (desligar o admin antigo). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
-4. Seção 1: etapa 1 (admin e noVNC só neste PC, login sem limite total, faxina de sessões) pronta para o merge; a etapa 2 é **obrigatória antes de publicar na internet ou vender acesso**.
+4. Seção 1, etapa 2: **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
 7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão entram na 3B/3C).
@@ -22,9 +22,9 @@ Nenhum no momento.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
-Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são menos de 20 pessoas, mas o acesso vai ser vendido: limites e sessões precisam ser pensados para crescer.
+Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 2 pessoas em beta (2026-10-23), mas o acesso vai ser vendido: limites e sessões precisam ser pensados para crescer.
 
-- [ ] **Etapa 1 pronta para o merge** (spec `docs/superpowers/specs/2026-10-23-seguranca-etapa1-design.md`, plano `docs/superpowers/plans/2026-10-23-seguranca-etapa1.md`): admin antigo e noVNC só neste PC por padrão (`ADMIN_ESCUTA`/`VNC_ESCUTA`), login sem o limite total (ficam os limites por número) e limpeza diária das sessões encerradas ou vencidas há mais de 30 dias.
+A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 **Etapa 2, antes de publicar na internet** (decidido em 2026-10-23: hoje só este PC usa o sistema, com 2 pessoas em beta):
 
@@ -42,6 +42,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 - [ ] Teste instável: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` falhou uma vez numa rodada completa e passa sozinho (suspeita de dependência do relógio ou da ordem). Investigar antes de confiar nele no CI.
 - [ ] Ponta a ponta da gestão entra como superadmin; acrescentar um operador para exercitar as permissões das telas novas.
+- [ ] `tests/test_compose_portas.py` só lê portas no formato curto (`"ip:porta:porta"`); uma porta no formato longo (`published:`) ou só `"8000"` passaria sem ser conferida.
 - [ ] Teste da migração `acao_gestao` não confere o `ON DELETE SET NULL` no schema; a lista de permissões do operador está fixa em `tests/api/test_auth.py` (derivar de `PADROES`).
 
 ### Gestão do site novo (adiadas da revisão da 3A, 2026-10-22; entram na 3B/3C)
@@ -83,6 +84,7 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 - [ ] Celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. **Decidido (2026-10-19):** aceitar a variante sem o 9 no login, normalizando para o número cadastrado.
 - [ ] `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
 - [ ] `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
+- [ ] `repositorio_acesso.travar_limite` ainda cita o "limite total" na docstring, e o caminho sem número (chave fixa) e `contar_pedidos` sem número ficaram sem uso desde a segurança etapa 1.
 - [ ] Front: ao fechar um modal, o foco não volta para o botão que o abriu.
 
 ### Avisos, vigia e notificador
@@ -211,6 +213,14 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Segurança, etapa 1 (merge `e56364e`, em produção desde 2026-10-24 22:10)
+
+Spec `docs/superpowers/specs/2026-10-23-seguranca-etapa1-design.md`, plano `docs/superpowers/plans/2026-10-23-seguranca-etapa1.md`. Sem migração. Suíte no merge: 2193 testes passando.
+
+- [x] Admin antigo (8000) e noVNC (6080–6082) escutam só neste PC por padrão (`${ADMIN_ESCUTA:-127.0.0.1}`, `${VNC_ESCUTA:-127.0.0.1}`); teste garante que nenhuma porta publicada fica aberta sem variável. No deploy, "IP ou nome deste PC na rede" trocado de IP da rede para `127.0.0.1`.
+- [x] Login sem o limite total de 20 pedidos por hora (qualquer um trancava todos); ficam os limites por número; aviso antigo de "limite total" fecha no próximo pedido aceito.
+- [x] Limpeza diária apaga sessões encerradas ou vencidas há mais de 30 dias (ativas nunca); total em Logs → Manutenção.
 
 ### Monitor da Amazon com prioridade por grupo (merge `f98b44d`, em produção desde 2026-10-23 13:28)
 
