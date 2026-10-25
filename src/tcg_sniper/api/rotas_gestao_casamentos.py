@@ -14,6 +14,7 @@ from tcg_sniper.api.imagens import base_imagens, com_imagens
 from tcg_sniper.api.permissoes import Permissao
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.consultas import casamentos as q
+from tcg_sniper.consultas.catalogo import contar_esperando_decisao
 from tcg_sniper.consultas.variacao import pistas_variacao, termos_variacao
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
@@ -152,7 +153,7 @@ def menu(request: Request, contexto: Annotated[Contexto, Depends(exige(Permissao
     if Permissao.REVISAR_CASAMENTOS not in contexto.permissoes:
         return MenuSaida(casamentos_esperando=0)
     with request.app.state.sessoes() as s:
-        return MenuSaida(casamentos_esperando=len(_linhas(s, Filtros())))
+        return MenuSaida(casamentos_esperando=contar_esperando_decisao(s))
 
 
 @roteador.get("/casamentos")

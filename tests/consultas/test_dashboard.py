@@ -1,0 +1,151 @@
+import re
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+from fakes import criar_anuncio, criar_produto
+from fakes_oportunidades import criar_oportunidade
+
+from tcg_sniper.consultas import dashboard
+from tcg_sniper.consultas.catalogo import contar_esperando_decisao, situacao_catalogo
+from tcg_sniper.consultas.painel import Aviso
+from tcg_sniper.db import repositorio_ia as repo_ia
+from tcg_sniper.db.models import ChamadaIA, StatusCasamento
+
+AGORA = datetime(2026, 10, 16, 19, 40, tzinfo=UTC)
+FONTES = Path(__file__).resolve().parents[2] / "src" / "tcg_sniper" / "consultas"
+
+
+@pytest.mark.parametrize(
+    ("antigo", "novo"),
+    [
+        ("/", "/gestao"),
+        ("/servicos", "/gestao/servicos"),
+        ("/logs?aba=liga", "/gestao/atividade?o_que=coleta_liga"),
+        ("/logs?aba=amazon", "/gestao/atividade?o_que=busca"),
+        ("/logs?aba=monitor", "/gestao/atividade?o_que=leitura_monitor"),
+        ("/logs?aba=checkout", "/gestao/atividade?o_que=checkout"),
+        ("/logs?aba=ia", "/gestao/atividade?o_que=ia"),
+        ("/logs?aba=manutencao", "/gestao/atividade?o_que=backup"),
+        ("/logs", "/gestao/atividade?o_que=coleta_liga"),
+        ("/logs?aba=liga&liga_status=falha", "/gestao/atividade?o_que=coleta_liga&situacao=falha"),
+        ("/logs?aba=amazon&amazon_status=parcial", "/gestao/atividade?o_que=busca&situacao=parcial"),
+        ("/logs?aba=liga&liga_status=todos", "/gestao/atividade?o_que=coleta_liga"),
+        ("/logs?aba=liga&liga_status=pausada_desafio", "/gestao/atividade?o_que=coleta_liga"),
+        ("/logs?aba=ia&situacao=com_erro", "/gestao/atividade?o_que=ia&situacao=falha"),
+        ("/logs?aba=ia&finalidade=termos", "/gestao/atividade?o_que=ia"),
+        ("/logs?aba=inexistente", "/gestao/atividade"),
+        ("/mensagens", "/gestao/atividade?o_que=mensagem"),
+        ("/mensagens?situacao=falha", "/gestao/atividade?o_que=mensagem&situacao=falha"),
+        ("/mensagens?situacao=pendente", "/gestao/atividade?o_que=mensagem"),
+        ("/casamentos", "/gestao/casamentos"),
+        ("/casamentos?situacao=todos&situacao_produto=sem_candidato", "/gestao/casamentos?situacao=sem_candidato"),
+        ("/casamentos?situacao=pendentes", "/gestao/casamentos?situacao=esperando_decisao"),
+        ("/casamentos?situacao=sem_par&busca=ab", "/gestao/casamentos?busca=ab&situacao=sem_candidato"),
+        ("/casamentos?situacao=casados&com_preco=1", "/gestao/casamentos?situacao=casado&com_preco=1"),
+        ("/casamentos/produto/7", "/gestao/casamentos/7"),
+        ("/configuracoes", "antigo:/configuracoes"),
+        ("/configuracoes?aba=ia", "antigo:/configuracoes?aba=ia"),
+        ("/produtos/3", "antigo:/produtos/3"),
+    ],
+)
+def test_destino_novo_traduz_cada_link_antigo(antigo, novo):
+    assert dashboard.destino_novo(antigo) == novo
+
+
+def test_destino_novo_cobre_todo_link_que_o_painel_emite():
+    """Varre o código do painel e das mensagens: todo link literal vira destino migrado (ou as Configurações)."""
+    texto = (FONTES / "painel.py").read_text(encoding="utf-8") + (FONTES / "mensagens.py").read_text(encoding="utf-8")
+    links = set(re.findall(r'"(/(?:servicos|logs|mensagens|casamentos|configuracoes)[^"{]*)"', texto))
+    assert {"/servicos", "/logs?aba=liga", "/logs?aba=manutencao", "/mensagens?situacao=falha", "/configuracoes"} <= links
+    for link in links:
+        destino = dashboard.destino_novo(link)
+        if link.startswith("/configuracoes"):
+            assert destino == f"antigo:{link}"
+        else:
+            assert destino.startswith("/gestao"), (link, destino)
+
+
+def test_permissao_do_destino():
+    assert dashboard.permissao_do_destino("/gestao/servicos") == "ver_servicos"
+    assert dashboard.permissao_do_destino("/gestao/atividade?o_que=mensagem") == "ver_mensagens"
+    assert dashboard.permissao_do_destino("/gestao/atividade?o_que=busca") == "ver_logs"
+    assert dashboard.permissao_do_destino("/gestao/casamentos?situacao=casado") == "revisar_casamentos"
+    assert dashboard.permissao_do_destino("antigo:/configuracoes") == "ver_configuracoes"
+
+
+def test_precisa_some_quando_nao_ha_nada(s, config):
+    assert dashboard.precisa(s, AGORA, config, []) == []
+
+
+def test_precisa_junta_decisoes_e_avisos_com_destino_novo(s, config):
+    p = criar_produto(s, "x1")
+    criar_anuncio(s, "B000000X10", p)
+    avisos = [Aviso("error", "Liga parada.", "/servicos", "Ir para Serviços")]
+    itens = dashboard.precisa(s, AGORA, config, avisos)
+    assert [(i.texto, i.rotulo, i.destino) for i in itens] == [
+        ("1 produto esperando decisão.", "Revisar em sequência", "/gestao/casamentos?situacao=esperando_decisao"),
+        ("Liga parada.", "Ir para Serviços", "/gestao/servicos"),
+    ]
+    assert [i.requer for i in itens] == ["revisar_casamentos", "ver_servicos"]
+
+
+def _gastar(s, usd, quando):
+    s.add(ChamadaIA(em=quando, finalidade="casamento", modelo="m", tokens_entrada=1, tokens_saida=1,
+                    custo_usd=Decimal(usd), ok=True))
+    s.flush()
+
+
+def test_ia_perto_do_teto_entra(s, config):
+    teto = repo_ia.obter_config_ia(s, AGORA).teto_dia_usd
+    _gastar(s, str(teto * Decimal("0.79")), AGORA - timedelta(minutes=5))
+    assert dashboard.ia_perto_do_teto(s, AGORA, config) == []
+    _gastar(s, str(teto * Decimal("0.02")), AGORA - timedelta(minutes=4))
+    [item] = dashboard.ia_perto_do_teto(s, AGORA, config)
+    assert "81% do teto do dia" in item.texto
+    assert item.destino == "antigo:/configuracoes" and item.requer == "ver_configuracoes"
+
+
+def test_funil_soma_com_o_catalogo(s, config):
+    esperando = criar_produto(s, "f1")
+    criar_anuncio(s, "B000000F10", esperando)
+    casado = criar_produto(s, "f2")
+    criar_anuncio(s, "B000000F20", casado, StatusCasamento.CONFIRMADO)
+    criar_anuncio(s, "B000000F21", casado, StatusCasamento.CONFIRMADO)
+    ignorado = criar_produto(s, "f3")
+    criar_anuncio(s, "B000000F30", ignorado, StatusCasamento.IGNORADO)
+    criar_produto(s, "f4")
+    criar_produto(s, "f5", ativo=False)
+    f = dashboard.funil(s, AGORA, config)
+    assert (f.liga, f.monitorados) == (5, 4)
+    assert (f.casados_produtos, f.esperando_decisao, f.so_ignorados, f.sem_candidato) == (1, 1, 1, 1)
+    assert f.casados_produtos + f.esperando_decisao + f.so_ignorados + f.sem_candidato == f.monitorados
+    assert f.casados_anuncios == 2
+    assert f.oportunidades == 0
+    cat = situacao_catalogo(s, AGORA, config.zona)
+    assert f.monitorados == cat.produtos_ativos and f.casados_produtos == cat.casado
+
+
+def test_top_3_por_maior_desconto(s):
+    for i, preco in enumerate(["900", "600", "800", "500"]):
+        p = criar_produto(s, f"t{i}")
+        a = criar_anuncio(s, f"B000000T{i}0", p)
+        criar_oportunidade(s, a, p, aberta_em=AGORA, preco_alertado=preco, preco_liga="1000")
+    fechada = criar_produto(s, "tf")
+    af = criar_anuncio(s, "B000000TF0", fechada)
+    criar_oportunidade(s, af, fechada, aberta_em=AGORA, preco_alertado="100", fechada_em=AGORA)
+    top = dashboard.top_oportunidades(s)
+    assert [t.preco_amazon for t in top] == [Decimal(500), Decimal(600), Decimal(800)]
+
+
+def test_contar_esperando_decisao_igual_a_situacao_do_catalogo(s, config):
+    a = criar_produto(s, "c1")
+    criar_anuncio(s, "B000000C10", a)
+    b = criar_produto(s, "c2")
+    criar_anuncio(s, "B000000C20", b)
+    criar_anuncio(s, "B000000C21", b, StatusCasamento.CONFIRMADO)  # casado: não espera
+    criar_produto(s, "c3", ativo=False)
+    inativo = criar_produto(s, "c4", ativo=False)
+    criar_anuncio(s, "B000000C40", inativo)
+    assert contar_esperando_decisao(s) == situacao_catalogo(s, AGORA, config.zona).esperando_decisao == 1

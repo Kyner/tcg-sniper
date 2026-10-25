@@ -78,6 +78,19 @@ def produtos_avaliados_desde(s: Session, inicio: datetime) -> int:
     ) or 0
 
 
+def contar_esperando_decisao(s: Session) -> int:
+    """Produtos ativos esperando decisão (sem confirmado, com pendente): só a contagem, para o selo do menu.
+    Dá o mesmo número que `situacao_catalogo(...).esperando_decisao`."""
+    def tem(status: StatusCasamento):
+        return select(Casamento.anuncio_id).where(Casamento.produto_id == ProdutoLiga.id, Casamento.status == status).exists()
+
+    return s.scalar(
+        select(func.count())
+        .select_from(ProdutoLiga)
+        .where(ProdutoLiga.ativo.is_(True), ~tem(StatusCasamento.CONFIRMADO), tem(StatusCasamento.PENDENTE))
+    ) or 0
+
+
 def situacao_catalogo(s: Session, agora: datetime, zona: ZoneInfo) -> SituacaoCatalogo:
     ativo = ProdutoLiga.ativo.is_(True)
     pares = (
