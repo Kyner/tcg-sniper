@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_acesso as repo_acesso
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import retencao
@@ -17,10 +18,12 @@ from tcg_sniper.db.models import (
     ConferenciaCheckout,
     Envio,
     OrigemPreco,
+    Papel,
     PrecoAmazon,
     PrecoAtualLiga,
     PrecoListagem,
     ResumoPreco,
+    Sessao,
     SituacaoCheckout,
     StatusColeta,
     TipoAcaoGestao,
@@ -103,7 +106,7 @@ def test_cada_lote_e_uma_transacao_curta(s, monkeypatch):
         return fabrica()
 
     assert retencao.limpar_historico(sessoes, AGORA)["chamada_ia"] == 5
-    assert len(abertas) == 3 + 1 + 1
+    assert len(abertas) == 3 + 1 + 1 + 1  # chamadas; conferências, coletas e sessões vazias
 
 
 def test_conferencia_apaga_mais_de_180_dias_menos_item_que_pode_estar_no_carrinho(s):
@@ -173,5 +176,47 @@ def test_limpeza_nao_apaga_acao_gestao(s):
     assert s.scalar(select(func.count()).select_from(AcaoGestao)) == 1
 
 
+def _sessao(s, usuario, criada_em, *, encerrada_em=None, validade=timedelta(days=30)):
+    sessao = repo_acesso.criar_sessao(s, usuario.id, f"h-{criada_em.isoformat()}-{encerrada_em}", "Chrome · Windows",
+                                      criada_em, validade)
+    sessao.encerrada_em = encerrada_em
+    s.flush()
+    return sessao
+
+
+def _usuario(s):
+    return repo_acesso.criar_usuario(s, "Pessoa", "+5511900000001", Papel.GRUPO, AGORA - timedelta(days=400))
+
+
+def test_limpa_sessao_encerrada_ha_mais_de_30_dias(s):
+    u = _usuario(s)
+    velha = _sessao(s, u, AGORA - timedelta(days=40), encerrada_em=AGORA - timedelta(days=31))
+    recente = _sessao(s, u, AGORA - timedelta(days=40), encerrada_em=AGORA - timedelta(days=29))
+
+    apagados = _limpar(s, AGORA)
+
+    assert _ids(s, Sessao) == {recente.id} and velha.id not in _ids(s, Sessao)
+    assert apagados["sessao"] == 1
+
+
+def test_limpa_sessao_vencida_ha_mais_de_30_dias_mesmo_sem_encerrar(s):
+    u = _usuario(s)
+    vencida = _sessao(s, u, AGORA - timedelta(days=61), validade=timedelta(days=30))  # venceu há 31 dias
+    quase = _sessao(s, u, AGORA - timedelta(days=59), validade=timedelta(days=30))  # venceu há 29 dias
+
+    _limpar(s, AGORA)
+
+    assert _ids(s, Sessao) == {quase.id} and vencida.id not in _ids(s, Sessao)
+
+
+def test_sessao_ativa_nunca_some(s):
+    u = _usuario(s)
+    ativa = _sessao(s, u, AGORA - timedelta(days=400), validade=timedelta(days=800))
+
+    _limpar(s, AGORA)
+
+    assert _ids(s, Sessao) == {ativa.id}
+
+
 def test_nada_a_apagar_devolve_zeros(s):
-    assert _limpar(s, AGORA) == {"chamada_ia": 0, "conferencia_checkout": 0, "coleta": 0}
+    assert _limpar(s, AGORA) == {"chamada_ia": 0, "conferencia_checkout": 0, "coleta": 0, "sessao": 0}
