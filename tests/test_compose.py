@@ -25,7 +25,7 @@ def test_servico_da_busca_com_perfil_novnc_e_arranjo_proprios():
         "hostname: coletor-amazon-busca",
         "stop_grace_period: 30s",
         "shm_size: 1gb",
-        '- "6082:6080"',
+        '- "${VNC_ESCUTA:-127.0.0.1}:6082:6080"',
         "condition: service_completed_successfully",
     ):
         assert trecho in b, trecho
@@ -34,8 +34,8 @@ def test_servico_da_busca_com_perfil_novnc_e_arranjo_proprios():
 def test_monitor_continua_no_perfil_logado_e_na_6081():
     b = bloco("coletor-amazon")
     assert "DIR_PERFIL: /data/perfil-amazon\n" in b
-    assert '- "6081:6080"' in b and 'command: ["tcg-sniper", "coletor-amazon"]' in b
+    assert '- "${VNC_ESCUTA:-127.0.0.1}:6081:6080"' in b and 'command: ["tcg-sniper", "coletor-amazon"]' in b
 
 
 def test_portas_do_novnc_nao_se_repetem():
-    assert sorted(re.findall(r'- "(\d+):6080"', COMPOSE.read_text(encoding="utf-8"))) == ["6080", "6081", "6082"]
+    assert sorted(re.findall(r'- "(?:\$\{VNC_ESCUTA:-127\.0\.0\.1\}:)?(\d+):6080"', COMPOSE.read_text(encoding="utf-8"))) == ["6080", "6081", "6082"]

@@ -87,7 +87,7 @@ services:
     stop_grace_period: 30s
     shm_size: 1gb
     ports:
-      - "6080:6080"
+      - "${VNC_ESCUTA:-127.0.0.1}:6080:6080"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -109,7 +109,7 @@ services:
     stop_grace_period: 30s
     shm_size: 1gb
     ports:
-      - "6081:6080"
+      - "${VNC_ESCUTA:-127.0.0.1}:6081:6080"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -132,7 +132,7 @@ services:
     stop_grace_period: 30s
     shm_size: 1gb
     ports:
-      - "6082:6080"
+      - "${VNC_ESCUTA:-127.0.0.1}:6082:6080"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -176,7 +176,7 @@ services:
     <<: *app
     command: tcg-sniper admin
     ports:
-      - "8000:8000"
+      - "${ADMIN_ESCUTA:-127.0.0.1}:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully

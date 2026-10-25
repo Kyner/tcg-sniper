@@ -189,7 +189,7 @@ curl "http://localhost:8080/group/fetchAllGroups/tcg-sniper?getParticipants=fals
   -H "apikey: $EVOLUTION_API_KEY"
 ```
 
-Procure o grupo pelo nome (`subject`) e copie o `id`, que termina em `@g.us`. Abra o admin em `http://<IP deste PC>:8000/configuracoes` e, em **Configurações** → Geral, cole-o em **Grupo de WhatsApp do admin**. Aproveite para preencher **IP ou nome deste PC na rede** (no Windows: `ipconfig`, "Endereço IPv4") e **Instância da Evolution API**. Salve: não precisa reiniciar nada.
+Procure o grupo pelo nome (`subject`) e copie o `id`, que termina em `@g.us`. Abra o admin em `http://localhost:8000/configuracoes` e, em **Configurações** → Geral, cole-o em **Grupo de WhatsApp do admin**. Aproveite para preencher **IP ou nome deste PC na rede** (no Windows: `ipconfig`, "Endereço IPv4") e **Instância da Evolution API**. Salve: não precisa reiniciar nada.
 
 ### 6. Suba o coletor
 
@@ -201,13 +201,13 @@ docker compose up -d --build coletor-liga
 
 **Deu certo se** `docker compose logs coletor-liga --tail 20` mostrar `agendador iniciado`, sem erro.
 
-Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://<IP deste PC>:6080/vnc.html`, com a `VNC_SENHA`.
+Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://localhost:6080/vnc.html`, com a `VNC_SENHA`.
 
 Ao final, o grupo admin recebe "🟡 Liga · produtos novos no catálogo" e "✅ Liga · coleta concluída".
 
 ### 7. Escolha os produtos que quer acompanhar
 
-Abra o admin em `http://<IP deste PC>:8000` (usuário qualquer, senha `ADMIN_SENHA`) e vá em **Catálogo**. Todo produto novo entra inativo. Ative um por um ou use os filtros e **Ativar todos deste filtro**.
+Abra o admin em `http://localhost:8000` (usuário qualquer, senha `ADMIN_SENHA`) e vá em **Catálogo**. Todo produto novo entra inativo. Ative um por um ou use os filtros e **Ativar todos deste filtro**.
 
 Cada página de produto leva cerca de 17 segundos. Os casados e os com candidato são lidos todo dia; os demais ativos, uma vez por semana (rodízio), e os novos até 100 por dia. Com uns 2000 produtos ativos são umas 450 a 500 páginas por dia, de 2 a 3 horas.
 
@@ -225,9 +225,9 @@ A partir da próxima coleta, os produtos ativos ganham histórico de venda e nú
 
    Suba tudo de uma vez, não só os coletores da Amazon: a nova versão muda o banco (o `migrate` roda antes) e o `coletor-liga` e o `admin` precisam ser recriados com o código novo junto. Ver [Atualizar uma instalação existente](#atualizar-uma-instalação-existente).
 
-3. Abra `http://<IP deste PC>:6081/vnc.html` (senha `VNC_SENHA`), clique no endereço de entrega da Amazon e informe o CEP de onde as compras serão entregues. O preço e o "Enviado por" dependem dele; o CEP fica salvo no perfil do Chromium.
+3. Abra `http://localhost:6081/vnc.html` (senha `VNC_SENHA`), clique no endereço de entrega da Amazon e informe o CEP de onde as compras serão entregues. O preço e o "Enviado por" dependem dele; o CEP fica salvo no perfil do Chromium.
 
-   Faça o mesmo no noVNC da busca, `http://<IP deste PC>:6082/vnc.html` (o CEP muda o preço da busca também). A busca não precisa de login.
+   Faça o mesmo no noVNC da busca, `http://localhost:6082/vnc.html` (o CEP muda o preço da busca também). A busca não precisa de login.
 
 **Deu certo se** `docker compose logs coletor-amazon --tail 20` mostrar `varredura da Amazon (monitor) iniciada`, `docker compose logs coletor-amazon-busca --tail 20` mostrar `varredura da Amazon (busca) iniciada` e, no noVNC da porta 6082, aparecerem buscas a cada 8 a 20 segundos (dentro do horário de 08:00 às 22:00).
 
@@ -272,7 +272,7 @@ Tudo em Configurações → Amazon → Monitor de preço; liga e desliga em Serv
 
 O monitor divide os anúncios confirmados em quatro grupos, nesta ordem de prioridade: (1) **nunca lidos**, lidos primeiro; (2) **fila rápida**, com as oportunidades abertas e os anúncios com desconto a partir do "quase lá", lidos a cada "Fila rápida: ler a cada (min)" (padrão 15; a rodada e o aviso de atraso contam só esta fila); (3) **esgotado na Liga**, produtos sem preço na Liga, lidos uma vez por semana (Configurações → Amazon → "Esgotado na Liga: ler a cada (dias)", padrão 7); (4) **lento**, o resto, lido com a capacidade que sobrar. O card em Serviços mostra as contagens "rápida · lenta · esgotado".
 
-**Login da conta Amazon.** A conferência precisa da conta Amazon logada no Chromium do coletor: entre no noVNC em `http://<IP deste PC>:6081/vnc.html` e faça login. Se a Amazon pedir login (situação `sem_login`), a conferência para (o monitor continua), o item é retirado, o grupo admin recebe um aviso uma vez e, depois de logar de novo pelo noVNC na porta 6081, clique em **Retomar conferência** em Serviços (o botão aparece também com o monitor pausado por CAPTCHA).
+**Login da conta Amazon.** A conferência precisa da conta Amazon logada no Chromium do coletor: entre no noVNC em `http://localhost:6081/vnc.html` e faça login. Se a Amazon pedir login (situação `sem_login`), a conferência para (o monitor continua), o item é retirado, o grupo admin recebe um aviso uma vez e, depois de logar de novo pelo noVNC na porta 6081, clique em **Retomar conferência** em Serviços (o botão aparece também com o monitor pausado por CAPTCHA).
 
 Para capturar páginas reais para os testes (só quando o layout da Amazon mudar):
 
@@ -388,7 +388,7 @@ Um problema que se repete sai uma vez, volta como lembrete a cada 2 h enquanto c
 
 ### Quando chegar um aviso de desafio
 
-1. Abra o noVNC: `http://<IP deste PC>:6080/vnc.html` (senha `VNC_SENHA`). Funciona pelo celular, na mesma rede.
+1. Abra o noVNC: `http://localhost:6080/vnc.html` (senha `VNC_SENHA`). Por padrão só abre neste PC (veja abaixo como abrir para a rede de casa).
 2. O Chromium está aberto com a verificação na tela. Resolva-a nessa janela.
 3. Clique em **Retomar** em Serviços. A coleta volta no mesmo navegador depois do esfriamento (30 min por padrão; o card da LigaMagic mostra "Esfriando até HH:MM"), com pausas em dobro até o fim do dia. Se foi o 2º desafio do dia, o card mostra "Parada até amanhã (2º desafio)" e a coleta volta no horário de amanhã ("Rodar agora" some até lá). O aviso do WhatsApp já diz qual dos dois é.
 
@@ -396,7 +396,7 @@ O coletor nunca tenta de novo sozinho. Se a janela do Chromium for fechada, a pr
 
 ### Segurança
 
-O admin e o noVNC usam HTTP sem TLS e são para a rede local. Não exponha as portas 8000, 6080, 6081 e 6082 para a internet. A Evolution API (8080) e o Postgres (5432) só escutam em `127.0.0.1`.
+O admin e o noVNC usam HTTP sem TLS e, por padrão, escutam só neste PC (`127.0.0.1`): nenhum outro aparelho da rede de casa chega neles. O noVNC do monitor (6081) é o navegador logado na sua conta da Amazon. Para abrir para a rede de casa (por sua conta e risco), ponha `ADMIN_ESCUTA=0.0.0.0` e/ou `VNC_ESCUTA=0.0.0.0` no `.env`, rode `docker compose up -d` e, em Configurações → Geral, use o IP deste PC na rede. Nunca exponha as portas 8000, 6080, 6081 e 6082 para a internet. A Evolution API (8080) e o Postgres (5432) só escutam em `127.0.0.1`.
 
 No site novo cada pessoa entra com o próprio número: o código de acesso vai só para o WhatsApp dela, vale 5 minutos e uma vez; 5 tentativas erradas o invalidam; no máximo 3 códigos por número a cada 15 minutos e 20 pedidos por hora no total (acima disso a tela pede para esperar e o grupo admin é avisado). O banco guarda só o HMAC (com a chave `SEGREDO_API` do `.env`) do código, do token da sessão e do número dos pedidos; o número nunca vai para log nem para o grupo (aparece mascarado, `+55 11 9****-**34`). A sessão dura 30 dias, renovada a cada uso; desativar um usuário encerra as sessões dele na hora. A `api` (8100) e o `web` (8090) só escutam em `127.0.0.1`.
 
