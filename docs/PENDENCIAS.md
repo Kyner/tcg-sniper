@@ -28,12 +28,13 @@ Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são 
 
 **Etapa 2, antes de publicar na internet** (decidido em 2026-10-23: hoje só este PC usa o sistema, com 2 pessoas em beta):
 
-- [ ] Limite de login **por origem** (pedidos de código e tentativas de entrar por IP), lendo o IP real de `CF-Connecting-IP` só quando o pedido vem do túnel do Cloudflare, guardado só como HMAC; aviso de ataque por origem no grupo admin. Não serve antes: no Docker Desktop todo pedido local chega com o mesmo endereço, e o limite viraria um limite global disfarçado.
+- [ ] Limite de login **por origem** (pedidos de código e tentativas de entrar por IP; requisito: usuário legítimo nunca fica trancado fora, com o acesso de emergência `tcg-sniper codigo-acesso` só como último recurso), lendo o IP real de `CF-Connecting-IP` só quando o pedido vem do túnel do Cloudflare, guardado só como HMAC; aviso de ataque por origem no grupo admin. Não serve antes: no Docker Desktop todo pedido local chega com o mesmo endereço, e o limite viraria um limite global disfarçado.
 - [ ] Cloudflare Access na frente do que for exposto (ver "Publicar na internet", seção 4); admin antigo e noVNC **nunca** publicados.
 - [ ] Autenticação de verdade no noVNC (senha longa na frente do websockify, ex.: Caddy com `basic_auth`, ou só pela VPN), mantendo `VNC_SENHA` (o VNC só usa os 8 primeiros caracteres) como segunda barreira.
 - [ ] O texto do código de acesso fica legível na fila (`mensagem_saida`) enquanto está pendente (até 5 min; Admin → Mensagens já mostra "texto oculto"). Decidir se fica cifrado na fila.
 - [ ] Login (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro. Fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo.
 - [ ] Revisar os números dos limites por número com o volume real de assinantes.
+- [ ] Avisos de limite de login com teto: sem o limite total, quem inventa muitos números faz sair um `SEGURANCA_LIMITE` por número no grupo admin, e o de número sem cadastro nunca fecha. Agrupar (um aviso "muitos números" por hora) e avisar por número só quando ele tem usuário ativo. Hoje não é alcançável (a API só escuta neste PC).
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
