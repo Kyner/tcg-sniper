@@ -292,3 +292,12 @@ export interface ServicoGestao {
 export interface ListaServicos { servicos: ServicoGestao[] }
 /** Resposta das ações: o texto vai para a tela como está. */
 export interface ResultadoServico { codigo: string; mensagem: string }
+
+/** GET /api/gestao/atividade: uma linha da lista única (coletas, buscas, checkouts, IA, mensagens, backups, avisos). */
+export type SituacaoAtividade = "ok" | "parcial" | "falha";
+export interface LinhaAtividade {
+  chave: string; em: string; servico: string | null; o_que: string; situacao: SituacaoAtividade; resultado: string;
+  produto_id: number | null; produto: string | null; asin: string | null; custo_usd: string | null;
+  detalhe: Record<string, string | number | null>;
+}
+export interface PaginaAtividade { itens: LinhaAtividade[]; proximo: string | null }

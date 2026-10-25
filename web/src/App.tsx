@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { Carregando } from "./componentes/Carregando";
 import { ExigeTodas } from "./componentes/ExigeTodas";
 import { LayoutGestao } from "./componentes/LayoutGestao";
+import { Atividade } from "./paginas/gestao/Atividade";
 import { Casamentos } from "./paginas/gestao/Casamentos";
 import { Catalogo } from "./paginas/gestao/Catalogo";
 import { ProdutoGestao } from "./paginas/gestao/ProdutoGestao";
@@ -100,6 +101,14 @@ export function Rotas() {
             element={
               <ExigeTodas permissoes={["ver_area_gestao", "ver_servicos"]}>
                 <Servicos />
+              </ExigeTodas>
+            }
+          />
+          <Route
+            path="atividade"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "ver_logs"]}>
+                <Atividade />
               </ExigeTodas>
             }
           />
