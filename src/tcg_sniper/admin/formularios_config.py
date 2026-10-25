@@ -36,7 +36,7 @@ ROTULOS_GERAL = {
     "validade_oportunidade_h": "Validade das oportunidades (h)",
 }
 EXPLICACOES_GERAL = {
-    "host_publico": "Usado nos links do admin para o noVNC. As mensagens do WhatsApp nunca levam este endereço. No Windows: ipconfig, \"Endereço IPv4\".",
+    "host_publico": "Usado nos links do admin para o noVNC. Com o noVNC só neste PC (padrão), use 127.0.0.1; o IP da rede só serve se VNC_ESCUTA no .env abrir o noVNC para a rede de casa. As mensagens do WhatsApp nunca levam este endereço.",
     "fuso": "Usado no horário da coleta e nas datas do admin e das mensagens. Ex.: America/Sao_Paulo.",
     "evolution_instancia": "Nome da instância criada na Evolution. Vazio: as mensagens ficam pendentes em Mensagens.",
     "whatsapp_grupo_admin": "ID do grupo (120363...@g.us) que recebe desafios, falhas e resumos. Vazio: as mensagens ficam pendentes em Mensagens.",

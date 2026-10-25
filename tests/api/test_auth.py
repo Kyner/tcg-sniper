@@ -148,13 +148,12 @@ def test_limite_vale_tambem_para_numero_sem_usuario(cliente):
     assert pedir(cliente, "11 90000-0009").status_code == 429
 
 
-def test_limite_total_por_hora(cliente, relogio):
-    for i in range(20):
+def test_sem_limite_global_numeros_diferentes_sao_aceitos(cliente, sessoes):
+    """Não existe mais limite total: pedir códigos para muitos números não tranca o login de ninguém."""
+    for i in range(21):
         assert pedir(cliente, f"11 90000-{i:04d}").status_code == 200
-    r = pedir(cliente, "11 90000-0099")
-    assert r.status_code == 429 and r.json()["erro"] == "limite"
-    relogio.agora = T0 + timedelta(hours=1)
-    assert pedir(cliente, "11 90000-0099").status_code == 200
+    estado = _estado_limite(sessoes, "total")
+    assert estado is None or not estado.aberto
 
 
 def test_cookie_secure_atras_de_https(cliente, sessoes, codigos):
@@ -337,12 +336,14 @@ def test_entrada_certa_resolve_o_aviso_de_limite_do_numero(cliente, sessoes, cod
     assert "resolvido" in resolvido and "900000002" not in resolvido
 
 
-def test_limite_total_resolve_no_proximo_pedido_aceito_depois_da_janela(cliente, sessoes, relogio):
-    for i in range(acesso.LIMITE_TOTAL):
-        pedir(cliente, f"11 90000-{i:04d}")
-    assert pedir(cliente, "11 90000-0099").status_code == 429
+def test_aviso_antigo_de_limite_total_fecha_no_proximo_pedido_aceito(cliente, sessoes):
+    """Um aviso de "limite total" aberto antes da mudança não fica com lembrete eterno."""
+    from tcg_sniper.avisos import servico as servico_avisos
+    from tcg_sniper.avisos.catalogo import Dados, TipoAviso
+
+    with sessoes() as s, s.begin():
+        servico_avisos.avisar(s, TipoAviso.SEGURANCA_LIMITE, "total", Dados(linhas=("antigo",)), T0)
     assert _estado_limite(sessoes, "total").aberto
-    relogio.agora = T0 + timedelta(hours=1)
     assert pedir(cliente, "11 90000-0099").status_code == 200
     assert not _estado_limite(sessoes, "total").aberto
 

@@ -14,7 +14,6 @@ ACEITO = "aceito"
 ENTRADA = "entrada"  # tentativa de entrar com código (limite próprio; não conta como pedido de código)
 RETENCAO = timedelta(days=1)  # pedidos e códigos mais velhos que isso não servem para nada
 # Classes do `pg_advisory_xact_lock(classe, chave)` dos limites (contar e registrar sem corrida entre requisições).
-TRAVA_PEDIDOS_TOTAL = 1
 TRAVA_PEDIDOS_NUMERO = 2
 TRAVA_ENTRADAS_NUMERO = 3
 

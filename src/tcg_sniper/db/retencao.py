@@ -9,6 +9,10 @@ Regras aprovadas pelo usuário em 2026-10-18:
 - `coleta`: mais de 180 dias e só as que nenhum preço referencia (rodadas que falharam ou vieram
   vazias, e os ciclos da Amazon, que não gravam `coleta_id` nos preços). Nunca uma `rodando`.
 
+Regra aprovada pelo usuário em 2026-10-23 (segurança, etapa 1):
+- `sessao`: encerrada há mais de 30 dias, ou vencida (`expira_em`) há mais de 30 dias sem ter sido encerrada.
+  Sessão ativa nunca é apagada.
+
 As limpezas que já existiam continuam onde estão: `oferta_amazon` (30 dias, coletor-amazon) e
 `mensagem_saida` (30 dias, notificador).
 """
@@ -27,12 +31,14 @@ from tcg_sniper.db.models import (
     PrecoAtualLiga,
     PrecoListagem,
     ResumoPreco,
+    Sessao,
     StatusColeta,
 )
 
 DIAS_CHAMADA_IA = 90
 DIAS_CONFERENCIA_CHECKOUT = 180
 DIAS_COLETA = 180
+DIAS_SESSAO = 30
 LOTE = 1000  # linhas por lote; cada lote é uma transação curta (não segura o casador nem o coletor)
 
 Apagar = Callable[[Session, list[int]], None]
@@ -88,10 +94,22 @@ def _limpar_coletas(sessoes: sessionmaker[Session], agora: datetime) -> int:
     )
 
 
+def _limpar_sessoes(sessoes: sessionmaker[Session], agora: datetime) -> int:
+    corte = agora - timedelta(days=DIAS_SESSAO)
+    return _em_lotes(
+        sessoes,
+        lambda: select(Sessao.id)
+        .where(or_(Sessao.encerrada_em < corte, Sessao.encerrada_em.is_(None) & (Sessao.expira_em < corte)))
+        .order_by(Sessao.id),
+        lambda s, ids: s.execute(delete(Sessao).where(Sessao.id.in_(ids))),
+    )
+
+
 def limpar_historico(sessoes: sessionmaker[Session], agora: datetime) -> dict[str, int]:
     """Apaga o histórico vencido, um lote por transação, e devolve quantas linhas saíram de cada tabela."""
     return {
         "chamada_ia": _limpar_chamadas(sessoes, agora),
         "conferencia_checkout": _limpar_conferencias(sessoes, agora),
         "coleta": _limpar_coletas(sessoes, agora),
+        "sessao": _limpar_sessoes(sessoes, agora),
     }

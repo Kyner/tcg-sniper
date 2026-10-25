@@ -194,7 +194,7 @@ def test_ok_com_r2_num_dia_de_semana(sessoes, config, pasta):
     assert (e.status, e.arquivo, e.tamanho_bytes, e.enviado_r2, e.erro) == (
         StatusManutencao.OK, "tcg-diario-2026-10-14.dump", len(b"PGDMP-fake-123"), True, None
     )
-    assert e.fim == QUARTA_4H and e.apagados == {"chamada_ia": 0, "conferencia_checkout": 0, "coleta": 0}
+    assert e.fim == QUARTA_4H and e.apagados == {"chamada_ia": 0, "conferencia_checkout": 0, "coleta": 0, "sessao": 0}
     assert enviador.enviados == ["diario/tcg-2026-10-14.dump"]
     assert sorted(p.name for p in pasta.iterdir()) == ["tcg-diario-2026-10-14.dump"]
     [dados] = avisador.dados(TipoAviso.BACKUP_CONCLUIDO)
