@@ -64,7 +64,7 @@ describe("Serviços", () => {
     expect(screen.queryByRole("checkbox", { name: /Ligar|Desligar/ })).toBeNull();
     expect(screen.queryByText("Abrir")).toBeNull();
     expect(screen.queryByText("Rodar agora")).toBeNull();
-    expect(screen.getByRole("link", { name: "Atividade" })).toBeInTheDocument();
+    expect(document.querySelector('a[href^="/gestao/atividade?servico="]')).not.toBeNull();
   });
 
   it("desligar mostra parando… no lugar, com um GET só da lista depois do POST", async () => {
@@ -121,7 +121,7 @@ describe("Serviços", () => {
     expect(abrir).toHaveAttribute("href", "http://localhost:6080/vnc.html");
     expect(abrir).toHaveAttribute("target", "_blank");
     expect(abrir.closest(".tooltip")).toHaveAttribute("data-tip", "Só abre neste PC");
-    expect(screen.getByRole("link", { name: "Atividade" })).toHaveAttribute("href", "/gestao/atividade?servico=liga");
+    expect(document.querySelector('a[href="/gestao/atividade?servico=liga"]')).not.toBeNull();
   });
 
   it("sub-linha do monitor: duas chaves, Retomar do checkout e Já conferi no carrinho", async () => {

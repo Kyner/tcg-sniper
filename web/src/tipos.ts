@@ -301,3 +301,18 @@ export interface LinhaAtividade {
   detalhe: Record<string, string | number | null>;
 }
 export interface PaginaAtividade { itens: LinhaAtividade[]; proximo: string | null }
+
+/** GET /api/gestao/dashboard: cada bloco vem `null` quando a pessoa não tem a permissão dele. */
+export interface PrecisaItem { texto: string; rotulo: string; destino: string }
+export interface SaudeItem { id: string; nome: string; estado: Estado; resumo: string }
+export interface TopOportunidade { produto_id: number; nome: string; imagem: string | null; desconto_pct: number }
+export interface FunilGestao {
+  liga: number; monitorados: number; esperando_decisao: number; so_ignorados: number; sem_candidato: number;
+  casados_produtos: number; casados_anuncios: number; oportunidades: number;
+}
+export interface DashboardGestao {
+  precisa: PrecisaItem[];
+  saude: SaudeItem[] | null;
+  oportunidades: { top: TopOportunidade[]; abertas: number; alertas_hoje: number; alertas_semana: number } | null;
+  funil: FunilGestao | null;
+}
