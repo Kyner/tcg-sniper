@@ -264,6 +264,7 @@ Plano `docs/superpowers/plans/2026-10-25-fase3b-servicos-atividade-dashboard.md`
 - [x] Estado único dos serviços, com "parando…", "parado de verdade" e "iniciando…" (`3e83bdd`); API `/api/gestao/servicos` (ligar, desligar, rodar agora, retomar, monitor e checkout da Amazon, carrinho conferido), com `acao_gestao` por ação (`5fe67ba`).
 - [x] Linha do tempo única da Atividade (`7046809`, `d24ee0e`) e API `/api/gestao/atividade` com as ações de mensagens (reenviar, descartar), texto de mensagem escondido sem `ver_mensagens` na camada da consulta (`1d198b9`, `3b53f1e`).
 - [x] API do Dashboard (`1da0220`, `2d6ca17`) e telas Serviços, Atividade e Dashboard com o menu novo (`5c72ef2`, `bf165c4`, `dc74b06`, `7e02a55`, `1e6a3c5`).
+- [x] Depois do deploy, o menu seguia abrindo Serviços e Logs no admin antigo: o navegador reaproveitava o `index.html` velho (o Caddy não mandava `Cache-Control`). Agora a página sempre confere com o servidor (`no-cache`) e os arquivos com hash ficam em cache longo.
 - [x] Ponta a ponta: Casador desligado e ligado, Atividade filtrada com a ação de gestão, Dashboard com os quatro blocos, operador sem chave nem "Abrir", layout em 390 e 1440 px nos dois temas (`e255b2e`).
 - [x] Decisões: a Atividade não leva o cursor na URL (os filtros sim; "Carregar mais" acumula em memória) e usa uma lista de cartões em todas as larguras; "Precisa de você" lista só problemas reais (serviço desligado por configuração fica de fora).
 
