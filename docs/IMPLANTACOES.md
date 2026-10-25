@@ -4,6 +4,16 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 
 Da mais nova para a mais antiga.
 
+
+## Segurança, etapa 1 (2026-10-24)
+
+Sem migração. Mudam as portas do admin antigo e do noVNC (agora só neste PC por padrão), o login (sem o limite total de 20 pedidos por hora; ficam os limites por número) e a limpeza diária (sessões encerradas ou vencidas há mais de 30 dias).
+
+1. `docker compose up -d --build`, como sempre. No `.env`, `ADMIN_ESCUTA` e `VNC_ESCUTA` podem ficar de fora ou vazias (só neste PC); `0.0.0.0` reabre para a rede de casa.
+2. Em Configurações → Geral, se "IP ou nome deste PC na rede" estiver com o IP da rede, troque para `127.0.0.1`: senão os links do noVNC no admin antigo não abrem.
+3. Confira neste PC: `http://localhost:8000`, `http://localhost:6080/vnc.html`, `:6081` e `:6082` abrem; de outro aparelho da rede, não abrem mais.
+4. Entre no site (`http://localhost:8090`) pelo código do WhatsApp normalmente.
+
 ## Monitor da Amazon com prioridade por grupo (2026-10-23, implantado às 13:28)
 
 Sai no mesmo deploy das atualizações de segurança (seção abaixo), numa subida só; a produção ficou parada de propósito até este deploy.

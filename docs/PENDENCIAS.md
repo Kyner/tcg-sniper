@@ -3,14 +3,14 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-23 (monitor por grupo e atualizações de segurança em produção desde 13:28; os serviços de coleta seguem pausados no admin até a liberação do usuário; próxima entrega: 3B).
+Última revisão: 2026-10-24 (segurança etapa 1 pronta para o merge; monitor por grupo e atualizações de segurança em produção desde 2026-10-23 13:28; os serviços de coleta seguem pausados no admin até a liberação do usuário; próxima entrega: 3B).
 
 ## Ordem sugerida
 
 1. Retomar os serviços de coleta (pausados no admin desde a parada de segurança de 2026-10-23), conferir a Amazon logada no noVNC do monitor e acompanhar a primeira semana do monitor por grupo (seção 3).
 2. Conferir a 3A em produção (seção 3, "Fase 3A").
 3. Site novo, fase 3, entrega 3B (Serviços, Atividade e Dashboard), depois 3C (Configurações, Ofertas e Mensagens) e a fase 4 (desligar o admin antigo). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
-4. Seção 1 (segurança do login), **obrigatória antes de publicar na internet ou vender acesso**.
+4. Seção 1: etapa 1 (admin e noVNC só neste PC, login sem limite total, faxina de sessões) pronta para o merge; a etapa 2 é **obrigatória antes de publicar na internet ou vender acesso**.
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
 7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão entram na 3B/3C).
@@ -24,17 +24,16 @@ Nenhum no momento.
 
 Tratar como projeto de verdade, antes de abrir a API para a internet. Hoje são menos de 20 pessoas, mas o acesso vai ser vendido: limites e sessões precisam ser pensados para crescer.
 
-- [ ] **Login sem bloqueio de quem é legítimo e resistente a ataque.** O limite geral de 20 pedidos de código por hora permite que qualquer um bloqueie o login de todos por 1 h. Trocar por limites **por IP e por número**, sem bloqueio global; considerar atraso progressivo por origem, aviso no grupo admin quando o padrão parecer ataque (muitos números, muitos IPs, muitas tentativas erradas) e manter a mesma resposta para número sem cadastro. Requisito: usuário legítimo nunca fica trancado fora (o acesso de emergência `tcg-sniper codigo-acesso` continua como último recurso, não como caminho normal).
-- [ ] Login (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro (no pedido, só o cadastrado gera código e enfileira a mensagem; no entrar, só o cadastrado busca o último código, confere o HMAC e grava a tentativa errada). Fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo.
-- [ ] Sessões encerradas ou vencidas nunca são apagadas (pedidos e códigos são, depois de 1 dia). Com a venda de acesso o volume cresce: limpar na manutenção diária.
+- [ ] **Etapa 1 pronta para o merge** (spec `docs/superpowers/specs/2026-10-23-seguranca-etapa1-design.md`, plano `docs/superpowers/plans/2026-10-23-seguranca-etapa1.md`): admin antigo e noVNC só neste PC por padrão (`ADMIN_ESCUTA`/`VNC_ESCUTA`), login sem o limite total (ficam os limites por número) e limpeza diária das sessões encerradas ou vencidas há mais de 30 dias.
+
+**Etapa 2, antes de publicar na internet** (decidido em 2026-10-23: hoje só este PC usa o sistema, com 2 pessoas em beta):
+
+- [ ] Limite de login **por origem** (pedidos de código e tentativas de entrar por IP), lendo o IP real de `CF-Connecting-IP` só quando o pedido vem do túnel do Cloudflare, guardado só como HMAC; aviso de ataque por origem no grupo admin. Não serve antes: no Docker Desktop todo pedido local chega com o mesmo endereço, e o limite viraria um limite global disfarçado.
+- [ ] Cloudflare Access na frente do que for exposto (ver "Publicar na internet", seção 4); admin antigo e noVNC **nunca** publicados.
+- [ ] Autenticação de verdade no noVNC (senha longa na frente do websockify, ex.: Caddy com `basic_auth`, ou só pela VPN), mantendo `VNC_SENHA` (o VNC só usa os 8 primeiros caracteres) como segunda barreira.
 - [ ] O texto do código de acesso fica legível na fila (`mensagem_saida`) enquanto está pendente (até 5 min; Admin → Mensagens já mostra "texto oculto"). Decidir se fica cifrado na fila.
-- [ ] Cloudflare Access na frente do noVNC e da gestão quando publicar (ver "Publicar na internet", seção 4).
-- [ ] **Restringir o admin antigo (8000) e o noVNC (6080–6082) — plano (decidido em 2026-10-23: não mexer no que está rodando agora; o acesso fica só nesta máquina por enquanto).** Hoje os quatro escutam em `0.0.0.0` (qualquer máquina da rede de casa alcança) e o noVNC do monitor é o navegador logado na Amazon; o VNC usa só os 8 primeiros caracteres de `VNC_SENHA`. Passos, cada um sem derrubar o que roda:
-  1. Endereço de escuta configurável no `docker-compose.yml`: `"${ADMIN_ESCUTA:-0.0.0.0}:8000:8000"` e `"${VNC_ESCUTA:-0.0.0.0}:6080:6080"` (idem 6081/6082). O padrão continua o de hoje; ninguém perde acesso no deploy.
-  2. Quando quiser fechar: `ADMIN_ESCUTA=127.0.0.1` e `VNC_ESCUTA=127.0.0.1` no `.env` e `docker compose up -d` (só recria os containers que mudaram). De outra máquina, o acesso passa a ser por túnel SSH ou pela VPN (Tailscale), não pela rede aberta.
-  3. Senha do noVNC: trocar o `x11vnc -passwdfile` (8 caracteres) por autenticação na frente do websockify (ex.: o próprio Caddy com `basic_auth` e senha longa, ou só pela VPN). Manter `VNC_SENHA` como segunda barreira.
-  4. Os links "Abrir" da gestão (entrega 3B, ainda por fazer) vão aparecer só para quem pode pausar serviços e só funcionar na rede de casa; com o passo 2 passam a funcionar só no próprio PC (o tooltip avisa).
-  5. Antes de publicar na internet: Cloudflare Access (item acima) na frente do que for exposto; admin antigo e noVNC **nunca** publicados.
+- [ ] Login (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro. Fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo.
+- [ ] Revisar os números dos limites por número com o volume real de assinantes.
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
 
