@@ -5,6 +5,20 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 Da mais nova para a mais antiga.
 
 
+## Site novo, fase 3B: Serviços, Atividade e Dashboard (em construção)
+
+Uma migração, só de índices (`d6a2f8c4b1e9`: instante de `coleta`, `oferta_amazon`, `conferencia_checkout`, `mensagem_saida` (criada e enviada), `resumo_preco`, `execucao_manutencao` e `estado_aviso`), para a Atividade e o estado dos serviços não lerem as tabelas grandes inteiras. Nada é apagado nem reescrito, mas a criação dos índices em `oferta_amazon` e `resumo_preco` pode levar alguns segundos.
+
+1. Backup do banco antes do deploy:
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-3b-<data>.dump
+   ```
+
+2. `docker compose up -d --build`, como sempre (o `migrate` cria os índices).
+
+
 ## Segurança, etapa 1 (2026-10-24, implantada às 22:10)
 
 Sem migração. Mudam as portas do admin antigo e do noVNC (agora só neste PC por padrão), o login (sem o limite total de 20 pedidos por hora; ficam os limites por número) e a limpeza diária (sessões encerradas ou vencidas há mais de 30 dias).

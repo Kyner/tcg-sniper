@@ -116,11 +116,20 @@ def _pagina(total: int, pagina: int, por_pagina: int) -> tuple[int, int]:
 
 
 def produto_da_linha(anuncio_id, instante) -> ColumnElement:
-    """Nome do produto de uma linha de log do anúncio no `instante`: o da oportunidade aberta naquela hora;
+    """Nome do produto de uma linha de log do anúncio no `instante` (o produto de `produto_id_da_linha`)."""
+    return (
+        select(ProdutoLiga.nome)
+        .where(ProdutoLiga.id == produto_id_da_linha(anuncio_id, instante))
+        .scalar_subquery()
+    )
+
+
+def produto_id_da_linha(anuncio_id, instante) -> ColumnElement:
+    """Produto de uma linha de log do anúncio no `instante`: o da oportunidade aberta naquela hora;
     sem ela, o par do anúncio (o confirmado primeiro, senão o mexido por último). Assim a linha antiga
-    continua com produto depois de o par ser desfeito, ignorado ou trocado. As duas subconsultas ficam aninhadas
-    num terceiro SELECT; sem `correlate_except`, elas só se ligariam a ele e trariam a tabela da linha para o
-    próprio FROM, dando o mesmo produto para todas as linhas."""
+    continua com produto depois de o par ser desfeito, ignorado ou trocado. As subconsultas ficam aninhadas
+    em outro SELECT (o do nome, a busca); sem `correlate_except`, elas só se ligariam a ele e trariam a tabela
+    da linha para o próprio FROM, dando o mesmo produto para todas as linhas."""
     da_oportunidade = (
         select(Oportunidade.produto_id)
         .where(
@@ -145,11 +154,7 @@ def produto_da_linha(anuncio_id, instante) -> ColumnElement:
         .correlate_except(Casamento)
         .scalar_subquery()
     )
-    return (
-        select(ProdutoLiga.nome)
-        .where(ProdutoLiga.id == func.coalesce(da_oportunidade, do_par))
-        .scalar_subquery()
-    )
+    return func.coalesce(da_oportunidade, do_par)
 
 
 @dataclass(frozen=True)

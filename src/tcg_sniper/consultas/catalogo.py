@@ -17,13 +17,13 @@ from tcg_sniper.db.models import AvaliacaoIA, Casamento, ProdutoLiga, StatusCasa
 SITUACOES_PRODUTO = ("casado", "esperando_decisao", "so_ignorados", "sem_candidato")
 
 
-def _escapar_like(texto: str) -> str:
+def escapar_like(texto: str) -> str:
     return texto.replace("\x00", "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def casa_nome(busca: str) -> ColumnElement[bool]:
     """O texto aparece no nome do produto ou no nome em inglês (`%` e `_` valem como texto)."""
-    padrao = f"%{_escapar_like(busca.strip())}%"
+    padrao = f"%{escapar_like(busca.strip())}%"
     return or_(ProdutoLiga.nome.ilike(padrao, escape="\\"), ProdutoLiga.nome_en.ilike(padrao, escape="\\"))
 
 

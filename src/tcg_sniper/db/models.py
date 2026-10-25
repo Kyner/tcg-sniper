@@ -168,6 +168,7 @@ class ProdutoLiga(Base):
 
 class Coleta(Base):
     __tablename__ = "coleta"
+    __table_args__ = (Index("ix_coleta_iniciada_em", "iniciada_em"),)  # Atividade e último registro
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tipo: Mapped[TipoColeta] = mapped_column(_enum(TipoColeta, "tipo_coleta"))
@@ -181,7 +182,10 @@ class Coleta(Base):
 
 class ResumoPreco(Base):
     __tablename__ = "resumo_preco"
-    __table_args__ = (Index("ix_resumo_preco_coleta", "coleta_id"),)  # limpeza das coletas sem preço
+    __table_args__ = (
+        Index("ix_resumo_preco_coleta", "coleta_id"),  # limpeza das coletas sem preço
+        Index("ix_resumo_preco_coletado_em", "coletado_em"),  # último registro da Liga
+    )
 
     produto_id: Mapped[int] = mapped_column(ForeignKey("produto_liga.id"), primary_key=True)
     coleta_id: Mapped[int] = mapped_column(ForeignKey("coleta.id"), primary_key=True)
@@ -423,7 +427,10 @@ class OfertaAmazon(Base):
     virou o preço atual do anúncio. Leituras com mais de 30 dias são apagadas pelo coletor."""
 
     __tablename__ = "oferta_amazon"
-    __table_args__ = (Index("ix_oferta_amazon_leitura", "anuncio_id", "lida_em"),)
+    __table_args__ = (
+        Index("ix_oferta_amazon_leitura", "anuncio_id", "lida_em"),
+        Index("ix_oferta_amazon_lida_em", "lida_em", "anuncio_id"),  # leituras do monitor na Atividade
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     anuncio_id: Mapped[int] = mapped_column(ForeignKey("anuncio_amazon.id"))
@@ -448,7 +455,10 @@ class ConferenciaCheckout(Base):
     (avisou o grupo admin uma vez); o usuário confere o carrinho e clica em "Já conferi" no admin."""
 
     __tablename__ = "conferencia_checkout"
-    __table_args__ = (Index("ix_conferencia_checkout_anuncio", "anuncio_id", "em"),)
+    __table_args__ = (
+        Index("ix_conferencia_checkout_anuncio", "anuncio_id", "em"),
+        Index("ix_conferencia_checkout_em", "em"),  # Atividade e último registro
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     em: Mapped[datetime] = mapped_column(DATA)
@@ -647,6 +657,8 @@ class MensagemSaida(Base):
         CheckConstraint("texto <> ''", name="ck_mensagem_saida_texto"),
         CheckConstraint("tentativas >= 0", name="ck_mensagem_saida_tentativas"),
         Index("ix_mensagem_saida_fila", "status", "proxima_tentativa_em"),
+        Index("ix_mensagem_saida_criada_em", "criada_em"),  # Atividade
+        Index("ix_mensagem_saida_enviada_em", "enviada_em"),  # último registro do WhatsApp
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -688,6 +700,7 @@ class ExecucaoManutencao(Base):
     """Uma execução diária do serviço de manutenção: backup do banco e limpeza do histórico."""
 
     __tablename__ = "execucao_manutencao"
+    __table_args__ = (Index("ix_execucao_manutencao_inicio", "inicio"),)  # Atividade
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inicio: Mapped[datetime] = mapped_column(DATA)
@@ -705,7 +718,10 @@ class EstadoAviso(Base):
     `ultimo_envio_em` nulo: nada saiu ainda (tipo desligado)."""
 
     __tablename__ = "estado_aviso"
-    __table_args__ = (CheckConstraint("ocorrencias >= 0", name="ck_estado_aviso_ocorrencias"),)
+    __table_args__ = (
+        CheckConstraint("ocorrencias >= 0", name="ck_estado_aviso_ocorrencias"),
+        Index("ix_estado_aviso_ultimo_em", "ultimo_em"),  # Atividade
+    )
 
     tipo: Mapped[str] = mapped_column(Text, primary_key=True)
     chave: Mapped[str] = mapped_column(Text, primary_key=True)
