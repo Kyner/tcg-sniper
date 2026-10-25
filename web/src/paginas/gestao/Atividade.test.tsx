@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 import { fimDoDia, inicioDoDia } from "./Atividade";
 
@@ -118,6 +118,33 @@ describe("Atividade", () => {
     expect(screen.getByText("primeira")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Carregar mais" })).not.toBeInTheDocument();
     expect(chamadas.at(-1)!.caminho).toBe("/api/gestao/atividade?cursor=CUR1");
+  });
+
+  it("resposta atrasada de Carregar mais não entra na lista de outro filtro", async () => {
+    apiFalsa({
+      ...base,
+      [LISTAR]: ok({ itens: [linha({ chave: "a", resultado: "primeira" })], proximo: "CUR1" }),
+      "GET /api/gestao/atividade?cursor=CUR1": ok({ itens: [linha({ chave: "velha", resultado: "linha velha" })], proximo: "CUR_VELHO" }),
+      "GET /api/gestao/atividade?servico=liga": ok({ itens: [linha({ chave: "n", resultado: "linha nova" })], proximo: "CUR_NOVO" }),
+      "GET /api/gestao/atividade?servico=liga&cursor=CUR_NOVO": ok({ itens: [linha({ chave: "n2", resultado: "nova dois" })], proximo: null }),
+    });
+    const real = globalThis.fetch;
+    let soltar: () => void = () => {};
+    const segurada = new Promise<void>((r) => { soltar = r; });
+    vi.stubGlobal("fetch", async (entrada: RequestInfo | URL, init?: RequestInit) => {
+      if (String(entrada) === "/api/gestao/atividade?cursor=CUR1") await segurada;
+      return real(entrada, init);
+    });
+    renderizarEm("/gestao/atividade");
+    await screen.findByText("primeira");
+    await userEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Serviço" }), "liga");
+    await screen.findByText("linha nova");
+    soltar();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("linha velha")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
+    expect(await screen.findByText("nova dois")).toBeInTheDocument();
   });
 
   it("mensagem mostra o negrito renderizado no detalhe", async () => {

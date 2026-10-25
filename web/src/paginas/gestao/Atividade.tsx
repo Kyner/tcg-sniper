@@ -131,6 +131,9 @@ export function Atividade() {
   const [abertas, setAbertas] = useState<Set<string>>(new Set());
   const ultimoCursor = useRef<string | null>(null);
   const query = montarQuery(filtros, null);
+  const queryAtual = useRef(query); // respostas de outra consulta (filtro mudou no meio do caminho) são descartadas
+  queryAtual.current = query;
+  const [recarregando, setRecarregando] = useState(false);
   const podeAgir = pode("reenviar_mensagens");
 
   useEffect(() => { setTexto(filtros.busca); }, [filtros.busca]);
@@ -144,17 +147,19 @@ export function Atividade() {
     setErro(null);
     ultimoCursor.current = cursor;
     if (cursor) setMaisCarregando(true);
+    else { setMaisCarregando(false); setRecarregando(true); }
+    const velha = () => sinal?.cancelado || queryAtual.current !== query;
     try {
       const q = cursor ? `${query}${query ? "&" : ""}cursor=${encodeURIComponent(cursor)}` : query;
       const r = await chamarApi<PaginaAtividade>(`/api/gestao/atividade${q ? `?${q}` : ""}`);
-      if (sinal?.cancelado) return;
+      if (velha()) return;
       setItens((antes) => (cursor && antes ? [...antes, ...r.itens] : r.itens));
       setProximo(r.proximo);
     } catch (e) {
-      if (sinal?.cancelado) return;
+      if (velha()) return;
       setErro(tratarErro(e));
     } finally {
-      if (!sinal?.cancelado) setMaisCarregando(false);
+      if (!velha()) { setMaisCarregando(false); setRecarregando(false); }
     }
   }, [query, tratarErro]);
 
@@ -253,7 +258,7 @@ export function Atividade() {
       )}
 
       {itens && itens.length > 0 && (
-        <ul className="list rounded-box bg-base-100 shadow-sm" aria-label="Atividade">
+        <ul className={recarregando ? "list rounded-box bg-base-100 opacity-50 shadow-sm" : "list rounded-box bg-base-100 shadow-sm"} aria-label="Atividade">
           {itens.map((l) => {
             const aberta = abertas.has(l.chave);
             const ehMensagem = l.o_que === "mensagem" && l.detalhe.mensagem_id != null;
