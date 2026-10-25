@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-24 (segurança etapa 1 em produção desde 22:10; monitor por grupo e atualizações de segurança desde 2026-10-23 13:28; os serviços de coleta seguem pausados no admin até a liberação do usuário; próxima entrega: 3B).
+Última revisão: 2026-10-25 (coleta retomada pelo usuário e Amazon conferida logada; segurança etapa 1 em produção desde 2026-10-24 22:10; `main` publicada no GitHub; próxima entrega: 3B).
 
 ## Ordem sugerida
 
-1. Retomar os serviços de coleta (pausados no admin desde a parada de segurança de 2026-10-23), conferir a Amazon logada no noVNC do monitor e acompanhar a primeira semana do monitor por grupo (seção 3).
+1. Acompanhar a primeira semana do monitor por grupo e a primeira coleta da Liga depois da retomada (seção 3).
 2. Conferir a 3A em produção (seção 3, "Fase 3A").
 3. Site novo, fase 3, entrega 3B (Serviços, Atividade e Dashboard), depois 3C (Configurações, Ofertas e Mensagens) e a fase 4 (desligar o admin antigo). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2: **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
@@ -123,7 +123,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Monitor por grupo e atualizações de segurança (em produção desde 2026-10-23 13:28)
 
-- [ ] Retomar em Serviços a LigaMagic, a Amazon (busca e monitor) e o casador, pausados no admin durante a parada de segurança, e conferir no noVNC `:6081` que a Amazon segue logada com o Chromium novo (Playwright 1.64.1); na primeira coleta da Liga, conferir que o Cloudflare não pede desafio.
+- [ ] Na primeira coleta da Liga depois da retomada (Chromium novo, Playwright 1.64.1), conferir que o Cloudflare não pede desafio.
 - [ ] Primeira rodada de cópia de fotos com a Pillow 13 (Logs → Manutenção): falha só nos itens fora de JPEG/PNG/WEBP/GIF.
 - [ ] Primeira semana: conferir o ritmo da fila rápida (card em Serviços), quão velhas ficam as leituras do grupo lento e o tamanho da lista "esgotado na Liga" (Catálogo), vendo se algum desses produtos merece ação.
 - [ ] Se a fila rápida crescer demais, ajustar `quase_oportunidade_min_pct` ou o intervalo da fila rápida.
@@ -189,7 +189,7 @@ Nenhuma no momento.
 
 ## Decisões registradas
 
-- 2026-10-23: produção parada por segurança das ~11h às 13:28 para aplicar certifi, Playwright, Pillow e a imagem do build em Node 24.22.1 (PHP não é usado); os serviços de coleta só voltam quando o usuário liberar. Admin antigo e noVNC continuam abertos na rede de casa por enquanto; o plano de restringir está na seção 1, sem mexer no que roda.
+- 2026-10-23: produção parada por segurança das ~11h às 13:28 para aplicar certifi, Playwright, Pillow e a imagem do build em Node 24.22.1 (PHP não é usado); os serviços de coleta só voltam quando o usuário liberar (retomados por ele em 2026-10-25). Admin antigo e noVNC passaram a escutar só neste PC na segurança etapa 1 (2026-10-24).
 - 2026-10-22: monitor da Amazon por prioridade: fila rápida a cada 15 min com as oportunidades abertas e os anúncios a partir do "quase lá" (10%); esgotado na Liga lido 1 vez por semana e só listado no Catálogo para analisar (sem alerta no WhatsApp, só produtos ativos); o resto com a sobra. Tendência de mercado (lojas e preço subindo ou caindo) fica no sub-projeto C, não no Catálogo.
 - 2026-10-22: fase 3 da área administrativa organizada por tarefa, em três entregas (3A Casamentos e Catálogo, 3B Serviços, Atividade e Dashboard, 3C Configurações, Ofertas e Mensagens); mobile first; status curto com detalhe no tooltip; revisão de casamentos um produto por vez (Liga à esquerda, Amazon à direita, C/I, sem abas). Os links "Abrir" de Serviços só para quem pode pausar serviços e só na rede de casa; ações de gestão (lote do catálogo, ligar/desligar serviço, salvar configurações) registradas com quem e quando.
 - 2026-10-20: fase 2 do site novo dividida em A (fim da oportunidade), B (oportunidades) e C (mercado da Liga); a informação estratégica (tendências, histórico, gráficos) é o que se vende.
@@ -250,6 +250,11 @@ Spec `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, pl
 - [x] Telas: menu lateral da gestão com o selo de Casamentos; lista de Casamentos com filtros na URL e "Revisar em sequência"; revisão de um produto (Liga fixa, três grupos sem abas, C/I no lugar, teclado, "é de outro produto"); Catálogo com chave por linha e lote com confirmação do número exato; página do produto.
 - [x] Revisão final: resposta de C/I que chega depois de trocar de produto é descartada; seleção e lote do Catálogo nunca usam a lista antiga; limites de tamanho nas entradas da API; ponta a ponta com largura conferida em 390 e 1440 px, nos temas claro e escuro.
 - [x] O bug de seleção do Catálogo achado pelo ponta a ponta (lista antiga logo depois de trocar o filtro) foi corrigido antes do merge.
+
+### Retomada da coleta (2026-10-25, pelo usuário)
+
+- [x] LigaMagic, Amazon (busca e monitor) e casador retomados em Serviços depois da parada de segurança de 2026-10-23; Amazon conferida logada no noVNC do monitor com o Chromium novo.
+- [x] `main` publicada no GitHub (até `3038904`), sem segredos nos commits enviados.
 
 ### Conferido em produção (2026-10-21, pelo usuário)
 
