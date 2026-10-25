@@ -13,7 +13,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 4. Seção 1, etapa 2: **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
-7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão entram na 3B/3C).
+7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão entram na 3C).
 8. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
@@ -67,6 +67,16 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Dashboard: `rotas_gestao_dashboard` importa `NOMES_TELA`/`ORDEM` de outro módulo de rotas; `top_oportunidades` carrega todas as abertas para fatiar 3.
 - [ ] Tela de Serviços: a recarga de 60 s pode sobrescrever o estado de uma ação recém-feita; ação que deu certo seguida de GET que falha mostra erro; nos cartões do celular a chave não tem rótulo visível, a dica só aparece com o mouse e a mensagem de sucesso nunca some; os testes usam `querySelector` por `href` em vez de papel e nome (o menu agora também tem "Atividade").
 - [ ] Teste "Entrar" do front estourou o tempo uma vez sob carga (acompanhar se é instável).
+- [ ] Índice em `oportunidade.mensagem_alerta_id` (a Atividade faz duas subconsultas correlacionadas por linha de mensagem) — na próxima migração.
+- [ ] Atividade mostra "US$ 0.000000" em chamada da IA de custo zero (esconder quando 0).
+- [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (id acima de 2³¹ dá 500; reusar `MAX_ID`).
+- [ ] Dashboard: rótulo "Ligar" para quem não pode pausar serviços (usar "Ver"); links das oportunidades exigem também `ver_area_negocio`.
+- [ ] `destino_novo` perde o filtro de mensagens pendentes (`/mensagens?situacao=pendente`).
+- [ ] "iniciando…" por 10 min em Liga/WhatsApp/Backup, que esperam o próprio horário (não mostrar para esses).
+- [ ] `listar` dos serviços repete `ultimo_registro` para monitor, casador e WhatsApp.
+- [ ] Guarda "não importa admin" não cobre o pacote `api`.
+- [ ] `FiltroAtividade.mostrar_texto_mensagem` com padrão `True` (trocar para `False`).
+- [ ] "Último ok" de monitor, casador e WhatsApp é o último registro (rótulo "Último registro").
 
 ### Oportunidades e monitor da Amazon
 
