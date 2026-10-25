@@ -128,3 +128,13 @@ def test_reenviar_e_descartar(cliente, logar, sessoes):
         assert r.status_code == 404 and r.json()["erro"] == "nao_encontrado"
     with sessoes() as s:
         assert s.scalar(select(func.count()).select_from(AcaoGestao)) == 0  # ação de mensagem não vai a acao_gestao
+
+
+def test_sem_ver_mensagens_a_busca_nao_sonda_o_texto(cliente, app_api, logar, sessoes):
+    _mensagem(sessoes, T0, texto="*Aviso*\nCaixa Azul")
+    logar(Papel.OPERADOR)
+    assert len(cliente.get(ROTA, params={"busca": "Azul"}).json()["itens"]) == 1
+    with sessoes() as s, s.begin():
+        repo_acesso.salvar_permissao(s, Papel.OPERADOR, "ver_mensagens", False)
+    app_api.state.grade.invalidar()
+    assert cliente.get(ROTA, params={"busca": "Azul"}).json()["itens"] == []

@@ -16,6 +16,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict
 from tcg_sniper.api.dependencias import Contexto, exige_todas
 from tcg_sniper.api.erros import ErroApi
 from tcg_sniper.api.permissoes import Permissao
+from tcg_sniper.api.rotas_usuarios import MAX_ID  # integer do Postgres; fora de 1..MAX_ID é 404, como no admin antigo
 from tcg_sniper.consultas import atividade as q
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.gestao.servicos import Servico
@@ -60,14 +61,6 @@ class StatusMensagemSaida(BaseModel):
     status: str
 
 
-def _sem_texto(linha: q.LinhaAtividade) -> q.LinhaAtividade:
-    """Tira o texto da mensagem: do detalhe e do fim do `resultado` ("status · destino · primeira linha")."""
-    if linha.o_que != "mensagem":
-        return linha
-    resultado = " · ".join(linha.resultado.split(" · ")[:2])
-    return q.LinhaAtividade(**{**linha.__dict__, "resultado": resultado, "detalhe": {**linha.detalhe, "texto": None}})
-
-
 @roteador.get("/atividade")
 def listar(
     request: Request,
@@ -81,24 +74,24 @@ def listar(
     reinicios: bool = False,
     cursor: Annotated[str | None, Query(max_length=300)] = None,
 ) -> PaginaAtividadeSaida:
-    filtro = q.FiltroAtividade(servico, o_que, situacao, de, ate, busca, mostrar_reinicios=reinicios)
+    filtro = q.FiltroAtividade(
+        servico, o_que, situacao, de, ate, busca, mostrar_reinicios=reinicios,
+        mostrar_texto_mensagem=Permissao.VER_MENSAGENS in contexto.permissoes,
+    )
     try:
         with request.app.state.sessoes() as s:
             linhas, proximo = q.linha_do_tempo(s, filtro, cursor)
     except ValueError:
         raise ErroApi(422, "validacao", "Dados inválidos: cursor.") from None
-    if Permissao.VER_MENSAGENS not in contexto.permissoes:
-        linhas = [_sem_texto(linha) for linha in linhas]
     return PaginaAtividadeSaida(
         itens=[LinhaAtividadeSaida(**linha.__dict__) for linha in linhas], proximo=proximo
     )
 
 
-ID_MAXIMO = 2**31 - 1  # o integer do Postgres; fora de 1..ID_MAXIMO é 404, como no admin antigo
 
 
 def _agir(request: Request, id_: int, acao: Literal["reenviar", "descartar"]) -> StatusMensagemSaida:
-    if not 1 <= id_ <= ID_MAXIMO:
+    if not 1 <= id_ <= MAX_ID:
         raise ErroApi(404, "nao_encontrado", "Mensagem não encontrada.")
     estado = request.app.state
     funcao = repo_msg.reenviar if acao == "reenviar" else repo_msg.descartar

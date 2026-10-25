@@ -385,3 +385,16 @@ def test_mensagem_individual_nao_mostra_nem_busca_o_texto(s):
     assert linha.detalhe["texto"] is None and "123456" not in linha.resultado
     assert "+5511900000009" not in str(linha)
     assert linha_do_tempo(s, _filtro(busca="123456"), None)[0] == []
+
+
+def test_sem_mostrar_texto_da_mensagem_nao_traz_nem_busca_o_texto(s):
+    _mensagem(s, T, status=StatusMensagem.FALHA, texto="*Aviso*\nCaixa Azul", erro="400 grupo")
+    filtro = _filtro(o_que="mensagem", mostrar_texto_mensagem=False)
+    [linha], _ = linha_do_tempo(s, filtro, None)
+    assert linha.detalhe["texto"] is None
+    assert "Azul" not in linha.resultado and "Aviso" not in linha.resultado
+    assert linha.resultado == "falha · grupo de oportunidades"
+    assert linha_do_tempo(s, _filtro(mostrar_texto_mensagem=False, busca="Azul"), None)[0] == []
+    # o erro continua pesquisável, e com a permissão o texto volta
+    assert len(linha_do_tempo(s, _filtro(mostrar_texto_mensagem=False, busca="400 grupo"), None)[0]) == 1
+    assert len(linha_do_tempo(s, _filtro(busca="Azul"), None)[0]) == 1

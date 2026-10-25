@@ -73,6 +73,7 @@ class FiltroAtividade:
     ate: datetime | None  # inclusive
     busca: str | None  # nome do produto (pt ou en), ASIN ou texto/erro da linha
     mostrar_reinicios: bool = False
+    mostrar_texto_mensagem: bool = True  # False: sem `ver_mensagens`; o texto não sai nem entra na busca
 
 
 @dataclass(frozen=True)
@@ -492,7 +493,8 @@ def _mensagens(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Br
     condicoes = [*situacao, *_periodo(m.criada_em, f), *_keyset(MENSAGEM, m.criada_em, (m.id,), cursor)]
     if f.busca:
         # o texto individual (código de acesso) nunca aparece nem entra na busca, como no admin antigo
-        condicoes.append(or_(and_(m.destino != INDIVIDUAL, _like(m.texto, f.busca)), _like(m.ultimo_erro, f.busca)))
+        no_texto = and_(m.destino != INDIVIDUAL, _like(m.texto, f.busca)) if f.mostrar_texto_mensagem else None
+        condicoes.append(or_(*[c for c in (no_texto, _like(m.ultimo_erro, f.busca)) if c is not None]))
 
     def da_oportunidade(coluna):  # o alerta de oportunidade aponta para a mensagem
         return (
@@ -508,8 +510,8 @@ def _mensagens(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Br
     )
     linhas = []
     for msg, produto_id, anuncio_id in s.execute(consulta):
-        oculto = msg.destino == INDIVIDUAL
-        titulo = "texto oculto" if oculto else _uma_linha(msg.texto).strip("*_~ ")
+        oculto = msg.destino == INDIVIDUAL or not f.mostrar_texto_mensagem
+        titulo = ("texto oculto" if msg.destino == INDIVIDUAL else "") if oculto else _uma_linha(msg.texto).strip("*_~ ")
         resultado = f"{_ROTULO_MENSAGEM[msg.status]} · {_ROTULO_DESTINO.get(msg.destino, msg.destino)}"
         linhas.append(_Bruta(
             msg.criada_em, MENSAGEM, (msg.id,), f"{MENSAGEM}:{msg.id}", Servico.WHATSAPP, "mensagem",
