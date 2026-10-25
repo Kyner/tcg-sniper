@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tcg_sniper.admin import app as modulo_app
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas import paginar
+from tcg_sniper.consultas.historico import paginar
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db import repositorio_mensagens as repo_msg

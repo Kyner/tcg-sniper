@@ -14,14 +14,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.admin import (
-    consultas,
-    consultas_amazon,
-    consultas_mensagens,
-    consultas_menu,
-    consultas_painel,
-    estilo,
-)
+from tcg_sniper.admin import consultas, consultas_amazon, estilo
 from tcg_sniper.admin import formularios_config as form_cfg
 from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
@@ -34,6 +27,10 @@ from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
+from tcg_sniper.consultas import historico
+from tcg_sniper.consultas import mensagens as consultas_mensagens
+from tcg_sniper.consultas import menu as consultas_menu
+from tcg_sniper.consultas import painel as consultas_painel
 from tcg_sniper.consultas.casamentos import (
     EXPLICACAO_REAVALIAR,
     MENSAGENS_CASAMENTO,
@@ -253,32 +250,32 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         if aba not in ABAS_LOGS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"aba inválida: {aba}")
         for valor in (liga_status, amazon_status):
-            if valor not in consultas.STATUS_HISTORICO:
+            if valor not in historico.STATUS_HISTORICO:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"status inválido: {valor}")
-        if situacao not in consultas.SITUACOES_IA:
+        if situacao not in historico.SITUACOES_IA:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {situacao}")
-        if finalidade not in consultas.FINALIDADES_IA:
+        if finalidade not in historico.FINALIDADES_IA:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"finalidade inválida: {finalidade}")
-        if checkout_situacao not in consultas.SITUACOES_CHECKOUT:
+        if checkout_situacao not in historico.SITUACOES_CHECKOUT:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"situação inválida: {checkout_situacao}")
         with sessoes() as s, s.begin():
-            coletas, pagina_liga, paginas_liga = consultas.historico_coletas(
+            coletas, pagina_liga, paginas_liga = historico.historico_coletas(
                 s, TIPOS_LIGA, liga_status, numero_pagina(liga_pagina)
             )
-            ciclos, pagina_amazon, paginas_amazon = consultas.historico_coletas(
+            ciclos, pagina_amazon, paginas_amazon = historico.historico_coletas(
                 s, (TipoColeta.AMAZON,), amazon_status, numero_pagina(amazon_pagina)
             )
-            chamadas, pagina_ia, paginas_ia = consultas.historico_chamadas_ia(
+            chamadas, pagina_ia, paginas_ia = historico.historico_chamadas_ia(
                 s, situacao, finalidade, numero_pagina(ia_pagina)
             )
             # A consulta do monitor (agrupa todas as ofertas lidas) só roda na própria aba.
             leituras, pagina_monitor, paginas_monitor = None, numero_pagina(monitor_pagina), 1
             if aba == "monitor":
-                leituras, pagina_monitor, paginas_monitor = consultas.historico_monitor(s, pagina_monitor)
-            conferencias, pagina_checkout, paginas_checkout = consultas.historico_conferencias(
+                leituras, pagina_monitor, paginas_monitor = historico.historico_monitor(s, pagina_monitor)
+            conferencias, pagina_checkout, paginas_checkout = historico.historico_conferencias(
                 s, checkout_situacao, numero_pagina(checkout_pagina)
             )
-            execucoes, pagina_manutencao, paginas_manutencao = consultas.historico_manutencao(
+            execucoes, pagina_manutencao, paginas_manutencao = historico.historico_manutencao(
                 s, numero_pagina(manutencao_pagina)
             )
             parametros = {
@@ -325,14 +322,14 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "pagina_manutencao": pagina_manutencao,
                     "paginas_manutencao": paginas_manutencao,
                     "checkout_situacao": checkout_situacao,
-                    "situacoes_checkout": consultas.SITUACOES_CHECKOUT,
+                    "situacoes_checkout": historico.SITUACOES_CHECKOUT,
                     "liga_status": liga_status,
                     "amazon_status": amazon_status,
                     "situacao": situacao,
                     "finalidade": finalidade,
-                    "status_historico": consultas.STATUS_HISTORICO,
-                    "situacoes_ia": consultas.SITUACOES_IA,
-                    "finalidades_ia": consultas.FINALIDADES_IA,
+                    "status_historico": historico.STATUS_HISTORICO,
+                    "situacoes_ia": historico.SITUACOES_IA,
+                    "finalidades_ia": historico.FINALIDADES_IA,
                 },
             )
 
@@ -356,13 +353,13 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                         f"{desafio.esfriando_ate.astimezone(efetiva.zona):%H:%M}" if desafio.esfriando_ate else None
                     ),
                     "estado": repo.obter_estado(s),
-                    "em_andamento": consultas.coleta_em_andamento(s, TIPOS_LIGA),
-                    "ultima_liga": consultas.ultima_coleta_sucesso(s, TIPOS_LIGA),
+                    "em_andamento": historico.coleta_em_andamento(s, TIPOS_LIGA),
+                    "ultima_liga": historico.ultima_coleta_sucesso(s, TIPOS_LIGA),
                     "coleta_hora": efetiva.coleta_hora.strftime("%H:%M"),
                     "coleta_jitter": efetiva.coleta_jitter_min,
                     "estado_amazon": repo.obter_estado(s, coletor=COLETOR_AMAZON),
                     "estado_amazon_busca": repo.obter_estado(s, coletor=COLETOR_AMAZON_BUSCA),
-                    "ciclo_amazon": consultas_amazon.ciclo_atual(s),
+                    "ciclo_amazon": historico.ciclo_atual(s),
                     "janela": (f"{cfg_amazon.janela_inicio:%H:%M}", f"{cfg_amazon.janela_fim:%H:%M}"),
                     "cfg_amazon": cfg_amazon,
                     "a_conferir_a_mao": repo_amz.conferencias_a_conferir_a_mao(s),
@@ -899,7 +896,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 ordem=ordem,
             )
             linhas = consultas_amazon.ofertas(s, filtro, cfg)
-            linhas_pagina, numero, paginas = consultas.paginar(
+            linhas_pagina, numero, paginas = historico.paginar(
                 linhas, numero_pagina(pagina), consultas_amazon.POR_PAGINA_OFERTAS
             )
             parametros = {
@@ -962,7 +959,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 desconto_min_pct=cfg.desconto_min_pct,
                 situacao_produto=situacao_produto or None,
             )
-            linhas_pagina, numero, paginas = consultas.paginar(
+            linhas_pagina, numero, paginas = historico.paginar(
                 linhas, numero_pagina(pagina), consultas_amazon.POR_PAGINA_CASAMENTOS
             )
             parametros = {

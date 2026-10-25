@@ -9,7 +9,7 @@ from fakes import T0
 from fastapi.testclient import TestClient
 
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas import FINALIDADES_IA, POR_PAGINA_HISTORICO
+from tcg_sniper.consultas.historico import FINALIDADES_IA, POR_PAGINA_HISTORICO
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import StatusColeta, TipoColeta

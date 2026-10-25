@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from fakes import criar_anuncio, criar_preco_liga, criar_produto
 
-from tcg_sniper.admin import consultas_painel as painel
+from tcg_sniper.consultas import painel
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
@@ -32,7 +32,7 @@ def saude(s, config, agora=AGORA, chave_ia=True):
 
 
 def avisos_de(s, config, agora=AGORA):
-    resumo = painel.consultas_mensagens.resumo(s, agora)
+    resumo = painel.mensagens.resumo(s, agora)
     return painel.avisos(s, agora, config, painel.saude_servicos(s, agora, config, True, resumo), resumo)
 
 
@@ -296,12 +296,12 @@ def test_liga_depois_do_horario_sem_coleta_comeca_em_instantes(s, config):
 def test_notificador_desligado_nao_avisa_mensagens_paradas(s, config):
     repo_msg.registrar_ciclo(s, AGORA)
     repo_msg.enfileirar(s, "admin", "x", AGORA - timedelta(hours=1))
-    resumo = painel.consultas_mensagens.resumo(s, AGORA)
+    resumo = painel.mensagens.resumo(s, AGORA)
     assert [a.link for a in painel.avisos(s, AGORA, config, painel.saude_servicos(s, AGORA, config, True), resumo)] == [
         "/mensagens?situacao=pendente"
     ]
     repo.pausar(s, "pausado no admin", AGORA, COLETOR_NOTIFICADOR)
-    resumo = painel.consultas_mensagens.resumo(s, AGORA, notificador_pausado=True)
+    resumo = painel.mensagens.resumo(s, AGORA, notificador_pausado=True)
     servicos = painel.saude_servicos(s, AGORA, config, True, resumo)
     whatsapp = servicos[4]
     assert whatsapp.texto == "Envio desligado; as mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram)"

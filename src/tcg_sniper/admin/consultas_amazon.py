@@ -22,7 +22,6 @@ from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     Casamento,
-    Coleta,
     ConferenciaCheckout,
     ConfigAmazon,
     Envio,
@@ -34,22 +33,10 @@ from tcg_sniper.db.models import (
     PrecoAtualLiga,
     ProdutoLiga,
     StatusCasamento,
-    StatusColeta,
-    TipoColeta,
     VendedorAmazon,
 )
 from tcg_sniper.oportunidades.mensagens import ROTULOS_MOTIVO
 from tcg_sniper.oportunidades.motor import CEM, Regras, atinge_desconto, preco_conferido
-
-
-def ciclo_atual(s: Session) -> Coleta | None:
-    return s.scalar(
-        select(Coleta)
-        .where(Coleta.tipo == TipoColeta.AMAZON, Coleta.status == StatusColeta.RODANDO)
-        .order_by(Coleta.id.desc())
-        .limit(1)
-    )
-
 
 POR_PAGINA_CASAMENTOS = 20
 

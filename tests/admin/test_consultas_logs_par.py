@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fakes import T0, criar_anuncio, criar_produto, oferta_lista
 
-from tcg_sniper.admin import consultas
+from tcg_sniper.consultas import historico
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import Envio, SituacaoCheckout, StatusCasamento
@@ -21,8 +21,8 @@ def test_logs_do_checkout_e_do_monitor_mostram_o_produto_confirmado(s):
         frete=None, impostos=None, total=None, situacao=SituacaoCheckout.FALHA, motivo="m", item_removido=True,
     )
     repo_amz.gravar_ofertas(s, anuncio.id, T0, [repo_amz.OfertaAvaliada(oferta_lista(), None, True, True)])
-    conferencias, _, _ = consultas.historico_conferencias(s, "todas", 1)
-    leituras, _, _ = consultas.historico_monitor(s, 1)
+    conferencias, _, _ = historico.historico_conferencias(s, "todas", 1)
+    leituras, _, _ = historico.historico_monitor(s, 1)
     assert [linha.produto for linha in conferencias] == ["Produto Certo"]
     assert [linha.produto for linha in leituras] == ["Produto Certo"]
 
@@ -36,8 +36,8 @@ def _registrar_linhas(s, anuncio, em):
 
 
 def _produtos_dos_logs(s):
-    conferencias, _, _ = consultas.historico_conferencias(s, "todas", 1)
-    leituras, _, _ = consultas.historico_monitor(s, 1)
+    conferencias, _, _ = historico.historico_conferencias(s, "todas", 1)
+    leituras, _, _ = historico.historico_monitor(s, 1)
     return [linha.produto for linha in conferencias], [linha.produto for linha in leituras]
 
 

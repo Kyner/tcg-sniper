@@ -8,9 +8,9 @@ from alembic import command
 from sqlalchemy import create_engine, pool, text
 from sqlalchemy.orm import sessionmaker
 
-from tcg_sniper.admin import consultas_amazon, consultas_menu
-from tcg_sniper.admin import consultas_painel as painel
-from tcg_sniper.consultas import casamentos
+from tcg_sniper.admin import consultas_amazon
+from tcg_sniper.consultas import casamentos, painel
+from tcg_sniper.consultas import menu as consultas_menu
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.session import config_alembic
 
