@@ -240,6 +240,26 @@ def test_filtro_problemas_traz_falha_e_parcial(s):
     assert len(linha_do_tempo(s, _filtro(situacao="ok"), None)[0]) == 3
 
 
+def test_problemas_nao_traz_leitura_ok_do_monitor(s):
+    anuncio = criar_anuncio(s, "B0PROBLEM1")
+    _leitura(s, anuncio, T - timedelta(minutes=1))  # com melhor oferta: ok
+    s.add(OfertaAmazon(
+        anuncio_id=anuncio.id, lida_em=T, preco=Decimal("400.00"), condicao="usado", envio=Envio.FBA,
+        importada=False, prime=False, elegivel=False, melhor=False,
+    ))  # nenhuma elegível: parcial
+    s.flush()
+    for filtro in (_filtro(o_que="leitura_monitor", situacao="problemas"), _filtro(busca="problem1", situacao="problemas")):
+        assert [(l.em, l.situacao) for l in linha_do_tempo(s, filtro, None)[0]] == [(T, "parcial")]
+
+
+def test_cursor_em_duas_leituras_no_mesmo_instante(s):
+    a1, a2 = criar_anuncio(s, "B0MESMO001"), criar_anuncio(s, "B0MESMO002")
+    _leitura(s, a1, T)
+    _leitura(s, a2, T)
+    linhas = _todas(s, _filtro(o_que="leitura_monitor"), 1)
+    assert [l.asin for l in linhas] == ["B0MESMO002", "B0MESMO001"]
+
+
 def test_busca_por_asin_e_por_nome(s):
     p1 = criar_produto(s, "p1", nome="Caixa de Booster Fundações")
     p1.nome_en = "Foundations Booster Box"

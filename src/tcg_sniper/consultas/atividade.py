@@ -329,7 +329,7 @@ def _leituras(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Bru
     )
     if quer == {"ok"}:
         consulta = consulta.having(tem_melhor)
-    elif quer == {"parcial"}:
+    elif quer is not None and "ok" not in quer:  # "parcial" ou "problemas" (leitura nunca é falha)
         consulta = consulta.having(not_(tem_melhor))
     leituras = consulta.subquery()
     com_produto = select(
