@@ -87,6 +87,7 @@ class Aviso:
     rotulo_link: str
     acao: str | None = None  # POST de um botão ao lado do link (ex.: "Já conferi")
     rotulo_acao: str | None = None
+    chave: str | None = None  # marca o tipo do aviso para o Dashboard novo ("servico_pausado", "servico_problema", "monitor_atrasado")
 
 
 @dataclass(frozen=True)
@@ -320,11 +321,11 @@ def _saude_casador(s: Session, agora: datetime, cfg: Config, chave_ia: bool) -> 
     automatico = "automático ligado" if cfg_ia.automatico else "automático desligado"
     texto = f"Última chamada {_quando(ultima, agora, cfg.zona)}" if ultima else "Nenhuma chamada ainda"
     gasto = repo_ia.gasto(s, agora, cfg.zona)
-    detalhe = f"{cfg_ia.modelo} · {_usd(gasto.dia_usd)} de {_usd(cfg_ia.teto_dia_usd)} hoje"
+    detalhe = f"{cfg_ia.modelo} · {usd(gasto.dia_usd)} de {usd(cfg_ia.teto_dia_usd)} hoje"
     return SaudeServico("Casador (IA)", "ok", f"{texto} · {automatico}", detalhe, "/logs?aba=ia")
 
 
-def _usd(valor: Decimal) -> str:
+def usd(valor: Decimal) -> str:
     return f"US$ {valor:.2f}".replace(".", ",")
 
 
@@ -430,10 +431,19 @@ def saude_backup(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
     return SaudeServico("Backup", "ok", texto_ok, detalhe, link)
 
 
+def _chave_servico(servico: SaudeServico) -> str:
+    return "servico_pausado" if servico.situacao == "pausado" else "servico_problema"
+
+
 def avisos_backup(backup: SaudeServico) -> list[Aviso]:
     """Serviço parado ou desligado vira erro; backup atrasado ou com erro vira atenção."""
     if backup.situacao in PROBLEMAS:
-        return [Aviso("error", backup.aviso or f"{backup.nome} — {backup.texto}.", "/servicos", "Ir para Serviços")]
+        return [
+            Aviso(
+                "error", backup.aviso or f"{backup.nome} — {backup.texto}.", "/servicos", "Ir para Serviços",
+                chave=_chave_servico(backup),
+            )
+        ]
     if backup.situacao == "parcial":
         return [Aviso("warning", f"{backup.nome} — {backup.texto}.", "/logs?aba=manutencao", "Ver nos logs")]
     return []
@@ -450,7 +460,10 @@ def avisos(
     coleta da LigaMagic ou o último ciclo da Amazon que terminou com falha. Reaproveita a saúde dos
     serviços e o resumo das mensagens já lidos."""
     lista = [
-        Aviso("error", servico.aviso or f"{servico.nome} — {servico.texto}.", "/servicos", "Ir para Serviços")
+        Aviso(
+            "error", servico.aviso or f"{servico.nome} — {servico.texto}.", "/servicos", "Ir para Serviços",
+            chave=_chave_servico(servico),
+        )
         for servico in servicos
         if servico.situacao in PROBLEMAS
     ]
@@ -533,6 +546,7 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
                 f"O monitor está atrasado: {situacao.vencidos} anúncio(s) com leitura vencida, o mais antigo lido há {minutos} min.",
                 "/logs?aba=monitor",
                 "Ver nos logs",
+                chave="monitor_atrasado",
             )
         )
     return lista

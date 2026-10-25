@@ -43,7 +43,7 @@ FONTES = Path(__file__).resolve().parents[2] / "src" / "tcg_sniper" / "consultas
         ("/casamentos?situacao=todos&situacao_produto=sem_candidato", "/gestao/casamentos?situacao=sem_candidato"),
         ("/casamentos?situacao=pendentes", "/gestao/casamentos?situacao=esperando_decisao"),
         ("/casamentos?situacao=sem_par&busca=ab", "/gestao/casamentos?busca=ab&situacao=sem_candidato"),
-        ("/casamentos?situacao=casados&com_preco=1", "/gestao/casamentos?situacao=casado&com_preco=1"),
+        ("/casamentos?situacao=casados&com_preco=1", "/gestao/casamentos?situacao=casado&com_preco=true"),
         ("/casamentos/produto/7", "/gestao/casamentos/7"),
         ("/configuracoes", "antigo:/configuracoes"),
         ("/configuracoes?aba=ia", "antigo:/configuracoes?aba=ia"),
@@ -149,3 +149,38 @@ def test_contar_esperando_decisao_igual_a_situacao_do_catalogo(s, config):
     inativo = criar_produto(s, "c4", ativo=False)
     criar_anuncio(s, "B000000C40", inativo)
     assert contar_esperando_decisao(s) == situacao_catalogo(s, AGORA, config.zona).esperando_decisao == 1
+
+
+def test_monitor_atrasado_abre_configuracoes_com_ver_o_efeito(s, config):
+    from zoneinfo import ZoneInfo
+
+    from fakes import criar_preco_liga, oferta_lista
+
+    from tcg_sniper.consultas import mensagens, painel
+    from tcg_sniper.db import repositorio_amazon as repo_amz
+    from tcg_sniper.db.models import Envio, OrigemPreco
+
+    produto = criar_produto(s, "ma1")
+    criar_preco_liga(s, produto, "1000.00", listagem_em=AGORA)
+    anuncio = criar_anuncio(s, "B0MA000001", produto=produto, status=StatusCasamento.CONFIRMADO)
+    lido_em = AGORA - timedelta(minutes=40)
+    o = oferta_lista("700.00", vendedor="Amazon.com.br", seller_id="amazon", envio=Envio.AMAZON, posicao=0)
+    repo_amz.gravar_ofertas(s, anuncio.id, lido_em, [repo_amz.OfertaAvaliada(o, None, True, True)])
+    repo_amz.registrar_preco(
+        s, anuncio.id, o.preco, OrigemPreco.OFERTAS, None, Envio.AMAZON, lido_em, ZoneInfo("America/Sao_Paulo")
+    )
+    avisos = painel.avisos(s, AGORA, config, [], mensagens.resumo(s, AGORA))
+    [item] = [i for i in dashboard.precisa(s, AGORA, config, avisos) if "atrasado" in i.texto]
+    assert item.rotulo == "Ver o efeito"
+    assert item.destino == "antigo:/configuracoes?secao=amazon"
+    assert item.requer == "ver_configuracoes"
+
+
+def test_aviso_de_servico_leva_ligar_ou_ver_conforme_o_estado():
+    from tcg_sniper.consultas.painel import SaudeServico, avisos_backup
+
+    pausado = SaudeServico("Backup", "pausado", "Backup desligado", "", "/servicos")
+    falha = SaudeServico("Backup", "falha", "parou", "", "/servicos")
+    desafio = SaudeServico("Backup", "pausado_desafio", "captcha", "", "/servicos")
+    rotulos = [dashboard.rotulo_de(a) for sv in (pausado, falha, desafio) for a in avisos_backup(sv)]
+    assert rotulos == ["Ligar", "Ver", "Ver"]

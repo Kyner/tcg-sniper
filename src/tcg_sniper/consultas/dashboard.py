@@ -35,6 +35,7 @@ _SITUACOES_ATIVIDADE = ("ok", "parcial", "falha")
 # Situação da lista antiga de casamentos -> situação do produto da lista nova.
 _SITUACAO_CASAMENTO = {
     "pendentes": "esperando_decisao",
+    # Aproximação com perda: o filtro antigo olhava pares; o novo olha o produto (um casado com pendente sai).
     "oportunidade": "esperando_decisao",
     "sem_par": "sem_candidato",
     "casados": "casado",
@@ -81,7 +82,7 @@ def _destino_casamentos(caminho: str, p: dict[str, str]) -> str:
     if p.get("categoria"):
         saida["categoria"] = p["categoria"]
     if p.get("com_preco") == "1":
-        saida["com_preco"] = "1"
+        saida["com_preco"] = "true"  # o que o front espera (a lista antiga mandava "1")
     return _com_query("/gestao/casamentos", saida)
 
 
@@ -120,6 +121,19 @@ class ItemPrecisa:
     requer: str | None  # permissão da tela de destino; a rota esconde o item de quem não a tem
 
 
+DESTINO_MONITOR_ATRASADO = PREFIXO_ANTIGO + "/configuracoes?secao=amazon"  # até a 3C migrar as Configurações
+_ROTULO_POR_CHAVE = {"servico_pausado": "Ligar", "servico_problema": "Ver", "monitor_atrasado": "Ver o efeito"}
+
+
+def rotulo_de(aviso: painel.Aviso) -> str:
+    """Serviço pausado -> "Ligar"; com problema -> "Ver"; monitor atrasado -> "Ver o efeito"; o resto, o rótulo do painel."""
+    return _ROTULO_POR_CHAVE.get(aviso.chave or "", aviso.rotulo_link)
+
+
+def destino_de(aviso: painel.Aviso) -> str:
+    return DESTINO_MONITOR_ATRASADO if aviso.chave == "monitor_atrasado" else destino_novo(aviso.link)
+
+
 def _item(texto: str, rotulo: str, destino: str) -> ItemPrecisa:
     return ItemPrecisa(texto, rotulo, destino, permissao_do_destino(destino))
 
@@ -143,7 +157,7 @@ def ia_perto_do_teto(s: Session, agora: datetime, cfg: Config) -> list[ItemPreci
     itens = []
     for nome, usado, teto in (("dia", gasto.dia_usd, cfg_ia.teto_dia_usd), ("mês", gasto.mes_usd, cfg_ia.teto_mes_usd)):
         if teto > 0 and usado >= teto * LIMITE_TETO_IA:
-            texto = f"A IA já usou {_pct(usado, teto)}% do teto do {nome} ({painel._usd(usado)} de {painel._usd(teto)})."
+            texto = f"A IA já usou {_pct(usado, teto)}% do teto do {nome} ({painel.usd(usado)} de {painel.usd(teto)})."
             itens.append(_item(texto, "Ajustar em Configurações", PREFIXO_ANTIGO + "/configuracoes"))
     return itens
 
@@ -152,7 +166,7 @@ def precisa(s: Session, agora: datetime, cfg: Config, avisos_painel: Sequence[pa
     """Decisões esperando, IA perto do teto e os avisos do painel (serviços com problema ou desligados, monitor
     atrasado, carrinho a conferir, mensagens com falha…) já com o destino novo. Vazio quando não há nada."""
     itens = _esperando(s) + ia_perto_do_teto(s, agora, cfg)
-    itens += [_item(a.texto, a.rotulo_link, destino_novo(a.link)) for a in avisos_painel]
+    itens += [_item(a.texto, rotulo_de(a), destino_de(a)) for a in avisos_painel]
     return itens
 
 

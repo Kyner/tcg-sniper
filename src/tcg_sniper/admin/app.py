@@ -566,6 +566,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
     def _tela_configuracoes(
         request: Request,
         msg: str = "",
+        secao: str = "",
         secao_com_erro: str | None = None,
         digitados: dict[str, str] | None = None,
         erros: dict[str, str] | None = None,
@@ -604,7 +605,10 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 ),
                 "resumo_ia": _resumo_ia(request),
                 "categorias_padrao": ",".join(CATEGORIAS_SELADOS),
-                "secao_ativa": secao_com_erro or (msg if msg in ("geral", "liga", "amazon", "ia", "avisos") else "geral"),
+                "secao_ativa": secao_com_erro or (
+                    msg if msg in ("geral", "liga", "amazon", "ia", "avisos")
+                    else secao if secao in ("geral", "liga", "amazon", "ia", "avisos") else "geral"
+                ),
             },
             status_code=status.HTTP_400_BAD_REQUEST if secao_com_erro else status.HTTP_200_OK,
         )
@@ -621,8 +625,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         return RedirectResponse("/configuracoes?msg=avisos", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/configuracoes", response_class=HTMLResponse)
-    def configuracoes(request: Request, msg: str = ""):
-        return _tela_configuracoes(request, msg)
+    def configuracoes(request: Request, msg: str = "", secao: str = ""):
+        return _tela_configuracoes(request, msg, secao)
 
     async def _salvar_secao(request: Request, secao: str, campos, validar, gravar):
         formulario = await ler_formulario(request)

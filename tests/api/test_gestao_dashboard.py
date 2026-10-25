@@ -113,3 +113,34 @@ def test_menu_conta_igual_a_lista(cliente, logar, sessoes):
     lista = cliente.get("/api/gestao/casamentos").json()
     assert lista["total"] == 3
     assert cliente.get(MENU).json() == {"casamentos_esperando": lista["total"]}
+
+
+def test_servico_pausado_leva_ligar_e_desafio_leva_ver(cliente, logar, sessoes):
+    from tcg_sniper.db import repositorio as repo
+    from tcg_sniper.db.models import COLETOR_AMAZON_BUSCA, COLETOR_LIGA
+
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "teste", T0, COLETOR_LIGA)
+        repo.pausar_por_desafio(s, "captcha", T0, COLETOR_AMAZON_BUSCA)
+    logar(Papel.OPERADOR)
+    itens = cliente.get(DASHBOARD).json()["precisa"]
+    por_texto = {i["texto"]: i for i in itens if i["destino"] == "/gestao/servicos"}
+    liga = next(i for t, i in por_texto.items() if t.startswith("LigaMagic"))
+    busca = next(i for t, i in por_texto.items() if t.startswith("Amazon (busca)"))
+    assert liga["rotulo"] == "Ligar" and busca["rotulo"] == "Ver"
+
+
+def test_admin_antigo_abre_a_secao_pedida(sessoes, config):
+    import base64
+
+    from fastapi.testclient import TestClient
+
+    from tcg_sniper.admin.app import criar_app
+
+    auth = "Basic " + base64.b64encode(b"admin:segredo").decode()
+    c = TestClient(
+        criar_app(sessoes, config.model_copy(update={"admin_senha": "segredo"})), headers={"Authorization": auth}
+    )
+    texto = c.get("/configuracoes?secao=amazon").text
+    assert 'aria-label="Amazon" checked' in texto
+    assert 'aria-label="Geral" checked' not in texto
