@@ -273,3 +273,46 @@ export interface ProdutoGestaoDados {
   casamentos: { pendentes: number; confirmados: number; ignorados: number };
   curva: Historico | null;
 }
+
+/** Estado único de um serviço na gestão (um só vocabulário para a tela e o painel). */
+export type Estado = "rodando" | "esperando" | "atrasado" | "com_problema" | "desligado";
+export type AcaoServico = "ligar" | "desligar" | "rodar_agora" | "retomar";
+
+export interface ItemCarrinho { conferencia_id: number; asin: string; produto: string; em: string | null }
+export interface SubMonitor {
+  monitor_ligado: boolean; checkout_ligado: boolean; checkout_parado: boolean; carrinho: ItemCarrinho[];
+}
+
+/** GET /api/gestao/servicos: cada serviço com estado, transição, ações permitidas e (monitor) a sub-linha. */
+export interface ServicoGestao {
+  id: string; nome: string; estado: Estado; agora: string; detalhe: string; ultimo_ok: string | null;
+  ligado: boolean; transicao: { tipo: "parando" | "parado" | "iniciando"; desde: string | null } | null;
+  acoes: AcaoServico[]; abrir: string | null; atividade: string; sub: SubMonitor | null;
+}
+export interface ListaServicos { servicos: ServicoGestao[] }
+/** Resposta das ações: o texto vai para a tela como está. */
+export interface ResultadoServico { codigo: string; mensagem: string }
+
+/** GET /api/gestao/atividade: uma linha da lista única (coletas, buscas, checkouts, IA, mensagens, backups, avisos). */
+export type SituacaoAtividade = "ok" | "parcial" | "falha";
+export interface LinhaAtividade {
+  chave: string; em: string; servico: string | null; o_que: string; situacao: SituacaoAtividade; resultado: string;
+  produto_id: number | null; produto: string | null; asin: string | null; custo_usd: string | null;
+  detalhe: Record<string, string | number | null>;
+}
+export interface PaginaAtividade { itens: LinhaAtividade[]; proximo: string | null }
+
+/** GET /api/gestao/dashboard: cada bloco vem `null` quando a pessoa não tem a permissão dele. */
+export interface PrecisaItem { texto: string; rotulo: string; destino: string }
+export interface SaudeItem { id: string; nome: string; estado: Estado; resumo: string }
+export interface TopOportunidade { produto_id: number; nome: string; imagem: string | null; desconto_pct: number }
+export interface FunilGestao {
+  liga: number; monitorados: number; esperando_decisao: number; so_ignorados: number; sem_candidato: number;
+  casados_produtos: number; casados_anuncios: number; oportunidades: number;
+}
+export interface DashboardGestao {
+  precisa: PrecisaItem[];
+  saude: SaudeItem[] | null;
+  oportunidades: { top: TopOportunidade[]; abertas: number; alertas_hoje: number; alertas_semana: number } | null;
+  funil: FunilGestao | null;
+}

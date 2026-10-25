@@ -17,13 +17,13 @@ from tcg_sniper.db.models import AvaliacaoIA, Casamento, ProdutoLiga, StatusCasa
 SITUACOES_PRODUTO = ("casado", "esperando_decisao", "so_ignorados", "sem_candidato")
 
 
-def _escapar_like(texto: str) -> str:
+def escapar_like(texto: str) -> str:
     return texto.replace("\x00", "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def casa_nome(busca: str) -> ColumnElement[bool]:
     """O texto aparece no nome do produto ou no nome em inglês (`%` e `_` valem como texto)."""
-    padrao = f"%{_escapar_like(busca.strip())}%"
+    padrao = f"%{escapar_like(busca.strip())}%"
     return or_(ProdutoLiga.nome.ilike(padrao, escape="\\"), ProdutoLiga.nome_en.ilike(padrao, escape="\\"))
 
 
@@ -75,6 +75,19 @@ def produtos_avaliados_desde(s: Session, inicio: datetime) -> int:
         select(func.count(func.distinct(AvaliacaoIA.produto_id)))
         .join(ProdutoLiga, ProdutoLiga.id == AvaliacaoIA.produto_id)
         .where(ProdutoLiga.ativo.is_(True), AvaliacaoIA.avaliado_em >= inicio)
+    ) or 0
+
+
+def contar_esperando_decisao(s: Session) -> int:
+    """Produtos ativos esperando decisão (sem confirmado, com pendente): só a contagem, para o selo do menu.
+    Dá o mesmo número que `situacao_catalogo(...).esperando_decisao`."""
+    def tem(status: StatusCasamento):
+        return select(Casamento.anuncio_id).where(Casamento.produto_id == ProdutoLiga.id, Casamento.status == status).exists()
+
+    return s.scalar(
+        select(func.count())
+        .select_from(ProdutoLiga)
+        .where(ProdutoLiga.ativo.is_(True), ~tem(StatusCasamento.CONFIRMADO), tem(StatusCasamento.PENDENTE))
     ) or 0
 
 

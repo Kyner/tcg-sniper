@@ -7,10 +7,9 @@ import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto, oferta_lista
 from fastapi.testclient import TestClient
 
-from tcg_sniper.admin import consultas
-from tcg_sniper.admin import consultas_painel as painel
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.coletor_amazon.config import aplicar_config
+from tcg_sniper.consultas import historico, painel
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import Envio, OrigemPreco, SituacaoCheckout, StatusCasamento
@@ -42,7 +41,7 @@ def confirmado(s, asin, lido_em=None, preco="700.00"):
 
 def avisos_de(s, config, agora=AGORA):
     repo_msg.registrar_ciclo(s, agora)  # notificador vivo: só os avisos do monitor interessam aqui
-    resumo = painel.consultas_mensagens.resumo(s, agora)
+    resumo = painel.mensagens.resumo(s, agora)
     return painel.avisos(s, agora, config, painel.saude_servicos(s, agora, config, True, resumo), resumo)
 
 
@@ -97,10 +96,10 @@ def test_historico_das_conferencias(s):
         itens=Decimal("237.73"), frete=Decimal("0.00"), impostos=Decimal("48.26"), total=Decimal("285.99"),
         situacao=SituacaoCheckout.OK, motivo=None, item_removido=True,
     )
-    linhas, pagina, paginas = consultas.historico_conferencias(s, "todas", 1)
+    linhas, pagina, paginas = historico.historico_conferencias(s, "todas", 1)
     assert [l.conferencia.situacao for l in linhas] == [SituacaoCheckout.OK, SituacaoCheckout.CARRINHO_OCUPADO]
     assert (linhas[0].asin, linhas[0].produto, pagina, paginas) == ("B0LOG00001", "Produto B0LOG00001", 1, 1)
-    assert len(consultas.historico_conferencias(s, "carrinho_ocupado", 1)[0]) == 1
+    assert len(historico.historico_conferencias(s, "carrinho_ocupado", 1)[0]) == 1
 
 
 def test_historico_do_monitor(s):
@@ -109,7 +108,7 @@ def test_historico_do_monitor(s):
         s, a.id, T0 + timedelta(minutes=15),
         [repo_amz.OfertaAvaliada(oferta_lista("690.00"), None, True, True), repo_amz.OfertaAvaliada(oferta_lista("720.00", vendedor="Outra"), None, False, False)],
     )
-    linhas, _, _ = consultas.historico_monitor(s, 1)
+    linhas, _, _ = historico.historico_monitor(s, 1)
     assert [(l.ofertas, l.melhor_preco, l.melhor_vendedor) for l in linhas] == [
         (2, Decimal("690.00"), "Shazaar"), (1, Decimal("700.00"), "Amazon.com.br"),
     ]
@@ -124,7 +123,7 @@ def test_historico_das_conferencias_mostra_o_produto_de_cada_linha(s):
             preco_anunciado=Decimal("275.91"), itens=None, frete=None, impostos=None, total=None,
             situacao=SituacaoCheckout.CARRINHO_OCUPADO, motivo=None, item_removido=True,
         )
-    linhas, _, _ = consultas.historico_conferencias(s, "todas", 1)
+    linhas, _, _ = historico.historico_conferencias(s, "todas", 1)
     assert [(l.asin, l.produto) for l in linhas] == [
         ("B0LOG00002", "Produto B0LOG00002"), ("B0LOG00001", "Produto B0LOG00001"),
     ]
@@ -133,7 +132,7 @@ def test_historico_das_conferencias_mostra_o_produto_de_cada_linha(s):
 def test_historico_do_monitor_mostra_o_produto_de_cada_linha(s):
     confirmado(s, "B0LOG00001", lido_em=T0)
     confirmado(s, "B0LOG00002", lido_em=T0 + timedelta(minutes=1))
-    linhas, _, _ = consultas.historico_monitor(s, 1)
+    linhas, _, _ = historico.historico_monitor(s, 1)
     assert [(l.asin, l.produto) for l in linhas] == [
         ("B0LOG00002", "Produto B0LOG00002"), ("B0LOG00001", "Produto B0LOG00001"),
     ]
@@ -230,13 +229,13 @@ def test_retomar_conferencia_aparece_mesmo_com_a_amazon_pausada_por_desafio(clie
 
 def test_logs_so_consulta_o_monitor_na_aba_monitor(cliente, sessoes, monkeypatch):
     chamadas = []
-    real = consultas.historico_monitor
+    real = historico.historico_monitor
 
     def contando(*args, **kwargs):
         chamadas.append(1)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(consultas, "historico_monitor", contando)
+    monkeypatch.setattr(historico, "historico_monitor", contando)
     texto = cliente.get("/logs?aba=checkout").text
     assert chamadas == [] and "/logs?aba=monitor" in texto
     texto = cliente.get("/logs?aba=monitor").text

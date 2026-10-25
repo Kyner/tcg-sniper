@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { apiFalsa, EU_GRUPO, EU_OPERADOR, ok, renderizarEm, respostasOportunidadesVazias, SEM_SESSAO } from "./teste/apoio";
+import { apiFalsa, DASHBOARD_VAZIO, EU_GRUPO, EU_OPERADOR, ok, renderizarEm, respostasOportunidadesVazias, SEM_SESSAO } from "./teste/apoio";
 
 describe("proteção das rotas", () => {
   it("sem sessão, qualquer tela vai para Entrar", async () => {
@@ -24,15 +24,14 @@ describe("proteção das rotas", () => {
     expect(await screen.findByRole("heading", { name: "Sem acesso" })).toBeInTheDocument();
   });
 
-  it("operador entra na gestão, sem os cartões que não pode", async () => {
-    apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) });
+  it("operador entra na gestão: menu com as telas novas e sem os itens que não pode", async () => {
+    apiFalsa({ ...DASHBOARD_VAZIO, "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) });
     renderizarEm("/gestao");
-    expect(await screen.findByRole("heading", { name: "Gestão" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Usuários/ })).not.toBeInTheDocument();
     for (const link of screen.getAllByRole("link", { name: "Serviços" })) {
-      expect(link).toHaveAttribute("href", "http://localhost:8000/servicos");
+      expect(link).toHaveAttribute("href", "/gestao/servicos");
     }
-    // Casamentos e Catálogo já são telas novas: saem da lista do admin antigo (ficam só no menu lateral).
     expect(screen.getAllByRole("link", { name: /Casamentos/ })).toHaveLength(1);
     expect(screen.getAllByRole("link", { name: "Catálogo" })).toHaveLength(1);
   });

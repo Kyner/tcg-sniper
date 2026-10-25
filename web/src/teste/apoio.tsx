@@ -101,3 +101,8 @@ export function respostasOportunidadesVazias(): Record<string, RespostaFalsa> {
     "GET /api/oportunidades/encerradas?periodo=7d&pagina=1": ok({ itens: [], total: 0, pagina: 1, por_pagina: 25 }),
   };
 }
+
+/** Dashboard da gestão sem nada: para os testes que só passam por /gestao. */
+export const DASHBOARD_VAZIO: Record<string, RespostaFalsa> = {
+  "GET /api/gestao/dashboard": ok({ precisa: [], saude: null, oportunidades: null, funil: null }),
+};

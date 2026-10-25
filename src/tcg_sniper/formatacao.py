@@ -9,6 +9,11 @@ def formatar_brl(valor: Decimal | None) -> str:
     return f"R$ {texto}"
 
 
+def formatar_milhar(numero: int) -> str:
+    """Inteiro com ponto de milhar ("1.234")."""
+    return f"{numero:,}".replace(",", ".")
+
+
 def formatar_bytes(tamanho: int | None) -> str:
     """Tamanho de arquivo em B, KB, MB ou GB (base 1024), com vírgula decimal."""
     if tamanho is None:

@@ -5,6 +5,31 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 Da mais nova para a mais antiga.
 
 
+## Site novo, fase 3B: Serviços, Atividade e Dashboard (2026-10-25)
+
+Com migração (só índices): **backup do banco antes do deploy**. A migração `d6a2f8c4b1e9` cria índices no instante de `coleta`, `oferta_amazon`, `conferencia_checkout`, `mensagem_saida` (criada e enviada), `resumo_preco`, `execucao_manutencao` e `estado_aviso`, para a Atividade e o estado dos serviços não lerem as tabelas grandes inteiras. Nada é apagado nem reescrito, mas a criação dos índices em `oferta_amazon` e `resumo_preco` pode levar alguns segundos e segura as gravações nessas tabelas enquanto roda.
+
+1. Backup do banco antes de tudo:
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-fase3b-<data>.dump
+   ```
+
+2. Atualize o código e recrie **todos** os serviços de uma vez (o `migrate` cria os índices antes):
+
+   ```bash
+   git pull
+   docker compose up -d --build
+   ```
+
+3. Confira no site novo (`http://localhost:8090`), entrando como operador ou admin:
+   - **Gestão** abre o Dashboard (precisa de você, saúde dos serviços, oportunidades agora e funil), e o menu tem Dashboard, Casamentos, Catálogo, Serviços e Atividade (Logs e Mensagens do admin antigo viraram a Atividade);
+   - **Serviços**: seis serviços com selo de estado; desligar e ligar o Casador mostra "parando…", "parado de verdade" ou "iniciando…". Operador sem `pausar_servicos` não vê a chave nem "Abrir". "Abrir" (noVNC) só funciona neste PC;
+   - **Atividade**: filtre por serviço, produto/ASIN e "o quê"; a ação que você acabou de fazer em Serviços aparece como "ação da gestão" com o seu nome; "Carregar mais" traz a página seguinte. Quem não tem `ver_mensagens` não vê o texto das mensagens.
+4. Layout: o `verificar_layout.py` agora inclui `/gestao/servicos` e `/gestao/atividade` (veja o README, seção de testes). O teste ponta a ponta (`tests/e2e`, com `TCG_E2E=1`) cobre Serviços, Atividade e Dashboard e confere a largura em 390 e 1440 px nos temas claro e escuro.
+
+
 ## Segurança, etapa 1 (2026-10-24, implantada às 22:10)
 
 Sem migração. Mudam as portas do admin antigo e do noVNC (agora só neste PC por padrão), o login (sem o limite total de 20 pedidos por hora; ficam os limites por número) e a limpeza diária (sessões encerradas ou vencidas há mais de 30 dias).

@@ -15,8 +15,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from tcg_sniper.api import (
     rotas_acessos,
     rotas_auth,
+    rotas_gestao_atividade,
     rotas_gestao_casamentos,
     rotas_gestao_catalogo,
+    rotas_gestao_dashboard,
+    rotas_gestao_servicos,
     rotas_oportunidades,
     rotas_usuarios,
 )
@@ -45,8 +48,11 @@ def criar_app(
     app.include_router(rotas_usuarios.roteador)
     app.include_router(rotas_auth.roteador)
     app.include_router(rotas_oportunidades.roteador)
+    app.include_router(rotas_gestao_atividade.roteador)
     app.include_router(rotas_gestao_casamentos.roteador)
     app.include_router(rotas_gestao_catalogo.roteador)
+    app.include_router(rotas_gestao_dashboard.roteador)
+    app.include_router(rotas_gestao_servicos.roteador)
 
     VerDocumentacao = Annotated[Contexto, Depends(exige(Permissao.VER_DOCUMENTACAO_API))]
 

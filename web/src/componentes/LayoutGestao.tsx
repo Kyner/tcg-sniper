@@ -8,10 +8,7 @@ import type { MenuGestao, Permissao } from "../tipos";
 
 const TELAS_ANTIGAS: readonly (readonly [string, string, Permissao])[] = [
   ["Ofertas", "ofertas", "ver_catalogo"],
-  ["Serviços", "servicos", "ver_servicos"],
-  ["Mensagens", "mensagens", "ver_mensagens"],
   ["Configurações", "configuracoes", "ver_configuracoes"],
-  ["Logs", "logs", "ver_logs"],
 ];
 
 const RECARGA_MS = 60_000;
@@ -43,6 +40,18 @@ export function LayoutGestao() {
     };
   }, [veCasamentos]);
 
+  const antiga = (nome: string) => {
+    const tela = TELAS_ANTIGAS.find(([n]) => n === nome);
+    if (!tela || !pode(tela[2])) return null;
+    return (
+      <li>
+        <a href={enderecoAdminAntigo(tela[1])} target="_blank" rel="noreferrer">
+          {nome}
+        </a>
+      </li>
+    );
+  };
+
   return (
     <div className="drawer lg:drawer-open">
       <input
@@ -53,9 +62,9 @@ export function LayoutGestao() {
         onChange={(e) => setAberto(e.target.checked)}
       />
       <div className="drawer-content">
-        <label htmlFor="menu-gestao" className="btn btn-ghost btn-sm mb-2 lg:hidden">
+        <button type="button" className="btn btn-ghost btn-sm mb-2 lg:hidden" onClick={() => setAberto((a) => !a)}>
           ☰ Menu da gestão
-        </label>
+        </button>
         <Outlet />
       </div>
       <div className="drawer-side z-20 lg:z-auto">
@@ -79,16 +88,18 @@ export function LayoutGestao() {
               <NavLink to="/gestao/catalogo">Catálogo</NavLink>
             </li>
           )}
-          {TELAS_ANTIGAS.map(
-            ([nome, caminho, permissao]) =>
-              pode(permissao) && (
-                <li key={nome}>
-                  <a href={enderecoAdminAntigo(caminho)} target="_blank" rel="noreferrer">
-                    {nome}
-                  </a>
-                </li>
-              ),
+          {antiga("Ofertas")}
+          {pode("ver_servicos") && (
+            <li>
+              <NavLink to="/gestao/servicos">Serviços</NavLink>
+            </li>
           )}
+          {pode("ver_logs") && (
+            <li>
+              <NavLink to="/gestao/atividade">Atividade</NavLink>
+            </li>
+          )}
+          {antiga("Configurações")}
           {pode("gerir_usuarios") && (
             <li>
               <NavLink to="/gestao/usuarios">Usuários</NavLink>
@@ -97,6 +108,11 @@ export function LayoutGestao() {
           {pode("gerir_acessos") && (
             <li>
               <NavLink to="/gestao/acessos">Acessos</NavLink>
+            </li>
+          )}
+          {pode("ver_documentacao_api") && (
+            <li>
+              <a href="/api/docs">Documentação da API</a>
             </li>
           )}
         </ul>

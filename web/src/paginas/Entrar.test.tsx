@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { apiFalsa, EU_GRUPO, EU_OPERADOR, ok, renderizarEm, respostasOportunidadesVazias, SEM_SESSAO } from "../teste/apoio";
+import { apiFalsa, DASHBOARD_VAZIO, EU_GRUPO, EU_OPERADOR, ok, renderizarEm, respostasOportunidadesVazias, SEM_SESSAO } from "../teste/apoio";
 
 const PEDIDO_OK = ok({ ok: true, mensagem: "Se o número estiver cadastrado, o código chega no WhatsApp em instantes." });
 
@@ -33,6 +33,7 @@ describe("Entrar", () => {
 
   it("quem só tem a gestão cai na gestão depois de entrar", async () => {
     apiFalsa({
+      ...DASHBOARD_VAZIO,
       "GET /api/auth/eu": SEM_SESSAO,
       "POST /api/auth/pedir-codigo": PEDIDO_OK,
       "POST /api/auth/entrar": ok({ ...EU_OPERADOR, permissoes: ["ver_area_gestao"] }),
@@ -41,7 +42,7 @@ describe("Entrar", () => {
     const usuario = await pedirCodigo();
     await usuario.type(await screen.findByLabelText("Código"), "123456");
     await usuario.click(screen.getByRole("button", { name: "Entrar" }));
-    expect(await screen.findByRole("heading", { name: "Gestão" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
   it("código errado mostra a mensagem da API e continua na tela", async () => {

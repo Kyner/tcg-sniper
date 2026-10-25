@@ -32,7 +32,7 @@ pytestmark = pytest.mark.skipif(os.environ.get("TCG_E2E") != "1", reason="ponta 
 RAIZ = Path(__file__).resolve().parents[2]
 PORTA_API, PORTA_WEB = 8101, 4174
 BASE = f"http://127.0.0.1:{PORTA_WEB}"
-ADMIN, GRUPO = "+5511900000001", "+5511900000002"
+ADMIN, GRUPO, OPERADOR = "+5511900000001", "+5511900000002", "+5511900000003"
 TABELAS = (
     "sessao, codigo_acesso, pedido_codigo, permissao_papel, mensagem_saida, estado_aviso, usuario, "
     "oportunidade, preco_atual_amazon, preco_amazon, casamento, preco_atual_liga, anuncio_amazon, produto_liga"
@@ -163,7 +163,7 @@ def test_grupo_so_entra_na_gestao_depois_de_liberado(servidores, usuarios, engin
             expect(toggle).to_be_checked()
 
             grupo.goto(BASE + "/gestao")
-            expect(grupo.get_by_role("heading", name="Gestão", exact=True)).to_be_visible()
+            expect(grupo.get_by_role("heading", name="Dashboard", exact=True)).to_be_visible()
         finally:
             navegador.close()
 
@@ -305,6 +305,55 @@ def test_telas_de_gestao_cabem_com_nome_de_120_caracteres(servidores, gestao, en
         finally:
             navegador.close()
     assert problemas == []
+
+
+def test_servicos_atividade_e_dashboard_ponta_a_ponta(servidores, usuarios, engine):
+    from playwright.sync_api import expect, sync_playwright
+
+    with sessionmaker(bind=engine)() as s, s.begin():
+        repo_acesso.criar_usuario(s, "Pessoa Operadora", OPERADOR, Papel.OPERADOR, agora_utc())
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        try:
+            pagina = navegador.new_context().new_page()
+            entrar(pagina, expect, engine, ADMIN, "11 90000-0001")
+
+            # Serviços: desliga e liga o Casador; a linha mostra a transição ("parando…", "parado de verdade" ou "iniciando…").
+            pagina.goto(BASE + "/gestao/servicos")
+            expect(pagina.get_by_role("heading", name="Serviços", exact=True)).to_be_visible()
+            desligar = pagina.locator('input[aria-label="Desligar Casador (IA)"]:visible')
+            desligar.click()
+            ligar = pagina.locator('input[aria-label="Ligar Casador (IA)"]:visible')
+            expect(ligar).to_be_visible()
+            expect(pagina.get_by_text(re.compile(r"parando…|parado de verdade")).first).to_be_visible()
+            ligar.click()
+            expect(pagina.locator('input[aria-label="Desligar Casador (IA)"]:visible')).to_be_visible()
+            expect(pagina.get_by_text(re.compile(r"iniciando…")).first).to_be_visible()
+
+            # Atividade filtrada no Casador: a ação de gestão traz o nome de quem agiu.
+            pagina.goto(BASE + "/gestao/atividade?servico=casador")
+            lista = pagina.get_by_role("list", name="Atividade")
+            expect(lista.get_by_text("ação da gestão").first).to_be_visible()
+            expect(lista.get_by_text("Pessoa Admin").first).to_be_visible()
+
+            # Dashboard: os quatro blocos.
+            pagina.goto(BASE + "/gestao")
+            for titulo in ("Precisa de você", "Saúde dos serviços", "Oportunidades", "Funil"):
+                expect(pagina.get_by_role("heading", name=titulo, exact=True)).to_be_visible()
+
+            # Operador (sem pausar_servicos): vê os serviços, sem chave e sem "Abrir".
+            operador = navegador.new_context().new_page()
+            entrar(operador, expect, engine, OPERADOR, "11 90000-0003")
+            operador.goto(BASE + "/gestao/servicos")
+            expect(operador.get_by_role("heading", name="Serviços", exact=True)).to_be_visible()
+            expect(operador.get_by_text("Casador (IA)").first).to_be_visible()
+            # o monitor e o checkout da Amazon aparecem como selos de leitura, sem nenhuma chave
+            assert operador.locator('input[aria-label^="Ligar "], input[aria-label^="Desligar "]').count() == 0
+            expect(operador.get_by_text(re.compile(r"^monitor de preço: (ligado|desligado)$")).first).to_be_visible()
+            assert operador.locator('input[aria-label$="Casador (IA)"]').count() == 0
+            assert operador.get_by_role("link", name="Abrir", exact=True).count() == 0
+        finally:
+            navegador.close()
 
 
 def _verificar_layout():

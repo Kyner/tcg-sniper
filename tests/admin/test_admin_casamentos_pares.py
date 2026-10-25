@@ -6,9 +6,10 @@ import pytest
 from fakes import T0, criar_anuncio, criar_par, criar_preco_liga, criar_produto
 from fastapi.testclient import TestClient
 
-from tcg_sniper.admin import consultas_amazon, consultas_menu
-from tcg_sniper.admin import consultas_painel as painel
+from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
+from tcg_sniper.consultas import menu as consultas_menu
+from tcg_sniper.consultas import painel
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db.models import Envio, OrigemCasamento, OrigemPreco, StatusCasamento

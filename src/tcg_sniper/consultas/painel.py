@@ -10,10 +10,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from tcg_sniper.admin import consultas, consultas_amazon, consultas_mensagens
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.config import Config
+from tcg_sniper.consultas import historico, mensagens
 from tcg_sniper.consultas.catalogo import (
     SituacaoCatalogo,
     inicio_do_dia,
@@ -87,6 +87,7 @@ class Aviso:
     rotulo_link: str
     acao: str | None = None  # POST de um botão ao lado do link (ex.: "Já conferi")
     rotulo_acao: str | None = None
+    chave: str | None = None  # marca o tipo do aviso para o Dashboard novo ("servico_pausado", "servico_problema", "monitor_atrasado")
 
 
 @dataclass(frozen=True)
@@ -179,9 +180,9 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
         texto = f"Esfriando até {desafio.esfriando_ate.astimezone(zona):%H:%M}"
         espera = f"Volta sozinha nessa hora, com pausas em dobro até o fim do dia · {com_preco} de {ativos} com preço"
         return SaudeServico("LigaMagic", "parcial", texto, espera, link_logs, selo="esfriando")
-    ultima_ok = consultas.ultima_coleta_sucesso(s, TIPOS_LIGA)
+    ultima_ok = historico.ultima_coleta_sucesso(s, TIPOS_LIGA)
     texto_ok = f"Última coleta ok {_quando(ultima_ok.iniciada_em, agora, zona)}" if ultima_ok else "Nenhuma coleta ainda"
-    ultima = consultas.ultima_coleta_finalizada(s, TIPOS_LIGA)
+    ultima = historico.ultima_coleta_finalizada(s, TIPOS_LIGA)
     if ultima is not None and ultima.status is StatusColeta.FALHA:
         texto = f"A última coleta ({ultima.tipo.value}, {_quando(ultima.iniciada_em, agora, zona)}) falhou"
         return SaudeServico("LigaMagic", "parcial", texto, f"{texto_ok} · {detalhe}", link_logs)
@@ -257,8 +258,8 @@ def _saude_amazon_busca(s: Session, agora: datetime, cfg: Config) -> SaudeServic
         )
     if estado.estado is EstadoColetorTipo.PAUSADO:
         return SaudeServico(NOME_BUSCA, "pausado", f"Pausada: {estado.motivo or 'sem motivo'}", detalhe, "/servicos")
-    ultimo_ok = consultas.ultima_coleta_sucesso(s, (TipoColeta.AMAZON,))
-    ciclo = consultas_amazon.ciclo_atual(s)
+    ultimo_ok = historico.ultima_coleta_sucesso(s, (TipoColeta.AMAZON,))
+    ciclo = historico.ciclo_atual(s)
     if ciclo is not None:
         texto = f"Ciclo desde {ciclo.iniciada_em.astimezone(zona):%H:%M}"
         if ultimo_ok is not None:
@@ -268,7 +269,7 @@ def _saude_amazon_busca(s: Session, agora: datetime, cfg: Config) -> SaudeServic
     if not (config_amazon.janela_inicio <= agora.astimezone(zona).time() < config_amazon.janela_fim):
         janela = f"{config_amazon.janela_inicio:%H:%M}–{config_amazon.janela_fim:%H:%M}"
         return SaudeServico(NOME_BUSCA, "ok", f"Parada: fora do horário ({janela})", detalhe, "/logs?aba=amazon")
-    ultimo = consultas.ultima_coleta_finalizada(s, (TipoColeta.AMAZON,))
+    ultimo = historico.ultima_coleta_finalizada(s, (TipoColeta.AMAZON,))
     if ultimo is None:
         texto = "Nenhum ciclo ainda"
     else:
@@ -320,11 +321,11 @@ def _saude_casador(s: Session, agora: datetime, cfg: Config, chave_ia: bool) -> 
     automatico = "automático ligado" if cfg_ia.automatico else "automático desligado"
     texto = f"Última chamada {_quando(ultima, agora, cfg.zona)}" if ultima else "Nenhuma chamada ainda"
     gasto = repo_ia.gasto(s, agora, cfg.zona)
-    detalhe = f"{cfg_ia.modelo} · {_usd(gasto.dia_usd)} de {_usd(cfg_ia.teto_dia_usd)} hoje"
+    detalhe = f"{cfg_ia.modelo} · {usd(gasto.dia_usd)} de {usd(cfg_ia.teto_dia_usd)} hoje"
     return SaudeServico("Casador (IA)", "ok", f"{texto} · {automatico}", detalhe, "/logs?aba=ia")
 
 
-def _usd(valor: Decimal) -> str:
+def usd(valor: Decimal) -> str:
     return f"US$ {valor:.2f}".replace(".", ",")
 
 
@@ -336,9 +337,9 @@ def _mensagens_hoje(s: Session, agora: datetime, zona: ZoneInfo) -> tuple[int, i
 
 
 def _saude_whatsapp(
-    s: Session, agora: datetime, cfg: Config, resumo: consultas_mensagens.ResumoMensagens
+    s: Session, agora: datetime, cfg: Config, resumo: mensagens.ResumoMensagens
 ) -> SaudeServico:
-    situacao, ultimo = consultas_mensagens.estado_notificador(s, agora)
+    situacao, ultimo = mensagens.estado_notificador(s, agora)
     enviadas, _ = _mensagens_hoje(s, agora, cfg.zona)
     detalhe = f"{enviadas} enviadas hoje · {resumo.falhas} com falha · {resumo.paradas} paradas"
     if situacao == "nunca":
@@ -362,12 +363,12 @@ def saude_servicos(
     agora: datetime,
     config_efetiva: Config,
     chave_ia: bool,
-    resumo: consultas_mensagens.ResumoMensagens | None = None,
+    resumo: mensagens.ResumoMensagens | None = None,
 ) -> list[SaudeServico]:
     """Um item por serviço, na ordem LigaMagic, Amazon (busca), Amazon (monitor e checkout), Casador (IA), WhatsApp. `resumo` (das
     mensagens) é reaproveitado quando já foi lido."""
     if resumo is None:
-        resumo = consultas_mensagens.resumo(s, agora)
+        resumo = mensagens.resumo(s, agora)
     return [
         _saude_liga(s, agora, config_efetiva),
         _saude_amazon_busca(s, agora, config_efetiva),
@@ -430,10 +431,19 @@ def saude_backup(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
     return SaudeServico("Backup", "ok", texto_ok, detalhe, link)
 
 
+def _chave_servico(servico: SaudeServico) -> str:
+    return "servico_pausado" if servico.situacao == "pausado" else "servico_problema"
+
+
 def avisos_backup(backup: SaudeServico) -> list[Aviso]:
     """Serviço parado ou desligado vira erro; backup atrasado ou com erro vira atenção."""
     if backup.situacao in PROBLEMAS:
-        return [Aviso("error", backup.aviso or f"{backup.nome} — {backup.texto}.", "/servicos", "Ir para Serviços")]
+        return [
+            Aviso(
+                "error", backup.aviso or f"{backup.nome} — {backup.texto}.", "/servicos", "Ir para Serviços",
+                chave=_chave_servico(backup),
+            )
+        ]
     if backup.situacao == "parcial":
         return [Aviso("warning", f"{backup.nome} — {backup.texto}.", "/logs?aba=manutencao", "Ver nos logs")]
     return []
@@ -444,20 +454,23 @@ def avisos(
     agora: datetime,
     config_efetiva: Config,
     servicos: Sequence[SaudeServico],
-    resumo: consultas_mensagens.ResumoMensagens,
+    resumo: mensagens.ResumoMensagens,
 ) -> list[Aviso]:
     """Um aviso por problema: serviço pausado ou parado, mensagens presas ou com falha, e a última
     coleta da LigaMagic ou o último ciclo da Amazon que terminou com falha. Reaproveita a saúde dos
     serviços e o resumo das mensagens já lidos."""
     lista = [
-        Aviso("error", servico.aviso or f"{servico.nome} — {servico.texto}.", "/servicos", "Ir para Serviços")
+        Aviso(
+            "error", servico.aviso or f"{servico.nome} — {servico.texto}.", "/servicos", "Ir para Serviços",
+            chave=_chave_servico(servico),
+        )
         for servico in servicos
         if servico.situacao in PROBLEMAS
     ]
     if resumo.aviso:
         lista.append(Aviso("warning", resumo.aviso, resumo.link_aviso, "Ir para Mensagens"))
     for tipos, aba in ((TIPOS_LIGA, "liga"), ((TipoColeta.AMAZON,), "amazon")):
-        ultima = consultas.ultima_coleta_finalizada(s, tipos)
+        ultima = historico.ultima_coleta_finalizada(s, tipos)
         if ultima is not None and ultima.status is StatusColeta.FALHA:
             quando = _quando(ultima.iniciada_em, agora, config_efetiva.zona)
             if aba == "liga":
@@ -533,6 +546,7 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
                 f"O monitor está atrasado: {situacao.vencidos} anúncio(s) com leitura vencida, o mais antigo lido há {minutos} min.",
                 "/logs?aba=monitor",
                 "Ver nos logs",
+                chave="monitor_atrasado",
             )
         )
     return lista
