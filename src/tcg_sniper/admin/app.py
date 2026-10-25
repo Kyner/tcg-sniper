@@ -2,7 +2,7 @@ import re
 import secrets
 from datetime import datetime, time
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import parse_qs, urlencode
 from zoneinfo import ZoneInfo
 
@@ -20,7 +20,7 @@ from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
 from tcg_sniper.avisos import formato
 from tcg_sniper.avisos import servico as avisos
-from tcg_sniper.avisos.catalogo import CATALOGO, EMOJI, Dados, TipoAviso
+from tcg_sniper.avisos.catalogo import CATALOGO, EMOJI, TipoAviso
 from tcg_sniper.coletor_amazon.asin import LinkInvalido, extrair_asin
 from tcg_sniper.coletor_amazon.config import CAMPOS, EXPLICACOES, ROTULOS, aplicar_config, validar_config
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
@@ -53,17 +53,17 @@ from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_AMAZON_BUSCA,
     COLETOR_CASADOR,
-    COLETOR_LIGA,
     COLETOR_MANUTENCAO,
     COLETOR_NOTIFICADOR,
     AnuncioAmazon,
-    ConferenciaCheckout,
     EstadoColetorTipo,
     OrigemCasamento,
     ProdutoLiga,
     TipoColeta,
 )
 from tcg_sniper.formatacao import formatar_brl, formatar_bytes
+from tcg_sniper.gestao import servicos as acoes
+from tcg_sniper.gestao.servicos import Servico
 from tcg_sniper.manutencao.servico import HORA_BACKUP
 from tcg_sniper.notificador.base import Destino
 from tcg_sniper.oportunidades import motor
@@ -71,14 +71,6 @@ from tcg_sniper.oportunidades import motor
 SENHA_PADRAO = "trocar-esta-senha"
 MENSAGEM_LOTE = re.compile(r"\d{1,9} produto\(s\) (ativado|desativado)\(s\)\.")
 
-NOMES_SERVICOS = {
-    COLETOR_LIGA: "LigaMagic",
-    COLETOR_AMAZON_BUSCA: "Amazon (busca)",
-    COLETOR_AMAZON: "Amazon (monitor e checkout)",
-    COLETOR_CASADOR: "Casador (IA)",
-    COLETOR_NOTIFICADOR: "WhatsApp (notificador)",
-    COLETOR_MANUTENCAO: "Backup (manutenção)",
-}
 MENSAGEM_AVISOS = "Salvo; vale a partir do próximo aviso."
 
 
@@ -86,41 +78,6 @@ ROTULOS_DESTINO = {
     Destino.ADMIN: "grupo admin",
     Destino.OPORTUNIDADES: "grupo oportunidades",
     Destino.INDIVIDUAL: "só para a pessoa",
-}
-
-
-MENSAGENS_SERVICOS = {
-    "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
-    "retomar": "Coleta da LigaMagic retomada.",
-    "retomar_esfriando": (
-        "Desafio resolvido. A coleta volta sozinha depois do esfriamento (o card mostra até quando), "
-        "com pausas em dobro até o fim do dia."
-    ),
-    "retomar_parada": "Desafio resolvido. Foi o 2º de hoje: a coleta da LigaMagic só volta amanhã, no horário de sempre.",
-    "liga_esfriando": "Execução da LigaMagic solicitada; começa quando o esfriamento terminar (o card mostra até quando).",
-    "liga_parada_hoje": "A LigaMagic teve o 2º desafio hoje e fica parada até amanhã; nada foi solicitado.",
-    "liga_pausar": "Coleta da LigaMagic desligada. Volta quando você ligar de novo.",
-    "liga_retomar": "Coleta da LigaMagic ligada; segue o horário diário.",
-    "notificador_pausar": (
-        "Envio do WhatsApp desligado. As mensagens ficam guardadas e saem quando ligar (ofertas vencidas expiram)."
-    ),
-    "desafio_pendente": "Há um desafio pendente: resolva pelo noVNC e clique em Retomar (nada foi desligado).",
-    "notificador_retomar": "Envio do WhatsApp ligado.",
-    "amazon_pausar": "Monitor e checkout da Amazon pausados. A busca segue.",
-    "amazon_busca_pausar": "Busca na Amazon pausada. O monitor e o checkout seguem.",
-    "monitor_ligar": "Monitor de preço ligado.",
-    "monitor_desligar": "Monitor de preço desligado. A busca de anúncios novos continua.",
-    "checkout_ligar": "Conferência de checkout ligada.",
-    "checkout_desligar": "Conferência de checkout desligada. Os alertas usam o preço anunciado.",
-    "checkout_retomar": "Conferência de checkout retomada.",
-    "carrinho_conferido": "Carrinho conferido: o aviso saiu.",
-    "amazon_retomar": "Monitor e checkout da Amazon retomados.",
-    "amazon_busca_retomar": "Busca na Amazon retomada.",
-    "casador_pausar": "Casador pausado.",
-    "casador_retomar": "Casador retomado; roda em até 1 minuto.",
-    "casador_rodar": "Rodada do casador solicitada; começa em até 1 minuto.",
-    "manutencao_pausar": "Backup e limpeza desligados. Ligue de novo para não ficar sem backup.",
-    "manutencao_retomar": "Backup e limpeza ligados; se o de hoje ainda não rodou, roda em até 1 minuto.",
 }
 
 
@@ -370,7 +327,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "cfg_ia": repo_ia.obter_config_ia(s),
                     "ia_chave": bool((config.openai_api_key or "").strip()),
                     "host": efetiva.host_publico,
-                    "mensagem": MENSAGENS_SERVICOS.get(msg),
+                    "mensagem": acoes.MENSAGENS.get(msg),
                     "estado_notificador": repo.obter_estado(s, coletor=COLETOR_NOTIFICADOR),
                     "notificador": consultas_mensagens.estado_notificador(s, repo.agora_utc()),
                     "estado_manutencao": repo.obter_estado(s, coletor=COLETOR_MANUTENCAO),
@@ -382,172 +339,125 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 },
             )
 
-    def _avisar_mudanca(s: Session, coletor: str, novo: str, agora: datetime) -> None:
-        dados = Dados(titulo_extra=NOMES_SERVICOS[coletor], linhas=(f"Novo estado: {novo}",))
-        avisos.avisar(s, TipoAviso.SERVICO_PAUSADO_MANUAL, coletor, dados, agora)
+    def _redirecionar(msg: str) -> RedirectResponse:
+        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
+
+    def _ligar(servico: Servico) -> RedirectResponse:
+        with sessoes() as s, s.begin():
+            msg = acoes.ligar(s, servico, repo.agora_utc())
+        return _redirecionar(msg)
+
+    def _desligar(servico: Servico) -> RedirectResponse:
+        with sessoes() as s, s.begin():
+            msg = acoes.desligar(s, servico, repo.agora_utc())
+        return _redirecionar(msg)
+
+    def _ajustar_amazon(chave: Literal["monitor_ligado", "checkout_ligado"], ligado: bool) -> RedirectResponse:
+        with sessoes() as s, s.begin():
+            msg = acoes.ajustar_amazon(s, chave, ligado, repo.agora_utc())
+        return _redirecionar(msg)
 
     @app.post("/retomar")
     def retomar(request: Request):
         efetiva = request.state.config
-        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            repo.retomar(s, agora)
-            _avisar_mudanca(s, COLETOR_LIGA, "ativo", agora)
-            desafio = situacao_desafio(s, agora, efetiva.zona, efetiva.esfriar_desafio_min)
-        if desafio.parada_hoje:
-            msg = "retomar_parada"
-        elif desafio.esfriando_ate is not None:
-            msg = "retomar_esfriando"
-        else:
-            msg = "retomar"
-        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
+            msg = acoes.retomar_desafio(s, Servico.LIGA, efetiva.zona, efetiva, repo.agora_utc())
+        return _redirecionar(msg)
 
     @app.post("/rodar-agora")
     def rodar_agora(request: Request):
         """Respeita o esfriamento (o pedido espera) e a parada do 2º desafio (nada é pedido)."""
         efetiva = request.state.config
-        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            desafio = situacao_desafio(s, agora, efetiva.zona, efetiva.esfriar_desafio_min)
-            if desafio.parada_hoje:
-                msg = "liga_parada_hoje"
-            else:
-                repo.solicitar_execucao(s, agora)
-                msg = "liga_esfriando" if desafio.esfriando_ate is not None else "rodar"
-        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
-
-    def _desligar(coletor: str, msg: str) -> RedirectResponse:
-        """Pausa manual; um desafio pendente não é sobrescrito (só sai com Retomar, depois de resolvido)."""
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            if repo.obter_estado(s, agora, coletor).estado is EstadoColetorTipo.PAUSADO_DESAFIO:
-                msg = "desafio_pendente"
-            else:
-                repo.pausar(s, "pausado no admin", agora, coletor)
-                _avisar_mudanca(s, coletor, "pausado", agora)
-        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
+            msg = acoes.rodar_agora(s, Servico.LIGA, efetiva.zona, efetiva, repo.agora_utc())
+        return _redirecionar(msg)
 
     @app.post("/liga/pausar")
     def pausar_liga():
-        return _desligar(COLETOR_LIGA, "liga_pausar")
+        return _desligar(Servico.LIGA)
 
     @app.post("/liga/retomar")
     def retomar_liga():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.retomar(s, agora, COLETOR_LIGA, solicitar=False)
-            _avisar_mudanca(s, COLETOR_LIGA, "ativo", agora)
-        return RedirectResponse("/servicos?msg=liga_retomar", status_code=status.HTTP_303_SEE_OTHER)
+        return _ligar(Servico.LIGA)
 
     @app.post("/notificador/pausar")
     def pausar_notificador():
-        return _desligar(COLETOR_NOTIFICADOR, "notificador_pausar")
+        return _desligar(Servico.WHATSAPP)
 
     @app.post("/notificador/retomar")
     def retomar_notificador():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.retomar(s, agora, COLETOR_NOTIFICADOR, solicitar=False)
-            _avisar_mudanca(s, COLETOR_NOTIFICADOR, "ativo", agora)
-        return RedirectResponse("/servicos?msg=notificador_retomar", status_code=status.HTTP_303_SEE_OTHER)
+        return _ligar(Servico.WHATSAPP)
 
     @app.post("/manutencao/pausar")
     def pausar_manutencao():
-        return _desligar(COLETOR_MANUTENCAO, "manutencao_pausar")
+        return _desligar(Servico.BACKUP)
 
     @app.post("/manutencao/retomar")
     def retomar_manutencao():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.retomar(s, agora, COLETOR_MANUTENCAO, solicitar=False)
-            _avisar_mudanca(s, COLETOR_MANUTENCAO, "ativo", agora)
-        return RedirectResponse("/servicos?msg=manutencao_retomar", status_code=status.HTTP_303_SEE_OTHER)
+        return _ligar(Servico.BACKUP)
 
     @app.post("/amazon/pausar")
     def pausar_amazon():
-        return _desligar(COLETOR_AMAZON, "amazon_pausar")
+        return _desligar(Servico.AMAZON_MONITOR)
 
     @app.post("/amazon/retomar")
     def retomar_amazon():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.retomar(s, agora, COLETOR_AMAZON)
-            _avisar_mudanca(s, COLETOR_AMAZON, "ativo", agora)
-        return RedirectResponse("/servicos?msg=amazon_retomar", status_code=status.HTTP_303_SEE_OTHER)
+        return _ligar(Servico.AMAZON_MONITOR)
 
     @app.post("/amazon/busca/pausar")
     def pausar_busca_amazon():
-        return _desligar(COLETOR_AMAZON_BUSCA, "amazon_busca_pausar")
+        return _desligar(Servico.AMAZON_BUSCA)
 
     @app.post("/amazon/busca/retomar")
     def retomar_busca_amazon():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.retomar(s, agora, COLETOR_AMAZON_BUSCA)
-            _avisar_mudanca(s, COLETOR_AMAZON_BUSCA, "ativo", agora)
-        return RedirectResponse("/servicos?msg=amazon_busca_retomar", status_code=status.HTTP_303_SEE_OTHER)
-
-    def _ajustar_amazon(valores: dict[str, object], msg: str) -> RedirectResponse:
-        with sessoes() as s, s.begin():
-            aplicar_config(s, valores, repo.agora_utc())
-        return RedirectResponse(f"/servicos?msg={msg}", status_code=status.HTTP_303_SEE_OTHER)
+        return _ligar(Servico.AMAZON_BUSCA)
 
     @app.post("/amazon/monitor/ligar")
     def ligar_monitor():
-        return _ajustar_amazon({"monitor_ligado": True}, "monitor_ligar")
+        return _ajustar_amazon("monitor_ligado", True)
 
     @app.post("/amazon/monitor/desligar")
     def desligar_monitor():
-        return _ajustar_amazon({"monitor_ligado": False}, "monitor_desligar")
+        return _ajustar_amazon("monitor_ligado", False)
 
     @app.post("/amazon/checkout/ligar")
     def ligar_checkout():
-        return _ajustar_amazon({"checkout_ligado": True}, "checkout_ligar")
+        return _ajustar_amazon("checkout_ligado", True)
 
     @app.post("/amazon/checkout/desligar")
     def desligar_checkout():
-        return _ajustar_amazon({"checkout_ligado": False}, "checkout_desligar")
+        return _ajustar_amazon("checkout_ligado", False)
 
     @app.post("/amazon/checkout/retomar")
     def retomar_checkout():
-        return _ajustar_amazon({"checkout_sem_login_em": None}, "checkout_retomar")
+        with sessoes() as s, s.begin():
+            msg = acoes.retomar_checkout(s, repo.agora_utc())
+        return _redirecionar(msg)
 
     @app.post("/amazon/carrinho/{conferencia_id}/conferido")
     def carrinho_conferido(conferencia_id: int):
         """"Já conferi": o usuário viu o carrinho pelo noVNC; a conferência sai do "conferir à mão" e o
         aviso do carrinho daquele ASIN fecha."""
-        agora = repo.agora_utc()
         with sessoes() as s, s.begin():
-            conferencia = s.get(ConferenciaCheckout, conferencia_id)
-            anuncio = s.get(AnuncioAmazon, conferencia.anuncio_id) if conferencia is not None else None
-            resolvida = repo_amz.marcar_item_removido(s, conferencia_id)
-            if resolvida and anuncio is not None:
-                avisos.resolver(s, TipoAviso.AMAZON_CARRINHO, anuncio.asin, agora)
+            resolvida = acoes.carrinho_conferido(s, conferencia_id, repo.agora_utc())
         if not resolvida:  # inexistente ou fora do "conferir à mão": não marca nada
             raise HTTPException(status.HTTP_404_NOT_FOUND, "conferência não está aguardando conferência à mão")
-        return RedirectResponse("/servicos?msg=carrinho_conferido", status_code=status.HTTP_303_SEE_OTHER)
+        return _redirecionar("carrinho_conferido")
 
     @app.post("/casador/pausar")
     def pausar_casador():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.pausar(s, "pausado no admin", agora, COLETOR_CASADOR)
-            _avisar_mudanca(s, COLETOR_CASADOR, "pausado", agora)
-        return RedirectResponse("/servicos?msg=casador_pausar", status_code=status.HTTP_303_SEE_OTHER)
+        return _desligar(Servico.CASADOR)
 
     @app.post("/casador/retomar")
     def retomar_casador():
-        agora = repo.agora_utc()
-        with sessoes() as s, s.begin():
-            repo.retomar(s, agora, COLETOR_CASADOR)
-            _avisar_mudanca(s, COLETOR_CASADOR, "ativo", agora)
-        return RedirectResponse("/servicos?msg=casador_retomar", status_code=status.HTTP_303_SEE_OTHER)
+        return _ligar(Servico.CASADOR)
 
     @app.post("/casador/rodar-agora")
-    def rodar_casador():
+    def rodar_casador(request: Request):
+        efetiva = request.state.config
         with sessoes() as s, s.begin():
-            repo.solicitar_execucao(s, repo.agora_utc(), COLETOR_CASADOR)
-        return RedirectResponse("/servicos?msg=casador_rodar", status_code=status.HTTP_303_SEE_OTHER)
+            msg = acoes.rodar_agora(s, Servico.CASADOR, efetiva.zona, efetiva, repo.agora_utc())
+        return _redirecionar(msg)
 
     MENSAGEM_CONFIG = "Salvo; vale a partir da próxima coleta ou ciclo."
 
