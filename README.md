@@ -304,10 +304,13 @@ A área de negócio do site novo tem duas telas, ambas atrás de `ver_oportunida
 - **Oportunidades** (`/`): números do período (7, 30 ou 90 dias), as oportunidades ativas agora (com o selo de risco), as quase lá (casados com desconto entre o piso e o mínimo), um gráfico por dia e a lista das encerradas, com duração e motivo.
 - **Produto** (`/produtos/<id>`): a curva de preço do produto (menor preço elegível da Amazon, "a partir de" e média da Liga, preço alvo), com as faixas em que houve oportunidade, a recorrência e as oportunidades do produto.
 
-A área de gestão (Gestão no menu, para quem tem `ver_area_gestao`) já tem duas telas do admin antigo:
+A área de gestão (Gestão no menu, para quem tem `ver_area_gestao`) já tem cinco telas do admin antigo (o admin antigo segue no ar até a fase 4):
 
 - **Casamentos** (`/gestao/casamentos`): os produtos da LigaMagic com busca, filtros e ordem; "Revisar em sequência" abre um produto por vez, com os anúncios da Amazon para decidir, confirmados e ignorados (confirmar, ignorar, passar para outro produto, casar por link, rebuscar, reavaliar com a IA e gerar termos de busca), e "Próximo" mantém os filtros da lista. Atalhos no computador: C confirma, I ignora, setas escolhem o anúncio e Enter vai ao próximo produto.
 - **Catálogo** (`/gestao/catalogo`): todos os produtos, com a chave para monitorar ou parar de monitorar, ações em lote com confirmação do número exato de produtos, e a página do produto (`/gestao/produtos/<id>`) com preços, casamentos e curva. Desligar um produto nunca apaga o histórico de preços.
+- **Dashboard** (`/gestao`): "Precisa de você" (o que está parado, com falha ou com desafio, com o botão Ver ou Ligar), a saúde dos serviços numa linha (incluindo backup), as oportunidades agora e o funil (monitorados, casados, esperando decisão, com preço).
+- **Serviços** (`/gestao/servicos`): os seis serviços com um estado único (rodando, parando…, parado de verdade, iniciando…, com problema), o último ok, a chave ligar/desligar (permissão `pausar_servicos`), "Rodar agora" na Liga e no Casador, "Retomar" depois de CAPTCHA, e na Amazon o monitor, a conferência de checkout e o carrinho a conferir. "Abrir" (noVNC) só aparece para quem pode pausar e só abre neste PC. Cada ação fica registrada.
+- **Atividade** (`/gestao/atividade`): uma linha do tempo única no lugar das seis abas de Logs e da tela Mensagens: coletas, buscas, IA, checkout, monitor, manutenção, backup, avisos, mensagens do WhatsApp e ações da gestão, com filtros por serviço, "o quê", situação, período e busca por produto, ASIN ou texto. Reenviar e descartar mensagens ficam nos detalhes (permissão `reenviar_mensagens`); o texto das mensagens só aparece para quem tem `ver_mensagens`.
 
 As imagens de produto são copiadas para um bucket público do R2 (`R2_BUCKET_IMAGENS`, `URL_PUBLICA_IMAGENS`); sem essas variáveis o site funciona sem fotos.
 
