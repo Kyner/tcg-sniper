@@ -273,3 +273,22 @@ export interface ProdutoGestaoDados {
   casamentos: { pendentes: number; confirmados: number; ignorados: number };
   curva: Historico | null;
 }
+
+/** Estado único de um serviço na gestão (um só vocabulário para a tela e o painel). */
+export type Estado = "rodando" | "esperando" | "atrasado" | "com_problema" | "desligado";
+export type AcaoServico = "ligar" | "desligar" | "rodar_agora" | "retomar";
+
+export interface ItemCarrinho { conferencia_id: number; asin: string; produto: string; em: string | null }
+export interface SubMonitor {
+  monitor_ligado: boolean; checkout_ligado: boolean; checkout_parado: boolean; carrinho: ItemCarrinho[];
+}
+
+/** GET /api/gestao/servicos: cada serviço com estado, transição, ações permitidas e (monitor) a sub-linha. */
+export interface ServicoGestao {
+  id: string; nome: string; estado: Estado; agora: string; detalhe: string; ultimo_ok: string | null;
+  ligado: boolean; transicao: { tipo: "parando" | "parado" | "iniciando"; desde: string | null } | null;
+  acoes: AcaoServico[]; abrir: string | null; atividade: string; sub: SubMonitor | null;
+}
+export interface ListaServicos { servicos: ServicoGestao[] }
+/** Resposta das ações: o texto vai para a tela como está. */
+export interface ResultadoServico { codigo: string; mensagem: string }

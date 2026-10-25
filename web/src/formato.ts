@@ -30,6 +30,10 @@ export const dataHora = (iso: string) => DATA_HORA.format(new Date(iso));
 export const dataCurta = (iso: string) => DATA.format(new Date(iso));
 export const dataComAno = (iso: string) => DATA_ANO.format(new Date(iso));
 
+const HORA = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+/** HH:MM no fuso do navegador. */
+export const horaMinuto = (iso: string) => HORA.format(new Date(iso));
+
 /** Iguais aos dos avisos do WhatsApp (oportunidades/mensagens.ROTULOS_MOTIVO). */
 export const ROTULOS_MOTIVO: Record<Motivo, string> = {
   preco_subiu: "preço subiu",
