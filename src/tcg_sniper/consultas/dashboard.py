@@ -106,7 +106,7 @@ def destino_novo(link_antigo: str) -> str:
 def permissao_do_destino(destino: str) -> str | None:
     """Permissão que a tela de destino exige além de `ver_area_gestao`."""
     if destino.startswith("/gestao/atividade"):
-        return "ver_mensagens" if "o_que=mensagem" in destino else "ver_logs"
+        return "ver_logs"  # a Atividade inclui as mensagens; `ver_mensagens` só libera o texto delas
     for prefixo, permissao in _REQUER_DO_CAMINHO:
         if destino.startswith(prefixo):
             return permissao

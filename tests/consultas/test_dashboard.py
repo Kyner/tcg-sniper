@@ -69,7 +69,7 @@ def test_destino_novo_cobre_todo_link_que_o_painel_emite():
 
 def test_permissao_do_destino():
     assert dashboard.permissao_do_destino("/gestao/servicos") == "ver_servicos"
-    assert dashboard.permissao_do_destino("/gestao/atividade?o_que=mensagem") == "ver_mensagens"
+    assert dashboard.permissao_do_destino("/gestao/atividade?o_que=mensagem") == "ver_logs"
     assert dashboard.permissao_do_destino("/gestao/atividade?o_que=busca") == "ver_logs"
     assert dashboard.permissao_do_destino("/gestao/casamentos?situacao=casado") == "revisar_casamentos"
     assert dashboard.permissao_do_destino("antigo:/configuracoes") == "ver_configuracoes"

@@ -347,8 +347,9 @@ def test_servicos_atividade_e_dashboard_ponta_a_ponta(servidores, usuarios, engi
             operador.goto(BASE + "/gestao/servicos")
             expect(operador.get_by_role("heading", name="Serviços", exact=True)).to_be_visible()
             expect(operador.get_by_text("Casador (IA)").first).to_be_visible()
-            # as chaves do monitor e do checkout da Amazon aparecem só para leitura (desabilitadas)
-            assert operador.locator('input[aria-label^="Ligar "], input[aria-label^="Desligar "]').and_(operador.locator(":enabled")).count() == 0
+            # o monitor e o checkout da Amazon aparecem como selos de leitura, sem nenhuma chave
+            assert operador.locator('input[aria-label^="Ligar "], input[aria-label^="Desligar "]').count() == 0
+            expect(operador.get_by_text(re.compile(r"^monitor de preço: (ligado|desligado)$")).first).to_be_visible()
             assert operador.locator('input[aria-label$="Casador (IA)"]').count() == 0
             assert operador.get_by_role("link", name="Abrir", exact=True).count() == 0
         finally:

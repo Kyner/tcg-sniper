@@ -167,28 +167,37 @@ function SubLinha({ sub, podeAgir, ocupado, agir }: LinhaProps & { sub: NonNulla
     <tr className="mb-3 block rounded-box bg-base-200 p-3 md:mb-0 md:table-row md:rounded-none">
       <td colSpan={5} className="block p-0 md:table-cell md:p-3">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="toggle toggle-sm toggle-success"
-              aria-label={`${sub.monitor_ligado ? "Desligar" : "Ligar"} monitor de preço`}
-              checked={sub.monitor_ligado}
-              disabled={!podeAgir || ocupado}
-              onChange={() => agir(`${base}/monitor/${sub.monitor_ligado ? "desligar" : "ligar"}`)}
-            />
-            monitor de preço
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="toggle toggle-sm toggle-success"
-              aria-label={`${sub.checkout_ligado ? "Desligar" : "Ligar"} conferência de checkout`}
-              checked={sub.checkout_ligado}
-              disabled={!podeAgir || ocupado}
-              onChange={() => agir(`${base}/checkout/${sub.checkout_ligado ? "desligar" : "ligar"}`)}
-            />
-            conferência de checkout
-          </label>
+          {podeAgir ? (
+            <>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm toggle-success"
+                  aria-label={`${sub.monitor_ligado ? "Desligar" : "Ligar"} monitor de preço`}
+                  checked={sub.monitor_ligado}
+                  disabled={ocupado}
+                  onChange={() => agir(`${base}/monitor/${sub.monitor_ligado ? "desligar" : "ligar"}`)}
+                />
+                monitor de preço
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm toggle-success"
+                  aria-label={`${sub.checkout_ligado ? "Desligar" : "Ligar"} conferência de checkout`}
+                  checked={sub.checkout_ligado}
+                  disabled={ocupado}
+                  onChange={() => agir(`${base}/checkout/${sub.checkout_ligado ? "desligar" : "ligar"}`)}
+                />
+                conferência de checkout
+              </label>
+            </>
+          ) : (
+            <>
+              <span className="badge badge-ghost">{sub.monitor_ligado ? "monitor de preço: ligado" : "monitor de preço: desligado"}</span>
+              <span className="badge badge-ghost">{sub.checkout_ligado ? "conferência de checkout: ligada" : "conferência de checkout: desligada"}</span>
+            </>
+          )}
           {sub.checkout_parado && (
             <>
               <span className="text-sm text-warning">Checkout parado: conta sem login.</span>

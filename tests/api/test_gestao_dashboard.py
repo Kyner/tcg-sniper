@@ -144,3 +144,30 @@ def test_admin_antigo_abre_a_secao_pedida(sessoes, config):
     texto = c.get("/configuracoes?secao=amazon").text
     assert 'aria-label="Amazon" checked' in texto
     assert 'aria-label="Geral" checked' not in texto
+
+
+def _com_mensagem_com_falha(sessoes):
+    from tcg_sniper.db.models import MensagemSaida, StatusMensagem
+
+    with sessoes() as s, s.begin():
+        s.add(MensagemSaida(
+            destino="oportunidades", texto="x", status=StatusMensagem.FALHA, proxima_tentativa_em=T0,
+            criada_em=T0, atualizado_em=T0, ultimo_erro="400",
+        ))
+
+
+def _itens_de_mensagem(cliente):
+    return [i for i in cliente.get(DASHBOARD).json()["precisa"] if i["destino"].startswith("/gestao/atividade?o_que=mensagem")]
+
+
+def test_mensagens_com_falha_pedem_ver_logs_e_nao_ver_mensagens(cliente, app_api, logar, sessoes):
+    _com_mensagem_com_falha(sessoes)
+    logar(Papel.OPERADOR)
+    _negar(sessoes, app_api, Papel.OPERADOR, "ver_mensagens")
+    assert _itens_de_mensagem(cliente)  # ver_logs basta (a Atividade inclui mensagens)
+    _negar(sessoes, app_api, Papel.OPERADOR, "ver_logs")
+    assert _itens_de_mensagem(cliente) == []
+    with sessoes() as s, s.begin():
+        repo_acesso.salvar_permissao(s, Papel.OPERADOR, "ver_mensagens", True)
+    app_api.state.grade.invalidar()
+    assert _itens_de_mensagem(cliente) == []  # ver_mensagens sem ver_logs: a tela não abre

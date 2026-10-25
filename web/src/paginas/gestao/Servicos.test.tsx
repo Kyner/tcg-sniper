@@ -67,6 +67,21 @@ describe("Serviços", () => {
     expect(document.querySelector('a[href^="/gestao/atividade?servico="]')).not.toBeNull();
   });
 
+  it("operador vê o monitor e o checkout como selos de leitura, sem chave nem botões", async () => {
+    const monitor = {
+      ...MONITOR, acoes: [], abrir: null,
+      sub: { ...MONITOR.sub, monitor_ligado: true, checkout_ligado: false },
+    };
+    apiFalsa({ ...base, "GET /api/auth/eu": ok(EU_OPERADOR), [LISTAR]: ok({ servicos: [monitor] }) });
+    renderizarEm("/gestao/servicos");
+    const tabela = (await screen.findByText("Amazon · monitor")).closest("table")!;
+    expect(tabela.querySelector("input")).toBeNull();
+    expect(within(tabela).queryByRole("button")).toBeNull();
+    expect(screen.getByText("monitor de preço: ligado")).toHaveClass("badge-ghost");
+    expect(screen.getByText("conferência de checkout: desligada")).toHaveClass("badge-ghost");
+    expect(screen.getByText("Booster Box Teste")).toBeInTheDocument();
+  });
+
   it("desligar mostra parando… no lugar, com um GET só da lista depois do POST", async () => {
     const chamadas = apiFalsa({
       ...base, [LISTAR]: [ok({ servicos: [LIGA] }), ok({ servicos: [PARANDO] })],
