@@ -8,20 +8,20 @@ import { Foto } from "../componentes/Foto";
 import { SeloEstado } from "../componentes/SeloEstado";
 import { enderecoAdminAntigo } from "../enderecos";
 import { useSessao } from "../sessao";
-import type { DashboardGestao, FunilGestao } from "../tipos";
+import type { DashboardGestao, FunilGestao, Permissao } from "../tipos";
 
 const RECARGA_MS = 60_000;
 const PREFIXO_ANTIGO = "antigo:";
 
-const FUNIL: readonly (readonly [keyof FunilGestao, string, string])[] = [
-  ["liga", "Na Liga", "/gestao/catalogo"],
-  ["monitorados", "Monitorados", "/gestao/catalogo?monitorado=sim"],
-  ["esperando_decisao", "Esperando decisão", "/gestao/casamentos?situacao=esperando_decisao"],
-  ["so_ignorados", "Só ignorados", "/gestao/casamentos?situacao=so_ignorados"],
-  ["sem_candidato", "Sem candidato", "/gestao/casamentos?situacao=sem_candidato"],
-  ["casados_produtos", "Produtos casados", "/gestao/casamentos?situacao=casado"],
-  ["casados_anuncios", "Anúncios casados", "/gestao/casamentos?situacao=casado"],
-  ["oportunidades", "Oportunidades abertas", "/"],
+const FUNIL: readonly (readonly [keyof FunilGestao, string, string, Permissao])[] = [
+  ["liga", "Na Liga", "/gestao/catalogo", "ver_catalogo"],
+  ["monitorados", "Monitorados", "/gestao/catalogo?monitorado=sim", "ver_catalogo"],
+  ["esperando_decisao", "Esperando decisão", "/gestao/casamentos?situacao=esperando_decisao", "revisar_casamentos"],
+  ["so_ignorados", "Só ignorados", "/gestao/casamentos?situacao=so_ignorados", "revisar_casamentos"],
+  ["sem_candidato", "Sem candidato", "/gestao/casamentos?situacao=sem_candidato", "revisar_casamentos"],
+  ["casados_produtos", "Produtos casados", "/gestao/casamentos?situacao=casado", "revisar_casamentos"],
+  ["casados_anuncios", "Anúncios casados", "/gestao/casamentos?situacao=casado", "revisar_casamentos"],
+  ["oportunidades", "Oportunidades abertas", "/", "ver_oportunidades"],
 ];
 
 function porcento(v: number): string {
@@ -31,28 +31,44 @@ function porcento(v: number): string {
 export function Gestao() {
   const { tratarErro } = useSessao();
   const [dados, setDados] = useState<DashboardGestao | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     let vivo = true;
-    const buscar = (silencioso: boolean) =>
-      chamarApi<DashboardGestao>("/api/gestao/dashboard").then(
-        (r) => { if (vivo) setDados(r); },
-        (e: unknown) => { if (!silencioso && vivo) tratarErro(e); },
-      );
-    void buscar(false);
-    const timer = setInterval(() => void buscar(true), RECARGA_MS);
+    setErro(null);
+    chamarApi<DashboardGestao>("/api/gestao/dashboard").then(
+      (r) => { if (vivo) setDados(r); },
+      (e: unknown) => { const m = tratarErro(e); if (vivo) setErro(m); },
+    );
+    return () => { vivo = false; };
+  }, [recarga, tratarErro]);
+
+  // A cada minuto a tela se atualiza em silêncio: se falhar, segue com o que já tem.
+  useEffect(() => {
+    let vivo = true;
+    const timer = setInterval(() => {
+      chamarApi<DashboardGestao>("/api/gestao/dashboard").then((r) => { if (vivo) setDados(r); }, () => undefined);
+    }, RECARGA_MS);
     return () => { vivo = false; clearInterval(timer); };
-  }, [tratarErro]);
+  }, []);
 
   return (
     <section className="space-y-4">
       <h1 className="text-2xl font-bold">Dashboard</h1>
-      {dados === null ? <Carregando /> : <Blocos dados={dados} />}
+      {erro !== null && dados === null && (
+        <div role="alert" className="alert alert-error">
+          <span>{erro}</span>
+          <button type="button" className="btn btn-sm" onClick={() => setRecarga((n) => n + 1)}>Tentar de novo</button>
+        </div>
+      )}
+      {dados === null ? (erro === null ? <Carregando /> : null) : <Blocos dados={dados} />}
     </section>
   );
 }
 
 function Blocos({ dados }: { dados: DashboardGestao }) {
+  const { pode } = useSessao();
   const { precisa, saude, oportunidades, funil } = dados;
   return (
     <>
@@ -61,8 +77,8 @@ function Blocos({ dados }: { dados: DashboardGestao }) {
           <div className="card-body">
             <h2 className="card-title">Precisa de você</h2>
             <ul className="space-y-2">
-              {precisa.map((p) => (
-                <li key={p.texto} className="flex flex-wrap items-center justify-between gap-2">
+              {precisa.map((p, i) => (
+                <li key={`${i}|${p.texto}|${p.destino}`} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="min-w-0">{p.texto}</span>
                   {p.destino.startsWith(PREFIXO_ANTIGO) ? (
                     <a
@@ -130,12 +146,19 @@ function Blocos({ dados }: { dados: DashboardGestao }) {
           <div className="card-body">
             <h2 className="card-title">Funil</h2>
             <ul className="menu w-full p-0">
-              {FUNIL.map(([chave, rotulo, destino]) => (
+              {FUNIL.map(([chave, rotulo, destino, permissao]) => (
                 <li key={chave}>
-                  <Link to={destino} className="flex justify-between">
-                    <span>{rotulo}</span>
-                    <span className="font-semibold">{funil[chave]}</span>
-                  </Link>
+                  {pode(permissao) ? (
+                    <Link to={destino} className="flex justify-between">
+                      <span>{rotulo}</span>
+                      <span className="font-semibold">{funil[chave]}</span>
+                    </Link>
+                  ) : (
+                    <span className="flex justify-between">
+                      <span>{rotulo}</span>
+                      <span className="font-semibold">{funil[chave]}</span>
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

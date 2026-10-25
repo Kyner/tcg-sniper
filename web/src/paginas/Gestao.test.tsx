@@ -1,4 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_OPERADOR, ok, renderizarEm } from "../teste/apoio";
 
@@ -88,6 +89,33 @@ describe("Dashboard da gestão", () => {
     renderizarEm("/gestao");
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
+  });
+
+  it("primeira carga com erro mostra alerta e Tentar de novo recarrega", async () => {
+    apiFalsa({ ...base, [DASH]: [{ status: 500, corpo: { erro: "falha", mensagem: "Deu ruim." } }, ok(COMPLETO)] });
+    renderizarEm("/gestao");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Deu ruim.");
+    await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    expect(await screen.findByText("LigaMagic")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("primeira carga com a rede fora cai em Sistema indisponível e volta ao tentar de novo", async () => {
+    apiFalsa({ ...base, [DASH]: ["rede-fora", ok(COMPLETO)] });
+    renderizarEm("/gestao");
+    expect(await screen.findByRole("heading", { name: "Sistema indisponível" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    expect(await screen.findByText("LigaMagic")).toBeInTheDocument();
+  });
+
+  it("funil sem permissão da tela de destino vira texto, sem link", async () => {
+    const eu = { ...EU_OPERADOR, permissoes: EU_OPERADOR.permissoes.filter((p) => p !== "revisar_casamentos" && p !== "ver_catalogo") };
+    apiFalsa({ ...base, "GET /api/auth/eu": ok(eu), [DASH]: ok(COMPLETO) });
+    renderizarEm("/gestao");
+    await screen.findByText("Esperando decisão");
+    expect(screen.queryByRole("link", { name: /Esperando decisão/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Monitorados/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Oportunidades abertas/ })).toBeInTheDocument();
   });
 
   it("recarrega a cada 60 s", async () => {
