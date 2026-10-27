@@ -3,7 +3,7 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-25 (3B em produção desde 20:37 (merge `266cc9d`); coleta retomada pelo usuário e Amazon conferida logada; segurança etapa 1 em produção desde 2026-10-24 22:10; próxima entrega: 3C).
+Última revisão: 2026-10-26 (menu da gestão abrindo as telas novas: página do site sem cache, `5b7ed04`; 3B em produção desde 20:37 (merge `266cc9d`); coleta retomada pelo usuário e Amazon conferida logada; segurança etapa 1 em produção desde 2026-10-24 22:10; próxima entrega: 3C).
 
 ## Ordem sugerida
 
@@ -143,16 +143,15 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Catálogo: desligar e religar um produto pela chave e conferir o registro (`SELECT * FROM acao_gestao ORDER BY em DESC LIMIT 5`).
 - [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/casamentos` e `/gestao/catalogo`) e olhar à mão, no celular e nos temas claro e escuro, a revisão de um produto e a página do produto (roteiro em `docs/IMPLANTACOES.md`).
 
-### Fase 3B (depois do deploy)
+### Fase 3B (em produção desde 2026-10-25 20:37)
 
-- [ ] Backup do banco, deploy e conferências em `docs/IMPLANTACOES.md` ("Site novo, fase 3B"); a migração `d6a2f8c4b1e9` só cria índices.
 - [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/servicos` e `/gestao/atividade`).
 - [ ] Olhar a Atividade e o Dashboard com dados reais: tempo de resposta com a tabela de ofertas cheia, e se "Precisa de você" bate com o que o grupo espera.
 
 ### Monitor por grupo e atualizações de segurança (em produção desde 2026-10-23 13:28)
 
 - [ ] Na primeira coleta da Liga depois da retomada (Chromium novo, Playwright 1.64.1), conferir que o Cloudflare não pede desafio.
-- [ ] Primeira rodada de cópia de fotos com a Pillow 13 (Logs → Manutenção): falha só nos itens fora de JPEG/PNG/WEBP/GIF.
+- [ ] Primeira rodada de cópia de fotos com a Pillow 13 (Atividade, filtro "backup"): falha só nos itens fora de JPEG/PNG/WEBP/GIF.
 - [ ] Primeira semana: conferir o ritmo da fila rápida (card em Serviços), quão velhas ficam as leituras do grupo lento e o tamanho da lista "esgotado na Liga" (Catálogo), vendo se algum desses produtos merece ação.
 - [ ] Se a fila rápida crescer demais, ajustar `quase_oportunidade_min_pct` ou o intervalo da fila rápida.
 
