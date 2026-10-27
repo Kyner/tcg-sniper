@@ -17,7 +17,9 @@ function historico(parcial: Partial<Historico> = {}): Historico {
     oportunidades: [{ id: 2, produto: { id: 7, nome: "Final Fantasy - Caixa", imagem: null, ativo: true },
       aberta_em: "2026-10-18T10:15:00-03:00", fechada_em: "2026-10-18T13:35:00-03:00", aberta: false,
       duracao_min: 180, alertas: 2, preco_alertado: "1299.90", menor_preco: "1249.90", preco_liga: "1589.00",
-      desconto_pct: "18.20", motivo: "preco_subiu" }],
+      desconto_pct: "18.20", motivo: "preco_subiu",
+      anuncio: { titulo: "Caixa FF", url: "https://www.amazon.com.br/dp/B0X", imagem: null } }],
+    sem_preco: false, anuncios_casados: 1,
     recorrencia_30d: 4,
     quase_la: true,
     ...parcial,
@@ -33,6 +35,9 @@ describe("Produto", () => {
     expect(screen.getByText("quase lá")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ver na Liga" })).toHaveAttribute("href", "https://liga.test/p/7");
     expect(screen.getByRole("link", { name: "Ver na Amazon" })).toHaveAttribute("href", "https://www.amazon.com.br/dp/B0X");
+    expect(screen.queryByText("sem preço agora")).not.toBeInTheDocument();
+    expect(screen.queryByText(/anúncios casados/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Voltar" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("figure", { name: /Curva de preço/ })).toBeInTheDocument();
     const secao = screen.getByRole("region", { name: "Oportunidades deste produto" });
     const tabela = within(secao).getByRole("table");
@@ -40,6 +45,21 @@ describe("Produto", () => {
     expect(within(tabela).getByText("preço subiu")).toBeInTheDocument();
     // No celular a mesma informação vem em lista.
     expect(within(within(secao).getByRole("list")).getByText(/durou 3 h/)).toBeInTheDocument();
+    // Cada oportunidade leva ao anúncio que a gerou (lista e tabela).
+    const links = within(secao).getAllByRole("link", { name: "Ver anúncio na Amazon" });
+    expect(links).toHaveLength(2);
+    for (const l of links) expect(l).toHaveAttribute("href", "https://www.amazon.com.br/dp/B0X");
+  });
+
+  it("sem preço agora: o link da Amazon continua, com aviso e a contagem dos casados", async () => {
+    apiFalsa({
+      "GET /api/auth/eu": ok(EU_GRUPO),
+      "GET /api/produtos/7/historico?periodo=30d": ok(historico({ sem_preco: true, anuncios_casados: 3 })),
+    });
+    renderizarEm("/produtos/7");
+    expect(await screen.findByRole("link", { name: "Ver na Amazon" })).toHaveAttribute("href", "https://www.amazon.com.br/dp/B0X");
+    expect(screen.getByText("sem preço agora")).toHaveClass("badge", "badge-ghost");
+    expect(screen.getByText("+2 anúncios casados")).toBeInTheDocument();
   });
 
   it("sem leituras e sem Liga: textos de vazio; troca de período", async () => {

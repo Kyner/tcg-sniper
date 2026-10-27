@@ -33,7 +33,7 @@ describe("Oportunidades", () => {
         itens: [{ id: 2, produto: PRODUTO, aberta_em: "2026-10-18T10:15:00-03:00",
           fechada_em: "2026-10-18T13:35:00-03:00", aberta: false, duracao_min: 200, alertas: 2,
           preco_alertado: "1299.90", menor_preco: "1249.90", preco_liga: "1589.00", desconto_pct: "18.20",
-          motivo: "preco_subiu" }],
+          motivo: "preco_subiu", anuncio: ANUNCIO }],
         total: 1, pagina: 1, por_pagina: 25,
       }),
     });
@@ -50,6 +50,16 @@ describe("Oportunidades", () => {
     expect(await within(quase).findAllByText(/faltam R\$ 50,00 \(5%\)/)).not.toHaveLength(0);
     const encerradas = screen.getByRole("region", { name: "Encerradas no período" });
     expect(await within(await within(encerradas).findByRole("table")).findByText("preço subiu")).toBeInTheDocument();
+    // Cada oportunidade encerrada e cada "quase lá" levam ao anúncio (lista no celular e tabela no computador).
+    for (const secao of [encerradas, quase]) {
+      const links = within(secao).getAllByRole("link", { name: "Ver anúncio na Amazon" });
+      expect(links).toHaveLength(2);
+      for (const l of links) {
+        expect(l).toHaveAttribute("href", ANUNCIO.url);
+        expect(l).toHaveAttribute("target", "_blank");
+        expect(l).toHaveAttribute("rel", "noreferrer");
+      }
+    }
     // O link para o histórico leva o período, para a oportunidade destacada estar na curva.
     for (const link of within(encerradas).getAllByRole("link", { name: PRODUTO.nome })) {
       expect(link).toHaveAttribute("href", "/produtos/7?oportunidade=2&periodo=7d");

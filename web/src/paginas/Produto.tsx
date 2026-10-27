@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { chamarApi, ErroApi } from "../api";
+import { BotaoVoltar } from "../componentes/BotaoVoltar";
 import { Carregando } from "../componentes/Carregando";
 import { CurvaPreco } from "../componentes/CurvaPreco";
 import { MotivoSelo } from "../componentes/MotivoSelo";
@@ -61,6 +62,7 @@ export function Produto() {
       )}
       {h && (
         <>
+          <BotaoVoltar padrao="/" />
           <div className="flex flex-wrap items-start gap-4">
             {h.produto.imagem && <img src={h.produto.imagem} alt="" className="h-24 w-24 rounded object-contain" />}
             <div className="flex-1 space-y-2">
@@ -78,6 +80,10 @@ export function Produto() {
                 <a className="btn btn-sm" href={h.produto.url_liga} target="_blank" rel="noreferrer">Ver na Liga</a>
                 {h.anuncio && (
                   <a className="btn btn-primary btn-sm" href={h.anuncio.url} target="_blank" rel="noreferrer">Ver na Amazon</a>
+                )}
+                {h.anuncio && h.sem_preco && <span className="badge badge-ghost">sem preço agora</span>}
+                {h.anuncios_casados > 1 && (
+                  <span className="text-sm opacity-70">+{h.anuncios_casados - 1} anúncios casados</span>
                 )}
               </div>
             </div>
@@ -97,7 +103,10 @@ export function Produto() {
                         {o.alertas} alertas · {reais(o.preco_alertado)} → {reais(o.menor_preco)} · {pct(o.desconto_pct)}
                       </div>
                     </div>
-                    <MotivoSelo motivo={o.motivo} aberta={o.aberta} />
+                    <div className="flex flex-col items-end gap-1">
+                      <MotivoSelo motivo={o.motivo} aberta={o.aberta} />
+                      <a className="link" href={o.anuncio.url} target="_blank" rel="noreferrer" aria-label="Ver anúncio na Amazon">Amazon</a>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -106,7 +115,7 @@ export function Produto() {
               <div className="hidden overflow-x-auto md:block">
                 <table className="table table-sm">
                   <thead>
-                    <tr><th>Abriu</th><th>Durou</th><th>Alertas</th><th>Alerta</th><th>Menor</th><th>Desconto</th><th>Motivo</th></tr>
+                    <tr><th>Abriu</th><th>Durou</th><th>Alertas</th><th>Alerta</th><th>Menor</th><th>Desconto</th><th>Motivo</th><th>Anúncio</th></tr>
                   </thead>
                   <tbody>
                     {h.oportunidades.map((o) => (
@@ -118,6 +127,7 @@ export function Produto() {
                         <td>{reais(o.menor_preco)}</td>
                         <td>{pct(o.desconto_pct)}</td>
                         <td><MotivoSelo motivo={o.motivo} aberta={o.aberta} /></td>
+                        <td><a className="link" href={o.anuncio.url} target="_blank" rel="noreferrer" aria-label="Ver anúncio na Amazon">Amazon</a></td>
                       </tr>
                     ))}
                   </tbody>

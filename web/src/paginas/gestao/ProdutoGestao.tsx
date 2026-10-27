@@ -1,8 +1,9 @@
 // Gestão: um produto da Liga (monitorado ou não) com preços, contagem de casamentos e a curva dos últimos 30 dias.
-// A query do catálogo de onde veio fica na URL e volta no "Voltar ao Catálogo".
+// A query do catálogo de onde veio fica na URL e serve de destino do "Voltar" quando não há página anterior.
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { chamarApi, ErroApi } from "../../api";
+import { BotaoVoltar } from "../../componentes/BotaoVoltar";
 import { Carregando } from "../../componentes/Carregando";
 import { Foto } from "../../componentes/Foto";
 import { useFiltrosUrl } from "../../filtrosUrl";
@@ -62,7 +63,7 @@ export function ProdutoGestao() {
     return (
       <section className="space-y-3">
         <div role="alert" className="alert alert-error"><span>{erro}</span></div>
-        <Link className="btn btn-ghost btn-sm" to={voltar}>Voltar ao Catálogo</Link>
+        <BotaoVoltar padrao={voltar} />
       </section>
     );
   }
@@ -70,7 +71,7 @@ export function ProdutoGestao() {
   const { produto, liga, melhor_amazon: amazon, casamentos, curva } = dados;
   return (
     <section className="space-y-4">
-      <Link className="btn btn-ghost btn-sm" to={voltar}>Voltar ao Catálogo</Link>
+      <BotaoVoltar padrao={voltar} />
 
       <div className="flex flex-wrap items-start gap-4">
         <Foto src={produto.imagem} alt={produto.nome} tamanho="g" />
@@ -117,13 +118,27 @@ export function ProdutoGestao() {
         </div>
         <div className="rounded-box bg-base-100 p-4 shadow-sm">
           <h2 className="font-semibold">Amazon</h2>
-          {amazon ? (
-            <dl className="mt-2 space-y-1 text-sm">
-              <div className="flex justify-between gap-2"><dt>Melhor preço</dt><dd>{reais(amazon.preco)}</dd></div>
-              <div className="flex justify-between gap-2"><dt>Abaixo da Liga</dt><dd>{pct(amazon.diferenca_pct)}</dd></div>
-            </dl>
+          {dados.anuncio ? (
+            <div className="mt-2 space-y-1 text-sm">
+              <a className="link" href={dados.anuncio.url} target="_blank" rel="noreferrer" title={dados.anuncio.titulo}>
+                Ver na Amazon
+              </a>
+              {amazon ? (
+                <dl className="space-y-1">
+                  <div className="flex justify-between gap-2"><dt>Melhor preço</dt><dd>{reais(amazon.preco)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>Abaixo da Liga</dt><dd>{pct(amazon.diferenca_pct)}</dd></div>
+                </dl>
+              ) : (
+                dados.sem_preco && <p><span className="badge badge-ghost">sem preço agora</span></p>
+              )}
+              {dados.anuncios_casados > 1 && (
+                pode("revisar_casamentos")
+                  ? <p><Link className="link" to={`/gestao/casamentos/${produto.id}`}>+{dados.anuncios_casados - 1} anúncios</Link></p>
+                  : <p className="opacity-70">+{dados.anuncios_casados - 1} anúncios</p>
+              )}
+            </div>
           ) : (
-            <p className="mt-2 text-sm opacity-70">Sem anúncio confirmado com preço</p>
+            <p className="mt-2 text-sm opacity-70">Sem anúncio confirmado</p>
           )}
         </div>
       </div>

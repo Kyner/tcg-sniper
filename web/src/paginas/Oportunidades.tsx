@@ -208,6 +208,7 @@ export function Oportunidades() {
                     {pct(q.desconto_pct)} · faltam {reais(q.falta_reais)} ({pct(q.falta_pp)})
                   </div>
                 </div>
+                <a className="link" href={q.anuncio.url} target="_blank" rel="noreferrer" aria-label="Ver anúncio na Amazon">Amazon</a>
               </li>
             ))}
           </ul>
@@ -215,13 +216,14 @@ export function Oportunidades() {
         {quase && quase.itens.length > 0 && (
           <div className="hidden overflow-x-auto md:block">
             <table className="table table-sm">
-              <thead><tr><th>Produto</th><th>Desconto</th><th>Falta</th></tr></thead>
+              <thead><tr><th>Produto</th><th>Desconto</th><th>Falta</th><th>Anúncio</th></tr></thead>
               <tbody>
                 {quase.itens.map((q) => (
                   <tr key={q.produto.id}>
                     <td><Link className="link" to={`/produtos/${q.produto.id}`}>{q.produto.nome}</Link></td>
                     <td>{pct(q.desconto_pct)}</td>
                     <td>faltam {reais(q.falta_reais)} ({pct(q.falta_pp)})</td>
+                    <td><a className="link" href={q.anuncio.url} target="_blank" rel="noreferrer" aria-label="Ver anúncio na Amazon">Amazon</a></td>
                   </tr>
                 ))}
               </tbody>
@@ -265,7 +267,10 @@ export function Oportunidades() {
                   </div>
                   <div className="text-xs opacity-70">{reais(e.preco_alertado)} → {reais(e.menor_preco)}</div>
                 </div>
-                <MotivoSelo motivo={e.motivo} aberta={e.aberta} />
+                <div className="flex flex-col items-end gap-1">
+                  <MotivoSelo motivo={e.motivo} aberta={e.aberta} />
+                  <a className="link" href={e.anuncio.url} target="_blank" rel="noreferrer" aria-label="Ver anúncio na Amazon">Amazon</a>
+                </div>
               </li>
             ))}
           </ul>
@@ -274,7 +279,7 @@ export function Oportunidades() {
           <div className="hidden overflow-x-auto md:block">
             <table className="table table-sm">
               <thead>
-                <tr><th>Produto</th><th>Abriu</th><th>Durou</th><th>Alerta → menor</th><th>Desconto</th><th>Motivo</th></tr>
+                <tr><th>Produto</th><th>Abriu</th><th>Durou</th><th>Alerta → menor</th><th>Desconto</th><th>Motivo</th><th>Anúncio</th></tr>
               </thead>
               <tbody>
                 {encerradas.itens.map((e) => (
@@ -289,6 +294,7 @@ export function Oportunidades() {
                     <td>{reais(e.preco_alertado)} → {reais(e.menor_preco)}</td>
                     <td>{pct(e.desconto_pct)}</td>
                     <td><MotivoSelo motivo={e.motivo} aberta={e.aberta} /></td>
+                    <td><a className="link" href={e.anuncio.url} target="_blank" rel="noreferrer" aria-label="Ver anúncio na Amazon">Amazon</a></td>
                   </tr>
                 ))}
               </tbody>

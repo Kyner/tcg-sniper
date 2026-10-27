@@ -267,6 +267,8 @@ Plano `docs/superpowers/plans/2026-10-25-fase3b-servicos-atividade-dashboard.md`
 - [x] Ponta a ponta: Casador desligado e ligado, Atividade filtrada com a ação de gestão, Dashboard com os quatro blocos, operador sem chave nem "Abrir", layout em 390 e 1440 px nos dois temas (`e255b2e`).
 - [x] Decisões: a Atividade não leva o cursor na URL (os filtros sim; "Carregar mais" acumula em memória) e usa uma lista de cartões em todas as larguras; "Precisa de você" lista só problemas reais (serviço desligado por configuração fica de fora).
 
+- [x] Link da Amazon e Voltar (2026-10-26): o histórico e o produto da gestão mostram "Ver na Amazon" sempre que há anúncio casado (o mais barato com preço; sem preço, o de leitura mais recente, com "sem preço agora" e "+N anúncios"); encerradas, tabela do histórico e "Quase lá" levam ao anúncio; `BotaoVoltar` volta na página anterior do site ou vai ao padrão.
+
 ### Segurança, etapa 1 (merge `e56364e`, em produção desde 2026-10-24 22:10)
 
 Spec `docs/superpowers/specs/2026-10-23-seguranca-etapa1-design.md`, plano `docs/superpowers/plans/2026-10-23-seguranca-etapa1.md`. Sem migração. Suíte no merge: 2193 testes passando.

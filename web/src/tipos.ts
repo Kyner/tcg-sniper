@@ -93,7 +93,7 @@ export interface AtivasOportunidades {
 export interface OportunidadeLinha {
   id: number; produto: ProdutoResumo; aberta_em: string; fechada_em: string | null; aberta: boolean;
   duracao_min: number; alertas: number; preco_alertado: string; menor_preco: string; preco_liga: string;
-  desconto_pct: string; motivo: Motivo | null;
+  desconto_pct: string; motivo: Motivo | null; anuncio: AnuncioResumo;
 }
 
 /** GET /api/oportunidades/encerradas. */
@@ -113,6 +113,8 @@ export interface QuaseOportunidades {
 export interface Historico {
   produto: { id: number; nome: string; edicao: string | null; imagem: string | null; url_liga: string };
   anuncio: AnuncioResumo | null;
+  sem_preco: boolean;
+  anuncios_casados: number;
   periodo: Periodo;
   escala: "hora" | "dia";
   amazon: { t: string; preco: string; anuncio: string }[];
@@ -271,6 +273,9 @@ export interface ProdutoGestaoDados {
   liga: { preco: string | null; lojas: number | null; medio: string | null; lido_em: string | null };
   melhor_amazon: { preco: string; diferenca_pct: string | null } | null;
   casamentos: { pendentes: number; confirmados: number; ignorados: number };
+  anuncio: AnuncioResumo | null;
+  sem_preco: boolean;
+  anuncios_casados: number;
   curva: Historico | null;
 }
 
