@@ -82,6 +82,19 @@ def test_realerta_na_fila_descartado_ainda_avisa_se_o_anterior_saiu(sessoes, opo
         assert "Oferta encerrada" in aviso.texto and s.get(Oportunidade, op_id).encerramento_avisado_em == AGORA
 
 
+@pytest.mark.parametrize("status", [StatusMensagem.EXPIRADA, StatusMensagem.DESCARTADA, StatusMensagem.FALHA])
+@pytest.mark.parametrize("enviado", [True, False])
+def test_alerta_atual_que_nao_saiu_avisa_so_se_um_anterior_saiu(sessoes, oportunidade, status, enviado):
+    op_id, msg_id = oportunidade
+    _situacao(sessoes, msg_id, status)
+    with sessoes() as s, s.begin():
+        s.get(Oportunidade, op_id).alerta_enviado = enviado
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA)
+    with sessoes() as s:
+        assert len(_avisos(s)) == (1 if enviado else 0)
+
+
 def test_nenhum_alerta_saiu_continua_sem_aviso(sessoes, oportunidade):
     op_id, _ = oportunidade
     with sessoes() as s, s.begin():
