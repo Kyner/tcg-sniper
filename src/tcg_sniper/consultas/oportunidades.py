@@ -101,6 +101,8 @@ def duracao_min(
 
 
 def _conta_como_resultado():
+    # `produto_desativado` conta (a oportunidade existiu) e entra na recorrência de 30 dias; só o casamento
+    # desfeito, que era um erro, fica de fora.
     return or_(O.motivo_encerramento.is_(None), O.motivo_encerramento != MotivoEncerramento.CASAMENTO_DESFEITO)
 
 

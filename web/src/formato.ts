@@ -43,4 +43,5 @@ export const ROTULOS_MOTIVO: Record<Motivo, string> = {
   liga_desatualizada: "preço da Liga desatualizado",
   sem_leitura: "anúncio sem leitura",
   casamento_desfeito: "casamento desfeito",
+  produto_desativado: "produto desativado",
 };

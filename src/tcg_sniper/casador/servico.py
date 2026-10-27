@@ -19,7 +19,14 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_termos as repo_termos
-from tcg_sniper.db.models import COLETOR_CASADOR, AnuncioAmazon, EstadoColetorTipo, OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import (
+    COLETOR_CASADOR,
+    AnuncioAmazon,
+    EstadoColetorTipo,
+    OrigemCasamento,
+    ProdutoLiga,
+    StatusCasamento,
+)
 from tcg_sniper.ia.modelos import (
     ChaveInvalida,
     ConfiguracaoInvalida,
@@ -217,6 +224,9 @@ class ServicoCasador:
         par = repo_casamento.obter_par(s, av.anuncio_id, av.produto_id)
         if par is None or par.status is not StatusCasamento.PENDENTE:
             return None  # você decidiu enquanto a IA respondia
+        produto = s.get(ProdutoLiga, av.produto_id, populate_existing=True)
+        if produto is None or not produto.ativo:
+            return None  # o produto foi desativado enquanto a IA respondia: o par fica pendente
         try:
             if av.mesmo_produto and av.confianca >= confirmar:
                 if not ServicoCasador._idioma_permite_confirmar(s, av):

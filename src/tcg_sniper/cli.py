@@ -82,6 +82,11 @@ def main(argv: list[str] | None = None) -> None:
         help="preenche o idioma dos anúncios confirmados pelo título (o que o título não decide fica listado)",
     )
     idioma_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só mostra as contagens)")
+    soltar_p = casamento_sub.add_parser(
+        "soltar-inativos",
+        help="solta os anúncios confirmados de produtos já inativos (a desativação passou a soltar sozinha)",
+    )
+    soltar_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só lista)")
     amazon = sub.add_parser("amazon", help="ferramentas da Amazon")
     amazon_sub = amazon.add_subparsers(dest="acao_amazon", required=True)
     capturar_p = amazon_sub.add_parser(
@@ -237,6 +242,20 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Sem decisão: {len(resultado.sem_decisao)} (defina à mão na revisão de casamentos)")
             for anuncio_id, titulo in resultado.sem_decisao:
                 print(f"  #{anuncio_id} {titulo}")
+            return
+        if args.acao_casamento == "soltar-inativos":
+            with sessoes() as s, s.begin():
+                produtos = repo_casamento.soltar_inativos(s, agora_utc(), aplicar=args.aplicar)
+            if not produtos:
+                print("Nenhum produto inativo com anúncio confirmado.")
+                return
+            if not args.aplicar:
+                print("simulação: nada mudou (use --aplicar para soltar)")
+            for p in produtos:
+                print(f"  #{p.produto_id} {p.nome}: {p.anuncios} anúncio(s), {p.oportunidades} oportunidade(s) aberta(s)")
+                if args.aplicar:
+                    logging.getLogger(__name__).info("soltar-inativos: produto %s, %s anúncio(s) soltos", p.produto_id, p.anuncios)
+            print(f"Produtos: {len(produtos)}; anúncios: {sum(p.anuncios for p in produtos)}")
             return
         with sessoes() as s, s.begin():
             r = repo_casamento.reabrir_ignorados_por_ingles(s, agora_utc(), aplicar=args.aplicar)

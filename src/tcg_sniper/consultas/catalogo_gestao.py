@@ -66,7 +66,8 @@ class Alterados(int):
 
 def _definir_ativo(s: Session, comando, ativo: bool, agora: datetime) -> Alterados:
     """Roda o UPDATE em massa; os ids que mudaram saem do próprio comando (`RETURNING`), e, ao desligar,
-    cada um solta os anúncios confirmados (mesma transação; os ids em ordem, para as travas)."""
+    cada um solta os anúncios confirmados (mesma transação). Travas: produto por produto (ids em ordem) e, dentro
+    de cada um, anúncio por anúncio; um lote grande segura as travas dos anúncios até o commit."""
     ids = sorted(s.scalars(comando.returning(ProdutoLiga.id)))
     soltos = 0
     if not ativo:
@@ -82,7 +83,7 @@ def alterar_ativo_em_lote(
     categoria: str | None,
     com_preco: bool,
     agora: datetime,
-) -> int:
+) -> Alterados:
     """Define `ativo` em todos os produtos do filtro (todas as páginas); devolve quantos mudaram de fato."""
     condicoes = condicoes_catalogo(busca, filtro, categoria, com_preco, agora)
     if com_preco:

@@ -204,7 +204,7 @@ def alterar_produto(
         produto.ativo = entrada.ativo
         s.flush()
         detalhe = {"produto_id": produto_id, "ativo": entrada.ativo}
-        if not entrada.ativo:  # idempotente: produto que já estava desligado não tem confirmados a soltar
+        if not entrada.ativo:  # idempotente: produto inativo de antes desta regra pode ter pares confirmados; desligar de novo os solta
             detalhe["anuncios_soltos"] = soltar_confirmados_do_produto(s, produto_id, agora)
         registrar(s, contexto.usuario_id, TipoAcaoGestao.CATALOGO_PRODUTO, detalhe, agora)
         saida = _linha_saida(request, q.linha_produto(s, produto_id))

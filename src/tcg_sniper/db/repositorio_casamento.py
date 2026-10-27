@@ -22,7 +22,7 @@ oportunidades): o repositorio_amazon importa este, nunca o contrário."""
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, Select, and_, or_, select, update
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -35,6 +35,7 @@ from tcg_sniper.db.models import (
     MotivoEncerramento,
     Oportunidade,
     OrigemCasamento,
+    ProdutoLiga,
     StatusCasamento,
 )
 from tcg_sniper.db.repositorio_ia import IDIOMAS_CONHECIDOS
@@ -288,6 +289,40 @@ def soltar_confirmados_do_produto(s: Session, produto_id: int, agora: datetime) 
         soltos += 1
     s.flush()
     return soltos
+
+
+@dataclass(frozen=True)
+class ProdutoInativoComConfirmados:
+    produto_id: int
+    nome: str
+    anuncios: int  # confirmados a soltar
+    oportunidades: int  # abertas desses anúncios (fecham sem aviso)
+
+
+def soltar_inativos(s: Session, agora: datetime, *, aplicar: bool) -> list[ProdutoInativoComConfirmados]:
+    """Produtos inativos que ainda têm pares confirmados (de antes de a desativação soltar os anúncios), em ordem
+    de id. Com `aplicar`, solta os de cada um (`soltar_confirmados_do_produto`); sem, só conta."""
+    linhas = s.execute(
+        select(ProdutoLiga.id, ProdutoLiga.nome, func.count())
+        .join(Casamento, Casamento.produto_id == ProdutoLiga.id)
+        .where(ProdutoLiga.ativo.is_(False), Casamento.status == CONFIRMADO)
+        .group_by(ProdutoLiga.id, ProdutoLiga.nome)
+        .order_by(ProdutoLiga.id)
+    ).all()
+    resultado = []
+    for produto_id, nome, anuncios in linhas:
+        abertas = s.scalar(
+            select(func.count())
+            .select_from(Oportunidade)
+            .join(Casamento, Casamento.anuncio_id == Oportunidade.anuncio_id)
+            .where(
+                Casamento.produto_id == produto_id, Casamento.status == CONFIRMADO, Oportunidade.fechada_em.is_(None)
+            )
+        )
+        resultado.append(ProdutoInativoComConfirmados(produto_id, nome, anuncios, abertas or 0))
+        if aplicar:
+            soltar_confirmados_do_produto(s, produto_id, agora)
+    return resultado
 
 
 def trocar(

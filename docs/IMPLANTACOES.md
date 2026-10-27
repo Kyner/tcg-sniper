@@ -18,6 +18,13 @@ Com migração (colunas novas): **backup do banco antes do deploy**. Suba tudo j
 
   O que ficar na lista "Sem decisão" você define à mão na revisão de casamentos, com o botão "definir idioma" no cartão do anúncio confirmado.
 
+- **Produtos inativos com anúncio confirmado:** desativar um produto passou a soltar os anúncios confirmados dele, mas os de produtos já inativos antes do deploy continuam confirmados. Depois do deploy, a simulação (lista os produtos, quantos anúncios soltaria e quantas oportunidades abertas fecharia, sem aviso), a conferência e então `--aplicar`:
+
+  ```bash
+  docker compose exec casador tcg-sniper casamento soltar-inativos
+  docker compose exec casador tcg-sniper casamento soltar-inativos --aplicar
+  ```
+
 ## Site novo, fase 3B: Serviços, Atividade e Dashboard (2026-10-25, implantada às 20:37)
 
 Com migração (só índices): **backup do banco antes do deploy**. A migração `d6a2f8c4b1e9` cria índices no instante de `coleta`, `oferta_amazon`, `conferencia_checkout`, `mensagem_saida` (criada e enviada), `resumo_preco`, `execucao_manutencao` e `estado_aviso`, para a Atividade e o estado dos serviços não lerem as tabelas grandes inteiras. Nada é apagado nem reescrito, mas a criação dos índices em `oferta_amazon` e `resumo_preco` pode levar alguns segundos e segura as gravações nessas tabelas enquanto roda.

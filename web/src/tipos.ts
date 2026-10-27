@@ -65,7 +65,7 @@ export interface GradeAcessos {
 export type Periodo = "7d" | "30d" | "90d" | "tudo";
 export type Motivo =
   | "casamento_desfeito" | "sem_leitura" | "liga_desatualizada" | "oferta_sumiu" | "vendedor" | "liga_caiu"
-  | "preco_subiu";
+  | "preco_subiu" | "produto_desativado";
 
 export interface ProdutoResumo { id: number; nome: string; imagem: string | null; ativo: boolean }
 export interface AnuncioResumo { titulo: string; url: string; imagem: string | null }

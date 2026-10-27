@@ -544,3 +544,47 @@ def test_casamento_definir_idioma_aplicando_pelo_titulo_e_avisa_japones(banco, c
     saida = capsys.readouterr().out
     assert _idioma_do_anuncio(banco, a) == "en" and _idioma_do_anuncio(banco, j) == "ja"
     assert "possível casamento errado" in saida and "Booster Box Japanese" in saida
+
+
+def _inativo_com_confirmado(sessoes, asin="B7"):
+    from fakes import criar_anuncio, criar_produto
+
+    from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
+
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, f"inativo{asin}", ativo=False, nome=f"Caixa {asin}")
+        a = criar_anuncio(s, asin, produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+        return p.id, a.id
+
+
+def _status_do_par(sessoes, anuncio_id, produto_id):
+    from tcg_sniper.db.models import Casamento
+
+    with sessoes() as s:
+        return s.get(Casamento, (anuncio_id, produto_id)).status.value
+
+
+def test_casamento_soltar_inativos_sem_aplicar_so_lista(banco, capsys):
+    p, a = _inativo_com_confirmado(banco)
+    cli.main(["casamento", "soltar-inativos"])
+    saida = capsys.readouterr().out
+    assert "simulação" in saida and "--aplicar" in saida and "Caixa B7" in saida and "1 anúncio" in saida
+    assert _status_do_par(banco, a, p) == "confirmado"
+
+
+def test_casamento_soltar_inativos_aplicando_solta_so_os_inativos(banco, capsys):
+    from fakes import criar_anuncio, criar_produto
+
+    from tcg_sniper.db.models import StatusCasamento
+
+    p, a = _inativo_com_confirmado(banco)
+    with banco() as s, s.begin():
+        ativo = criar_produto(s, "ativo", nome="Caixa Ativa")
+        a2 = criar_anuncio(s, "B8", produto=ativo, status=StatusCasamento.CONFIRMADO).id
+        ativo_id = ativo.id
+    cli.main(["casamento", "soltar-inativos", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert "simulação" not in saida and "Caixa B7" in saida
+    assert _status_do_par(banco, a, p) == "pendente" and _status_do_par(banco, a2, ativo_id) == "confirmado"
+    cli.main(["casamento", "soltar-inativos"])
+    assert "Nenhum produto inativo" in capsys.readouterr().out

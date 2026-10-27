@@ -742,3 +742,22 @@ def test_idioma_ingles_definido_no_anuncio_segue_a_regra_do_ingles(sessoes, conf
     sv, _, _ = servico(sessoes, config, [veredito_idioma("pt", True, 99)])
     sv.ciclo()
     assert status_de(sessoes, pend, p) is StatusCasamento.PENDENTE
+
+
+def test_produto_desativado_durante_a_chamada_nao_confirma_o_par(sessoes, config):
+    configurar(sessoes, automatico=True)
+    p_id, [a] = pares(sessoes)
+
+    class TransporteQueDesativa(TransporteFake):
+        def enviar(self, pedido):
+            with sessoes() as s, s.begin():
+                s.get(ProdutoLiga, p_id).ativo = False  # o usuário desativa o produto no meio
+            return super().enviar(pedido)
+
+    t = TransporteQueDesativa([veredito(True, 99)])
+    sv = ServicoCasador(sessoes, t, config.model_copy(update={"openai_api_key": "k"}), AvisadorFake(),
+                        cliente_http=sem_rede(), relogio=lambda: T0)
+    sv.ciclo()
+    assert status_de(sessoes, a, p_id) is StatusCasamento.PENDENTE
+    [av] = avaliacoes(sessoes)
+    assert av.aplicada_em is None
