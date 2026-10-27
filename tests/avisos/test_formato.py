@@ -53,7 +53,7 @@ ESPERADOS = {
         "🔴 *Liga · desafio do Cloudflare*\n"
         "• Página: /?view=cards/search&card=categ%3D10\n"
         "• A coleta fica pausada até você retomar\n"
-        "• 1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia\n"
+        "• 1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro por 24 h depois do desafio\n"
         "\n"
         "*O que fazer:* Resolva no noVNC da Liga (porta 6080) e depois Admin → Serviços → LigaMagic → Retomar.\n"
         "_18/10 10:42 · coletor Liga_"

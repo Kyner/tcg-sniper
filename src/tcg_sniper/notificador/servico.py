@@ -30,7 +30,7 @@ ESPERA_SEM_DESTINO = timedelta(minutes=1)
 ESPERA_MAX_MIN = 30
 INTERVALO_LIMPEZA = timedelta(hours=24)
 TIMEOUT_S = 15
-JANELA_FALHAS = timedelta(hours=1)
+JANELA_FALHAS = repo_msg.JANELA_FALHAS
 
 
 @dataclass(frozen=True)
@@ -112,6 +112,11 @@ class ServicoNotificador:
                 enviou = True
             elif resultado is Resultado.TRANSITORIO:
                 break  # a Evolution está fora ou lenta: o resto espera o próximo ciclo
+        try:  # sem falha na janela (reenviada, descartada ou velha), o aviso de mensagem não enviada fecha
+            with self._sessoes() as s, s.begin():
+                avisos.resolver_nao_enviada_sem_falhas(s, self._relogio())
+        except Exception:
+            log.exception("não consegui conferir o aviso de mensagem não enviada")
         if enviou:
             # a Evolution voltou: o que esperava um backoff de falha transitória tenta já
             with self._sessoes() as s, s.begin():
@@ -167,7 +172,7 @@ class ServicoNotificador:
             m.status = StatusMensagem.FALHA
             repo_msg.apagar_texto_individual(m)
             log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
-            if not formato.eh_do_tipo(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
+            if not formato.eh_do_proprio_aviso(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
                 self._avisar_falha(s, agora)
             return resultado
         m.proxima_tentativa_em = agora + timedelta(minutes=min(2 ** min(m.tentativas - 1, 5), ESPERA_MAX_MIN))
@@ -180,7 +185,7 @@ class ServicoNotificador:
         s.flush()
         falhas = [
             f for f in repo_msg.falhas_recentes(s, agora - JANELA_FALHAS)
-            if not formato.eh_do_tipo(f.texto, TipoAviso.MENSAGEM_NAO_ENVIADA)
+            if not formato.eh_do_proprio_aviso(f.texto, TipoAviso.MENSAGEM_NAO_ENVIADA)
         ]
         linhas = tuple(f"#{f.id} para {f.destino}: {f.ultimo_erro or 'sem detalhe'}" for f in falhas)
         avisos.avisar(s, TipoAviso.MENSAGEM_NAO_ENVIADA, CHAVE_GERAL, Dados(linhas=linhas), agora)

@@ -152,6 +152,33 @@ export function RevisaoCasamento() {
     [grupos, produtoId, tratarErro],
   );
 
+  const definirIdioma = async (anuncio: AnuncioRevisao, idioma: string) => {
+    const id = anuncio.anuncio_id;
+    const minha = tela.current;
+    setAviso(null);
+    setOcupados((o) => new Set(o).add(id));
+    try {
+      const r = await chamarApi<{ anuncio_id: number; idioma: string }>(
+        `/api/gestao/casamentos/anuncios/${id}/idioma`, { metodo: "PATCH", corpo: { idioma } },
+      );
+      if (tela.current !== minha) return;
+      setGrupos((g) => ({
+        ...g,
+        confirmados: g.confirmados.map((a) => (a.anuncio_id === id ? { ...a, idioma: r.idioma } : a)),
+      }));
+    } catch (e) {
+      if (tela.current !== minha) return;
+      const mensagem = tratarErro(e);
+      if (mensagem) setAviso({ tipo: "error", mensagem });
+    } finally {
+      if (tela.current === minha) setOcupados((o) => {
+        const novo = new Set(o);
+        novo.delete(id);
+        return novo;
+      });
+    }
+  };
+
   const acaoDoTopo = async (caminho: "rebuscar" | "reavaliar" | "termos") => {
     (document.activeElement as HTMLElement | null)?.blur(); // fecha o menu ⋯
     setAviso(null);
@@ -369,6 +396,7 @@ export function RevisaoCasamento() {
                   <CartaoAnuncio
                     anuncio={a} grupo="confirmados" ocupado={ocupados.has(a.anuncio_id)}
                     onDecidir={(acao) => void decidir(a, "confirmados", acao)}
+                    onDefinirIdioma={(idioma) => void definirIdioma(a, idioma)}
                   />
                 </li>
               ))}

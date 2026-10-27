@@ -105,6 +105,7 @@ ROTULOS_MOTIVO = {
     MotivoEncerramento.LIGA_DESATUALIZADA: "preço da Liga desatualizado",
     MotivoEncerramento.SEM_LEITURA: "anúncio sem leitura",
     MotivoEncerramento.CASAMENTO_DESFEITO: "casamento desfeito",
+    MotivoEncerramento.PRODUTO_DESATIVADO: "produto desativado",  # só rótulo: este motivo nunca gera aviso
 }
 TECNICOS = frozenset({MotivoEncerramento.LIGA_DESATUALIZADA, MotivoEncerramento.SEM_LEITURA})
 

@@ -6,15 +6,31 @@ from zoneinfo import ZoneInfo
 
 from tcg_sniper.avisos.vigia import Batimento
 from tcg_sniper.config import Config
+from tcg_sniper.db.models import COLETOR_NOTIFICADOR
 from tcg_sniper.db.session import criar_engine, criar_sessoes, migrar
+
+_sigterm = {"recebido": False}
 
 
 def _encerrar(signum, _frame) -> None:
+    _sigterm["recebido"] = True
     raise SystemExit(128 + signum)
+
+
+def _rodar_e_registrar_parada(batimento: Batimento, rodar) -> None:
+    """Roda o serviço; só um SIGTERM de verdade (docker stop) marca desligamento limpo. Queda, erro ou
+    saída antecipada não marcam: o vigia continua avisando."""
+    try:
+        rodar()
+    except SystemExit:
+        if _sigterm["recebido"]:
+            batimento.encerrar()
+        raise
 
 
 def instalar_sigterm() -> None:
     """SIGTERM (docker stop) vira SystemExit: o loop do agendador desenrola e o Chromium fecha."""
+    _sigterm["recebido"] = False
     signal.signal(signal.SIGTERM, _encerrar)
 
 
@@ -77,6 +93,16 @@ def main(argv: list[str] | None = None) -> None:
         help="reabre para a IA reavaliar os pares ignorados pelo automático por serem em inglês (regra de idioma revista)",
     )
     reabrir_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só mostra as contagens)")
+    idioma_p = casamento_sub.add_parser(
+        "definir-idioma",
+        help="preenche o idioma dos anúncios confirmados pelo título (o que o título não decide fica listado)",
+    )
+    idioma_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só mostra as contagens)")
+    soltar_p = casamento_sub.add_parser(
+        "soltar-inativos",
+        help="solta os anúncios confirmados de produtos já inativos (a desativação passou a soltar sozinha)",
+    )
+    soltar_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só lista)")
     amazon = sub.add_parser("amazon", help="ferramentas da Amazon")
     amazon_sub = amazon.add_subparsers(dest="acao_amazon", required=True)
     capturar_p = amazon_sub.add_parser(
@@ -123,30 +149,36 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.coletor_liga.agendador import Agendador
         from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
 
-        Batimento(sessoes, "liga").iniciar()
+        batimento = Batimento(sessoes, "liga")
         instalar_sigterm()
-        Agendador(
+        batimento.bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
+        servico_coletor = Agendador(
             engine,
             sessoes,
             lambda: NavegadorPlaywright(config.dir_dados / "perfil"),
             criar_avisador(sessoes),
             config,
-        ).rodar()
+            dormir=batimento.dormir(),
+        )
+        _rodar_e_registrar_parada(batimento, servico_coletor.rodar)
     elif args.comando == "coletor-amazon":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
         from tcg_sniper.coletor_amazon.varredura_monitor import VarreduraMonitor
         from tcg_sniper.navegador.chromium import NavegadorChromium
 
-        Batimento(sessoes, "amazon").iniciar()
+        batimento = Batimento(sessoes, "amazon")
         instalar_sigterm()
-        VarreduraMonitor(
+        batimento.bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
+        servico_coletor = VarreduraMonitor(
             engine,
             sessoes,
             lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
             criar_avisador(sessoes),
             config,
-        ).rodar()
+            dormir=batimento.dormir(),
+        )
+        _rodar_e_registrar_parada(batimento, servico_coletor.rodar)
     elif args.comando == "coletor-amazon-busca":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
@@ -154,22 +186,34 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.db.models import COLETOR_AMAZON_BUSCA
         from tcg_sniper.navegador.chromium import NavegadorChromium
 
-        Batimento(sessoes, COLETOR_AMAZON_BUSCA).iniciar()
+        batimento = Batimento(sessoes, COLETOR_AMAZON_BUSCA)
         instalar_sigterm()
-        VarreduraBusca(
+        batimento.bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
+        servico_coletor = VarreduraBusca(
             engine,
             sessoes,
             lambda: NavegadorChromium(config.dir_dados / "perfil-amazon-busca", eh_desafio_amazon),
             criar_avisador(sessoes),
             config,
-        ).rodar()
+            dormir=batimento.dormir(),
+        )
+        _rodar_e_registrar_parada(batimento, servico_coletor.rodar)
     elif args.comando == "notificador":
         from tcg_sniper.notificador import servico
 
         notificador = servico.ServicoNotificador(sessoes, config)
+        Batimento(sessoes, COLETOR_NOTIFICADOR).bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
         # SIGTERM pede parada limpa: não corta o envio HTTP no meio (SystemExit).
-        signal.signal(signal.SIGTERM, lambda _signum, _frame: notificador.parar())
+        pedida = []
+
+        def parar_notificador(_signum, _frame) -> None:
+            pedida.append(True)
+            notificador.parar()
+
+        signal.signal(signal.SIGTERM, parar_notificador)
         notificador.rodar()
+        if pedida:  # só SIGTERM marca desligamento limpo; erro propaga sem marca
+            Batimento(sessoes, COLETOR_NOTIFICADOR).encerrar()
     elif args.comando == "casador":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.casador.servico import ServicoCasador
@@ -178,10 +222,18 @@ def main(argv: list[str] | None = None) -> None:
         chave = (config.openai_api_key or "").strip()
         # timeout e repetições menores que os do padrão: o desligamento (stop_grace_period) espera a chamada em curso
         transporte = TransporteOpenAI(chave, timeout_s=30, max_retries=2) if chave else None
-        casador = ServicoCasador(sessoes, transporte, config, criar_avisador(sessoes))
-        signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
-        Batimento(sessoes, "casador").iniciar()
+        batimento = Batimento(sessoes, "casador")
+        casador = ServicoCasador(sessoes, transporte, config, criar_avisador(sessoes), batida=batimento.bater)
+        pedida = []
+
+        def parar_casador(_signum, _frame) -> None:
+            pedida.append(True)
+            casador.parar()
+
+        signal.signal(signal.SIGTERM, parar_casador)
         casador.rodar()
+        if pedida:  # só SIGTERM marca desligamento limpo; erro propaga sem marca
+            batimento.encerrar()
     elif args.comando == "manutencao":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.manutencao.r2 import criar_enviador
@@ -217,6 +269,36 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.db import repositorio_casamento as repo_casamento
         from tcg_sniper.db.repositorio import agora_utc
 
+        if args.acao_casamento == "definir-idioma":
+            with sessoes() as s, s.begin():
+                resultado = repo_casamento.definir_idioma_confirmados(s, agora_utc(), aplicar=args.aplicar)
+            if not args.aplicar:
+                print("simulação: nada mudou (use --aplicar para gravar)")
+            print("Idioma definido pelo título:")
+            for idioma, quantos in sorted(resultado.definidos.items()):
+                print(f"  {idioma}: {quantos}")
+            if resultado.suspeitos:
+                print(f"Atenção, possível casamento errado (japonês/outro idioma confirmado): {len(resultado.suspeitos)}")
+                for anuncio_id, titulo in resultado.suspeitos:
+                    print(f"  #{anuncio_id} {titulo}")
+            print(f"Sem decisão: {len(resultado.sem_decisao)} (defina à mão na revisão de casamentos)")
+            for anuncio_id, titulo in resultado.sem_decisao:
+                print(f"  #{anuncio_id} {titulo}")
+            return
+        if args.acao_casamento == "soltar-inativos":
+            with sessoes() as s, s.begin():
+                produtos = repo_casamento.soltar_inativos(s, agora_utc(), aplicar=args.aplicar)
+            if not produtos:
+                print("Nenhum produto inativo com anúncio confirmado.")
+                return
+            if not args.aplicar:
+                print("simulação: nada mudou (use --aplicar para soltar)")
+            for p in produtos:
+                print(f"  #{p.produto_id} {p.nome}: {p.anuncios} anúncio(s), {p.oportunidades} oportunidade(s) aberta(s)")
+                if args.aplicar:
+                    logging.getLogger(__name__).info("soltar-inativos: produto %s, %s anúncio(s) soltos", p.produto_id, p.anuncios)
+            print(f"Produtos: {len(produtos)}; anúncios: {sum(p.anuncios for p in produtos)}")
+            return
         with sessoes() as s, s.begin():
             r = repo_casamento.reabrir_ignorados_por_ingles(s, agora_utc(), aplicar=args.aplicar)
         if not args.aplicar:

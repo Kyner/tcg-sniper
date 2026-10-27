@@ -22,11 +22,12 @@ oportunidades): o repositorio_amazon importa este, nunca o contrário."""
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, Select, and_, or_, select, update
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tcg_sniper.consultas.variacao import idioma_do_titulo
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     AvaliacaoIA,
@@ -34,8 +35,10 @@ from tcg_sniper.db.models import (
     MotivoEncerramento,
     Oportunidade,
     OrigemCasamento,
+    ProdutoLiga,
     StatusCasamento,
 )
+from tcg_sniper.db.repositorio_ia import IDIOMAS_CONHECIDOS
 
 PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO
 # Ignorados que "Reavaliar com a IA" devolve a pendente. `manual` e `sugerido_ia` são decisões suas (no
@@ -96,16 +99,22 @@ def travar_anuncio(s: Session, anuncio_id: int) -> AnuncioAmazon:
     return s.get_one(AnuncioAmazon, anuncio_id, with_for_update=True)
 
 
-def fechar_oportunidades(s: Session, anuncio_id: int, agora: datetime, exceto_produto_id: int | None = None) -> int:
-    """Encerra (motivo `casamento_desfeito`) as oportunidades abertas do anúncio, menos as de
-    `exceto_produto_id`. Pelo encerramento: grava o motivo e avisa "alerta corrigido" a quem viu o alerta."""
+def fechar_oportunidades(
+    s: Session,
+    anuncio_id: int,
+    agora: datetime,
+    exceto_produto_id: int | None = None,
+    motivo: MotivoEncerramento = MotivoEncerramento.CASAMENTO_DESFEITO,
+) -> int:
+    """Encerra as oportunidades abertas do anúncio, menos as de `exceto_produto_id`. Pelo encerramento: grava
+    o motivo (`casamento_desfeito` por padrão: avisa "alerta corrigido" a quem viu o alerta)."""
     from tcg_sniper.oportunidades import encerramento  # import tardio: este módulo é base do repositorio_amazon
 
     condicoes = [Oportunidade.anuncio_id == anuncio_id, Oportunidade.fechada_em.is_(None)]
     if exceto_produto_id is not None:
         condicoes.append(Oportunidade.produto_id != exceto_produto_id)
     ids = list(s.scalars(select(Oportunidade.id).where(*condicoes).order_by(Oportunidade.id)))
-    return sum(encerramento.encerrar(s, op_id, MotivoEncerramento.CASAMENTO_DESFEITO, agora) for op_id in ids)
+    return sum(encerramento.encerrar(s, op_id, motivo, agora) for op_id in ids)
 
 
 def _zerar_aplicada(s: Session, anuncio_id: int, produto_id: int) -> None:
@@ -253,6 +262,69 @@ def desfazer(s: Session, anuncio_id: int, produto_id: int, agora: datetime) -> C
     return par
 
 
+def soltar_confirmados_do_produto(s: Session, produto_id: int, agora: datetime) -> int:
+    """O produto foi desativado: cada anúncio confirmado dele volta a pendente (marcado para a IA reavaliar,
+    avaliação antiga sem "aplicada"), os `outro_confirmado` do anúncio reabrem e as oportunidades abertas do
+    anúncio encerram com `produto_desativado`, sem aviso (a decisão foi sua, não um erro de casamento).
+    Os pares ficam escondidos da IA enquanto o produto está inativo e voltam quando ele é reativado.
+    Anúncios travados em ordem de id. Devolve quantos soltou."""
+    ids = list(
+        s.scalars(
+            select(Casamento.anuncio_id)
+            .where(Casamento.produto_id == produto_id, Casamento.status == CONFIRMADO)
+            .order_by(Casamento.anuncio_id)
+        )
+    )
+    soltos = 0
+    for anuncio_id in ids:
+        travar_anuncio(s, anuncio_id)
+        par = obter_par(s, anuncio_id, produto_id, travar=True)
+        if par is None or par.status is not CONFIRMADO:  # mudou enquanto esperava a trava
+            continue
+        par.status, par.origem, par.revisado_em, par.reavaliar = PENDENTE, None, None, True
+        s.flush()
+        _zerar_aplicada(s, anuncio_id, produto_id)
+        fechar_oportunidades(s, anuncio_id, agora, motivo=MotivoEncerramento.PRODUTO_DESATIVADO)
+        _reabrir_outro_confirmado(s, anuncio_id)
+        soltos += 1
+    s.flush()
+    return soltos
+
+
+@dataclass(frozen=True)
+class ProdutoInativoComConfirmados:
+    produto_id: int
+    nome: str
+    anuncios: int  # confirmados a soltar
+    oportunidades: int  # abertas desses anúncios (fecham sem aviso)
+
+
+def soltar_inativos(s: Session, agora: datetime, *, aplicar: bool) -> list[ProdutoInativoComConfirmados]:
+    """Produtos inativos que ainda têm pares confirmados (de antes de a desativação soltar os anúncios), em ordem
+    de id. Com `aplicar`, solta os de cada um (`soltar_confirmados_do_produto`); sem, só conta."""
+    linhas = s.execute(
+        select(ProdutoLiga.id, ProdutoLiga.nome, func.count())
+        .join(Casamento, Casamento.produto_id == ProdutoLiga.id)
+        .where(ProdutoLiga.ativo.is_(False), Casamento.status == CONFIRMADO)
+        .group_by(ProdutoLiga.id, ProdutoLiga.nome)
+        .order_by(ProdutoLiga.id)
+    ).all()
+    resultado = []
+    for produto_id, nome, anuncios in linhas:
+        abertas = s.scalar(
+            select(func.count())
+            .select_from(Oportunidade)
+            .join(Casamento, Casamento.anuncio_id == Oportunidade.anuncio_id)
+            .where(
+                Casamento.produto_id == produto_id, Casamento.status == CONFIRMADO, Oportunidade.fechada_em.is_(None)
+            )
+        )
+        resultado.append(ProdutoInativoComConfirmados(produto_id, nome, anuncios, abertas or 0))
+        if aplicar:
+            soltar_confirmados_do_produto(s, produto_id, agora)
+    return resultado
+
+
 def trocar(
     s: Session, anuncio_id: int, produto_id: int, agora: datetime, origem: OrigemCasamento = OrigemCasamento.MANUAL
 ) -> Casamento:
@@ -374,6 +446,64 @@ def reabrir_ignorados_por_ingles(s: Session, agora: datetime, *, aplicar: bool) 
     else:
         savepoint.rollback()
     return Reabertura(len(alvos), resultados.count(REABERTO), resultados.count(CONFIRMADO_EM_OUTRO))
+
+
+@dataclass(frozen=True)
+class ResultadoIdioma:
+    definidos: dict[str, int]  # idioma -> quantos anúncios receberam (ou receberiam) esse idioma
+    sem_decisao: list[tuple[int, str]]  # (anuncio_id, título) que a heurística do título não decidiu
+    suspeitos: list[tuple[int, str]]  # confirmados que o título diz serem japonês/outro: possível casamento errado
+
+
+def definir_idioma(s: Session, anuncio_id: int, idioma: str) -> bool:
+    """Define à mão o idioma do anúncio (`pt`, `en`, `ja` ou `outro`). False se o anúncio não existe."""
+    anuncio = s.get(AnuncioAmazon, anuncio_id, with_for_update=True)
+    if anuncio is None:
+        return False
+    anuncio.idioma = idioma
+    s.flush()
+    return True
+
+
+def definir_idioma_confirmados(s: Session, agora: datetime, *, aplicar: bool) -> ResultadoIdioma:
+    """Preenche o idioma dos anúncios confirmados que ainda não têm idioma conhecido (nem no anúncio, nem numa
+    avaliação da IA), pelo que o título diz (`idioma_do_titulo`). O que o título não decide fica na lista
+    `sem_decisao`, para definir à mão. Sem `aplicar`, só conta (tudo num SAVEPOINT desfeito). Sem chamada à IA."""
+    conhecido = (
+        select(AvaliacaoIA.id)
+        .where(AvaliacaoIA.anuncio_id == AnuncioAmazon.id, AvaliacaoIA.idioma_anuncio.in_(IDIOMAS_CONHECIDOS))
+        .exists()
+    )
+    confirmado = select(Casamento.anuncio_id).where(Casamento.status == CONFIRMADO)
+    alvos = s.scalars(
+        select(AnuncioAmazon)
+        .where(
+            AnuncioAmazon.id.in_(confirmado),
+            or_(AnuncioAmazon.idioma.is_(None), AnuncioAmazon.idioma.not_in(IDIOMAS_CONHECIDOS)),
+            ~conhecido,
+        )
+        .order_by(AnuncioAmazon.id)
+        .with_for_update()
+    ).all()
+    savepoint = s.begin_nested()
+    definidos: dict[str, int] = {}
+    sem_decisao: list[tuple[int, str]] = []
+    suspeitos: list[tuple[int, str]] = []
+    for anuncio in alvos:
+        idioma = idioma_do_titulo(anuncio.titulo_exibicao)
+        if idioma is None:
+            sem_decisao.append((anuncio.id, anuncio.titulo_exibicao))
+            continue
+        anuncio.idioma = idioma
+        definidos[idioma] = definidos.get(idioma, 0) + 1
+        if idioma in ("ja", "outro"):  # só avisa: o status do casamento não muda sozinho
+            suspeitos.append((anuncio.id, anuncio.titulo_exibicao))
+    s.flush()
+    if aplicar:
+        savepoint.commit()
+    else:
+        savepoint.rollback()
+    return ResultadoIdioma(definidos, sem_decisao, suspeitos)
 
 
 def marcar_reavaliado(s: Session, anuncio_id: int, produto_id: int) -> None:

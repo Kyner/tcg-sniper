@@ -1,6 +1,6 @@
 import pytest
 
-from tcg_sniper.formatacao import mascarar_numero, normalizar_numero, ocultar_numero
+from tcg_sniper.formatacao import com_nove_extra, mascarar_numero, normalizar_numero, ocultar_numero
 
 
 @pytest.mark.parametrize(
@@ -54,3 +54,17 @@ def test_ocultar_numero_variante_sem_o_nove_extra():
 
 def test_ocultar_numero_fixo_nao_inventa_variante():
     assert ocultar_numero("x 551130000034 y", "+551130000034") == "x +55 11 3***-**34 y"
+
+
+@pytest.mark.parametrize(
+    "numero, esperado",
+    [
+        ("+551187654321", "+5511987654321"),
+        ("+551167654321", "+5511967654321"),
+        ("+551130000001", None),  # fixo (começa em 2-5) nunca vira celular
+        ("+5511987654321", None),
+        ("+12025550100", None),
+    ],
+)
+def test_com_nove_extra(numero, esperado):
+    assert com_nove_extra(numero) == esperado

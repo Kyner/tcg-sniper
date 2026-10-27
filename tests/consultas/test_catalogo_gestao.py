@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from fakes_oportunidades import criar_atual_amazon, criar_listagem_liga
+from sqlalchemy import func, select
 
 from tcg_sniper.consultas import catalogo_gestao
 from tcg_sniper.consultas.catalogo_gestao import (
@@ -13,7 +14,7 @@ from tcg_sniper.consultas.catalogo_gestao import (
     linha_produto,
     linhas_catalogo,
 )
-from tcg_sniper.db.models import ProdutoLiga, StatusCasamento
+from tcg_sniper.db.models import Casamento, ProdutoLiga, StatusCasamento
 
 PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO
 
@@ -233,3 +234,56 @@ def test_contar_filtro_esgotado_igual_a_lista(sessoes, esgotados):
     with sessoes() as s, s.begin():
         assert aplicar_lote(s, False, filtro, T0) == 3
     assert _ativos(sessoes) == {"d", "e", "f"}
+
+
+def _status_pares(sessoes, liga_id):
+    with sessoes() as s:
+        pid = s.scalar(select(ProdutoLiga.id).where(ProdutoLiga.liga_id == liga_id))
+        pares = s.scalars(select(Casamento).where(Casamento.produto_id == pid))
+        return sorted((c.status.value, c.reavaliar) for c in pares)
+
+
+def test_lote_de_desligar_solta_os_confirmados_de_todos(sessoes, catalogo):
+    with sessoes() as s, s.begin():
+        # o confirmado do produto "sem" (ligado) também entra: dois produtos com confirmados no mesmo lote
+        criar_anuncio(s, "B0SEM00001", s.get(ProdutoLiga, catalogo["sem"]), CONFIRMADO)
+    with sessoes() as s, s.begin():
+        alterados = aplicar_lote(s, False, [catalogo["casado"], catalogo["sem"], catalogo["inativo"]], T0)
+    assert alterados == 2 and alterados.anuncios_soltos == 3  # o inativo já estava desligado: não solta
+    assert _status_pares(sessoes, "casado") == [("pendente", False), ("pendente", True), ("pendente", True)]
+    assert _status_pares(sessoes, "sem") == [("pendente", True)]
+    assert _status_pares(sessoes, "inativo") == [("confirmado", False)]
+    with sessoes() as s, s.begin():  # ligar não solta nada
+        assert aplicar_lote(s, True, [catalogo["casado"]], T0).anuncios_soltos == 0
+
+
+def test_desligar_por_filtro_solta_os_confirmados(sessoes, catalogo):
+    with sessoes() as s, s.begin():
+        alterados = aplicar_lote(s, False, FiltroCatalogo(situacao="casado", monitorado="sim"), T0)
+    assert alterados == 1 and alterados.anuncios_soltos == 2
+    assert _status_pares(sessoes, "casado") == [("pendente", False), ("pendente", True), ("pendente", True)]
+
+
+def test_alternar_ativo_ao_desligar_solta_os_confirmados(sessoes, catalogo):
+    with sessoes() as s, s.begin():
+        produto, _ = catalogo_gestao.alternar_ativo(s, catalogo["casado"])
+        assert produto.ativo is False
+    assert _status_pares(sessoes, "casado") == [("pendente", False), ("pendente", True), ("pendente", True)]
+    with sessoes() as s, s.begin():  # ligar de volta não mexe nos pares
+        catalogo_gestao.alternar_ativo(s, catalogo["casado"])
+    assert _status_pares(sessoes, "casado") == [("pendente", False), ("pendente", True), ("pendente", True)]
+
+
+def test_lote_grande_solta_tudo_numa_transacao(sessoes):
+    with sessoes() as s, s.begin():
+        ids = []
+        for i in range(400):
+            p = criar_produto(s, f"mass{i:03d}", nome=f"Massa {i:03d}")
+            criar_anuncio(s, f"B0MASS{i:04d}", p, CONFIRMADO)
+            ids.append(p.id)
+    with sessoes() as s, s.begin():
+        alterados = aplicar_lote(s, False, ids, T0)
+    assert alterados == 400 and alterados.anuncios_soltos == 400
+    with sessoes() as s:
+        confirmados = s.scalar(select(func.count()).select_from(Casamento).where(Casamento.status == CONFIRMADO))
+        assert confirmados == 0

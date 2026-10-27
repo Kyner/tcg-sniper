@@ -80,6 +80,16 @@ def status_de(sessoes, anuncio_id, produto_id=None):
     return par.status
 
 
+def esperas(sessoes):
+    """(falhas seguidas, espera até, assinatura) de cada par que tem falha gravada."""
+    with sessoes() as s:
+        return [
+            (c.ia_falhas, c.ia_espera_ate, c.ia_falha_assinatura)
+            for c in s.scalars(select(Casamento).order_by(Casamento.anuncio_id, Casamento.produto_id))
+            if c.ia_falhas or c.ia_espera_ate is not None or c.ia_falha_assinatura is not None
+        ]
+
+
 def test_desligada_nao_chama(sessoes, config):
     pares(sessoes)
     sv, t, _ = servico(sessoes, config, [])
@@ -384,7 +394,7 @@ def test_espera_crescente_depois_de_falhar(sessoes, config):
     relogio.avancar(hours=24)  # 24 h
     sv.ciclo()
     assert len(t.pedidos) == 4
-    assert sv._falhas[next(iter(sv._falhas))][1] == 4  # limite de 24 h a partir daqui
+    assert esperas(sessoes)[0][0] == 4  # limite de 24 h a partir daqui
 
 
 def test_espera_maxima_e_24_horas(sessoes, config):
@@ -413,7 +423,7 @@ def test_dados_mudados_tiram_o_par_da_espera(sessoes, config):
     assert len(t.pedidos) == 1
     with sessoes() as s, s.begin():
         s.get(AnuncioAmazon, a).titulo = "Título novo"
-    assert sv.ciclo() == 1 and sv._falhas == {}
+    assert sv.ciclo() == 1 and esperas(sessoes) == []
 
 
 def test_sucesso_limpa_a_falha(sessoes, config):
@@ -422,9 +432,36 @@ def test_sucesso_limpa_a_falha(sessoes, config):
     relogio = Relogio()
     sv, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()], relogio=relogio)
     sv.ciclo()
-    assert len(sv._falhas) == 1
+    assert len(esperas(sessoes)) == 1
     relogio.avancar(hours=1)
-    assert sv.ciclo() == 1 and sv._falhas == {}
+    assert sv.ciclo() == 1 and esperas(sessoes) == []
+
+
+def test_espera_sobrevive_a_reinicio_do_casador(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    relogio = Relogio()
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500")], relogio=relogio)
+    sv.ciclo()
+    assert len(t.pedidos) == 1
+    relogio.avancar(minutes=59)
+    novo, t2, _ = servico(sessoes, config, [veredito()], relogio=relogio)  # container reiniciado
+    assert novo.ciclo() == 0 and t2.pedidos == []
+    relogio.avancar(minutes=1)
+    assert novo.ciclo() == 1 and len(t2.pedidos) == 1 and esperas(sessoes) == []
+
+
+def test_falhas_continuam_contando_depois_do_reinicio(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    relogio = Relogio()
+    sv, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500")], relogio=relogio)
+    sv.ciclo()
+    relogio.avancar(hours=1)
+    novo, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500")], relogio=relogio)
+    novo.ciclo()
+    [(n, ate, _)] = esperas(sessoes)
+    assert n == 2 and ate == relogio.agora + timedelta(hours=6)
 
 
 def test_erros_de_formato_nao_encerram_o_ciclo(sessoes, config):
@@ -433,7 +470,7 @@ def test_erros_de_formato_nao_encerram_o_ciclo(sessoes, config):
     ruim = Bruta(json.dumps({"mesmo_produto": "sim", "confianca": 90, "motivo": "x"}), 10, 1)
     sv, t, _ = servico(sessoes, config, [ruim, ruim, ruim, veredito()])
     assert sv.ciclo() == 1 and len(t.pedidos) == 4
-    assert len(sv._falhas) == 3
+    assert len(esperas(sessoes)) == 3
 
 
 def test_excecao_inesperada_num_par_nao_derruba_o_lote(sessoes, config, monkeypatch, caplog):
@@ -452,7 +489,7 @@ def test_excecao_inesperada_num_par_nao_derruba_o_lote(sessoes, config, monkeypa
 
     monkeypatch.setattr(modulo, "avaliar_par", avaliar_par)
     sv, t, _ = servico(sessoes, config, [veredito()])
-    assert sv.ciclo() == 1 and len(sv._falhas) == 1 and len(t.pedidos) == 1
+    assert sv.ciclo() == 1 and len(esperas(sessoes)) == 1 and len(t.pedidos) == 1
     assert "RuntimeError" in caplog.text
     assert sv.ciclo() == 0 and len(chamadas) == 2  # o par que quebrou espera
 
@@ -662,3 +699,113 @@ def test_avaliacao_antiga_sem_idioma_segue_a_regra_de_antes(sessoes, config):
 def repo_ia_avaliacao(sessoes, anuncio_id, produto_id):
     with sessoes() as s:
         return repo_ia.avaliacoes_dos_pares(s, [(anuncio_id, produto_id)])[(anuncio_id, produto_id)]
+
+
+def test_indefinido_com_portugues_confirmado_nao_confirma_sozinho(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, _, pend = produto_com_confirmado(sessoes, "pt")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("indefinido", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.PENDENTE
+    assert repo_ia_avaliacao(sessoes, pend, p).aplicada_em is None
+
+
+def test_indefinido_sem_portugues_confirmado_confirma(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    _, [a] = pares(sessoes)
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("indefinido", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO
+
+
+def _definir_idioma_do_anuncio(sessoes, anuncio_id, idioma):
+    from tcg_sniper.db.models import AnuncioAmazon
+
+    with sessoes() as s, s.begin():
+        s.get(AnuncioAmazon, anuncio_id).idioma = idioma
+
+
+def test_idioma_japones_definido_no_anuncio_vale_mais_que_o_da_avaliacao(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, [a] = pares(sessoes)
+    _definir_idioma_do_anuncio(sessoes, a, "ja")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("pt", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, a, p) is StatusCasamento.PENDENTE
+    assert repo_ia_avaliacao(sessoes, a, p).aplicada_em is None
+
+
+def test_idioma_ingles_definido_no_anuncio_segue_a_regra_do_ingles(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, _, pend = produto_com_confirmado(sessoes, "pt")
+    _definir_idioma_do_anuncio(sessoes, pend, "en")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("pt", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.PENDENTE
+
+
+def test_produto_desativado_durante_a_chamada_nao_confirma_o_par(sessoes, config):
+    configurar(sessoes, automatico=True)
+    p_id, [a] = pares(sessoes)
+
+    class TransporteQueDesativa(TransporteFake):
+        def enviar(self, pedido):
+            with sessoes() as s, s.begin():
+                s.get(ProdutoLiga, p_id).ativo = False  # o usuário desativa o produto no meio
+            return super().enviar(pedido)
+
+    t = TransporteQueDesativa([veredito(True, 99)])
+    sv = ServicoCasador(sessoes, t, config.model_copy(update={"openai_api_key": "k"}), AvisadorFake(),
+                        cliente_http=sem_rede(), relogio=lambda: T0)
+    sv.ciclo()
+    assert status_de(sessoes, a, p_id) is StatusCasamento.PENDENTE
+    [av] = avaliacoes(sessoes)
+    assert av.aplicada_em is None
+
+
+def test_casador_bate_a_cada_passo_e_a_cada_par(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes, n=2)
+    batidas = []
+    sv, _, _ = servico(
+        sessoes, config, [veredito(), veredito()],
+        batida=lambda: batidas.append(1), dormir=lambda _s: sv.parar(),
+    )
+    sv.rodar()
+    assert len(batidas) == 3  # 1 passo + 2 pares
+
+
+def test_aplicar_trava_o_produto_antes_do_anuncio(engine):
+    """A desativação trava o produto e depois o anúncio; o automático segue a mesma ordem, com trava
+    compartilhada no produto: uma desativação em andamento o faz esperar (aqui, estourar o lock_timeout) em vez
+    de ler o produto ainda ativo e confirmar o par. Grava de verdade (duas conexões) e apaga no fim."""
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import sessionmaker
+
+    fabrica = sessionmaker(bind=engine, expire_on_commit=False)
+    with fabrica() as s, s.begin():
+        p = criar_produto(s, "p-trava", nome="Caixa Alfa")
+        a = criar_anuncio(s, "B0TRAVA001", produto=p)
+        repo_ia.gravar_avaliacao(
+            s, anuncio_id=a.id, produto_id=p.id, mesmo_produto=True, confianca=95, motivo="m", modelo="x",
+            assinatura=assinatura(a, p), sem_imagem=True, chamada_id=None, agora=T0,
+        )
+        produto_id, anuncio_id = p.id, a.id
+    try:
+        with fabrica() as desativando, desativando.begin():
+            desativando.execute(text("UPDATE produto_liga SET ativo = false WHERE id = :i"), {"i": produto_id})
+            with fabrica() as s, s.begin():
+                av = s.scalars(select(AvaliacaoIA).where(AvaliacaoIA.anuncio_id == anuncio_id)).one()
+                s.execute(text("SET LOCAL lock_timeout = '300ms'"))
+                with pytest.raises(OperationalError):
+                    ServicoCasador._aplicar(s, av, (90, 90), T0)
+            desativando.rollback()
+    finally:
+        with engine.begin() as c:
+            for tabela in ("avaliacao_ia", "casamento"):
+                c.execute(text(f"DELETE FROM {tabela} WHERE anuncio_id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM anuncio_amazon WHERE id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM produto_liga WHERE id = :p"), {"p": produto_id})
+

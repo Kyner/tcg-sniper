@@ -139,6 +139,13 @@ describe("Oportunidades", () => {
     ).toBe(true);
   });
 
+  it("o filtro de motivo oferece produto desativado", async () => {
+    apiFalsa({ "GET /api/auth/eu": ok(EU_GRUPO), ...respostasOportunidadesVazias() });
+    renderizarEm("/");
+    await screen.findByText("Nenhuma oportunidade aberta agora");
+    expect(screen.getByRole("option", { name: "produto desativado" })).toBeInTheDocument();
+  });
+
   it("erro de rede mostra alerta com Tentar de novo", async () => {
     apiFalsa({
       "GET /api/auth/eu": ok(EU_GRUPO),

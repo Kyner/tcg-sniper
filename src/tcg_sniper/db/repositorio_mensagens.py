@@ -11,6 +11,7 @@ from tcg_sniper.notificador.base import Destino
 RESOLVIDAS = (StatusMensagem.ENVIADA, StatusMensagem.EXPIRADA, StatusMensagem.DESCARTADA)
 REENVIAVEIS = (StatusMensagem.FALHA, StatusMensagem.EXPIRADA)
 DESCARTAVEIS = (StatusMensagem.PENDENTE, StatusMensagem.FALHA, StatusMensagem.EXPIRADA)
+JANELA_FALHAS = timedelta(hours=1)  # falhas que o aviso MENSAGEM_NAO_ENVIADA ainda considera
 TEXTO_APAGADO = "(mensagem individual: texto apagado depois de sair da fila)"
 
 
@@ -125,6 +126,14 @@ def _obter(s: Session, mensagem_id: int) -> MensagemSaida:
     return mensagem
 
 
+def _resolver_aviso_de_falha(s: Session, agora: datetime) -> None:
+    """Reenviar ou descartar a última falha fecha o aviso "mensagem não enviada" (import tardio: os avisos
+    dependem deste módulo)."""
+    from tcg_sniper.avisos import servico as avisos
+
+    avisos.resolver_nao_enviada_sem_falhas(s, agora)
+
+
 def reenviar(s: Session, mensagem_id: int, agora: datetime) -> None:
     """Falha ou expirada volta para a fila agora, sem tentativas e ignorando a validade."""
     mensagem = _obter(s, mensagem_id)
@@ -139,6 +148,7 @@ def reenviar(s: Session, mensagem_id: int, agora: datetime) -> None:
     mensagem.ultimo_erro = None
     mensagem.atualizado_em = agora
     s.flush()
+    _resolver_aviso_de_falha(s, agora)
 
 
 def descartar(s: Session, mensagem_id: int, agora: datetime) -> None:
@@ -149,6 +159,7 @@ def descartar(s: Session, mensagem_id: int, agora: datetime) -> None:
     apagar_texto_individual(mensagem)
     mensagem.atualizado_em = agora
     s.flush()
+    _resolver_aviso_de_falha(s, agora)
 
 
 def falhas_recentes(s: Session, desde: datetime, limite: int = 5) -> list[MensagemSaida]:

@@ -553,7 +553,7 @@ def test_retomar_roda_no_mesmo_dia_reaproveitando_o_navegador(engine, sessoes, c
     assert a.tick() is None  # pausado: não roda nada
 
     with sessoes() as s, s.begin():
-        repo.retomar(s, repo.agora_utc())
+        repo.retomar(s, repo.agora_utc(), desafio_resolvido=True)
     assert a.tick() is None  # esfriando: 30 min contados da retomada
     relogio.agora = datetime.now(UTC) + timedelta(minutes=31)
     assert a.tick() == "solicitado"
@@ -580,7 +580,7 @@ def test_navegador_mantido_morto_e_trocado_uma_vez(engine, sessoes, config):
     assert fabrica.fechados == []
     morto.morto = True  # o usuário fechou a janela do Chromium pelo noVNC
     with sessoes() as s, s.begin():
-        repo.retomar(s, repo.agora_utc())
+        repo.retomar(s, repo.agora_utc(), desafio_resolvido=True)
     relogio.agora = datetime.now(UTC) + timedelta(minutes=31)
     assert a.tick() == "solicitado"
     assert fabrica.entregues == [morto, novo]
@@ -834,7 +834,7 @@ def desafio(sessoes, quando):
 
 def retomar_em(sessoes, quando, solicitar=True):
     with sessoes() as s, s.begin():
-        repo.retomar(s, quando, solicitar=solicitar)
+        repo.retomar(s, quando, solicitar=solicitar, desafio_resolvido=True)
 
 
 def primeiro_desafio_retomado_as_11(sessoes):
@@ -949,11 +949,17 @@ def test_pausas_dobradas_no_resto_do_dia_depois_do_primeiro_desafio(engine, sess
     assert pausas_do_job(engine, sessoes, config, local(TERCA, 10, 40)) == [20.0]
 
 
-def test_no_dia_seguinte_as_pausas_voltam_ao_normal(engine, sessoes, config):
+def test_passadas_24h_do_desafio_as_pausas_voltam_ao_normal(engine, sessoes, config):
+    desafio(sessoes, local(ONTEM, 8, 0))
     desafio(sessoes, local(ONTEM, 9, 0))
-    desafio(sessoes, local(ONTEM, 12, 0))
-    retomar_em(sessoes, local(ONTEM, 12, 10))
+    retomar_em(sessoes, local(ONTEM, 9, 10))
     assert pausas_do_job(engine, sessoes, config, local(TERCA, 10, 40)) == [10.0]
+
+
+def test_desafio_as_23h_dobra_as_pausas_da_madrugada(engine, sessoes, config):
+    desafio(sessoes, local(ONTEM, 23, 0))
+    retomar_em(sessoes, local(ONTEM, 23, 10))
+    assert pausas_do_job(engine, sessoes, config, local(TERCA, 0, 50)) == [20.0]
 
 
 def test_atrasada_que_vence_no_esfriamento_nao_passa_da_meia_noite(engine, sessoes, config):

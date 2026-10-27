@@ -1,5 +1,5 @@
 // Um anúncio da Amazon na revisão de um produto: título com a variação destacada, parecer da IA e as decisões.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { dataHora, reais } from "../formato";
 import type { AcaoCasamento, AnuncioRevisao, GrupoRevisao } from "../tipos";
 import { Foto } from "./Foto";
@@ -50,9 +50,54 @@ function Parecer({ anuncio }: { anuncio: AnuncioRevisao }) {
   return (
     <div className="flex min-w-0 items-center gap-1">
       {selo}
-      {ia.idioma && <span className="badge badge-outline badge-sm">{ia.idioma}</span>}
+      {(anuncio.idioma ?? ia.idioma) && (
+        <span className="badge badge-outline badge-sm">{anuncio.idioma ?? ia.idioma}</span>
+      )}
       <div className="tooltip min-w-0 flex-1" data-tip={ia.motivo}>
         <p className="truncate text-left text-xs opacity-70">{ia.motivo}</p>
+      </div>
+    </div>
+  );
+}
+
+const IDIOMAS: { valor: string; rotulo: string }[] = [
+  { valor: "pt", rotulo: "português" },
+  { valor: "en", rotulo: "inglês" },
+  { valor: "ja", rotulo: "japonês" },
+  { valor: "outro", rotulo: "outro" },
+];
+
+/** Só no confirmado: o selo do idioma (quando o parecer da IA não o mostra) e o menu "definir idioma". */
+function DefinirIdioma({
+  anuncio,
+  onDefinir,
+  ocupado,
+}: {
+  anuncio: AnuncioRevisao;
+  onDefinir: (idioma: string) => void;
+  ocupado: boolean;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const escolher = (idioma: string) => {
+    setAberto(false);
+    onDefinir(idioma);
+  };
+  return (
+    <div className="flex items-center gap-2">
+      {anuncio.ia === null && anuncio.idioma && <span className="badge badge-outline badge-sm">{anuncio.idioma}</span>}
+      <div className={aberto ? "dropdown dropdown-open" : "dropdown"}>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={ocupado} onClick={() => setAberto(!aberto)}>
+          definir idioma
+        </button>
+        {aberto && (
+          <ul className="menu menu-sm dropdown-content z-10 mt-1 w-40 rounded-box bg-base-100 p-2 shadow">
+            {IDIOMAS.map((i) => (
+              <li key={i.valor}>
+                <button type="button" onClick={() => escolher(i.valor)}>{i.rotulo}</button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
@@ -78,12 +123,14 @@ export function CartaoAnuncio({
   anuncio,
   grupo,
   onDecidir,
+  onDefinirIdioma,
   ocupado,
   selecionado = false,
 }: {
   anuncio: AnuncioRevisao;
   grupo: GrupoRevisao;
   onDecidir: (acao: AcaoCasamento) => void;
+  onDefinirIdioma?: (idioma: string) => void;
   ocupado: boolean;
   selecionado?: boolean;
 }) {
@@ -118,9 +165,14 @@ export function CartaoAnuncio({
                 </button>
               </>
             ) : (
-              <button type="button" className="btn btn-ghost btn-sm" disabled={ocupado} onClick={() => onDecidir("desfazer")}>
-                desfazer
-              </button>
+              <>
+                <button type="button" className="btn btn-ghost btn-sm" disabled={ocupado} onClick={() => onDecidir("desfazer")}>
+                  desfazer
+                </button>
+                {grupo === "confirmados" && onDefinirIdioma && (
+                  <DefinirIdioma anuncio={anuncio} onDefinir={onDefinirIdioma} ocupado={ocupado} />
+                )}
+              </>
             )}
           </div>
         </div>

@@ -185,12 +185,12 @@ class Agendador:
         return True
 
     def _config_do_job(self) -> Config:
-        """Depois de um desafio hoje, o job inteiro usa as pausas em dobro (listagens, cliques e produtos)."""
+        """Depois de um desafio nas últimas 24 h, o job inteiro usa as pausas em dobro (listagens, cliques e produtos)."""
         with self._sessoes() as s, s.begin():
             desafio = situacao_desafio(s, self._relogio(), self._config.zona, self._config.esfriar_desafio_min)
         if not desafio.pausas_dobradas:
             return self._config
-        log.info("desafio hoje: pausas em dobro até o fim do dia")
+        log.info("desafio nas últimas 24 h: pausas em dobro")
         return self._config.model_copy(
             update={"pausa_min_s": self._config.pausa_min_s * 2, "pausa_max_s": self._config.pausa_max_s * 2}
         )
@@ -199,7 +199,7 @@ class Agendador:
         """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare. Se o job vai até o fim
         sem desafio, sem etapa interrompida por erro e sem etapa que falhou, avisa "concluída" (ou
         "parcial") e resolve as falhas e erros abertos. O job só roda com a Liga ativa: um desafio aberto
-        foi resolvido (retomada). Depois de um desafio hoje, as pausas são em dobro."""
+        foi resolvido (retomada). Depois de um desafio nas últimas 24 h, as pausas são em dobro."""
         inicio = self._relogio()
         config = self._config_do_job()
         self._avisador.resolver(TipoAviso.LIGA_DESAFIO, CHAVE_GERAL)

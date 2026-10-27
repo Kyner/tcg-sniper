@@ -70,6 +70,39 @@ def test_alerta_pendente_e_descartado_sem_aviso(sessoes, oportunidade):
         assert _avisos(s) == [] and s.get(Oportunidade, op_id).encerramento_avisado_em is None
 
 
+def test_realerta_na_fila_descartado_ainda_avisa_se_o_anterior_saiu(sessoes, oportunidade):
+    op_id, msg_id = oportunidade
+    with sessoes() as s, s.begin():
+        s.get(Oportunidade, op_id).alerta_enviado = True  # um alerta anterior saiu; o atual ainda está na fila
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, msg_id).status is StatusMensagem.DESCARTADA
+        [aviso] = _avisos(s)
+        assert "Oferta encerrada" in aviso.texto and s.get(Oportunidade, op_id).encerramento_avisado_em == AGORA
+
+
+@pytest.mark.parametrize("status", [StatusMensagem.EXPIRADA, StatusMensagem.DESCARTADA, StatusMensagem.FALHA])
+@pytest.mark.parametrize("enviado", [True, False])
+def test_alerta_atual_que_nao_saiu_avisa_so_se_um_anterior_saiu(sessoes, oportunidade, status, enviado):
+    op_id, msg_id = oportunidade
+    _situacao(sessoes, msg_id, status)
+    with sessoes() as s, s.begin():
+        s.get(Oportunidade, op_id).alerta_enviado = enviado
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA)
+    with sessoes() as s:
+        assert len(_avisos(s)) == (1 if enviado else 0)
+
+
+def test_nenhum_alerta_saiu_continua_sem_aviso(sessoes, oportunidade):
+    op_id, _ = oportunidade
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA)
+    with sessoes() as s:
+        assert _avisos(s) == [] and s.get(Oportunidade, op_id).alerta_enviado is False
+
+
 @pytest.mark.parametrize("status", [StatusMensagem.EXPIRADA, StatusMensagem.DESCARTADA, StatusMensagem.FALHA])
 def test_alerta_que_nao_saiu_nao_avisa(sessoes, oportunidade, status):
     op_id, msg_id = oportunidade
@@ -205,3 +238,23 @@ def test_deixou_de_valer_sem_risco_e_o_encerramento(sessoes, oportunidade):
         encerrar(s, op_id, M.CASAMENTO_DESFEITO, AGORA)
     with sessoes() as s:
         assert s.get(Oportunidade, op_id).deixou_de_valer_em == AGORA
+
+
+def test_produto_desativado_nao_avisa_o_grupo_mesmo_com_alerta_enviado(sessoes, oportunidade):
+    op_id, msg_id = oportunidade
+    _situacao(sessoes, msg_id, StatusMensagem.ENVIADA)
+    with sessoes() as s, s.begin():
+        assert encerrar(s, op_id, M.PRODUTO_DESATIVADO, AGORA) is True
+    with sessoes() as s:
+        op = s.get(Oportunidade, op_id)
+        assert (op.fechada_em, op.motivo_encerramento, op.encerramento_avisado_em) == (AGORA, "produto_desativado", None)
+        assert _avisos(s) == []
+
+
+def test_produto_desativado_descarta_o_alerta_pendente(sessoes, oportunidade):
+    op_id, msg_id = oportunidade
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRODUTO_DESATIVADO, AGORA)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, msg_id).status is StatusMensagem.DESCARTADA
+        assert _avisos(s) == []

@@ -61,8 +61,8 @@ MENSAGENS = {
     "rodar": "Execução da LigaMagic solicitada; começa em até 1 minuto.",
     "retomar": "Coleta da LigaMagic retomada.",
     "retomar_esfriando": (
-        "Desafio resolvido. A coleta volta sozinha depois do esfriamento (o card mostra até quando), "
-        "com pausas em dobro até o fim do dia."
+        "Desafio resolvido. A coleta roda depois do esfriamento (o card mostra até quando), "
+        "com pausas em dobro por 24 h depois do desafio."
     ),
     "retomar_parada": "Desafio resolvido. Foi o 2º de hoje: a coleta da LigaMagic só volta amanhã, no horário de sempre.",
     "liga_esfriando": "Execução da LigaMagic solicitada; começa quando o esfriamento terminar (o card mostra até quando).",
@@ -135,7 +135,8 @@ def retomar_desafio(s: Session, servico: Servico, zona: ZoneInfo, cfg_efetiva, a
     Fora do estado de desafio faz o mesmo que a rota antiga: retoma e avisa (idempotente)."""
     if servico not in (Servico.LIGA, Servico.AMAZON_BUSCA, Servico.AMAZON_MONITOR):
         raise ValueError(f"serviço sem desafio para retomar: {servico}")
-    repo.retomar(s, agora, COLETOR[servico], solicitar=True)
+    era_desafio = repo.obter_estado(s, agora, COLETOR[servico]).estado is EstadoColetorTipo.PAUSADO_DESAFIO
+    repo.retomar(s, agora, COLETOR[servico], solicitar=True, desafio_resolvido=era_desafio)
     _avisar_mudanca(s, servico, "ativo", agora)
     if servico is not Servico.LIGA:
         return f"{_PREFIXO[servico]}_retomar"

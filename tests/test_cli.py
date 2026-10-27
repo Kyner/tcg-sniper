@@ -9,11 +9,16 @@ from tcg_sniper import cli
 
 @pytest.fixture(autouse=True)
 def batidas(monkeypatch):
-    """Nenhum teste do CLI sobe a thread de verdade; guarda quais serviços iniciaram a batida."""
+    """Nenhum teste do CLI toca o banco: guarda quais serviços bateram na partida e quais registraram o desligamento limpo."""
     from tcg_sniper.avisos import vigia
 
-    iniciadas = []
-    monkeypatch.setattr(vigia.Batimento, "iniciar", lambda self: iniciadas.append(self._servico))
+    class Registro(list):
+        encerradas: list
+
+    iniciadas = Registro()
+    iniciadas.encerradas = encerradas = []
+    monkeypatch.setattr(vigia.Batimento, "bater", lambda self: iniciadas.append(self._servico))
+    monkeypatch.setattr(vigia.Batimento, "encerrar", lambda self: encerradas.append(self._servico))
     return iniciadas
 
 
@@ -48,19 +53,23 @@ def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch, batidas):
     vistos = []
 
     class AgendadorFalso:
-        def __init__(self, *args):
-            pass
+        def __init__(self, *args, **kwargs):
+            vistos.append(kwargs["dormir"])
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)  # docker stop: vira SystemExit
 
     monkeypatch.setattr(agendador, "Agendador", AgendadorFalso)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     try:
-        cli.main(["coletor-liga"])
-        assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        with pytest.raises(SystemExit):
+            cli.main(["coletor-liga"])
+        assert callable(vistos[0])  # o dormir bate em fatias
+        assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["liga"]
+        assert batidas.encerradas == ["liga"]  # desligamento limpo registrado
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -72,26 +81,29 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
     vistos = []
 
     class VarreduraFalsa:
-        def __init__(self, engine, sessoes, fabrica, avisador, config):
+        def __init__(self, engine, sessoes, fabrica, avisador, config, dormir):
             vistos.append(fabrica()._dir_perfil)
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
 
     monkeypatch.setattr(varredura_monitor, "VarreduraMonitor", VarreduraFalsa)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     monkeypatch.setenv("DIR_DADOS", str(tmp_path))
     try:
-        cli.main(["coletor-amazon"])
+        with pytest.raises(SystemExit):
+            cli.main(["coletor-amazon"])
         assert vistos[0] == tmp_path / "perfil-amazon"
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["amazon"]
+        assert batidas.encerradas == ["amazon"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
 
-def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
+def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch, batidas):
     from tcg_sniper.notificador import servico
 
     anterior = signal.getsignal(signal.SIGTERM)
@@ -116,6 +128,8 @@ def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
         cli.main(["notificador"])
         assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert paradas == [True]  # SIGTERM pede parada limpa, sem SystemExit
+        assert batidas.encerradas == ["notificador"]
+        assert batidas == ["notificador"]  # sinal na partida (apaga a marca de desligamento limpo)
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -135,7 +149,8 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave, batidas):
     vistos = []
 
     class ServicoFalso:
-        def __init__(self, sessoes, transporte, config, notificador):
+        def __init__(self, sessoes, transporte, config, notificador, batida):
+            batida()
             vistos.append(transporte)
 
         def parar(self):
@@ -143,6 +158,7 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave, batidas):
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
 
     monkeypatch.setattr(servico, "ServicoCasador", ServicoFalso)
     monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda c, **kw: ("transporte", c, kw))
@@ -153,7 +169,8 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave, batidas):
         cli.main(["casador"])
         assert vistos[0] == (("transporte", chave, {"timeout_s": 30, "max_retries": 2}) if chave else None)
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
-        assert batidas == ["casador"]
+        assert batidas == ["casador"]  # a batida do casador é a do laço (o falso a chama)
+        assert batidas.encerradas == ["casador"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -482,20 +499,157 @@ def test_coletor_amazon_busca_usa_perfil_proprio_e_bate_como_amazon_busca(monkey
     vistos = []
 
     class VarreduraFalsa:
-        def __init__(self, engine, sessoes, fabrica, avisador, config):
+        def __init__(self, engine, sessoes, fabrica, avisador, config, dormir):
             vistos.append(fabrica()._dir_perfil)
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
 
     monkeypatch.setattr(varredura_busca, "VarreduraBusca", VarreduraFalsa)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     monkeypatch.setenv("DIR_DADOS", str(tmp_path))
     try:
-        cli.main(["coletor-amazon-busca"])
+        with pytest.raises(SystemExit):
+            cli.main(["coletor-amazon-busca"])
         assert vistos[0] == tmp_path / "perfil-amazon-busca"
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["amazon_busca"]
+        assert batidas.encerradas == ["amazon_busca"]
+    finally:
+        signal.signal(signal.SIGTERM, anterior)
+
+
+def _confirmado_com_titulo(sessoes, titulo, asin="B1"):
+    from fakes import criar_anuncio, criar_produto
+
+    from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
+
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, f"p{asin}")
+        a = criar_anuncio(s, asin, produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+        a.titulo = titulo
+        return a.id
+
+
+def _idioma_do_anuncio(sessoes, anuncio_id):
+    from tcg_sniper.db.models import AnuncioAmazon
+
+    with sessoes() as s:
+        return s.get(AnuncioAmazon, anuncio_id).idioma
+
+
+def test_casamento_definir_idioma_sem_aplicar_so_mostra_as_contagens(banco, capsys):
+    a = _confirmado_com_titulo(banco, "Booster Box English")
+    cli.main(["casamento", "definir-idioma"])
+    saida = capsys.readouterr().out
+    assert "simulação" in saida and "--aplicar" in saida and "en: 1" in saida
+    assert _idioma_do_anuncio(banco, a) is None
+
+
+def test_casamento_definir_idioma_aplicando_e_lista_o_resto(banco, capsys):
+    a = _confirmado_com_titulo(banco, "Booster Box English")
+    b = _confirmado_com_titulo(banco, "Booster Box sem idioma", asin="B3")
+    cli.main(["casamento", "definir-idioma", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert "simulação" not in saida and "Sem decisão: 1" in saida and "Booster Box sem idioma" in saida
+    assert _idioma_do_anuncio(banco, a) == "en" and _idioma_do_anuncio(banco, b) is None
+
+
+def test_casamento_definir_idioma_aplicando_pelo_titulo_e_avisa_japones(banco, capsys):
+    a = _confirmado_com_titulo(banco, "Booster Box English")
+    j = _confirmado_com_titulo(banco, "Booster Box Japanese", asin="B2")
+    cli.main(["casamento", "definir-idioma", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert _idioma_do_anuncio(banco, a) == "en" and _idioma_do_anuncio(banco, j) == "ja"
+    assert "possível casamento errado" in saida and "Booster Box Japanese" in saida
+
+
+def _inativo_com_confirmado(sessoes, asin="B7"):
+    from fakes import criar_anuncio, criar_produto
+
+    from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
+
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, f"inativo{asin}", ativo=False, nome=f"Caixa {asin}")
+        a = criar_anuncio(s, asin, produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+        return p.id, a.id
+
+
+def _status_do_par(sessoes, anuncio_id, produto_id):
+    from tcg_sniper.db.models import Casamento
+
+    with sessoes() as s:
+        return s.get(Casamento, (anuncio_id, produto_id)).status.value
+
+
+def test_casamento_soltar_inativos_sem_aplicar_so_lista(banco, capsys):
+    p, a = _inativo_com_confirmado(banco)
+    cli.main(["casamento", "soltar-inativos"])
+    saida = capsys.readouterr().out
+    assert "simulação" in saida and "--aplicar" in saida and "Caixa B7" in saida and "1 anúncio" in saida
+    assert _status_do_par(banco, a, p) == "confirmado"
+
+
+def test_casamento_soltar_inativos_aplicando_solta_so_os_inativos(banco, capsys):
+    from fakes import criar_anuncio, criar_produto
+
+    from tcg_sniper.db.models import StatusCasamento
+
+    p, a = _inativo_com_confirmado(banco)
+    with banco() as s, s.begin():
+        ativo = criar_produto(s, "ativo", nome="Caixa Ativa")
+        a2 = criar_anuncio(s, "B8", produto=ativo, status=StatusCasamento.CONFIRMADO).id
+        ativo_id = ativo.id
+    cli.main(["casamento", "soltar-inativos", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert "simulação" not in saida and "Caixa B7" in saida
+    assert _status_do_par(banco, a, p) == "pendente" and _status_do_par(banco, a2, ativo_id) == "confirmado"
+    cli.main(["casamento", "soltar-inativos"])
+    assert "Nenhum produto inativo" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("fim", ["queda", "saida_antecipada"])
+@pytest.mark.parametrize("comando", ["coletor-liga", "coletor-amazon", "coletor-amazon-busca", "casador", "notificador"])
+def test_so_sigterm_marca_desligamento_limpo(monkeypatch, tmp_path, batidas, comando, fim):
+    """Queda (exceção) ou saída antecipada ("outra varredura já está rodando") não são parada de propósito."""
+    from tcg_sniper.casador import servico as servico_casador
+    from tcg_sniper.coletor_amazon import varredura_busca, varredura_monitor
+    from tcg_sniper.coletor_liga import agendador
+    from tcg_sniper.notificador import servico as servico_notificador
+
+    anterior = signal.getsignal(signal.SIGTERM)
+
+    class Falso:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def parar(self):
+            pass
+
+        def rodar(self):
+            if fim == "queda":
+                raise RuntimeError("caiu")
+
+    alvos = {
+        "coletor-liga": (agendador, "Agendador"),
+        "coletor-amazon": (varredura_monitor, "VarreduraMonitor"),
+        "coletor-amazon-busca": (varredura_busca, "VarreduraBusca"),
+        "casador": (servico_casador, "ServicoCasador"),
+        "notificador": (servico_notificador, "ServicoNotificador"),
+    }
+    modulo, nome = alvos[comando]
+    monkeypatch.setattr(modulo, nome, Falso)
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("DIR_DADOS", str(tmp_path))
+    try:
+        if fim == "queda":
+            with pytest.raises(RuntimeError):
+                cli.main([comando])
+        else:
+            cli.main([comando])
+        assert batidas.encerradas == []
     finally:
         signal.signal(signal.SIGTERM, anterior)

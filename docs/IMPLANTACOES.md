@@ -5,6 +5,48 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 Da mais nova para a mais antiga.
 
 
+## Pacote de pequenas (2026-10-27)
+
+Com migração: **backup do banco antes do deploy**. A migração `a4c7e1b9d3f6` só acrescenta colunas, um índice (`oportunidade.mensagem_alerta_id`) e CHECKs (motivo novo `produto_desativado`); nenhum dado é reescrito nem apagado.
+
+1. Backup do banco antes de tudo:
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-pacote-pequenas-<data>.dump
+   ```
+
+2. Atualize o código e recrie **todos** os serviços de uma vez (o `migrate` roda antes):
+
+   ```bash
+   git pull
+   docker compose up -d --build
+   ```
+
+3. Passos de dados, depois do deploy:
+
+- **Idioma dos casamentos antigos:** depois do deploy, preencha o idioma dos anúncios já confirmados pelo título. Primeiro a simulação (só mostra as contagens e lista o que o título não decide), depois aplique:
+
+  ```bash
+  docker compose exec casador tcg-sniper casamento definir-idioma
+  docker compose exec casador tcg-sniper casamento definir-idioma --aplicar
+  ```
+
+  O que ficar na lista "Sem decisão" você define à mão na revisão de casamentos, com o botão "definir idioma" no cartão do anúncio confirmado.
+
+- **Produtos inativos com anúncio confirmado:** desativar um produto passou a soltar os anúncios confirmados dele, mas os de produtos já inativos antes do deploy continuam confirmados. Depois do deploy, a simulação (lista os produtos, quantos anúncios soltaria e quantas oportunidades abertas fecharia, sem aviso), a conferência e então `--aplicar`:
+
+  ```bash
+  docker compose exec casador tcg-sniper casamento soltar-inativos
+  docker compose exec casador tcg-sniper casamento soltar-inativos --aplicar
+  ```
+
+4. Confira depois do deploy:
+   - **Login sem o 9:** entre no site com o celular digitado sem o 9 extra (o cadastrado tem o 9); o código chega e a entrada funciona.
+   - **Serviços** (`/gestao/servicos`): todos os serviços com selo de estado; um serviço parado de propósito (`docker stop`) não gera "sem sinal" no grupo; a LigaMagic parada por desafio mostra a espera de 30 min a partir da retomada.
+   - **Lembretes:** um bloqueio que só espera (por exemplo Amazon pausada) volta a ser lembrado a cada 2 h; "mensagem não enviada" fecha sozinho quando não sobra falha na última hora.
+   - **Idioma:** na revisão de casamentos, o cartão do anúncio confirmado mostra o idioma e o botão "definir idioma".
+
 ## Site novo, fase 3B: Serviços, Atividade e Dashboard (2026-10-25, implantada às 20:37)
 
 Com migração (só índices): **backup do banco antes do deploy**. A migração `d6a2f8c4b1e9` cria índices no instante de `coleta`, `oferta_amazon`, `conferencia_checkout`, `mensagem_saida` (criada e enviada), `resumo_preco`, `execucao_manutencao` e `estado_aviso`, para a Atividade e o estado dos serviços não lerem as tabelas grandes inteiras. Nada é apagado nem reescrito, mas a criação dos índices em `oferta_amazon` e `resumo_preco` pode levar alguns segundos e segura as gravações nessas tabelas enquanto roda.

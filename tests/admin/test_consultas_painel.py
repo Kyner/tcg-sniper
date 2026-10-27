@@ -310,7 +310,7 @@ def test_notificador_desligado_nao_avisa_mensagens_paradas(s, config):
 
 def test_liga_esfriando_no_dashboard(s, config):
     coleta(s, TipoColeta.PRODUTOS, AGORA - timedelta(hours=1), StatusColeta.PAUSADA_DESAFIO)  # fecha 18 min depois
-    repo.retomar(s, AGORA - timedelta(minutes=10))
+    repo.retomar(s, AGORA - timedelta(minutes=10), desafio_resolvido=True)
     liga = saude(s, config)["LigaMagic"]
     assert (liga.situacao, liga.rotulo, liga.texto) == ("parcial", "esfriando", "Esfriando até 17:00")
     assert "pausas em dobro" in liga.detalhe
@@ -319,7 +319,7 @@ def test_liga_esfriando_no_dashboard(s, config):
 def test_liga_parada_ate_amanha_no_dashboard(s, config):
     coleta(s, TipoColeta.PRODUTOS, AGORA - timedelta(hours=3), StatusColeta.PAUSADA_DESAFIO)
     coleta(s, TipoColeta.PRODUTOS, AGORA - timedelta(hours=1), StatusColeta.PAUSADA_DESAFIO)
-    repo.retomar(s, AGORA - timedelta(minutes=30))
+    repo.retomar(s, AGORA - timedelta(minutes=30), desafio_resolvido=True)
     liga = saude(s, config)["LigaMagic"]
     assert (liga.situacao, liga.rotulo, liga.texto) == ("parcial", "parada até amanhã", "Parada até amanhã (2º desafio)")
     assert "Próxima amanhã por volta das 10:00" in liga.detalhe

@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from tcg_sniper.avisos import servico as avisos
 from tcg_sniper.avisos.catalogo import CATALOGO, TipoAviso
+from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import (
@@ -46,7 +47,7 @@ def desafio_da_liga(sessoes, quando):
 
 def retomada(sessoes, quando):
     with sessoes() as s, s.begin():
-        repo.retomar(s, quando, solicitar=False)
+        repo.retomar(s, quando, solicitar=False, desafio_resolvido=True)
 
 
 def test_servicos_e_mensagens_cobrem_tudo():
@@ -83,6 +84,24 @@ def test_desligar_nao_apaga_um_desafio_pendente(sessoes):
     pendente = estado(sessoes, Servico.LIGA)
     assert (pendente.estado, pendente.motivo) == (EstadoColetorTipo.PAUSADO_DESAFIO, "desafio em /x")
     assert textos(sessoes) == []
+
+
+def test_desligar_e_religar_nao_reinicia_a_espera_do_desafio(sessoes, config):
+    desafio_da_liga(sessoes, T0)
+    with sessoes() as s, s.begin():
+        servicos.retomar_desafio(s, Servico.LIGA, SP, config, T0 + timedelta(minutes=1))
+        servicos.desligar(s, Servico.LIGA, T0 + timedelta(minutes=10))
+        servicos.ligar(s, Servico.LIGA, T0 + timedelta(minutes=20))
+        fim = situacao_desafio(s, T0 + timedelta(minutes=21), SP, 30).esfriando_ate
+    assert fim == T0 + timedelta(minutes=31)
+
+
+def test_ligar_na_espera_mantem_o_pedido(sessoes, config):
+    desafio_da_liga(sessoes, T0)
+    with sessoes() as s, s.begin():
+        servicos.retomar_desafio(s, Servico.LIGA, SP, config, T0 + timedelta(minutes=1))
+        servicos.ligar(s, Servico.LIGA, T0 + timedelta(minutes=5))
+    assert estado(sessoes, Servico.LIGA).execucao_solicitada is True
 
 
 def test_desligar_a_busca_nao_mexe_no_monitor(sessoes):

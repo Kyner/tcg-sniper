@@ -352,7 +352,8 @@ def test_falha_definitiva_avisa_o_admin_e_a_falha_do_aviso_nao_gera_outro(sessoe
         relogio.agora += timedelta(minutes=31)
     with sessoes() as s:
         outras = list(s.scalars(select(MensagemSaida).where(MensagemSaida.id != mid)))
-    [aviso] = outras
+    # o aviso fecha quando a falha original sai da janela de 1 h; o "✅ resolvido" dele não gera outro aviso
+    [aviso] = [m for m in outras if m.texto.startswith("🔴 *WhatsApp · mensagem não enviada*\n")]
     assert aviso.destino == "admin" and aviso.status is StatusMensagem.FALHA
     assert aviso.texto.startswith("🔴 *WhatsApp · mensagem não enviada*\n")
     assert f"• #{mid} para oportunidades: HTTP 400: grupo não encontrado" in aviso.texto
@@ -461,3 +462,23 @@ def test_pausado_expira_individual_vencida_e_apaga_o_codigo(sessoes, env, config
     assert (m.status, m.texto) == (StatusMensagem.EXPIRADA, repo_msg.TEXTO_APAGADO)
     assert ler(sessoes, valida).status is StatusMensagem.PENDENTE and "*123456*" in ler(sessoes, valida).texto
     assert (ler(sessoes, grupo).status, ler(sessoes, grupo).texto) == (StatusMensagem.PENDENTE, "aviso do grupo")
+
+
+@respx.mock
+def test_mensagem_nao_enviada_fecha_quando_a_falha_sai_da_janela(sessoes, env, configurado):
+    from tcg_sniper.avisos import servico as avisos
+    from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
+
+    respx.post(ROTA).mock(return_value=httpx.Response(400, text="grupo não encontrado"))
+    nova(sessoes, "oportunidades", "oferta")
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    for _ in range(8):  # cinco recusas, com espera entre elas
+        svc.ciclo()
+        relogio.agora += timedelta(minutes=10)
+    with sessoes() as s:
+        assert avisos.abertos(s, TipoAviso.MENSAGEM_NAO_ENVIADA) == [CHAVE_GERAL]
+    relogio.agora += timedelta(hours=2)  # a falha original sai da janela de 1 h
+    svc.ciclo()
+    with sessoes() as s:
+        assert avisos.abertos(s, TipoAviso.MENSAGEM_NAO_ENVIADA) == []

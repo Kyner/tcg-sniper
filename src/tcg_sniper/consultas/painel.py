@@ -178,7 +178,11 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
         )
     if desafio.esfriando_ate is not None:
         texto = f"Esfriando até {desafio.esfriando_ate.astimezone(zona):%H:%M}"
-        espera = f"Volta sozinha nessa hora, com pausas em dobro até o fim do dia · {com_preco} de {ativos} com preço"
+        if estado.execucao_solicitada:
+            regra = "O pedido de execução roda nessa hora, com pausas em dobro por 24 h depois do desafio"
+        else:
+            regra = "Sem pedido de execução: depois disso vale o horário do dia (se o de hoje já rodou, só amanhã), com pausas em dobro por 24 h depois do desafio"
+        espera = f"{regra} · {com_preco} de {ativos} com preço"
         return SaudeServico("LigaMagic", "parcial", texto, espera, link_logs, selo="esfriando")
     ultima_ok = historico.ultima_coleta_sucesso(s, TIPOS_LIGA)
     texto_ok = f"Última coleta ok {_quando(ultima_ok.iniciada_em, agora, zona)}" if ultima_ok else "Nenhuma coleta ainda"

@@ -3,14 +3,14 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-26 (menu da gestão abrindo as telas novas: página do site sem cache, `5b7ed04`; 3B em produção desde 20:37 (merge `266cc9d`); coleta retomada pelo usuário e Amazon conferida logada; segurança etapa 1 em produção desde 2026-10-24 22:10; próxima entrega: 3C).
+Última revisão: 2026-10-27 (pacote de pequenas pronto na branch `worktree-pacote-pequenas`, **deploy pendente** — passos em `docs/IMPLANTACOES.md`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: 3C, fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
-1. Acompanhar a primeira semana do monitor por grupo e a primeira coleta da Liga depois da retomada (seção 3).
-2. Conferir a 3A em produção (seção 3, "Fase 3A") e, depois do deploy, a 3B (seção 3, "Fase 3B").
-3. Site novo, fase 3, entrega 3C (Configurações, Ofertas e Mensagens) e depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4). A 3B (Serviços, Atividade e Dashboard) está em produção desde 2026-10-25 20:37 (merge `266cc9d`). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
-4. Seção 1, etapa 2: **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
+1. **Deploy do pacote de pequenas** (pronto, só falta o usuário pedir): backup, `docker compose up -d --build`, `casamento definir-idioma` e `casamento soltar-inativos` (simulação, conferência, `--aplicar`), conforme `docs/IMPLANTACOES.md`.
+2. Acompanhar a primeira semana do monitor por grupo e a primeira coleta da Liga depois da retomada (seção 3).
+3. Site novo, fase 3, entrega 3C (Configurações, Ofertas e Mensagens), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4). A 3B está em produção desde 2026-10-25 20:37 (merge `266cc9d`). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
 7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão entram na 3C).
@@ -37,6 +37,17 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Avisos de limite de login com teto: sem o limite total, quem inventa muitos números faz sair um `SEGURANCA_LIMITE` por número no grupo admin, e o de número sem cadastro nunca fecha. Agrupar (um aviso "muitos números" por hora) e avisar por número só quando ele tem usuário ativo. Hoje não é alcançável (a API só escuta neste PC).
 
 ## 2. Pequenas (sem pressa, juntar num pacote)
+
+### Pequenas da revisão do pacote (2026-10-27)
+
+- [ ] Migração do pacote: o CHECK recriado e o índice de `oportunidade` sem `NOT VALID`/`CONCURRENTLY` (trava curta, aceita neste tamanho); o teste da migração cruza `casamento` × `oportunidade` sem filtrar às linhas de teste.
+- [ ] Login sem o 9: `/entrar` resolve o número duas vezes (4 consultas, constante); o caso inverso (`+55DD8…` digitado com o 9) não é tratado.
+- [ ] Casador: gravar a falha ou a limpeza dentro dos `except` pode derrubar o ciclo se o banco cair; `produtos_para_gerar_termos` ficou com o parâmetro `excluir` sem uso.
+- [ ] Idioma: o selo no cartão só considera a avaliação deste par; `definir_idioma` recebe `agora` sem usar; o menu "definir idioma" não fecha com clique fora nem Esc; o selo mostra o código e o menu mostra o rótulo; `definir-idioma` só marca como suspeitos os anúncios antes sem idioma (não os já `ja`/`outro`).
+- [ ] Desativar produto: lote grande segura as travas dos anúncios até o commit; `Alterados` é subclasse de `int` (um dataclass seria mais claro); `alternar_ativo` usa `agora_utc`; a suíte do front teve falhas intermitentes por tempo sob carga (testes antigos).
+- [ ] Lembretes: `reenviar`/`descartar` sempre rodam a checagem de resolução (descartes internos de alerta pendente pagam algumas consultas); `_lembrar` trava todos os avisos abertos em espera a cada minuto; falta teste unitário de `eh_do_proprio_aviso` e de que os 7 tipos têm lembrete.
+- [ ] Vigia: a própria `manutencao` não é vigiada (anterior ao pacote).
+- [ ] Liga: sem teste dos dois textos de `execucao_solicitada` (painel e admin antigo); espaço duplo em um template.
 
 ### Testes
 
@@ -67,7 +78,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Dashboard: `rotas_gestao_dashboard` importa `NOMES_TELA`/`ORDEM` de outro módulo de rotas; `top_oportunidades` carrega todas as abertas para fatiar 3.
 - [ ] Tela de Serviços: a recarga de 60 s pode sobrescrever o estado de uma ação recém-feita; ação que deu certo seguida de GET que falha mostra erro; nos cartões do celular a chave não tem rótulo visível, a dica só aparece com o mouse e a mensagem de sucesso nunca some; os testes usam `querySelector` por `href` em vez de papel e nome (o menu agora também tem "Atividade").
 - [ ] Teste "Entrar" do front estourou o tempo uma vez sob carga (acompanhar se é instável).
-- [ ] Índice em `oportunidade.mensagem_alerta_id` (a Atividade faz duas subconsultas correlacionadas por linha de mensagem) — na próxima migração.
 - [ ] Atividade mostra "US$ 0.000000" em chamada da IA de custo zero (esconder quando 0).
 - [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (id acima de 2³¹ dá 500; reusar `MAX_ID`).
 - [ ] Dashboard: rótulo "Ligar" para quem não pode pausar serviços (usar "Ver"); links das oportunidades exigem também `ver_area_negocio`.
@@ -79,7 +89,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 ### Oportunidades e monitor da Amazon
 
 - [ ] Oportunidade aberta há mais de 30 dias sem realerta perde o vínculo com a mensagem (limpeza apaga a mensagem) e não avisa o encerramento; aceito por ora (rara).
-- [ ] Fim da oportunidade: se um realerta ainda está na fila quando a oportunidade encerra, o vínculo aponta para ele, que é descartado, e o aviso de encerramento não sai mesmo que o grupo tenha visto o alerta anterior (exige o WhatsApp fora por mais que a carência). Avaliar guardar se algum alerta da oportunidade saiu.
 - [ ] Fim da oportunidade: `alertas` começa em 1 ao abrir mesmo com o aviso de oportunidade desligado (padrão do banco); o sub-projeto B deve contar pelas mensagens se precisar do número exato.
 - [ ] `docs/IMPLANTACOES.md`, fim da oportunidade: "sem carência" onde o certo é "sem risco marcado" (só redação).
 - [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
@@ -87,22 +96,11 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Casamento e idioma
 
-- [ ] Idioma: produtos com casamento confirmado antes da regra de idioma (todos os ~50 de 2026-10-19) ficam como "não se sabe se tem português confirmado", então anúncios novos em inglês deles ficam pendentes para você em vez de o automático confirmar. Seguro para produtos em português; para quem tem a edição em inglês confirmada à mão, os irmãos em inglês nunca confirmam sozinhos. Corrigir com um preenchimento único do idioma dos anúncios confirmados (IA ou à mão, botão "definir idioma").
-- [ ] Idioma: anúncio com idioma "indefinido" ainda pode ser confirmado pelo automático mesmo com português confirmado no produto (pequena brecha na regra "inglês só sem português").
-- [ ] Casamento por par: um anúncio confirmado para um produto que foi **desativado** continua confirmado nele (como antes): sai do monitor, mas não aparece como pendente para outros produtos e não pode ser confirmado em outro até você reativar o produto ou desfazer o par. Decidir se desativar um produto deve soltar os confirmados dele.
 - [ ] Casamento por par: `marcar_reavaliado` pode tirar a marca de reavaliar com uma resposta da IA que já estava a caminho, mais antiga que o pedido de reavaliar (inofensivo: a avaliação gravada vale para os mesmos dados; para reavaliar de novo, é só clicar outra vez).
 - [ ] Casamento por par: a guarda global contra as colunas antigas (`tests/test_sem_casamento_no_anuncio.py`) só pega os prefixos `anuncio.` e `AnuncioAmazon.`; uma variável com outro nome (`a.produto_id`, `item.status_casamento`) passaria. As colunas já saíram do banco, então o erro apareceria em execução.
-- [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio. Vale também para a espera dos termos de busca cuja chamada falhou.
-
-### LigaMagic
-
-- [ ] Produto novo cuja página sempre falha ocupa uma das vagas de novos do dia (o mais antigo primeiro); pular depois de N falhas.
-- [ ] Desligar e religar pelo liga/desliga de Serviços reinicia a espera de 30 min após um desafio; o card diz "volta sozinha", mas nenhum job roda se o do dia já rodou. Nunca fica mais agressivo, só o texto engana. Contar a espera só do "Retomar" após desafio.
-- [ ] 1º desafio tarde da noite com a espera terminando depois da meia-noite roda o job da madrugada com pausas normais ("desafios hoje" zera à meia-noite). Avaliar contar as pausas em dobro pelas últimas 24 h.
 
 ### Login, usuários e site novo
 
-- [ ] Celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. **Decidido (2026-10-19):** aceitar a variante sem o 9 no login, normalizando para o número cadastrado.
 - [ ] `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
 - [ ] `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
 - [ ] `repositorio_acesso.travar_limite` ainda cita o "limite total" na docstring, e o caminho sem número (chave fixa) e `contar_pedidos` sem número ficaram sem uso desde a segurança etapa 1.
@@ -110,10 +108,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Avisos, vigia e notificador
 
-- [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
-- [ ] Vigia de serviços: container parado de propósito no compose recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços. O vigia deveria ignorar serviço parado de propósito (hoje o jeito é pausá-lo no admin).
-- [ ] Problema que bloqueia e só espera (CAPTCHA, Amazon pausada, sem login, IA pausada, carrinho) não recebe o lembrete de 2 h: o lembrete é decidido quando o evento se repete, e esses não se repetem enquanto esperam.
-- [ ] Aviso "mensagem não enviada" nunca é resolvido, então o lembrete de 2 h mostra uma contagem que só cresce.
 - [ ] Notificador, casos raros aceitos: (a) uma mensagem cujo registro sempre falha pode travar a fila; (b) se o banco cair entre gravar a oportunidade e gravar a mensagem, o alerta fica só no log.
 
 ### Admin antigo (juntar com a fase 3)
@@ -180,7 +174,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Atualizar o Python do PC de desenvolvimento (3.12.10; CVE-2026-12003 é escalada local no Windows). Não afeta os containers (3.12.15).
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
-- [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida é uma thread de 60 s).
+- [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida agora vem do laço de cada serviço, em fatias de até 60 s).
 
 ## 4. Próximas funcionalidades (decisão do grupo)
 
@@ -253,6 +247,17 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Pacote de pequenas (2026-10-27)
+
+- [x] Login com o celular digitado sem o 9 extra: `numero_de_login` (`api/acesso.py`) usa a variante cadastrada com o 9 antes do HMAC, dividindo os limites; fixo nunca vira celular; consulta feita sempre, sem mudar o tempo. Commits `916f165` e `bf147ba` (correção da revisão).
+- [x] Espera do Casador gravada no banco: a espera de 1 h, 6 h e 24 h dos pares cuja chamada da IA falha (`casamento.ia_falhas/ia_espera_ate/ia_falha_assinatura`; dados mudados zeram) e dos termos de busca (`fila_amazon.termos_falhas/termos_espera_ate`) sobrevive a reinício do container, sem chamada paga a mais. Commit `488c92c`.
+- [x] Idioma dos casamentos antigos e brecha do "indefinido": `anuncio_amazon.idioma` (definido à mão ou por comando) passa a valer antes do idioma da avaliação na regra "português confirmado" (`coalesce`); `tcg-sniper casamento definir-idioma [--aplicar]` preenche os confirmados sem idioma pelo título (sem chamada à IA) e lista o que o título não decide; botão "definir idioma" (português, inglês, japonês, outro) no cartão do confirmado na revisão de casamentos (`PATCH /api/gestao/casamentos/anuncios/{id}/idioma`); o automático trata "indefinido" como inglês (só confirma sem português confirmado). Depois do deploy: rodar `casamento definir-idioma` sem e depois com `--aplicar` (ver `docs/IMPLANTACOES.md`). Commits `ca59caa` e `74fa1d7` (correção da revisão).
+- [x] Desativar um produto solta os anúncios confirmados: `soltar_confirmados_do_produto` (`db/repositorio_casamento.py`) volta cada confirmado a pendente (marcado para a IA reavaliar, avaliação antiga sem "aplicada"), reabre os `outro_confirmado` e encerra as oportunidades abertas do anúncio com o motivo novo `produto_desativado`, **sem aviso** (nem no grupo, nem no admin: a decisão foi sua; descarta só o alerta ainda na fila). Vale no PATCH e no lote da gestão (`acao_gestao` guarda `anuncios_soltos`) e na chave e no lote do admin antigo; os ids vêm do próprio UPDATE (`RETURNING`), tudo na mesma transação. Reativar não mexe: os pares ficam pendentes para a IA. O casador não confirma par de produto desativado durante a chamada da IA. `tcg-sniper casamento soltar-inativos [--aplicar]` solta os confirmados de produtos já inativos (passo do deploy em `docs/IMPLANTACOES.md`). O motivo conta como resultado e na recorrência de 30 dias. Commits `3691e4f` e `7f47094` (correção da revisão).
+- [x] Lembretes e "mensagem não enviada": os bloqueios que só esperam (`TIPOS_QUE_ESPERAM`: CAPTCHA da busca e do monitor, sem login, carrinho, Amazon pausada (monitor e busca), IA pausada, desafio da Liga) recebem o lembrete de 2 h de `lembrar_abertos`, chamado a cada minuto pela manutenção; respeita o liga/desliga de Configurações → Avisos, usa o texto do catálogo (sem as linhas do evento original) e não mexe em `ocorrencias`. "Mensagem não enviada" fecha (com o "✅ resolvido") quando não sobra falha definitiva na última hora, sem contar o próprio aviso e o resolvido dele (conferido a cada ciclo do notificador), ou quando reenviar/descartar tira a última falha; uma mensagem que saiu não basta. Commit `9d3cef8`.
+- [x] Vigia: serviço parado de propósito (SIGTERM, `docker stop`) grava `sinal_servico.encerrado_em` e sai da vigia até bater de novo (a batida apaga a marca; o notificador compara com o último ciclo); queda sem SIGTERM continua avisando. A batida deixou de ser thread: `Batimento.bater()` sai do laço de cada serviço (`Batimento.dormir()` bate antes e a cada fatia de até 60 s de qualquer espera, o que cobre tick do agendador, páginas da Liga, passos e esperas de erro de 15 min da Amazon; o Casador bate a cada passo e a cada par), então laço ou navegador travado dispara `SERVICO_SEM_SINAL`. Falha ao gravar a batida é logada. O notificador também bate uma vez na subida (apaga a marca do desligamento limpo anterior). Commits `d5f6124` e `61fd878` (correção da revisão).
+- [x] Fim da oportunidade com realerta na fila: `oportunidade.alerta_enviado` (marcado pelo monitor quando a troca de mensagem substitui um alerta já ENVIADO; o notificador não precisa marcar) faz o encerramento avisar o grupo mesmo que o realerta atual seja descartado ainda na fila; sem nenhum alerta enviado segue sem aviso. Inclui o índice em `oportunidade.mensagem_alerta_id` (item da 3B, feito na Task 1, commit `b41b970`). Linhas abertas antes disso não têm `alerta_enviado` preenchido (sem backfill). Commits `e5fa1f3` e `33b7de6` (correção da revisão).
+- [x] LigaMagic: (a) a espera de 30 min depois de um desafio conta só da retomada do desafio (`estado_coletor.retomado_desafio_em`, gravado por `repo.retomar` em qualquer saída de `pausado_desafio`; se a marca faltar, a espera cai para a hora da última mudança de estado); desligar e ligar comum não a reinicia, e ligar no meio da espera mantém o pedido de execução feito pelo Retomar (o texto do card e da mensagem deixou de prometer "volta sozinha"); (b) produto novo cuja página falha 3 vezes seguidas (`produto_liga.falhas_pagina`, rede ou parser; uma leitura boa zera) sai dos "novos do dia" e segue só no rodízio; (c) as pausas em dobro contam os desafios das últimas 24 h (`SituacaoDesafio.desafios_24h`), não do dia do calendário; "parada até amanhã" segue no dia do calendário; os textos do aviso, do painel e das configurações dizem "pausas em dobro por 24 h depois do desafio". Commits `442c51c` e `2cbdd1d` (correção da revisão).
 
 ### Fase 3B — Serviços, Atividade e Dashboard na gestão (merge `266cc9d`, em produção desde 2026-10-25 20:37)
 

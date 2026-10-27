@@ -79,7 +79,7 @@ EXPLICACOES_LIGA = {
     "max_cliques": "Cada clique mostra mais 40 produtos. Atingir o limite conta como falha da categoria.",
     "produtos_novos_dia": "Produtos ativos ainda sem resumo de preço abertos por dia, os mais antigos primeiro. 0: nenhum.",
     "esfriar_desafio_min": (
-        "Depois de um desafio resolvido, a coleta espera esses minutos e segue com pausas em dobro até o fim do dia. "
+        "Depois de um desafio resolvido, a coleta espera esses minutos e segue com pausas em dobro por 24 h depois do desafio. "
         "Um 2º desafio no mesmo dia para a coleta até o dia seguinte."
     ),
 }

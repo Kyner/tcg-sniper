@@ -672,6 +672,18 @@ def test_realerta_nao_mexe_no_alerta_anterior_ja_enviado(sessoes, config, anunci
         assert s.get(MensagemSaida, primeira).status is StatusMensagem.ENVIADA
 
 
+def test_realerta_marca_alerta_enviado_so_quando_o_anterior_saiu(sessoes, config, anuncio):
+    _ler(sessoes, config, "R$ 700,00", AGORA, anuncio.id)
+    assert _aberta(sessoes).alerta_enviado is False
+    _ler(sessoes, config, "R$ 650,00", AGORA + timedelta(minutes=15), anuncio.id)  # o 1º descartado: nunca saiu
+    op = _aberta(sessoes)
+    assert op.alerta_enviado is False
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, op.mensagem_alerta_id).status = StatusMensagem.ENVIADA
+    _ler(sessoes, config, "R$ 600,00", AGORA + timedelta(minutes=30), anuncio.id)  # o 2º saiu e é substituído
+    assert _aberta(sessoes).alerta_enviado is True
+
+
 def test_realerta_pela_conferencia_descarta_o_alerta_anterior_ainda_na_fila(sessoes, config, anuncio):
     ctx, _, _ = contexto(sessoes, config, {url_ofertas(ASIN): painel(amazon("R$ 700,00"))}, checkout=False)
     ler_anuncio(ctx, anuncio.id, ASIN)

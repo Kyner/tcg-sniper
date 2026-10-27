@@ -88,6 +88,15 @@ def eh_do_tipo(texto: str, tipo: TipoAviso) -> bool:
     return texto.startswith(cabecalho(tipo))
 
 
+def eh_resolvido_do_tipo(texto: str, tipo: TipoAviso) -> bool:
+    return texto.startswith(f"{EMOJI_RESOLVIDO} *{CATALOGO[tipo].titulo}")
+
+
+def eh_do_proprio_aviso(texto: str, tipo: TipoAviso) -> bool:
+    """O aviso do tipo ou o "✅ resolvido" dele (a falha de um deles nunca gera outro aviso)."""
+    return eh_do_tipo(texto, tipo) or eh_resolvido_do_tipo(texto, tipo)
+
+
 def _titulo(aviso: Aviso) -> str:
     extra = f" · {_dado(aviso.titulo_extra, MAX_EXTRA)}" if aviso.titulo_extra else ""
     return cabecalho(aviso.tipo) + extra

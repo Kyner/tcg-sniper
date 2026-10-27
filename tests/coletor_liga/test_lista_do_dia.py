@@ -145,3 +145,17 @@ def test_casado_ou_candidato_lido_hoje_nao_reduz_o_teto_de_novos(s):
     novos = [produto(s, f"n{i}") for i in range(3)]
     lista = montar_lista(s, QUARTA + timedelta(hours=1), SP, 2, fixo)
     assert ids(lista) == [n.id for n in novos[:2]]
+
+
+def test_novo_que_falha_3_vezes_sai_dos_novos_do_dia(s):
+    ruim = produto(s, "ruim")
+    bom = produto(s, "bom")
+    for _ in range(2):
+        repo.registrar_falha_pagina(s, ruim.id)
+    assert ids(montar_lista(s, QUARTA, SP, 1, fixo)) == [ruim.id]  # com 2 falhas ainda é o primeiro dos novos
+    repo.registrar_falha_pagina(s, ruim.id)
+    lista = montar_lista(s, QUARTA, SP, 1, fixo)
+    assert ids(lista) == [bom.id] and lista.novos == 1  # o teto do dia vai para o próximo novo
+    # sem resumo, segue no rodízio do dia da semana dele
+    do_dia = montar_lista(s, SEGUNDA + timedelta(days=ruim.id % 7), SP, 0, fixo)
+    assert ids(do_dia) == [ruim.id] and do_dia.rodizio == 1

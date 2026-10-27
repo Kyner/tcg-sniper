@@ -10,7 +10,7 @@ const base = { "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({
 function anuncio(id: number, titulo: string, extra: Record<string, unknown> = {}) {
   return {
     anuncio_id: id, asin: `B0${id}`, titulo, url: `https://www.amazon.com.br/dp/B0${id}`, imagem: null,
-    preco: "999.00", vendedor: "Loja X", termos_variacao: [], ia: null, origem: null, revisado_em: null,
+    preco: "999.00", vendedor: "Loja X", termos_variacao: [], idioma: null, ia: null, origem: null, revisado_em: null,
     oportunidade: false, casado_com: null, ...extra,
   };
 }
@@ -101,6 +101,29 @@ describe("Revisão de um produto", () => {
     expect(posts).toHaveLength(1);
     expect(posts[0].corpo).toEqual({ acao: "confirmar" });
     expect(chamadas.filter((c) => c.caminho.startsWith("/api/gestao/casamentos/31?"))).toHaveLength(1);
+  });
+
+  it("o confirmado tem o botão definir idioma e o selo muda no lugar", async () => {
+    const chamadas = apiFalsa({
+      ...base, [G(31)]: ok(REVISAO),
+      "PATCH /api/gestao/casamentos/anuncios/201/idioma": ok({ anuncio_id: 201, idioma: "ja" }),
+    });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    // Só o cartão confirmado oferece o botão.
+    expect(within(grupo("Para decidir")).queryByRole("button", { name: /definir idioma/ })).toBeNull();
+    const cartao = within(grupo("Confirmados")).getAllByRole("listitem")[0];
+    expect(within(cartao).queryByText("ja")).toBeNull();
+    await userEvent.click(within(cartao).getByRole("button", { name: /definir idioma/ }));
+    for (const opcao of ["português", "inglês", "japonês", "outro"]) {
+      expect(within(cartao).getByRole("button", { name: opcao })).toBeInTheDocument();
+    }
+    await userEvent.click(within(cartao).getByRole("button", { name: "japonês" }));
+    expect(await within(cartao).findByText("ja")).toHaveClass("badge");
+    const patches = chamadas.filter((c) => c.metodo === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(patches[0].corpo).toEqual({ idioma: "ja" });
+    expect(within(grupo("Confirmados")).getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("409 ja_confirmado devolve o cartão e mostra a mensagem", async () => {

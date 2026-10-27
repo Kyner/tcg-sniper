@@ -48,6 +48,14 @@ def normalizar_numero(texto: str) -> str:
     return numero
 
 
+def com_nove_extra(numero: str) -> str | None:
+    """Celular do Brasil digitado sem o 9 extra ("+551187654321", DDD + 8 dígitos começando em 6-9): a variante com o
+    9 ("+5511987654321"). None para qualquer outro número; fixo (8 dígitos começando em 2-5) nunca vira celular."""
+    if re.fullmatch(r"\+55[1-9][0-9][6-9][0-9]{7}", numero):
+        return numero[:5] + "9" + numero[5:]
+    return None
+
+
 def mascarar_numero(numero: str) -> str:
     """Número para log e tela: "+5511900000034" vira "+55 11 9****-**34" (só DDD, o 1º e os 2 últimos dígitos)."""
     digitos = numero.removeprefix("+")

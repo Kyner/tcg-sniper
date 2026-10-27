@@ -91,6 +91,7 @@ class AnuncioRevisaoSaida(BaseModel):
     preco: Decimal | None
     vendedor: str | None
     termos_variacao: list[str]
+    idioma: str | None  # o definido no anúncio ou, sem ele, o lido pela IA
     ia: IaSaida | None
     origem: str | None
     revisado_em: datetime | None
@@ -190,6 +191,7 @@ def _anuncio(linha: q.LinhaAnuncio) -> dict:
         "preco": linha.atual.preco if linha.atual else None,
         "vendedor": linha.vendedor.nome if linha.vendedor else None,
         "termos_variacao": termos_variacao(linha.anuncio.titulo_exibicao),
+        "idioma": linha.anuncio.idioma or (ia.idioma_anuncio if ia is not None else None) or None,
         "ia": None if ia is None else {
             "mesmo_produto": ia.mesmo_produto, "confianca": ia.confianca, "motivo": ia.motivo,
             "idioma": ia.idioma_anuncio or None,
@@ -350,6 +352,25 @@ def produtos_para_trocar(
             achados = q.sugestoes_para(s, anuncio, excluir=excluir)
         itens = [_produto_saida(p, preco) for p, preco in achados]
     return [ParecidoSaida.model_validate(i) for i in com_imagens(itens, base_imagens(request))]
+
+
+class IdiomaEntrada(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    idioma: Literal["pt", "en", "ja", "outro"]
+
+
+class IdiomaSaida(BaseModel):
+    anuncio_id: int
+    idioma: str
+
+
+@roteador.patch("/casamentos/anuncios/{anuncio_id}/idioma")
+def definir_idioma(request: Request, anuncio_id: int, entrada: IdiomaEntrada, _c: RevisarCasamentos) -> IdiomaSaida:
+    """Define à mão o idioma do anúncio (vale mais que o da IA para a regra de português confirmado)."""
+    with request.app.state.sessoes() as s, s.begin():
+        if not repo_casamento.definir_idioma(s, anuncio_id, entrada.idioma):
+            raise ErroApi(404, "nao_encontrado", "Anúncio não encontrado.")
+    return IdiomaSaida(anuncio_id=anuncio_id, idioma=entrada.idioma)
 
 
 @roteador.post("/casamentos/{produto_id}/link")

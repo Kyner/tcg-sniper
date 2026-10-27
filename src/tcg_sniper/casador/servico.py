@@ -19,7 +19,14 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_termos as repo_termos
-from tcg_sniper.db.models import COLETOR_CASADOR, EstadoColetorTipo, OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import (
+    COLETOR_CASADOR,
+    AnuncioAmazon,
+    EstadoColetorTipo,
+    OrigemCasamento,
+    ProdutoLiga,
+    StatusCasamento,
+)
 from tcg_sniper.ia.modelos import (
     ChaveInvalida,
     ConfiguracaoInvalida,
@@ -49,6 +56,7 @@ class ServicoCasador:
         cliente_http: httpx.Client | None = None,
         relogio: Callable[[], datetime] | None = None,
         dormir: Callable[[float], None] | None = None,
+        batida: Callable[[], None] | None = None,
     ):
         self._sessoes = sessoes
         self._transporte = transporte
@@ -57,12 +65,8 @@ class ServicoCasador:
         self._http = cliente_http or httpx.Client(timeout=TIMEOUT_IMAGEM_S, headers={"User-Agent": "Mozilla/5.0"})
         self._relogio = relogio or repo.agora_utc
         self._dormir = dormir
+        self._batida = batida or (lambda: None)  # sinal de vida do vigia, dado a cada passo e a cada par
         self._parar = threading.Event()
-        # (anúncio, produto) -> (assinatura, falhas seguidas, espera até): o par que falhou não trava a fila
-        self._falhas: dict[tuple[int, int], tuple[str, int, datetime]] = {}
-        # produto -> (falhas seguidas, espera até): termos que falharam (rede, 5xx, erro inesperado) esperam
-        # como os pares (1 h, 6 h, 24 h) e não ocupam a vaga do próximo ciclo
-        self._falhas_termos: dict[int, tuple[int, datetime]] = {}
 
     def parar(self) -> None:
         self._parar.set()
@@ -81,7 +85,6 @@ class ServicoCasador:
             lote, automatico = cfg.lote, cfg.automatico
             limites = (cfg.confianca_confirmar, cfg.confianca_ignorar)
             pendentes = repo_ia.pares_pendentes(s, so_descoberta=True)
-            self._esquecer_falhas_fora_de({(p.anuncio.id, p.produto.id) for p in pendentes})
             candidatos = []
             ja_avaliados = []  # avaliação em dia que o automático ainda não aplicou (ex.: ligado depois)
             for p in pendentes:
@@ -90,7 +93,7 @@ class ServicoCasador:
                     if automatico and p.avaliacao.aplicada_em is None:
                         ja_avaliados.append((p.anuncio.id, p.produto.id))
                     continue
-                if self._em_espera((p.anuncio.id, p.produto.id), atual, agora):
+                if self._em_espera(p, atual, agora):
                     continue
                 candidatos.append((p, atual))
             pares = candidatos[:lote]
@@ -112,6 +115,7 @@ class ServicoCasador:
         for par, atual in pares:
             if self._parar.is_set():
                 break
+            self._batida()
             chave = (par.anuncio.id, par.produto.id)
             try:
                 veredito, resposta, sem_imagem = avaliar_par(
@@ -154,7 +158,8 @@ class ServicoCasador:
                 self._avisador.resolver(TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL)
                 self._avisador.resolver_todos(TipoAviso.IA_SEM_ORCAMENTO)
             falhas = 0
-            self._falhas.pop(chave, None)
+            with self._sessoes() as s, s.begin():
+                repo_ia.limpar_falha_par(s, *chave)
             avaliados += 1
             produtos_avaliados.add(par.produto.id)
             confirmados += decisao is StatusCasamento.CONFIRMADO
@@ -183,24 +188,16 @@ class ServicoCasador:
         self._avisador.avisar(TipoAviso.IA_PAUSADA, CHAVE_GERAL, Dados(linhas=(f"Motivo: {erro}",)))
         log.error("casador pausado: %s", erro)
 
-    def _em_espera(self, chave: tuple[int, int], atual: str, agora: datetime) -> bool:
-        falha = self._falhas.get(chave)
-        if falha is None:
+    @staticmethod
+    def _em_espera(par: repo_ia.ParPendente, atual: str, agora: datetime) -> bool:
+        """O par que falhou espera (gravado no banco, sobrevive a reinício); dados mudados: tenta já."""
+        if par.ia_espera_ate is None or par.ia_falha_assinatura != atual:
             return False
-        if falha[0] != atual:  # dados mudaram: tenta de novo já
-            del self._falhas[chave]
-            return False
-        return agora < falha[2]
+        return agora < par.ia_espera_ate
 
     def _marcar_falha(self, chave: tuple[int, int], atual: str) -> None:
-        anterior = self._falhas.get(chave)
-        n = anterior[1] + 1 if anterior is not None and anterior[0] == atual else 1
-        espera = ESPERAS_FALHA[min(n, len(ESPERAS_FALHA)) - 1]
-        self._falhas[chave] = (atual, n, self._relogio() + espera)
-
-    def _esquecer_falhas_fora_de(self, pendentes: set[tuple[int, int]]) -> None:
-        for chave in self._falhas.keys() - pendentes:
-            del self._falhas[chave]
+        with self._sessoes() as s, s.begin():
+            repo_ia.registrar_falha_par(s, *chave, atual, self._relogio(), ESPERAS_FALHA)
 
     def _gravar(self, par, veredito, resposta, sem_imagem, automatico, limites) -> StatusCasamento | None:
         agora = self._relogio()
@@ -226,10 +223,15 @@ class ServicoCasador:
         produto não tem anúncio em português confirmado (nem confirmado de idioma não registrado); senão o
         par fica pendente para você. Avaliação sem idioma (de antes da regra) segue como antes."""
         confirmar, ignorar = limites
+        # Mesma ordem da desativação (produto, depois anúncio): o produto com trava compartilhada, para uma
+        # desativação em andamento não deixar o par confirmado.
+        produto = s.get(ProdutoLiga, av.produto_id, populate_existing=True, with_for_update={"read": True})
         repo_casamento.travar_anuncio(s, av.anuncio_id)
         par = repo_casamento.obter_par(s, av.anuncio_id, av.produto_id)
         if par is None or par.status is not StatusCasamento.PENDENTE:
             return None  # você decidiu enquanto a IA respondia
+        if produto is None or not produto.ativo:
+            return None  # o produto foi desativado enquanto a IA respondia: o par fica pendente
         try:
             if av.mesmo_produto and av.confianca >= confirmar:
                 if not ServicoCasador._idioma_permite_confirmar(s, av):
@@ -249,9 +251,12 @@ class ServicoCasador:
 
     @staticmethod
     def _idioma_permite_confirmar(s: Session, av) -> bool:
-        if av.idioma_anuncio in IDIOMAS_NUNCA_CONFIRMAR:
+        # O idioma definido no anúncio (à mão ou por comando) vale mais que o lido pela IA.
+        anuncio = s.get(AnuncioAmazon, av.anuncio_id)
+        idioma = (anuncio.idioma if anuncio is not None else None) or av.idioma_anuncio
+        if idioma in IDIOMAS_NUNCA_CONFIRMAR:
             return False
-        if av.idioma_anuncio == "en":
+        if idioma in ("en", "indefinido"):  # idioma que não se leu com certeza: segue a regra do inglês
             return repo_ia.portugues_confirmado(s, av.produto_id) is False
         return True
 
@@ -259,18 +264,18 @@ class ServicoCasador:
         """Busca alternativa: gera os termos dos produtos pedidos no admin e dos em seca sem termos, no máximo
         `TERMOS_POR_CICLO`. Para no primeiro SemOrcamento (o pedido fica para o próximo período, com o aviso de
         teto de sempre). Sem termo válido ou resposta fora do formato: marca a tentativa (7 dias). Falha da
-        chamada ou erro inesperado (também ao gravar): o produto espera (1 h, 6 h, 24 h, só em memória) sem
+        chamada ou erro inesperado (também ao gravar): o produto espera (1 h, 6 h, 24 h, gravado no banco) sem
         marcar a tentativa; `FALHAS_SEGUIDAS_MAX` falhas seguidas da chamada encerram a etapa com o aviso."""
         agora = self._relogio()
-        em_espera = {produto_id for produto_id, (_, ate) in self._falhas_termos.items() if agora < ate}
         with self._sessoes() as s, s.begin():
-            produtos = repo_termos.produtos_para_gerar_termos(s, agora, TERMOS_POR_CICLO, excluir=em_espera)
+            produtos = repo_termos.produtos_para_gerar_termos(s, agora, TERMOS_POR_CICLO)
             for produto in produtos:
                 s.expunge(produto)
         gerados = falhas = 0
         for produto in produtos:
             if self._parar.is_set():
                 break
+            self._batida()
             try:
                 try:
                     termos = gerar_termos(self._sessoes, self._transporte, produto, zona=zona, relogio=self._relogio)
@@ -307,16 +312,16 @@ class ServicoCasador:
                 log.exception("erro inesperado ao gerar termos do produto %s; segue para o próximo", produto.id)
                 continue
             falhas = 0
-            self._falhas_termos.pop(produto.id, None)
+            with self._sessoes() as s, s.begin():
+                repo_termos.limpar_falha_termos(s, produto.id)
             gerados += bool(termos)
         if gerados:
             log.info("busca alternativa: termos gerados para %d produto(s)", gerados)
         return gerados
 
     def _marcar_falha_termos(self, produto_id: int) -> None:
-        anterior = self._falhas_termos.get(produto_id)
-        n = anterior[0] + 1 if anterior is not None else 1
-        self._falhas_termos[produto_id] = (n, self._relogio() + ESPERAS_FALHA[min(n, len(ESPERAS_FALHA)) - 1])
+        with self._sessoes() as s, s.begin():
+            repo_termos.registrar_falha_termos(s, produto_id, self._relogio(), ESPERAS_FALHA)
 
     def _avisar_orcamento(self, motivo: str, zona) -> None:
         local = self._relogio().astimezone(zona)
@@ -331,6 +336,7 @@ class ServicoCasador:
             log.warning("OPENAI_API_KEY ausente no .env: o casador não chama a IA")
         proxima = self._relogio()
         while not self._parar.is_set():
+            self._batida()
             agora = self._relogio()
             try:
                 with self._sessoes() as s, s.begin():

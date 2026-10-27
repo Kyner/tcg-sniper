@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duracao, pct, reais } from "./formato";
+import { duracao, pct, reais, ROTULOS_MOTIVO } from "./formato";
 
 describe("formato", () => {
   it("reais em pt-BR", () => {
@@ -16,5 +16,11 @@ describe("formato", () => {
     expect(duracao(120)).toBe("2 h");
     expect(duracao(60 * 24 * 2 + 60)).toBe("2 d 1 h");
     expect(duracao(null)).toBe("—");
+  });
+});
+
+describe("rótulos de motivo", () => {
+  it("produto desativado tem rótulo", () => {
+    expect(ROTULOS_MOTIVO.produto_desativado).toBe("produto desativado");
   });
 });

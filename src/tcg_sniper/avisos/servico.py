@@ -7,6 +7,8 @@ Repetição (tipos com `agrupa`), estado por (tipo, chave) em `estado_aviso`:
 - aberto e último envio há menos que `lembrete`: só conta;
 - aberto e último envio há `lembrete` ou mais (ou nunca enviado): manda o lembrete.
 O lembrete é decidido no `avisar`: com o serviço parado nada se acumula.
+Os tipos em `TIPOS_QUE_ESPERAM` (bloqueio que só espera alguém agir, sem nova ocorrência) recebem o lembrete
+de `lembrar_abertos`, chamado a cada minuto pela manutenção; ele não mexe nas ocorrências.
 
 Nada aqui propaga exceção (cada chamada roda num SAVEPOINT; falha vira log), menos `UrlProibida` com
 `formato.ESTRITO` ligado (testes)."""
@@ -22,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.avisos import formato
-from tcg_sniper.avisos.catalogo import CATALOGO, Dados, TipoAviso
+from tcg_sniper.avisos.catalogo import CATALOGO, CHAVE_GERAL, TIPOS_QUE_ESPERAM, Dados, TipoAviso
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import ConfigAviso, ConfigGeral, EstadoAviso
 from tcg_sniper.db.repositorio import agora_utc
@@ -172,6 +174,73 @@ def resolver_todos(s: Session, tipo: TipoAviso, agora: datetime) -> None:
         return
     for chave in chaves:
         resolver(s, tipo, chave, agora)
+
+
+def lembrar_abertos(s: Session, agora: datetime) -> int:
+    """Manda o lembrete dos bloqueios abertos que só esperam (`TIPOS_QUE_ESPERAM`), ligados em Configurações →
+    Avisos, cujo último envio tem `lembrete` ou mais. Texto do catálogo (sem as linhas do evento original); não
+    mexe em `ocorrencias`. Devolve quantos saíram. Nunca propaga exceção (menos `UrlProibida` no modo estrito)."""
+    enviados = 0
+    try:
+        with s.begin_nested():
+            chaves = [
+                (TipoAviso(e.tipo), e.chave)
+                for e in s.scalars(
+                    select(EstadoAviso).where(
+                        EstadoAviso.aberto.is_(True),
+                        EstadoAviso.tipo.in_([t.value for t in TIPOS_QUE_ESPERAM]),
+                    )
+                )
+            ]
+    except Exception:
+        log.exception("não consegui ler os avisos abertos para lembrar")
+        return 0
+    for tipo, chave in chaves:
+        try:
+            with s.begin_nested():
+                enviados += _lembrar(s, tipo, chave, agora)
+        except Exception as erro:
+            if _deixar_subir(erro):
+                raise
+            log.exception("lembrete do aviso %s (%s) não registrado", tipo.value, chave)
+    return enviados
+
+
+def _lembrar(s: Session, tipo: TipoAviso, chave: str, agora: datetime) -> int:
+    definicao = CATALOGO[tipo]
+    estado = s.get(EstadoAviso, (tipo.value, chave), with_for_update=True, populate_existing=True)
+    if estado is None or not estado.aberto or definicao.lembrete is None or not ligado(s, tipo):
+        return 0
+    if estado.ultimo_envio_em is not None and agora - estado.ultimo_envio_em < definicao.lembrete:
+        return 0
+    zona, host = zona_e_host(s)
+    dados = Dados(titulo_extra=None if chave == CHAVE_GERAL else chave)
+    texto = formato.formatar_lembrete(formato.aviso_de(tipo, dados, agora), estado.ocorrencias, estado.primeiro_em, zona, host)
+    _enfileirar(s, tipo, texto, agora)
+    estado.ultimo_envio_em = agora
+    s.flush()
+    return 1
+
+
+def resolver_nao_enviada_sem_falhas(s: Session, agora: datetime) -> None:
+    """Fecha "mensagem não enviada" quando não sobra falha definitiva na janela (sem contar os próprios avisos):
+    todas reenviadas, descartadas ou velhas demais. Uma que saiu não basta: outro grupo pode seguir falhando."""
+    try:
+        with s.begin_nested():
+            s.flush()
+            estado = s.get(EstadoAviso, (TipoAviso.MENSAGEM_NAO_ENVIADA.value, CHAVE_GERAL))
+            if estado is None or not estado.aberto:
+                return
+            sobra = any(
+                not formato.eh_do_proprio_aviso(f.texto, TipoAviso.MENSAGEM_NAO_ENVIADA)
+                for f in repo_msg.falhas_recentes(s, agora - repo_msg.JANELA_FALHAS, limite=1000)
+            )
+            if not sobra:
+                _resolver(s, TipoAviso.MENSAGEM_NAO_ENVIADA, CHAVE_GERAL, agora)
+    except Exception as erro:
+        if _deixar_subir(erro):
+            raise
+        log.exception("resolução de mensagem não enviada não registrada")
 
 
 def avisar_individual(

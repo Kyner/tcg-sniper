@@ -199,3 +199,33 @@ def test_erro_ao_gravar_os_termos_de_um_produto_nao_derruba_o_ciclo(sessoes, con
     sv.ciclo()
     assert len(t.pedidos) == 2
     assert guardados(sessoes, p1) == [] and guardados(sessoes, p2) == [("beta booster box", "en")]
+
+
+def test_espera_dos_termos_sobrevive_a_reinicio_do_casador(sessoes, config):
+    configurar(sessoes)
+    [p] = na_fila(sessoes, "alfa")
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500")], T0 + 7 * DIA)
+    sv.ciclo()
+    assert len(t.pedidos) == 1
+    with sessoes() as s:
+        fila = s.get(FilaAmazon, p)
+        assert (fila.termos_falhas, fila.termos_espera_ate) == (1, T0 + 7 * DIA + timedelta(hours=1))
+    novo, t2, _ = servico(sessoes, config, [termos(("alfa booster box", "en"))], T0 + 7 * DIA + timedelta(minutes=59))
+    novo.ciclo()  # reiniciado: ainda espera
+    assert t2.pedidos == []
+    novo, t3, _ = servico(sessoes, config, [termos(("alfa booster box", "en"))], T0 + 7 * DIA + timedelta(hours=1))
+    novo.ciclo()
+    assert len(t3.pedidos) == 1 and guardados(sessoes, p) == [("alfa booster box", "en")]
+    with sessoes() as s:
+        fila = s.get(FilaAmazon, p)
+        assert (fila.termos_falhas, fila.termos_espera_ate) == (0, None)
+
+
+def test_geracao_de_termos_bate_a_cada_produto(sessoes, config):
+    configurar(sessoes)
+    na_fila(sessoes, "p1", "p2", "p3")
+    sv, t, _ = servico(sessoes, config, [termos(("a", "pt")), termos(("b", "pt")), termos(("c", "pt"))], T0 + 7 * DIA)
+    batidas = []
+    sv._batida = lambda: batidas.append(1)
+    sv.ciclo()
+    assert len(t.pedidos) == 3 and len(batidas) >= 3

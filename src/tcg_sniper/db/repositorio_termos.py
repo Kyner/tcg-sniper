@@ -78,6 +78,20 @@ def guardar_termos(s: Session, produto_id: int, termos: Sequence[tuple[str, str]
     return novos
 
 
+def registrar_falha_termos(s: Session, produto_id: int, agora: datetime, esperas: Sequence[timedelta]) -> None:
+    """A chamada dos termos falhou: conta mais uma falha seguida e grava até quando esperar
+    (`esperas[n - 1]`, a última vale daí em diante). A marca de tentativa e o pedido do admin não mudam."""
+    fila = s.get(FilaAmazon, produto_id)
+    if fila is None:
+        return
+    fila.termos_falhas += 1
+    fila.termos_espera_ate = agora + esperas[min(fila.termos_falhas, len(esperas)) - 1]
+
+
+def limpar_falha_termos(s: Session, produto_id: int) -> None:
+    s.execute(update(FilaAmazon).where(FilaAmazon.produto_id == produto_id).values(termos_falhas=0, termos_espera_ate=None))
+
+
 def pedir_termos(s: Session, produto_id: int, agora: datetime) -> bool:
     """Botão "Gerar termos de busca": o casador gera (ou regenera) no próximo ciclo. False sem linha na fila."""
     resultado = s.execute(
@@ -92,8 +106,16 @@ def produtos_para_gerar_termos(
 ) -> list[ProdutoLiga]:
     """Até `limite` produtos ativos: primeiro os pedidos no admin (mais antigos primeiro, mesmo com termos
     guardados), depois os em seca sem termos e sem tentativa nos últimos 7 dias (os mais secos primeiro).
-    `excluir`: produtos que ficam de fora (o casador põe os que esperam depois de uma falha)."""
-    base = select(ProdutoLiga).join(FilaAmazon, FilaAmazon.produto_id == ProdutoLiga.id).where(ProdutoLiga.ativo.is_(True))
+    Quem espera depois de uma falha da chamada (`termos_espera_ate` no futuro) fica de fora. `excluir`:
+    outros produtos que ficam de fora."""
+    base = (
+        select(ProdutoLiga)
+        .join(FilaAmazon, FilaAmazon.produto_id == ProdutoLiga.id)
+        .where(
+            ProdutoLiga.ativo.is_(True),
+            or_(FilaAmazon.termos_espera_ate.is_(None), FilaAmazon.termos_espera_ate <= agora),
+        )
+    )
     if excluir:
         base = base.where(ProdutoLiga.id.not_in(list(excluir)))
     pedidos = list(

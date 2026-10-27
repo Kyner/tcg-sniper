@@ -6,7 +6,7 @@ import pytest
 from fakes import AvisadorFake
 from sqlalchemy import select
 
-from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
+from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_manutencao as repo_man
@@ -375,3 +375,14 @@ def test_tick_expira_individual_vencida_e_apaga_o_codigo(sessoes, config):
         assert (m.status, m.texto) == (StatusMensagem.EXPIRADA, repo_msg.TEXTO_APAGADO)
         assert (v.status, v.texto) == (StatusMensagem.PENDENTE, "*654321*")
         assert (g.status, g.texto) == (StatusMensagem.PENDENTE, "aviso")
+
+
+def test_tick_manda_lembrete_dos_bloqueios_que_esperam(sessoes, config):
+    from tcg_sniper.avisos import servico as avisos
+
+    with sessoes() as s, s.begin():
+        avisos.avisar(s, TipoAviso.AMAZON_CAPTCHA, CHAVE_GERAL, Dados(), QUARTA_4H - timedelta(hours=3))
+    servico(sessoes, config, QUARTA_4H).tick()
+    with sessoes() as s:
+        textos = [m.texto for m in s.scalars(select(MensagemSaida).order_by(MensagemSaida.id))]
+    assert any("CAPTCHA continua" in t for t in textos)

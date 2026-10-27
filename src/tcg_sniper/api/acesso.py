@@ -15,7 +15,7 @@ from tcg_sniper.avisos import servico as avisos
 from tcg_sniper.avisos.catalogo import Dados, TipoAviso
 from tcg_sniper.db import repositorio_acesso as repo_acesso
 from tcg_sniper.db.models import Usuario
-from tcg_sniper.formatacao import mascarar_numero
+from tcg_sniper.formatacao import com_nove_extra, mascarar_numero
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +55,17 @@ def emitir_codigo(s: Session, usuario_id: int, agora: datetime, segredo: str) ->
     return codigo
 
 
+def numero_de_login(s: Session, numero: str) -> str:
+    """Celular digitado sem o 9 extra ("+551187654321") entra como o cadastrado com o 9 ("+5511987654321"): se
+    `numero` não está cadastrado e a variante com o 9 está, devolve a variante; senão devolve `numero`. Chamado antes
+    do HMAC, para os dois formatos dividirem os mesmos limites. As duas consultas rodam sempre (com ou sem
+    cadastro, com ou sem variante), para não mudar o tempo de resposta."""
+    variante = com_nove_extra(numero)
+    exato = repo_acesso.usuario_por_numero(s, numero)
+    candidato = repo_acesso.usuario_por_numero(s, variante or numero)
+    return variante if (exato is None and variante is not None and candidato is not None) else numero
+
+
 def _chave_numero(numero_hash: str) -> str:
     """Chave do `SEGURANCA_LIMITE` de um número: parte do hash, nunca o número (pedidos e códigos errados agrupam)."""
     return f"numero:{numero_hash[:12]}"
@@ -74,6 +85,7 @@ def pedir_codigo(s: Session, numero: str, agora: datetime, segredo: str) -> Resu
     enfileira a mensagem individual. Fora dos limites, registra, avisa o grupo admin e devolve o limite atingido.
     O chamador responde igual para número com ou sem cadastro."""
     repo_acesso.limpar_antigos(s, agora)
+    numero = numero_de_login(s, numero)
     numero_hash = hash_segredo(segredo, numero)
     # Só limites por número: um limite total deixaria qualquer um trancar o login de todos.
     repo_acesso.travar_limite(s, repo_acesso.TRAVA_PEDIDOS_NUMERO, numero_hash)
@@ -98,6 +110,7 @@ def registrar_entrada(s: Session, numero: str, agora: datetime, segredo: str) ->
     número já fez `LIMITE_ENTRADAS` tentativas na janela: o chamador responde 429 sem conferir o código.
     Também apaga pedidos e códigos antigos (como `pedir_codigo`)."""
     repo_acesso.limpar_antigos(s, agora)
+    numero = numero_de_login(s, numero)
     numero_hash = hash_segredo(segredo, numero)
     repo_acesso.travar_limite(s, repo_acesso.TRAVA_ENTRADAS_NUMERO, numero_hash)
     if repo_acesso.contar_pedidos(s, agora - JANELA_ENTRADAS, numero_hash, repo_acesso.ENTRADA) >= LIMITE_ENTRADAS:
@@ -119,6 +132,7 @@ def entrar(
 ) -> tuple[Usuario, str] | None:
     """Confere o último código do usuário (validade, uso, tentativas). Certo: marca usado, cria a sessão e devolve
     (usuário, token). Errado: conta a tentativa (o chamador grava antes de responder 401) e devolve None."""
+    numero = numero_de_login(s, numero)
     usuario = repo_acesso.usuario_por_numero(s, numero)
     if usuario is None or not usuario.ativo:
         return None

@@ -32,6 +32,16 @@ def pistas_variacao(nome: str) -> list[str]:
     return pistas + (idiomas or ["idioma não informado"])
 
 
+_CODIGO_IDIOMA = {"inglês": "en", "português": "pt", "japonês": "ja"}
+
+
+def idioma_do_titulo(titulo: str) -> str | None:
+    """O idioma que o título do anúncio diz (`pt`, `en` ou `ja`), só quando cita exatamente um deles; sem idioma
+    ou com mais de um, `None` (quem decide é você)."""
+    achados = [codigo for nome, codigo in _CODIGO_IDIOMA.items() if _IDIOMAS[nome].search(titulo)]
+    return achados[0] if len(achados) == 1 else None
+
+
 def termos_variacao(titulo: str) -> list[str]:
     """Trechos do título do anúncio (como aparecem nele) sobre Foil, quantidade de pacotes e idioma."""
     termos = []

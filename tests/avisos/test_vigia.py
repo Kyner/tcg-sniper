@@ -1,4 +1,3 @@
-import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -13,6 +12,7 @@ from tcg_sniper.db.models import (
     COLETOR_AMAZON_BUSCA,
     COLETOR_CASADOR,
     COLETOR_LIGA,
+    COLETOR_NOTIFICADOR,
     EstadoColetorTipo,
     MensagemSaida,
 )
@@ -118,18 +118,110 @@ def test_batimento_com_banco_fora_nao_levanta(caplog):
     assert "sinal de vida de liga" in caplog.text
 
 
-def test_batimento_em_thread_bate_e_para(sessoes):
-    batidas = []
-    b = vigia.Batimento(sessoes, COLETOR_LIGA, relogio=lambda: AGORA, intervalo_s=0.01)
-    b.bater = lambda: batidas.append(1)
-    t = b.iniciar()
-    limite = time.monotonic() + 2
-    while not batidas and time.monotonic() < limite:
-        time.sleep(0.005)
-    b.parar()
-    assert batidas, "a thread não bateu em 2 s"
-    t.join(timeout=2)
-    assert not t.is_alive() and t.daemon
+def encerrar(sessoes, servico, quando):
+    with sessoes() as s, s.begin():
+        vigia.registrar_encerramento(s, servico, quando)
+
+
+def test_desligamento_limpo_nao_gera_sem_sinal(sessoes):
+    todos_vivos(sessoes, AGORA - timedelta(minutes=30), menos=(COLETOR_CASADOR,))
+    with sessoes() as s, s.begin():
+        vigia.registrar_sinal(s, COLETOR_CASADOR, AGORA - timedelta(minutes=30))
+    encerrar(sessoes, COLETOR_CASADOR, AGORA - timedelta(minutes=29))
+    todos_vivos(sessoes, AGORA, menos=(COLETOR_CASADOR,))
+    verificar(sessoes, AGORA)
+    assert abertos(sessoes) == []
+
+
+def test_desligamento_limpo_resolve_o_aviso_que_ja_estava_aberto(sessoes):
+    todos_vivos(sessoes, AGORA, menos=(COLETOR_CASADOR,))
+    verificar(sessoes, AGORA)
+    assert abertos(sessoes) == ["casador"]
+    encerrar(sessoes, COLETOR_CASADOR, AGORA)
+    verificar(sessoes, AGORA + timedelta(minutes=1))
+    assert abertos(sessoes) == []
+
+
+def test_desligamento_limpo_do_notificador(sessoes):
+    todos_vivos(sessoes, AGORA)
+    with sessoes() as s, s.begin():
+        repo_msg.registrar_ciclo(s, AGORA - timedelta(minutes=30))
+    encerrar(sessoes, COLETOR_NOTIFICADOR, AGORA - timedelta(minutes=29))
+    verificar(sessoes, AGORA)
+    assert abertos(sessoes) == []
+
+
+def test_queda_sem_sigterm_continua_avisando(sessoes):
+    todos_vivos(sessoes, AGORA, menos=(COLETOR_CASADOR,))
+    with sessoes() as s, s.begin():
+        vigia.registrar_sinal(s, COLETOR_CASADOR, AGORA - timedelta(minutes=11))  # sem encerrado_em
+    verificar(sessoes, AGORA)
+    assert abertos(sessoes) == ["casador"]
+
+
+def test_batida_volta_depois_de_religar(sessoes):
+    todos_vivos(sessoes, AGORA - timedelta(minutes=30), menos=(COLETOR_CASADOR,))
+    with sessoes() as s, s.begin():
+        vigia.registrar_sinal(s, COLETOR_CASADOR, AGORA - timedelta(minutes=30))
+    encerrar(sessoes, COLETOR_CASADOR, AGORA - timedelta(minutes=29))
+    vigia.Batimento(sessoes, COLETOR_CASADOR, relogio=lambda: AGORA - timedelta(minutes=20)).bater()
+    with sessoes() as s:
+        assert vigia._encerrado_em(s, COLETOR_CASADOR) is None  # a batida apaga a marca
+    todos_vivos(sessoes, AGORA, menos=(COLETOR_CASADOR,))
+    verificar(sessoes, AGORA)  # religou, bateu e calou de novo: volta a ser vigiado
+    assert abertos(sessoes) == ["casador"]
+
+
+def test_encerrar_do_batimento_grava_a_marca(sessoes):
+    b = vigia.Batimento(sessoes, COLETOR_LIGA, relogio=lambda: AGORA)
+    b.encerrar()
+    with sessoes() as s:
+        assert vigia._encerrado_em(s, COLETOR_LIGA) == AGORA
+
+
+def test_encerrar_com_banco_fora_nao_levanta(caplog):
+    def sessoes():
+        raise RuntimeError("banco fora")
+
+    vigia.Batimento(sessoes, COLETOR_LIGA).encerrar()
+    assert "encerramento de liga" in caplog.text
+
+
+def test_laco_parado_dispara_sem_sinal_mesmo_com_processo_vivo(sessoes):
+    # Sem thread: o último sinal é do laço. Processo vivo, laço travado há 11 min -> avisa.
+    todos_vivos(sessoes, AGORA, menos=(COLETOR_LIGA,))
+    vigia.Batimento(sessoes, COLETOR_LIGA, relogio=lambda: AGORA - timedelta(minutes=11)).bater()
+    assert not hasattr(vigia.Batimento, "iniciar")
+    verificar(sessoes, AGORA)
+    assert abertos(sessoes) == ["coletor-liga"]
+
+
+def test_espera_longa_bate_em_fatias(sessoes):
+    batidas, dormidas = [], []
+    b = vigia.Batimento(sessoes, COLETOR_LIGA)
+    b.bater = lambda: batidas.append(len(dormidas))
+    b.dormir(dormir=dormidas.append, fatia_s=60)(15 * 60)  # ESPERA_ERRO_S da Amazon
+    assert dormidas == [60] * 15
+    assert len(batidas) == 16  # uma antes e uma depois de cada fatia
+
+
+def test_espera_curta_dorme_so_o_pedido(sessoes):
+    dormidas = []
+    b = vigia.Batimento(sessoes, COLETOR_LIGA)
+    b.bater = lambda: None
+    b.dormir(dormir=dormidas.append, fatia_s=60)(25)
+    assert dormidas == [25]
+
+
+def test_falha_ao_bater_nao_derruba_o_laco(sessoes, caplog):
+    def quebrada():
+        raise RuntimeError("banco fora")
+
+    dormidas = []
+    b = vigia.Batimento(quebrada, COLETOR_LIGA)
+    b.dormir(dormir=dormidas.append, fatia_s=60)(120)  # não lança
+    assert dormidas == [60, 60]
+    assert "sinal de vida de liga" in caplog.text
 
 
 def test_busca_da_amazon_muda_abre_com_o_nome_do_servico(sessoes):

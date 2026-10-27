@@ -246,7 +246,7 @@ def desafio_da_liga(sessoes, quando):
 
 def retomada(sessoes, quando, solicitar=False):
     with sessoes() as s, s.begin():
-        repo.retomar(s, quando, solicitar=solicitar)
+        repo.retomar(s, quando, solicitar=solicitar, desafio_resolvido=True)
 
 
 def test_liga_esfriando_mostra_ate_quando(cliente, sessoes):
