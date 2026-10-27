@@ -9,11 +9,16 @@ from tcg_sniper import cli
 
 @pytest.fixture(autouse=True)
 def batidas(monkeypatch):
-    """Nenhum teste do CLI sobe a thread de verdade; guarda quais serviços iniciaram a batida."""
+    """Nenhum teste do CLI toca o banco: guarda quais serviços bateram na partida e quais registraram o desligamento limpo."""
     from tcg_sniper.avisos import vigia
 
-    iniciadas = []
-    monkeypatch.setattr(vigia.Batimento, "iniciar", lambda self: iniciadas.append(self._servico))
+    class Registro(list):
+        encerradas: list
+
+    iniciadas = Registro()
+    iniciadas.encerradas = encerradas = []
+    monkeypatch.setattr(vigia.Batimento, "bater", lambda self: iniciadas.append(self._servico))
+    monkeypatch.setattr(vigia.Batimento, "encerrar", lambda self: encerradas.append(self._servico))
     return iniciadas
 
 
@@ -48,8 +53,8 @@ def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch, batidas):
     vistos = []
 
     class AgendadorFalso:
-        def __init__(self, *args):
-            pass
+        def __init__(self, *args, **kwargs):
+            vistos.append(kwargs["dormir"])
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
@@ -59,8 +64,10 @@ def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch, batidas):
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     try:
         cli.main(["coletor-liga"])
-        assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
+        assert callable(vistos[0])  # o dormir bate em fatias
+        assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["liga"]
+        assert batidas.encerradas == ["liga"]  # desligamento limpo registrado
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -72,7 +79,7 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
     vistos = []
 
     class VarreduraFalsa:
-        def __init__(self, engine, sessoes, fabrica, avisador, config):
+        def __init__(self, engine, sessoes, fabrica, avisador, config, dormir):
             vistos.append(fabrica()._dir_perfil)
 
         def rodar(self):
@@ -87,11 +94,12 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
         assert vistos[0] == tmp_path / "perfil-amazon"
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["amazon"]
+        assert batidas.encerradas == ["amazon"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
 
-def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
+def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch, batidas):
     from tcg_sniper.notificador import servico
 
     anterior = signal.getsignal(signal.SIGTERM)
@@ -116,6 +124,7 @@ def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch):
         cli.main(["notificador"])
         assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert paradas == [True]  # SIGTERM pede parada limpa, sem SystemExit
+        assert batidas.encerradas == ["notificador"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -135,7 +144,8 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave, batidas):
     vistos = []
 
     class ServicoFalso:
-        def __init__(self, sessoes, transporte, config, notificador):
+        def __init__(self, sessoes, transporte, config, notificador, batida):
+            batida()
             vistos.append(transporte)
 
         def parar(self):
@@ -153,7 +163,8 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave, batidas):
         cli.main(["casador"])
         assert vistos[0] == (("transporte", chave, {"timeout_s": 30, "max_retries": 2}) if chave else None)
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
-        assert batidas == ["casador"]
+        assert batidas == ["casador"]  # a batida do casador é a do laço (o falso a chama)
+        assert batidas.encerradas == ["casador"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -482,7 +493,7 @@ def test_coletor_amazon_busca_usa_perfil_proprio_e_bate_como_amazon_busca(monkey
     vistos = []
 
     class VarreduraFalsa:
-        def __init__(self, engine, sessoes, fabrica, avisador, config):
+        def __init__(self, engine, sessoes, fabrica, avisador, config, dormir):
             vistos.append(fabrica()._dir_perfil)
 
         def rodar(self):

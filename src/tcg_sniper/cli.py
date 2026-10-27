@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from tcg_sniper.avisos.vigia import Batimento
 from tcg_sniper.config import Config
+from tcg_sniper.db.models import COLETOR_NOTIFICADOR
 from tcg_sniper.db.session import criar_engine, criar_sessoes, migrar
 
 
@@ -133,30 +134,40 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.coletor_liga.agendador import Agendador
         from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
 
-        Batimento(sessoes, "liga").iniciar()
+        batimento = Batimento(sessoes, "liga")
+        batimento.bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
         instalar_sigterm()
-        Agendador(
-            engine,
-            sessoes,
-            lambda: NavegadorPlaywright(config.dir_dados / "perfil"),
-            criar_avisador(sessoes),
-            config,
-        ).rodar()
+        try:
+            Agendador(
+                engine,
+                sessoes,
+                lambda: NavegadorPlaywright(config.dir_dados / "perfil"),
+                criar_avisador(sessoes),
+                config,
+                dormir=batimento.dormir(),
+            ).rodar()
+        finally:
+            batimento.encerrar()
     elif args.comando == "coletor-amazon":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
         from tcg_sniper.coletor_amazon.varredura_monitor import VarreduraMonitor
         from tcg_sniper.navegador.chromium import NavegadorChromium
 
-        Batimento(sessoes, "amazon").iniciar()
+        batimento = Batimento(sessoes, "amazon")
+        batimento.bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
         instalar_sigterm()
-        VarreduraMonitor(
-            engine,
-            sessoes,
-            lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
-            criar_avisador(sessoes),
-            config,
-        ).rodar()
+        try:
+            VarreduraMonitor(
+                engine,
+                sessoes,
+                lambda: NavegadorChromium(config.dir_dados / "perfil-amazon", eh_desafio_amazon),
+                criar_avisador(sessoes),
+                config,
+                dormir=batimento.dormir(),
+            ).rodar()
+        finally:
+            batimento.encerrar()
     elif args.comando == "coletor-amazon-busca":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.coletor_amazon.desafio import eh_desafio_amazon
@@ -164,22 +175,31 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.db.models import COLETOR_AMAZON_BUSCA
         from tcg_sniper.navegador.chromium import NavegadorChromium
 
-        Batimento(sessoes, COLETOR_AMAZON_BUSCA).iniciar()
+        batimento = Batimento(sessoes, COLETOR_AMAZON_BUSCA)
+        batimento.bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
         instalar_sigterm()
-        VarreduraBusca(
-            engine,
-            sessoes,
-            lambda: NavegadorChromium(config.dir_dados / "perfil-amazon-busca", eh_desafio_amazon),
-            criar_avisador(sessoes),
-            config,
-        ).rodar()
+        try:
+            VarreduraBusca(
+                engine,
+                sessoes,
+                lambda: NavegadorChromium(config.dir_dados / "perfil-amazon-busca", eh_desafio_amazon),
+                criar_avisador(sessoes),
+                config,
+                dormir=batimento.dormir(),
+            ).rodar()
+        finally:
+            batimento.encerrar()
     elif args.comando == "notificador":
         from tcg_sniper.notificador import servico
 
         notificador = servico.ServicoNotificador(sessoes, config)
         # SIGTERM pede parada limpa: não corta o envio HTTP no meio (SystemExit).
         signal.signal(signal.SIGTERM, lambda _signum, _frame: notificador.parar())
-        notificador.rodar()
+        try:
+            notificador.rodar()
+        finally:
+            # parada limpa: o vigia não avisa até o próximo ciclo (que é o sinal dele)
+            Batimento(sessoes, COLETOR_NOTIFICADOR).encerrar()
     elif args.comando == "casador":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.casador.servico import ServicoCasador
@@ -188,10 +208,13 @@ def main(argv: list[str] | None = None) -> None:
         chave = (config.openai_api_key or "").strip()
         # timeout e repetições menores que os do padrão: o desligamento (stop_grace_period) espera a chamada em curso
         transporte = TransporteOpenAI(chave, timeout_s=30, max_retries=2) if chave else None
-        casador = ServicoCasador(sessoes, transporte, config, criar_avisador(sessoes))
+        batimento = Batimento(sessoes, "casador")
+        casador = ServicoCasador(sessoes, transporte, config, criar_avisador(sessoes), batida=batimento.bater)
         signal.signal(signal.SIGTERM, lambda _signum, _frame: casador.parar())
-        Batimento(sessoes, "casador").iniciar()
-        casador.rodar()
+        try:
+            casador.rodar()
+        finally:
+            batimento.encerrar()
     elif args.comando == "manutencao":
         from tcg_sniper.avisos.servico import criar_avisador
         from tcg_sniper.manutencao.r2 import criar_enviador

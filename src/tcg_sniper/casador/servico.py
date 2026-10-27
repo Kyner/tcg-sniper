@@ -56,6 +56,7 @@ class ServicoCasador:
         cliente_http: httpx.Client | None = None,
         relogio: Callable[[], datetime] | None = None,
         dormir: Callable[[float], None] | None = None,
+        batida: Callable[[], None] | None = None,
     ):
         self._sessoes = sessoes
         self._transporte = transporte
@@ -64,6 +65,7 @@ class ServicoCasador:
         self._http = cliente_http or httpx.Client(timeout=TIMEOUT_IMAGEM_S, headers={"User-Agent": "Mozilla/5.0"})
         self._relogio = relogio or repo.agora_utc
         self._dormir = dormir
+        self._batida = batida or (lambda: None)  # sinal de vida do vigia, dado a cada passo e a cada par
         self._parar = threading.Event()
 
     def parar(self) -> None:
@@ -113,6 +115,7 @@ class ServicoCasador:
         for par, atual in pares:
             if self._parar.is_set():
                 break
+            self._batida()
             chave = (par.anuncio.id, par.produto.id)
             try:
                 veredito, resposta, sem_imagem = avaliar_par(
@@ -330,6 +333,7 @@ class ServicoCasador:
             log.warning("OPENAI_API_KEY ausente no .env: o casador não chama a IA")
         proxima = self._relogio()
         while not self._parar.is_set():
+            self._batida()
             agora = self._relogio()
             try:
                 with self._sessoes() as s, s.begin():

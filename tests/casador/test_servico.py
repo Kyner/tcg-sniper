@@ -761,3 +761,15 @@ def test_produto_desativado_durante_a_chamada_nao_confirma_o_par(sessoes, config
     assert status_de(sessoes, a, p_id) is StatusCasamento.PENDENTE
     [av] = avaliacoes(sessoes)
     assert av.aplicada_em is None
+
+
+def test_casador_bate_a_cada_passo_e_a_cada_par(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes, n=2)
+    batidas = []
+    sv, _, _ = servico(
+        sessoes, config, [veredito(), veredito()],
+        batida=lambda: batidas.append(1), dormir=lambda _s: sv.parar(),
+    )
+    sv.rodar()
+    assert len(batidas) == 3  # 1 passo + 2 pares

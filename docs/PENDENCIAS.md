@@ -105,8 +105,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Avisos, vigia e notificador
 
-- [ ] Vigia de serviços: a batida de 60 s é uma thread à parte, então prova que o processo está vivo, não que o laço principal ou o navegador andam; um Playwright/Chromium travado não dispara `SERVICO_SEM_SINAL`. Se acontecer, mover a batida para dentro do laço de cada serviço.
-- [ ] Vigia de serviços: container parado de propósito no compose recebe `SERVICO_SEM_SINAL` com lembrete a cada 2 h até ser pausado em Serviços. O vigia deveria ignorar serviço parado de propósito (hoje o jeito é pausá-lo no admin).
 - [ ] Notificador, casos raros aceitos: (a) uma mensagem cujo registro sempre falha pode travar a fila; (b) se o banco cair entre gravar a oportunidade e gravar a mensagem, o alerta fica só no log.
 
 ### Admin antigo (juntar com a fase 3)
@@ -173,7 +171,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Atualizar o Python do PC de desenvolvimento (3.12.10; CVE-2026-12003 é escalada local no Windows). Não afeta os containers (3.12.15).
 - [ ] Primeira semana do site novo (`localhost:8090`): login pelo código no WhatsApp, cadastro do grupo e de operadores, grade de acessos.
 - [ ] Testar uma restauração do backup (README, seção do backup) num banco descartável, para saber que o arquivo volta inteiro.
-- [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida é uma thread de 60 s).
+- [ ] Primeiro "Serviço sem sinal" real: conferir que não houve alarme falso durante coletas longas (a batida agora vem do laço de cada serviço, em fatias de até 60 s).
 
 ## 4. Próximas funcionalidades (decisão do grupo)
 
@@ -254,6 +252,7 @@ Nenhuma no momento.
 - [x] Idioma dos casamentos antigos e brecha do "indefinido": `anuncio_amazon.idioma` (definido à mão ou por comando) passa a valer antes do idioma da avaliação na regra "português confirmado" (`coalesce`); `tcg-sniper casamento definir-idioma [--aplicar]` preenche os confirmados sem idioma pelo título (sem chamada à IA) e lista o que o título não decide; botão "definir idioma" (português, inglês, japonês, outro) no cartão do confirmado na revisão de casamentos (`PATCH /api/gestao/casamentos/anuncios/{id}/idioma`); o automático trata "indefinido" como inglês (só confirma sem português confirmado). Depois do deploy: rodar `casamento definir-idioma` sem e depois com `--aplicar` (ver `docs/IMPLANTACOES.md`). Commit `ca59caa`.
 - [x] Desativar um produto solta os anúncios confirmados: `soltar_confirmados_do_produto` (`db/repositorio_casamento.py`) volta cada confirmado a pendente (marcado para a IA reavaliar, avaliação antiga sem "aplicada"), reabre os `outro_confirmado` e encerra as oportunidades abertas do anúncio com o motivo novo `produto_desativado`, **sem aviso** (nem no grupo, nem no admin: a decisão foi sua; descarta só o alerta ainda na fila). Vale no PATCH e no lote da gestão (`acao_gestao` guarda `anuncios_soltos`) e na chave e no lote do admin antigo; os ids vêm do próprio UPDATE (`RETURNING`), tudo na mesma transação. Reativar não mexe: os pares ficam pendentes para a IA. O casador não confirma par de produto desativado durante a chamada da IA. `tcg-sniper casamento soltar-inativos [--aplicar]` solta os confirmados de produtos já inativos (passo do deploy em `docs/IMPLANTACOES.md`). O motivo conta como resultado e na recorrência de 30 dias. Commits `3691e4f` e o da correção (ver o histórico).
 - [x] Lembretes e "mensagem não enviada": os bloqueios que só esperam (`TIPOS_QUE_ESPERAM`: CAPTCHA da busca e do monitor, sem login, carrinho, Amazon pausada, IA pausada, desafio da Liga) recebem o lembrete de 2 h de `lembrar_abertos`, chamado a cada minuto pela manutenção; respeita o liga/desliga de Configurações → Avisos, usa o texto do catálogo (sem as linhas do evento original) e não mexe em `ocorrencias`. "Mensagem não enviada" fecha (com o "✅ resolvido") quando não sobra falha definitiva na última hora, sem contar o próprio aviso e o resolvido dele (conferido a cada ciclo do notificador), ou quando reenviar/descartar tira a última falha; uma mensagem que saiu não basta. Commit `9d3cef8`.
+- [x] Vigia: serviço parado de propósito (SIGTERM, `docker stop`) grava `sinal_servico.encerrado_em` e sai da vigia até bater de novo (a batida apaga a marca; o notificador compara com o último ciclo); queda sem SIGTERM continua avisando. A batida deixou de ser thread: `Batimento.bater()` sai do laço de cada serviço (`Batimento.dormir()` bate antes e a cada fatia de até 60 s de qualquer espera, o que cobre tick do agendador, páginas da Liga, passos e esperas de erro de 15 min da Amazon; o Casador bate a cada passo e a cada par), então laço ou navegador travado dispara `SERVICO_SEM_SINAL`. Falha ao gravar a batida é logada. Commit `<commit>`.
 
 ### Fase 3B — Serviços, Atividade e Dashboard na gestão (merge `266cc9d`, em produção desde 2026-10-25 20:37)
 
