@@ -382,6 +382,7 @@ def reabrir_ignorados_por_ingles(s: Session, agora: datetime, *, aplicar: bool) 
 class ResultadoIdioma:
     definidos: dict[str, int]  # idioma -> quantos anúncios receberam (ou receberiam) esse idioma
     sem_decisao: list[tuple[int, str]]  # (anuncio_id, título) que a heurística do título não decidiu
+    suspeitos: list[tuple[int, str]]  # confirmados que o título diz serem japonês/outro: possível casamento errado
 
 
 def definir_idioma(s: Session, anuncio_id: int, idioma: str) -> bool:
@@ -417,6 +418,7 @@ def definir_idioma_confirmados(s: Session, agora: datetime, *, aplicar: bool) ->
     savepoint = s.begin_nested()
     definidos: dict[str, int] = {}
     sem_decisao: list[tuple[int, str]] = []
+    suspeitos: list[tuple[int, str]] = []
     for anuncio in alvos:
         idioma = idioma_do_titulo(anuncio.titulo_exibicao)
         if idioma is None:
@@ -424,12 +426,14 @@ def definir_idioma_confirmados(s: Session, agora: datetime, *, aplicar: bool) ->
             continue
         anuncio.idioma = idioma
         definidos[idioma] = definidos.get(idioma, 0) + 1
+        if idioma in ("ja", "outro"):  # só avisa: o status do casamento não muda sozinho
+            suspeitos.append((anuncio.id, anuncio.titulo_exibicao))
     s.flush()
     if aplicar:
         savepoint.commit()
     else:
         savepoint.rollback()
-    return ResultadoIdioma(definidos, sem_decisao)
+    return ResultadoIdioma(definidos, sem_decisao, suspeitos)
 
 
 def marcar_reavaliado(s: Session, anuncio_id: int, produto_id: int) -> None:

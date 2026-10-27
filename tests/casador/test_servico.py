@@ -716,3 +716,29 @@ def test_indefinido_sem_portugues_confirmado_confirma(sessoes, config):
     sv, _, _ = servico(sessoes, config, [veredito_idioma("indefinido", True, 99)])
     sv.ciclo()
     assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO
+
+
+def _definir_idioma_do_anuncio(sessoes, anuncio_id, idioma):
+    from tcg_sniper.db.models import AnuncioAmazon
+
+    with sessoes() as s, s.begin():
+        s.get(AnuncioAmazon, anuncio_id).idioma = idioma
+
+
+def test_idioma_japones_definido_no_anuncio_vale_mais_que_o_da_avaliacao(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, [a] = pares(sessoes)
+    _definir_idioma_do_anuncio(sessoes, a, "ja")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("pt", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, a, p) is StatusCasamento.PENDENTE
+    assert repo_ia_avaliacao(sessoes, a, p).aplicada_em is None
+
+
+def test_idioma_ingles_definido_no_anuncio_segue_a_regra_do_ingles(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, _, pend = produto_com_confirmado(sessoes, "pt")
+    _definir_idioma_do_anuncio(sessoes, pend, "en")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("pt", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.PENDENTE

@@ -230,6 +230,10 @@ def main(argv: list[str] | None = None) -> None:
             print("Idioma definido pelo título:")
             for idioma, quantos in sorted(resultado.definidos.items()):
                 print(f"  {idioma}: {quantos}")
+            if resultado.suspeitos:
+                print(f"Atenção, possível casamento errado (japonês/outro idioma confirmado): {len(resultado.suspeitos)}")
+                for anuncio_id, titulo in resultado.suspeitos:
+                    print(f"  #{anuncio_id} {titulo}")
             print(f"Sem decisão: {len(resultado.sem_decisao)} (defina à mão na revisão de casamentos)")
             for anuncio_id, titulo in resultado.sem_decisao:
                 print(f"  #{anuncio_id} {titulo}")

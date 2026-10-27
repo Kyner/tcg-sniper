@@ -19,7 +19,7 @@ from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db import repositorio_termos as repo_termos
-from tcg_sniper.db.models import COLETOR_CASADOR, EstadoColetorTipo, OrigemCasamento, StatusCasamento
+from tcg_sniper.db.models import COLETOR_CASADOR, AnuncioAmazon, EstadoColetorTipo, OrigemCasamento, StatusCasamento
 from tcg_sniper.ia.modelos import (
     ChaveInvalida,
     ConfiguracaoInvalida,
@@ -236,9 +236,12 @@ class ServicoCasador:
 
     @staticmethod
     def _idioma_permite_confirmar(s: Session, av) -> bool:
-        if av.idioma_anuncio in IDIOMAS_NUNCA_CONFIRMAR:
+        # O idioma definido no anúncio (à mão ou por comando) vale mais que o lido pela IA.
+        anuncio = s.get(AnuncioAmazon, av.anuncio_id)
+        idioma = (anuncio.idioma if anuncio is not None else None) or av.idioma_anuncio
+        if idioma in IDIOMAS_NUNCA_CONFIRMAR:
             return False
-        if av.idioma_anuncio in ("en", "indefinido"):  # idioma que não se leu com certeza: segue a regra do inglês
+        if idioma in ("en", "indefinido"):  # idioma que não se leu com certeza: segue a regra do inglês
             return repo_ia.portugues_confirmado(s, av.produto_id) is False
         return True
 

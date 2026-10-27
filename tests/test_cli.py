@@ -501,14 +501,14 @@ def test_coletor_amazon_busca_usa_perfil_proprio_e_bate_como_amazon_busca(monkey
         signal.signal(signal.SIGTERM, anterior)
 
 
-def _confirmado_com_titulo(sessoes, titulo):
+def _confirmado_com_titulo(sessoes, titulo, asin="B1"):
     from fakes import criar_anuncio, criar_produto
 
     from tcg_sniper.db.models import OrigemCasamento, StatusCasamento
 
     with sessoes() as s, s.begin():
-        p = criar_produto(s, "p1")
-        a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+        p = criar_produto(s, f"p{asin}")
+        a = criar_anuncio(s, asin, produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
         a.titulo = titulo
         return a.id
 
@@ -529,8 +529,18 @@ def test_casamento_definir_idioma_sem_aplicar_so_mostra_as_contagens(banco, caps
 
 
 def test_casamento_definir_idioma_aplicando_e_lista_o_resto(banco, capsys):
-    a = _confirmado_com_titulo(banco, "Booster Box sem idioma")
+    a = _confirmado_com_titulo(banco, "Booster Box English")
+    b = _confirmado_com_titulo(banco, "Booster Box sem idioma", asin="B3")
     cli.main(["casamento", "definir-idioma", "--aplicar"])
     saida = capsys.readouterr().out
     assert "simulação" not in saida and "Sem decisão: 1" in saida and "Booster Box sem idioma" in saida
-    assert _idioma_do_anuncio(banco, a) is None
+    assert _idioma_do_anuncio(banco, a) == "en" and _idioma_do_anuncio(banco, b) is None
+
+
+def test_casamento_definir_idioma_aplicando_pelo_titulo_e_avisa_japones(banco, capsys):
+    a = _confirmado_com_titulo(banco, "Booster Box English")
+    j = _confirmado_com_titulo(banco, "Booster Box Japanese", asin="B2")
+    cli.main(["casamento", "definir-idioma", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert _idioma_do_anuncio(banco, a) == "en" and _idioma_do_anuncio(banco, j) == "ja"
+    assert "possível casamento errado" in saida and "Booster Box Japanese" in saida
