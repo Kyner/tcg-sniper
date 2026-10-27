@@ -287,6 +287,7 @@ Spec `docs/superpowers/specs/2026-10-22-monitor-prioridade-design.md`, plano `do
 ### Atualizações de segurança (merge `39235f0`, em produção desde 2026-10-23 13:28)
 
 - [x] certifi 2026.10.23 (≥ 2026.10.19, CAs comprometidas, GHSA-6q48-6c7w-9gw2, travado por `constraint-dependencies`), Playwright 1.64.1 (Chromium com o zero-day do V8 corrigido), Pillow 13.0.0 (imagens só JPEG/PNG/WEBP/GIF; `ValueError` tratado) e a imagem do build do site em Node 24.22.1. PHP não é usado. A produção ficou parada de propósito das ~11h às 13:28 de 2026-10-23.
+- [x] Vitest 4.1.12 (2026-10-26): fecha os 2 alertas médios do Dependabot no `@vitest/mocker` (injeção de código pelo registro de mocks e desvio da lista permitida com barra invertida no Windows). Só afeta os testes do front; o build de produção não muda, sem deploy. `npm audit` sem vulnerabilidades.
 
 ### Logs › Monitor e Checkout com o produto certo (2026-10-22)
 
