@@ -507,7 +507,7 @@ def test_desfazer_o_confirmado_encerra_a_oportunidade_como_casamento_desfeito(s)
 
 def _cenario_idioma(s):
     p = criar_produto(s, "p1")
-    conf = dict(produto=p, status=CONFIRMADO, origem=MANUAL)
+    conf = {"produto": p, "status": CONFIRMADO, "origem": MANUAL}
     ingles = criar_anuncio(s, "B1", **conf)
     ingles.titulo = "Booster Box English"
     portugues = criar_anuncio(s, "B2", **conf)
@@ -528,7 +528,7 @@ def _cenario_idioma(s):
 
 
 def test_definir_idioma_sem_aplicar_so_conta(s):
-    ingles, portugues, ambos, sem, ja_definido, da_ia, pendente = _cenario_idioma(s)
+    ingles, portugues, ambos, sem, _ja_definido, da_ia, pendente = _cenario_idioma(s)
     r = repo_casamento.definir_idioma_confirmados(s, T0, aplicar=False)
     assert r.definidos == {"en": 1, "pt": 1}
     assert sorted(r.sem_decisao) == [(ambos.id, "Box English Portuguese"), (sem.id, sem.titulo)]
