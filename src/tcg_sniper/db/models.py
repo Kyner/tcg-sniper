@@ -89,6 +89,7 @@ class MotivoEncerramento(enum.StrEnum):
     VENDEDOR = "vendedor"
     LIGA_CAIU = "liga_caiu"
     PRECO_SUBIU = "preco_subiu"
+    PRODUTO_DESATIVADO = "produto_desativado"
 
 
 MOTIVOS_SQL = ", ".join(f"'{m.value}'" for m in MotivoEncerramento)
@@ -164,6 +165,8 @@ class ProdutoLiga(Base):
     ativo: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
+    # Páginas seguidas que falharam na leitura; uma leitura boa zera (depois de 3 vai para o rodízio).
+    falhas_pagina: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class Coleta(Base):
@@ -247,12 +250,17 @@ class EstadoColetor(Base):
     motivo: Mapped[str | None] = mapped_column(Text)
     execucao_solicitada: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     atualizado_em: Mapped[datetime] = mapped_column(DATA)
+    # Quando o coletor voltou depois de um desafio (captcha) resolvido; a contagem de pausas parte daqui.
+    retomado_desafio_em: Mapped[datetime | None] = mapped_column(DATA)
 
 
 class AnuncioAmazon(Base):
     """Um anúncio (ASIN) da amazon.com.br. O casamento com os produtos da Liga fica em `Casamento` (por par)."""
 
     __tablename__ = "anuncio_amazon"
+    __table_args__ = (
+        CheckConstraint("idioma IN ('pt', 'en', 'ja', 'outro', 'indefinido')", name="ck_anuncio_amazon_idioma"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     asin: Mapped[str] = mapped_column(Text, unique=True)
@@ -269,6 +277,8 @@ class AnuncioAmazon(Base):
     # Última leitura das ofertas pelo monitor (NULL se nunca leu). A busca pode trocar o preço atual
     # (`PrecoAtualAmazon`) sem ser leitura do monitor: o prazo e a ordem do monitor vêm daqui.
     monitor_lido_em: Mapped[datetime | None] = mapped_column(DATA)
+    # Idioma definido à mão ou por comando (`IDIOMAS_ANUNCIO`); vazio: vale o da avaliação da IA.
+    idioma: Mapped[str | None] = mapped_column(Text)
 
     @property
     def titulo_exibicao(self) -> str:
@@ -337,6 +347,9 @@ class FilaAmazon(Base):
     # Última tentativa da IA de gerar termos (sem termo válido: espera 7 dias) e pedido do admin.
     termos_tentados_em: Mapped[datetime | None] = mapped_column(DATA)
     termos_pedidos_em: Mapped[datetime | None] = mapped_column(DATA)
+    # Falhas seguidas da geração de termos e até quando esperar para tentar de novo.
+    termos_falhas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    termos_espera_ate: Mapped[datetime | None] = mapped_column(DATA)
 
 
 class Casamento(Base):
@@ -360,6 +373,10 @@ class Casamento(Base):
     visto_primeiro_em: Mapped[datetime] = mapped_column(DATA)
     visto_ultimo_em: Mapped[datetime] = mapped_column(DATA)
     reavaliar: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Falhas seguidas da IA neste par, até quando esperar e a assinatura dos dados que falharam.
+    ia_falhas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    ia_espera_ate: Mapped[datetime | None] = mapped_column(DATA)
+    ia_falha_assinatura: Mapped[str | None] = mapped_column(Text)
 
 
 class TermoBusca(Base):
@@ -392,6 +409,7 @@ class Oportunidade(Base):
         Index("uq_oportunidade_aberta", "anuncio_id", unique=True, postgresql_where=text("fechada_em IS NULL")),
         CheckConstraint(f"motivo_encerramento IN ({MOTIVOS_SQL})", name="ck_oportunidade_motivo_encerramento"),
         CheckConstraint(f"motivo_risco IN ({MOTIVOS_SQL})", name="ck_oportunidade_motivo_risco"),
+        Index("ix_oportunidade_mensagem_alerta_id", "mensagem_alerta_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -420,6 +438,8 @@ class Oportunidade(Base):
     deixou_de_valer_em: Mapped[datetime | None] = mapped_column(DATA)
     # Aberta antes desta versão (o id da mensagem não era guardado): ao encerrar, conta como alerta enviado.
     alerta_sem_registro: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # O alerta desta oportunidade chegou a ser enviado (ao grupo).
+    alerta_enviado: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class OfertaAmazon(Base):
@@ -748,6 +768,8 @@ class SinalServico(Base):
 
     servico: Mapped[str] = mapped_column(Text, primary_key=True)
     ultimo_em: Mapped[datetime] = mapped_column(DATA)
+    # Preenchido num desligamento limpo (SIGTERM); o vigia não avisa de serviço parado de propósito.
+    encerrado_em: Mapped[datetime | None] = mapped_column(DATA)
 
 
 ESFORCOS_IA = ("minimal", "low", "medium", "high")
