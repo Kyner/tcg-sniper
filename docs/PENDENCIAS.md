@@ -41,7 +41,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 ### Testes
 
 - [ ] Teste instável: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` falhou uma vez numa rodada completa e passa sozinho (suspeita de dependência do relógio ou da ordem). Investigar antes de confiar nele no CI.
-- [x] Ponta a ponta da gestão entra como superadmin; acrescentar um operador para exercitar as permissões das telas novas (feito para Serviços na 3B, commit `e255b2e`; falta o operador nas outras telas).
+- [ ] Ponta a ponta com um operador nas telas da gestão além de Serviços (Casamentos, Catálogo, Atividade, Dashboard), para exercitar as permissões; Serviços já tem (3B, `e255b2e`).
 - [ ] `tests/test_compose_portas.py` só lê portas no formato curto (`"ip:porta:porta"`); uma porta no formato longo (`published:`) ou só `"8000"` passaria sem ser conferida.
 - [ ] Teste da migração `acao_gestao` não confere o `ON DELETE SET NULL` no schema; a lista de permissões do operador está fixa em `tests/api/test_auth.py` (derivar de `PADROES`).
 
@@ -50,7 +50,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Catálogo: selo de situação sem tooltip; depois do lote não aparece quantos produtos mudaram; uma resposta antiga da lista pode desfazer na tela uma chave recém-trocada (só visual); a linha não mostra o nome em inglês, as lojas nem as contagens do casamento ("1 esperando você", "casado · 4 anúncios"), que a spec pede e a API já devolve; a chave registra a ação mesmo quando não muda nada.
 - [ ] Revisão de casamentos: Enter com o foco no menu ⋯ avança para o próximo produto; ↑/↓ não rolam até o cartão escolhido; "desfazer" muda o cartão destacado sem avisar; no celular a foto grande e os parecidos ficam acima dos anúncios (a spec pede a Liga compacta); `RevisaoCasamento.tsx` tem ~400 linhas (dividir); "Pular" e "Próximo" levam ao mesmo produto.
 - [ ] Lista de Casamentos: "Tentar de novo" sem cancelamento; depois de um erro, a lista antiga fica sob o alerta; página além da última sem link para a 1ª.
-- [ ] Menu da gestão: o botão do menu no celular não recebe foco pelo teclado nem tem `aria-expanded`/`aria-controls` (aberto). Feitos na 3B (commit `7e02a55`): `GET /api/gestao/menu` conta sem montar a lista, e Mensagens e Logs viraram a Atividade no menu.
+- [ ] Menu da gestão: o botão do menu no celular não tem `aria-expanded`/`aria-controls` (o foco pelo teclado, a contagem do selo e a Atividade no lugar de Mensagens e Logs foram feitos na 3B, `7e02a55`).
 - [ ] API da gestão: a navegação da revisão refaz a lista filtrada a cada pedido; `DecisaoSaida.mensagem` nunca é preenchida; os tipos `Literal` e a classe de filtros repetem à mão as listas de situação e de filtros; o lote conta e aplica sem trava (dois usuários ao mesmo tempo podem mudar 1–2 produtos a mais; fica registrado em `acao_gestao`).
 - [ ] Código: lambdas com parâmetro `l` e nomes parecidos `ORDENS_CASAMENTO`/`_ORDENS_CASAMENTO` (`consultas/casamentos.py`); `parecidos_na_liga` corta sufixos de forma agressiva e ordena por nome, não por proximidade.
 
@@ -99,7 +99,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Produto novo cuja página sempre falha ocupa uma das vagas de novos do dia (o mais antigo primeiro); pular depois de N falhas.
 - [ ] Desligar e religar pelo liga/desliga de Serviços reinicia a espera de 30 min após um desafio; o card diz "volta sozinha", mas nenhum job roda se o do dia já rodou. Nunca fica mais agressivo, só o texto engana. Contar a espera só do "Retomar" após desafio.
 - [ ] 1º desafio tarde da noite com a espera terminando depois da meia-noite roda o job da madrugada com pausas normais ("desafios hoje" zera à meia-noite). Avaliar contar as pausas em dobro pelas últimas 24 h.
-- [ ] Índice em `resumo_preco.coletado_em` para a lista do dia (hoje varre a tabela inteira; ela cresce ~800 mil linhas/ano).
 
 ### Login, usuários e site novo
 
@@ -257,7 +256,7 @@ Nenhuma no momento.
 
 ### Fase 3B — Serviços, Atividade e Dashboard na gestão (merge `266cc9d`, em produção desde 2026-10-25 20:37)
 
-Plano `docs/superpowers/plans/2026-10-25-fase3b-servicos-atividade-dashboard.md`; migração `d6a2f8c4b1e9` (só índices; backup antes do deploy em `dados/backups/tcg-antes-fase3b-2026-10-25.dump`). Commits `a372602`..`1e6a3c5` mais o ponta a ponta `e255b2e`.
+Plano `docs/superpowers/plans/2026-10-25-fase3b-servicos-atividade-dashboard.md`; migração `d6a2f8c4b1e9` (só índices, entre eles o de `resumo_preco.coletado_em` que estava pendente para a lista do dia da Liga; backup antes do deploy em `dados/backups/tcg-antes-fase3b-2026-10-25.dump`). Commits `a372602`..`1e6a3c5` mais o ponta a ponta `e255b2e`.
 
 - [x] Consultas de painel, logs, mensagens e menu movidas para o pacote neutro `tcg_sniper/consultas/`; ações de serviço neutras, compartilhadas pelo admin antigo e pela API (`4dd64d5`, `a372602`).
 - [x] Estado único dos serviços, com "parando…", "parado de verdade" e "iniciando…" (`3e83bdd`); API `/api/gestao/servicos` (ligar, desligar, rodar agora, retomar, monitor e checkout da Amazon, carrinho conferido), com `acao_gestao` por ação (`5fe67ba`).
