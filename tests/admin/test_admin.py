@@ -5,7 +5,7 @@ from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from fakes import T0, criar_produto
+from fakes import T0, criar_anuncio, criar_produto
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 
@@ -13,7 +13,7 @@ from tcg_sniper.admin.app import criar_app, formatar_brl
 from tcg_sniper.coletor_liga.modelos import ItemListagem, Resumo
 from tcg_sniper.consultas import catalogo_gestao
 from tcg_sniper.db import repositorio as repo
-from tcg_sniper.db.models import EstadoColetorTipo, ProdutoLiga, StatusColeta, TipoColeta
+from tcg_sniper.db.models import Casamento, EstadoColetorTipo, ProdutoLiga, StatusCasamento, StatusColeta, TipoColeta
 
 
 def basic(usuario, senha):
@@ -547,3 +547,33 @@ def test_produto_sem_nome_em_ingles_nao_mostra_linha_extra(cliente, sessoes):
     with sessoes() as s, s.begin():
         criar_produto(s, "a", nome="Só Português")
     assert 'text-sm text-base-content/60"' not in cliente.get("/catalogo").text
+
+
+def _confirmar_um(sessoes, liga_id):
+    with sessoes() as s, s.begin():
+        produto = s.scalar(select(ProdutoLiga).where(ProdutoLiga.liga_id == liga_id))
+        criar_anuncio(s, "B0ADMIN001", produto, StatusCasamento.CONFIRMADO)
+        return produto.id
+
+
+def _confirmados(sessoes, produto_id):
+    with sessoes() as s:
+        return s.scalars(
+            select(Casamento).where(Casamento.produto_id == produto_id, Casamento.status == StatusCasamento.CONFIRMADO)
+        ).all()
+
+
+def test_chave_do_admin_ao_desligar_solta_os_confirmados(cliente, sessoes):
+    criar_lote(sessoes)
+    pid = _confirmar_um(sessoes, "c-ativa")
+    assert len(_confirmados(sessoes, pid)) == 1
+    cliente.post(f"/produto/{pid}/ativo")
+    assert _confirmados(sessoes, pid) == []
+
+
+def test_lote_do_admin_ao_desativar_solta_os_confirmados(cliente, sessoes):
+    criar_lote(sessoes)
+    pid = _confirmar_um(sessoes, "c-ativa")
+    r = cliente.post("/catalogo/lote", data={"acao": "desativar"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert _confirmados(sessoes, pid) == []

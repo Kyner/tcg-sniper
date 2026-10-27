@@ -24,6 +24,7 @@ from tcg_sniper.consultas.variacao import pistas_variacao
 from tcg_sniper.db.models import PrecoAtualLiga, ProdutoLiga, TipoAcaoGestao
 from tcg_sniper.db.repositorio_acao_gestao import registrar
 from tcg_sniper.db.repositorio_amazon import obter_config
+from tcg_sniper.db.repositorio_casamento import soltar_confirmados_do_produto
 from tcg_sniper.oportunidades.motor import Regras, desconto_pct
 
 roteador = APIRouter(prefix="/api/gestao", tags=["gestão"])
@@ -199,12 +200,13 @@ def alterar_produto(
         produto = s.get(ProdutoLiga, produto_id)
         if produto is None:
             raise ErroApi(404, "nao_encontrado", "Produto não encontrado.")
+        agora = estado.relogio()
         produto.ativo = entrada.ativo
         s.flush()
-        registrar(
-            s, contexto.usuario_id, TipoAcaoGestao.CATALOGO_PRODUTO,
-            {"produto_id": produto_id, "ativo": entrada.ativo}, estado.relogio(),
-        )
+        detalhe = {"produto_id": produto_id, "ativo": entrada.ativo}
+        if not entrada.ativo:  # idempotente: produto que já estava desligado não tem confirmados a soltar
+            detalhe["anuncios_soltos"] = soltar_confirmados_do_produto(s, produto_id, agora)
+        registrar(s, contexto.usuario_id, TipoAcaoGestao.CATALOGO_PRODUTO, detalhe, agora)
         saida = _linha_saida(request, q.linha_produto(s, produto_id))
     return saida
 
@@ -231,11 +233,11 @@ def lote(request: Request, entrada: LoteEntrada, contexto: EditarCatalogo) -> Lo
                 409, "contagem_mudou", f"A lista mudou: agora são {alvo} produtos. Confira e confirme de novo."
             )
         alterados = q.aplicar_lote(s, entrada.acao == "ligar", alvo_lote, agora)
-        registrar(
-            s, contexto.usuario_id, TipoAcaoGestao.CATALOGO_LOTE,
-            {"acao": entrada.acao, **descricao, "alvo": alvo, "alterados": alterados}, agora,
-        )
-    return LoteSaida(alvo=alvo, alterados=alterados)
+        detalhe = {"acao": entrada.acao, **descricao, "alvo": alvo, "alterados": int(alterados)}
+        if entrada.acao == "desligar":
+            detalhe["anuncios_soltos"] = alterados.anuncios_soltos
+        registrar(s, contexto.usuario_id, TipoAcaoGestao.CATALOGO_LOTE, detalhe, agora)
+    return LoteSaida(alvo=alvo, alterados=int(alterados))
 
 
 @roteador.get("/produtos/{produto_id}")

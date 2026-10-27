@@ -11,6 +11,7 @@ from sqlalchemy import ColumnElement, case, func, select, update
 from sqlalchemy.orm import Session
 
 from tcg_sniper.consultas.catalogo import SITUACOES_PRODUTO, casa_nome, classificar
+from tcg_sniper.db import repositorio_casamento
 from tcg_sniper.db.models import (
     Casamento,
     PrecoAtualAmazon,
@@ -19,6 +20,7 @@ from tcg_sniper.db.models import (
     ProdutoLiga,
     StatusCasamento,
 )
+from tcg_sniper.db.repositorio import agora_utc
 from tcg_sniper.oportunidades.motor import desconto_pct
 
 # --- admin antigo ---
@@ -50,6 +52,28 @@ def condicoes_catalogo(
     return condicoes
 
 
+class Alterados(int):
+    """Quantos produtos mudaram de `ativo` (o próprio número) e, ao desligar, quantos anúncios confirmados
+    deles foram soltos (`anuncios_soltos`)."""
+
+    anuncios_soltos: int
+
+    def __new__(cls, alterados: int, anuncios_soltos: int = 0):
+        valor = super().__new__(cls, alterados)
+        valor.anuncios_soltos = anuncios_soltos
+        return valor
+
+
+def _definir_ativo(s: Session, comando, ativo: bool, agora: datetime) -> Alterados:
+    """Roda o UPDATE em massa; os ids que mudaram saem do próprio comando (`RETURNING`), e, ao desligar,
+    cada um solta os anúncios confirmados (mesma transação; os ids em ordem, para as travas)."""
+    ids = sorted(s.scalars(comando.returning(ProdutoLiga.id)))
+    soltos = 0
+    if not ativo:
+        soltos = sum(repositorio_casamento.soltar_confirmados_do_produto(s, i, agora) for i in ids)
+    return Alterados(len(ids), soltos)
+
+
 def alterar_ativo_em_lote(
     s: Session,
     ativo: bool,
@@ -72,7 +96,7 @@ def alterar_ativo_em_lote(
         .values(ativo=ativo)
         .execution_options(synchronize_session=False)
     )
-    return s.execute(comando).rowcount
+    return _definir_ativo(s, comando, ativo, agora)
 
 
 def buscar_catalogo(
@@ -105,11 +129,14 @@ def buscar_catalogo(
 
 
 def alternar_ativo(s: Session, produto_id: int) -> tuple[ProdutoLiga, PrecoAtualLiga | None] | None:
+    """Liga/desliga o produto; ao desligar, solta os anúncios confirmados dele."""
     produto = s.get(ProdutoLiga, produto_id)
     if produto is None:
         return None
     produto.ativo = not produto.ativo
     s.flush()
+    if not produto.ativo:
+        repositorio_casamento.soltar_confirmados_do_produto(s, produto_id, agora_utc())
     return produto, s.get(PrecoAtualLiga, produto_id)
 
 
@@ -335,20 +362,21 @@ def contar_ids(s: Session, ids: list[int]) -> int:
     return s.scalar(select(func.count()).select_from(ProdutoLiga).where(ProdutoLiga.id.in_(ids))) or 0
 
 
-def aplicar_lote(s: Session, ativo: bool, alvo: FiltroCatalogo | list[int], agora: datetime) -> int:
+def aplicar_lote(s: Session, ativo: bool, alvo: FiltroCatalogo | list[int], agora: datetime) -> Alterados:
     """Define `ativo` nos produtos do filtro (todas as páginas) ou da lista de ids; devolve quantos mudaram de fato.
-    `agora` fica na assinatura para os filtros que dependerem do tempo."""
+    Ao desligar, solta os anúncios confirmados deles (`anuncios_soltos`). `agora` é a hora do encerramento
+    das oportunidades e fica na assinatura para os filtros que dependerem do tempo."""
     if isinstance(alvo, FiltroCatalogo):
         # sem correlação: a subconsulta lê produto_liga por conta própria (não a linha do UPDATE)
         selecao = ProdutoLiga.id.in_(_consulta(alvo, ProdutoLiga.id).correlate(None))
     elif alvo:
         selecao = ProdutoLiga.id.in_(alvo)
     else:
-        return 0
+        return Alterados(0)
     comando = (
         update(ProdutoLiga)
         .where(selecao, ProdutoLiga.ativo != ativo)
         .values(ativo=ativo)
         .execution_options(synchronize_session=False)
     )
-    return s.execute(comando).rowcount
+    return _definir_ativo(s, comando, ativo, agora)

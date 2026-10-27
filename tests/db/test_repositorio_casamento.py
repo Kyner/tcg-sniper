@@ -557,3 +557,52 @@ def test_definir_idioma_do_anuncio(s):
     s.refresh(a)
     assert a.idioma == "ja"
     assert repo_casamento.definir_idioma(s, 999999, "pt") is False
+
+
+def test_desativar_solta_os_confirmados_e_reabre_os_outros(s):
+    p, q = criar_produto(s, "p"), criar_produto(s, "q")
+    a1, a2 = criar_anuncio(s, "B0SOLT0001", produto=p), criar_anuncio(s, "B0SOLT0002", produto=p)
+    criar_par(s, a1, q)
+    av = avaliacao(s, a1, p)
+    repo_casamento.confirmar(s, a1.id, p.id, T0, OrigemCasamento.AUTOMATICO_IA)
+    repo_casamento.confirmar(s, a2.id, p.id, T0)
+    av.aplicada_em = T0
+    outro = criar_anuncio(s, "B0SOLT0003", produto=q, status=CONFIRMADO, origem=MANUAL)
+    depois = T0 + timedelta(hours=1)
+    assert repo_casamento.soltar_confirmados_do_produto(s, p.id, depois) == 2
+    for a in (a1, a2):
+        par = repo_casamento.obter_par(s, a.id, p.id)
+        assert (par.status, par.origem, par.revisado_em, par.reavaliar) == (PENDENTE, None, None, True)
+    assert situacao(s, a1, q) == (PENDENTE, None)
+    assert repo_casamento.obter_par(s, a1.id, q.id).reavaliar is True
+    s.refresh(av)
+    assert av.aplicada_em is None
+    assert situacao(s, outro, q) == (CONFIRMADO, MANUAL)  # confirmado de outro produto não muda
+    assert repo_casamento.soltar_confirmados_do_produto(s, p.id, depois) == 0
+
+
+def test_desativar_encerra_a_oportunidade_sem_aviso_no_grupo(s):
+    p = criar_produto(s, "p")
+    anuncio = criar_anuncio(s, "B0SOLT0010", produto=p, status=CONFIRMADO, origem=MANUAL)
+    op = abrir_op(s, anuncio, p)
+    op.alerta_sem_registro = True  # alerta que o grupo viu: o encerramento comum avisaria
+    s.flush()
+    depois = T0 + timedelta(hours=1)
+    repo_casamento.soltar_confirmados_do_produto(s, p.id, depois)
+    s.refresh(op)
+    assert op.fechada_em == depois and op.motivo_encerramento == "produto_desativado"
+    assert op.encerramento_avisado_em is None
+    assert s.scalars(select(MensagemSaida)).all() == []
+
+
+def test_reativar_deixa_os_pares_para_a_ia(s):
+    p = criar_produto(s, "p")
+    anuncio = criar_anuncio(s, "B0SOLT0020", produto=p, status=CONFIRMADO, origem=MANUAL)
+    repo_casamento.soltar_confirmados_do_produto(s, p.id, T0)
+    p.ativo = False
+    s.flush()
+    assert repo_ia.pares_pendentes(s) == []  # inativo: a IA não vê
+    p.ativo = True
+    s.flush()
+    [par] = repo_ia.pares_pendentes(s)
+    assert par.anuncio.id == anuncio.id and par.reavaliar is True

@@ -7,7 +7,7 @@ from fakes_oportunidades import criar_atual_amazon, criar_listagem_liga
 from sqlalchemy import select
 
 from tcg_sniper.db import repositorio_acesso as repo_acesso
-from tcg_sniper.db.models import AcaoGestao, Papel, ProdutoLiga, StatusCasamento, TipoAcaoGestao
+from tcg_sniper.db.models import AcaoGestao, Casamento, Papel, ProdutoLiga, StatusCasamento, TipoAcaoGestao
 
 LISTA = "/api/gestao/catalogo"
 LOTE = "/api/gestao/catalogo/lote"
@@ -105,7 +105,7 @@ def test_patch_liga_e_desliga_e_grava_acao(cliente, logar, sessoes, catalogo):
     assert "bd0" not in _ativos(sessoes)
     assert _acoes(sessoes) == [
         (usuario, TipoAcaoGestao.CATALOGO_PRODUTO, {"produto_id": pid, "ativo": True}),
-        (usuario, TipoAcaoGestao.CATALOGO_PRODUTO, {"produto_id": pid, "ativo": False}),
+        (usuario, TipoAcaoGestao.CATALOGO_PRODUTO, {"produto_id": pid, "ativo": False, "anuncios_soltos": 0}),
     ]
     assert cliente.patch(f"{PRODUTO}/999999", json={"ativo": True}).status_code == 404
     assert cliente.patch(f"{PRODUTO}/{pid}", json={}).status_code == 422
@@ -153,7 +153,7 @@ def test_lote_por_ids(cliente, logar, sessoes, catalogo):
     assert r.status_code == 200 and r.json() == {"alvo": 3, "alterados": 2}
     assert _ativos(sessoes) == {"cx0"}
     assert _acoes(sessoes) == [
-        (usuario, TipoAcaoGestao.CATALOGO_LOTE, {"acao": "desligar", "ids": ids, "alvo": 3, "alterados": 2})
+        (usuario, TipoAcaoGestao.CATALOGO_LOTE, {"acao": "desligar", "ids": ids, "alvo": 3, "alterados": 2, "anuncios_soltos": 0})
     ]
 
 
@@ -265,3 +265,31 @@ def test_produto_de_gestao_casado_sem_preco_mostra_o_anuncio(cliente, logar, ses
     corpo = cliente.get(f"{PRODUTO}/{pid}").json()
     assert corpo["melhor_amazon"] is None and corpo["sem_preco"] is True
     assert corpo["anuncio"]["url"].endswith("B0GESTSEM1") and corpo["anuncios_casados"] == 2
+
+
+def test_patch_desligar_solta_os_confirmados_e_grava_quantos(cliente, logar, sessoes, catalogo):
+    usuario = logar(Papel.OPERADOR)
+    pid = catalogo["cx0"]
+    r = cliente.patch(f"{PRODUTO}/{pid}", json={"ativo": False})
+    assert r.status_code == 200 and r.json()["monitorado"] is False
+    assert _acoes(sessoes) == [
+        (usuario, TipoAcaoGestao.CATALOGO_PRODUTO, {"produto_id": pid, "ativo": False, "anuncios_soltos": 1})
+    ]
+    with sessoes() as s:
+        status = s.scalars(select(Casamento.status).where(Casamento.produto_id == pid)).all()
+        assert status == [StatusCasamento.PENDENTE, StatusCasamento.PENDENTE]
+
+
+def test_lote_de_desligar_solta_os_confirmados_de_todos(cliente, logar, sessoes, catalogo):
+    usuario = logar(Papel.OPERADOR)
+    with sessoes() as s, s.begin():
+        criar_anuncio(s, "B0CAT00003", s.get(ProdutoLiga, catalogo["cx1"]), StatusCasamento.CONFIRMADO)
+    ids = [catalogo["cx0"], catalogo["cx1"]]
+    r = cliente.post(LOTE, json={"acao": "desligar", "ids": ids, "esperado": 2, "confirmar": True})
+    assert r.status_code == 200 and r.json() == {"alvo": 2, "alterados": 2}
+    assert _acoes(sessoes) == [
+        (usuario, TipoAcaoGestao.CATALOGO_LOTE,
+         {"acao": "desligar", "ids": ids, "alvo": 2, "alterados": 2, "anuncios_soltos": 2})
+    ]
+    with sessoes() as s:
+        assert s.scalars(select(Casamento).where(Casamento.status == StatusCasamento.CONFIRMADO)).all() == []

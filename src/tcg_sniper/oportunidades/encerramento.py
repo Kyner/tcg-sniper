@@ -3,7 +3,8 @@ aviso pela situação da mensagem do alerta (spec 2026-10-20-fim-da-oportunidade
 
 - alerta enviado (ou oportunidade de antes desta versão, `alerta_sem_registro`): avisa o grupo do motivo;
 - alerta ainda pendente na fila: descarta o alerta (perdeu a validade) e não avisa;
-- alerta expirado, descartado, com falha ou sem mensagem: não avisa (ninguém viu o alerta).
+- alerta expirado, descartado, com falha ou sem mensagem: não avisa (ninguém viu o alerta);
+- motivo `produto_desativado` (decisão do usuário, não do mercado): nunca avisa, nem o grupo nem o admin.
 
 Roda na transação de quem chama; o aviso roda em savepoint (`avisos.servico.avisar`): falha nele não desfaz o
 encerramento."""
@@ -62,7 +63,7 @@ def encerrar(
     op.deixou_de_valer_em = op.em_risco_desde or agora
     op.em_risco_desde = op.motivo_risco = None
     s.flush()
-    if not _alerta_saiu(s, op, agora):
+    if not _alerta_saiu(s, op, agora) or motivo is MotivoEncerramento.PRODUTO_DESATIVADO:
         return True
     produto = s.get(ProdutoLiga, op.produto_id)
     anuncio = s.get(AnuncioAmazon, op.anuncio_id)

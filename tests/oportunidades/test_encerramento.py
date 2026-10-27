@@ -205,3 +205,23 @@ def test_deixou_de_valer_sem_risco_e_o_encerramento(sessoes, oportunidade):
         encerrar(s, op_id, M.CASAMENTO_DESFEITO, AGORA)
     with sessoes() as s:
         assert s.get(Oportunidade, op_id).deixou_de_valer_em == AGORA
+
+
+def test_produto_desativado_nao_avisa_o_grupo_mesmo_com_alerta_enviado(sessoes, oportunidade):
+    op_id, msg_id = oportunidade
+    _situacao(sessoes, msg_id, StatusMensagem.ENVIADA)
+    with sessoes() as s, s.begin():
+        assert encerrar(s, op_id, M.PRODUTO_DESATIVADO, AGORA) is True
+    with sessoes() as s:
+        op = s.get(Oportunidade, op_id)
+        assert (op.fechada_em, op.motivo_encerramento, op.encerramento_avisado_em) == (AGORA, "produto_desativado", None)
+        assert _avisos(s) == []
+
+
+def test_produto_desativado_descarta_o_alerta_pendente(sessoes, oportunidade):
+    op_id, msg_id = oportunidade
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRODUTO_DESATIVADO, AGORA)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, msg_id).status is StatusMensagem.DESCARTADA
+        assert _avisos(s) == []

@@ -98,16 +98,22 @@ def travar_anuncio(s: Session, anuncio_id: int) -> AnuncioAmazon:
     return s.get_one(AnuncioAmazon, anuncio_id, with_for_update=True)
 
 
-def fechar_oportunidades(s: Session, anuncio_id: int, agora: datetime, exceto_produto_id: int | None = None) -> int:
-    """Encerra (motivo `casamento_desfeito`) as oportunidades abertas do anúncio, menos as de
-    `exceto_produto_id`. Pelo encerramento: grava o motivo e avisa "alerta corrigido" a quem viu o alerta."""
+def fechar_oportunidades(
+    s: Session,
+    anuncio_id: int,
+    agora: datetime,
+    exceto_produto_id: int | None = None,
+    motivo: MotivoEncerramento = MotivoEncerramento.CASAMENTO_DESFEITO,
+) -> int:
+    """Encerra as oportunidades abertas do anúncio, menos as de `exceto_produto_id`. Pelo encerramento: grava
+    o motivo (`casamento_desfeito` por padrão: avisa "alerta corrigido" a quem viu o alerta)."""
     from tcg_sniper.oportunidades import encerramento  # import tardio: este módulo é base do repositorio_amazon
 
     condicoes = [Oportunidade.anuncio_id == anuncio_id, Oportunidade.fechada_em.is_(None)]
     if exceto_produto_id is not None:
         condicoes.append(Oportunidade.produto_id != exceto_produto_id)
     ids = list(s.scalars(select(Oportunidade.id).where(*condicoes).order_by(Oportunidade.id)))
-    return sum(encerramento.encerrar(s, op_id, MotivoEncerramento.CASAMENTO_DESFEITO, agora) for op_id in ids)
+    return sum(encerramento.encerrar(s, op_id, motivo, agora) for op_id in ids)
 
 
 def _zerar_aplicada(s: Session, anuncio_id: int, produto_id: int) -> None:
@@ -253,6 +259,35 @@ def desfazer(s: Session, anuncio_id: int, produto_id: int, agora: datetime) -> C
         _reabrir_outro_confirmado(s, anuncio_id)
     s.flush()
     return par
+
+
+def soltar_confirmados_do_produto(s: Session, produto_id: int, agora: datetime) -> int:
+    """O produto foi desativado: cada anúncio confirmado dele volta a pendente (marcado para a IA reavaliar,
+    avaliação antiga sem "aplicada"), os `outro_confirmado` do anúncio reabrem e as oportunidades abertas do
+    anúncio encerram com `produto_desativado`, sem aviso (a decisão foi sua, não um erro de casamento).
+    Os pares ficam escondidos da IA enquanto o produto está inativo e voltam quando ele é reativado.
+    Anúncios travados em ordem de id. Devolve quantos soltou."""
+    ids = list(
+        s.scalars(
+            select(Casamento.anuncio_id)
+            .where(Casamento.produto_id == produto_id, Casamento.status == CONFIRMADO)
+            .order_by(Casamento.anuncio_id)
+        )
+    )
+    soltos = 0
+    for anuncio_id in ids:
+        travar_anuncio(s, anuncio_id)
+        par = obter_par(s, anuncio_id, produto_id, travar=True)
+        if par is None or par.status is not CONFIRMADO:  # mudou enquanto esperava a trava
+            continue
+        par.status, par.origem, par.revisado_em, par.reavaliar = PENDENTE, None, None, True
+        s.flush()
+        _zerar_aplicada(s, anuncio_id, produto_id)
+        fechar_oportunidades(s, anuncio_id, agora, motivo=MotivoEncerramento.PRODUTO_DESATIVADO)
+        _reabrir_outro_confirmado(s, anuncio_id)
+        soltos += 1
+    s.flush()
+    return soltos
 
 
 def trocar(
