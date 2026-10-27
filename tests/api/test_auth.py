@@ -402,3 +402,25 @@ def test_sem_o_nove_sem_cadastro_responde_igual(cliente, sessoes):
     assert (com.status_code, com.json()) == (sem.status_code, sem.json())
     assert len(individuais(sessoes)) == 1
     assert entrar(cliente, "000000", numero="(21) 8765-4321").status_code == 401
+
+
+def test_cadastro_exato_sem_o_nove_tem_prioridade(cliente, sessoes):
+    criar_usuario(sessoes, Papel.GRUPO, nome="Com nove", numero=CELULAR_COM_NOVE)
+    criar_usuario(sessoes, Papel.OPERADOR, nome="Oito digitos", numero="+551187654321")
+    assert pedir(cliente, CELULAR_SEM_NOVE).status_code == 200
+    [m] = individuais(sessoes)
+    assert m.numero == "+551187654321"
+    r = entrar(cliente, codigo_da_fila(sessoes), numero=CELULAR_SEM_NOVE)
+    assert r.status_code == 200 and r.json()["nome"] == "Oito digitos"
+    assert pedir(cliente, "(11) 98765-4321").status_code == 200
+    assert individuais(sessoes)[-1].numero == CELULAR_COM_NOVE
+
+
+def test_variante_com_o_nove_inativa_nao_recebe_codigo(cliente, sessoes):
+    criar_usuario(sessoes, Papel.GRUPO, numero=CELULAR_COM_NOVE, ativo=False)
+    inativo = pedir(cliente, CELULAR_SEM_NOVE)
+    inexistente = pedir(cliente, "(21) 8765-4321")
+    assert (inativo.status_code, inativo.json()) == (inexistente.status_code, inexistente.json())
+    assert individuais(sessoes) == []
+    r = entrar(cliente, "123456", numero=CELULAR_SEM_NOVE)
+    assert r.status_code == 401 and r.json() == entrar(cliente, "123456", numero="(21) 8765-4321").json()
