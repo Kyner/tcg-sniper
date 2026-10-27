@@ -72,6 +72,14 @@ def finalizar_coleta(
     )
 
 
+def registrar_falha_pagina(s: Session, produto_id: int) -> None:
+    """+1 nas falhas seguidas da página do produto (rede ou parser); zera em `gravar_precos_produto`."""
+    s.execute(
+        update(ProdutoLiga).where(ProdutoLiga.id == produto_id).values(falhas_pagina=ProdutoLiga.falhas_pagina + 1)
+    )
+    s.flush()
+
+
 def gravar_precos_produto(
     s: Session,
     coleta_id: int,
@@ -89,8 +97,8 @@ def gravar_precos_produto(
         "num_lojas": resumo.num_lojas,
     }
     extras = {k: v for k, v in (("nome_en", resumo.nome_en), ("imagem_url", resumo.imagem_url)) if v is not None}
-    if extras:
-        s.execute(update(ProdutoLiga).where(ProdutoLiga.id == produto_id).values(**extras))
+    # Uma leitura boa zera a contagem de falhas da página.
+    s.execute(update(ProdutoLiga).where(ProdutoLiga.id == produto_id).values(**extras, falhas_pagina=0))
     s.add(ResumoPreco(produto_id=produto_id, coleta_id=coleta_id, coletado_em=agora, **precos))
     atual = {**precos, "resumo_coleta_id": coleta_id, "resumo_em": agora}
     s.execute(
@@ -221,14 +229,20 @@ def _mudar_estado(s: Session, novo: EstadoColetorTipo, motivo: str, agora: datet
     s.flush()
 
 
-def retomar(s: Session, agora: datetime, coletor: str = COLETOR_LIGA, solicitar: bool = True) -> None:
+def retomar(
+    s: Session, agora: datetime, coletor: str = COLETOR_LIGA, solicitar: bool = True, desafio_resolvido: bool = False
+) -> None:
     """Volta a `ativo`. `solicitar` pede uma execução já (desafio resolvido, casador); sem ela, o
-    serviço segue o próprio horário (religar a LigaMagic ou o notificador na tela de Serviços)."""
+    serviço segue o próprio horário (religar a LigaMagic ou o notificador na tela de Serviços); religar
+    quem já está ativo mantém o pedido de execução que houver. `desafio_resolvido` marca a retomada de onde conta a espera do esfriamento."""
     estado = obter_estado(s, agora, coletor)
+    ja_ativo = estado.estado is EstadoColetorTipo.ATIVO
     estado.estado = EstadoColetorTipo.ATIVO
     estado.motivo = None
-    estado.execucao_solicitada = solicitar
+    estado.execucao_solicitada = solicitar or (ja_ativo and estado.execucao_solicitada)
     estado.atualizado_em = agora
+    if desafio_resolvido:
+        estado.retomado_desafio_em = agora
     s.flush()
 
 

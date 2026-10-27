@@ -185,12 +185,12 @@ class Agendador:
         return True
 
     def _config_do_job(self) -> Config:
-        """Depois de um desafio hoje, o job inteiro usa as pausas em dobro (listagens, cliques e produtos)."""
+        """Depois de um desafio nas últimas 24 h, o job inteiro usa as pausas em dobro (listagens, cliques e produtos)."""
         with self._sessoes() as s, s.begin():
             desafio = situacao_desafio(s, self._relogio(), self._config.zona, self._config.esfriar_desafio_min)
         if not desafio.pausas_dobradas:
             return self._config
-        log.info("desafio hoje: pausas em dobro até o fim do dia")
+        log.info("desafio nas últimas 24 h: pausas em dobro")
         return self._config.model_copy(
             update={"pausa_min_s": self._config.pausa_min_s * 2, "pausa_max_s": self._config.pausa_max_s * 2}
         )

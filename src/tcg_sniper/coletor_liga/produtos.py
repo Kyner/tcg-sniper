@@ -39,6 +39,11 @@ log = logging.getLogger(__name__)
 DESCRICAO = "Coleta dos produtos da lista do dia"
 
 
+def _registrar_falha(sessoes: sessionmaker[Session], produto_id: int) -> None:
+    with sessoes() as s, s.begin():
+        repo.registrar_falha_pagina(s, produto_id)
+
+
 def coletar_produtos(
     sessoes: sessionmaker[Session],
     navegador: Navegador,
@@ -70,6 +75,7 @@ def coletar_produtos(
             except ErroRede as erro:
                 log.warning("produto %s falhou por rede: %s", produto_id, erro)
                 falha += 1
+                _registrar_falha(sessoes, produto_id)
                 continue
             try:
                 resumo = parse_produto(pagina.html)
@@ -77,6 +83,7 @@ def coletar_produtos(
                 caminho = salvar_html_falha(config, f"produto-{coleta_id}-{produto_id}", pagina.html)
                 log.warning("parser falhou no produto %s (%s); HTML em %s", produto_id, erro, caminho)
                 falha += 1
+                _registrar_falha(sessoes, produto_id)
                 continue
             with sessoes() as s, s.begin():
                 repo.gravar_precos_produto(s, coleta_id, produto_id, resumo, repo.agora_utc())

@@ -1,10 +1,10 @@
 """Esfriar depois de um desafio do Cloudflare na LigaMagic.
 
 Tudo sai do banco: os desafios são as coletas da Liga fechadas `pausada_desafio` (tabela `coleta`) e a
-espera conta da retomada (`estado_coletor.atualizado_em` da Liga). Um reinício do serviço não zera nada.
+espera conta da retomada depois do desafio (`estado_coletor.retomado_desafio_em` da Liga). Um reinício do serviço não zera nada.
 
 - 1º desafio do dia: depois de retomar, o job só começa `esfriar_min` minutos depois, e as pausas entre
-  páginas dobram até o fim do dia.
+  páginas dobram por 24 h (contadas dos desafios, não do dia do calendário).
 - 2º desafio do dia: nada roda até o dia seguinte (nem "Rodar agora").
 """
 
@@ -25,6 +25,7 @@ TIPOS_LIGA = (TipoColeta.LISTAGEM, TipoColeta.PRODUTOS)
 @dataclass(frozen=True)
 class SituacaoDesafio:
     desafios_hoje: int
+    desafios_24h: int
     esfriando_ate: datetime | None  # fim da espera depois da retomada; None: não está esfriando
 
     @property
@@ -34,7 +35,7 @@ class SituacaoDesafio:
 
     @property
     def pausas_dobradas(self) -> bool:
-        return self.desafios_hoje >= 1
+        return self.desafios_24h >= 1
 
 
 def desafios_desde(s: Session, desde: datetime) -> int:
@@ -70,11 +71,18 @@ def _esfriando_ate(s: Session, agora: datetime, esfriar_min: int) -> datetime | 
     estado = repo.obter_estado(s, agora)
     if estado.estado is not EstadoColetorTipo.ATIVO:
         return None  # ainda esperando alguém resolver e retomar
-    fim = estado.atualizado_em + timedelta(minutes=esfriar_min)
+    retomado = estado.retomado_desafio_em
+    if retomado is None or retomado < ultimo:
+        return None  # só a retomada depois do desafio inicia a espera (ligar/desligar comum não)
+    fim = retomado + timedelta(minutes=esfriar_min)
     return fim if agora < fim else None
 
 
 def situacao_desafio(s: Session, agora: datetime, fuso: ZoneInfo, esfriar_min: int) -> SituacaoDesafio:
-    """Desafios desde a meia-noite no fuso e até quando esfriar. O esfriamento vale para o último desafio
-    mesmo de ontem (retomado hoje); "desafios hoje" conta só desde a meia-noite."""
-    return SituacaoDesafio(desafios_desde(s, inicio_do_dia(agora, fuso)), _esfriando_ate(s, agora, esfriar_min))
+    """Desafios desde a meia-noite no fuso (a parada até amanhã), desafios nas últimas 24 h (as pausas em
+    dobro) e até quando esfriar. O esfriamento vale para o último desafio mesmo de ontem (retomado hoje)."""
+    return SituacaoDesafio(
+        desafios_desde(s, inicio_do_dia(agora, fuso)),
+        desafios_desde(s, agora - timedelta(hours=24)),
+        _esfriando_ate(s, agora, esfriar_min),
+    )

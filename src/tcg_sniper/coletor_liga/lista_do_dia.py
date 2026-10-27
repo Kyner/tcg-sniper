@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 from tcg_sniper.db.models import Casamento, ProdutoLiga, ResumoPreco, StatusCasamento
 
 DIAS_DO_RODIZIO = 7
+# Falhas seguidas da página: o produto novo que chega a isto sai dos "novos do dia" e fica só no rodízio.
+FALHAS_PARA_SAIR_DOS_NOVOS = 3
 
 
 @dataclass(frozen=True)
@@ -56,7 +58,7 @@ def montar_lista(
     inicio = inicio_do_dia(agora, fuso)
     dia_da_semana = agora.astimezone(fuso).weekday()  # segunda = 0
     ativos = s.execute(
-        select(ProdutoLiga.id, ProdutoLiga.url, ProdutoLiga.visto_primeiro_em)
+        select(ProdutoLiga.id, ProdutoLiga.url, ProdutoLiga.visto_primeiro_em, ProdutoLiga.falhas_pagina)
         .where(ProdutoLiga.ativo.is_(True))
         .order_by(ProdutoLiga.id)
     ).all()
@@ -83,7 +85,7 @@ def montar_lista(
             casados.append(produto)
         elif produto.id in pendentes_ids:
             candidatos.append(produto)
-        elif produto.id not in com_resumo:
+        elif produto.id not in com_resumo and produto.falhas_pagina < FALHAS_PARA_SAIR_DOS_NOVOS:
             novos.append(produto)
         elif produto.id % DIAS_DO_RODIZIO == dia_da_semana:
             rodizio.append(produto)

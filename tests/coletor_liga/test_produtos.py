@@ -283,3 +283,27 @@ def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):
     _, _, avisador = coletar(sessoes, config, {urls["a"]: DESAFIO})
     [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
     assert dados.linhas[2] == "2º desafio de hoje: depois de retomar, a coleta só volta amanhã, no horário de sempre"
+
+
+def falhas_da_pagina(sessoes, url):
+    with sessoes() as s:
+        return s.scalar(select(ProdutoLiga.falhas_pagina).where(ProdutoLiga.url == url))
+
+
+def test_falha_de_rede_ou_parser_soma_e_leitura_boa_zera_as_falhas(sessoes, config):
+    urls = preparar(sessoes, "a", "b")
+    paginas = {urls["a"]: pagina_html(HTML_QUEBRADO), urls["b"]: [ErroRede("t"), ErroRede("t")]}
+    coletar(sessoes, config, paginas)
+    assert (falhas_da_pagina(sessoes, urls["a"]), falhas_da_pagina(sessoes, urls["b"])) == (1, 1)
+    coletar(sessoes, config, {urls["a"]: pagina_html(HTML_OK, url=urls["a"]), urls["b"]: [ErroRede("t")] * 2})
+    assert (falhas_da_pagina(sessoes, urls["a"]), falhas_da_pagina(sessoes, urls["b"])) == (0, 2)
+
+
+def test_leitura_boa_zera_as_falhas(s):
+    p = criar_produto(s, "x")
+    repo.registrar_falha_pagina(s, p.id)
+    repo.registrar_falha_pagina(s, p.id)
+    c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, T0)
+    repo.gravar_precos_produto(s, c.id, p.id, Resumo(None, None, None, 1), T0)
+    s.refresh(p)
+    assert p.falhas_pagina == 0
