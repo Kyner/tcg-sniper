@@ -56,12 +56,18 @@ def test_formatos_e_chaves_fechadas(cliente, logar, dados):
     enc = cliente.get("/api/oportunidades/encerradas?periodo=tudo&motivo=preco_subiu").json()
     assert enc["total"] == 1 and enc["itens"][0]["motivo"] == "preco_subiu"
     assert set(enc["itens"][0]) == {"id", "produto", "aberta_em", "fechada_em", "aberta", "duracao_min", "alertas",
-                                    "preco_alertado", "menor_preco", "preco_liga", "desconto_pct", "motivo"}
+                                    "preco_alertado", "menor_preco", "preco_liga", "desconto_pct", "motivo", "anuncio"}
+    assert set(enc["itens"][0]["anuncio"]) == {"titulo", "url", "imagem"}
+    assert enc["itens"][0]["anuncio"]["url"] == "https://www.amazon.com.br/dp/B0API00001"
     quase = cliente.get("/api/oportunidades/quase").json()
     assert set(quase) == {"itens", "desconto_min_pct", "piso_pct"}
     hist = cliente.get(f"/api/produtos/{dados}/historico?periodo=30d").json()
     assert set(hist) == {"produto", "anuncio", "periodo", "escala", "amazon", "liga", "liga_medio",
-                         "desconto_min_pct", "faixas", "oportunidades", "recorrencia_30d", "quase_la"}
+                         "desconto_min_pct", "faixas", "oportunidades", "recorrencia_30d", "quase_la",
+                         "sem_preco", "anuncios_casados"}
+    assert hist["anuncio"]["url"].endswith("B0API00001") and hist["sem_preco"] is False
+    assert hist["anuncios_casados"] == 1
+    assert hist["oportunidades"][0]["anuncio"]["url"].endswith("B0API00001")
     texto = str([resumo, ativas, enc, quase, hist]).lower()
     for proibido in ("vendedor", "casamento", "mensagem", "imposto", "frete", "seller", "sbrauble", "media-amazon"):
         assert proibido not in texto

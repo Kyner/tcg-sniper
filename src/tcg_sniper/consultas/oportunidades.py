@@ -74,6 +74,7 @@ class Encerrada:
     preco_liga: Decimal
     desconto_pct: Decimal
     motivo: str | None
+    anuncio: AnuncioResumo
 
 
 @dataclass(frozen=True)
@@ -171,7 +172,7 @@ def ultima_aberta_em(s: Session) -> datetime | None:
     return s.scalar(select(func.max(O.aberta_em)).where(_conta_como_resultado()))
 
 
-def linha_oportunidade(op: Oportunidade, produto: ProdutoLiga, agora: datetime) -> Encerrada:
+def linha_oportunidade(op: Oportunidade, produto: ProdutoLiga, anuncio: AnuncioAmazon, agora: datetime) -> Encerrada:
     return Encerrada(
         id=op.id, produto=produto_resumo(produto), aberta_em=op.aberta_em, fechada_em=op.fechada_em,
         aberta=op.fechada_em is None,
@@ -179,6 +180,7 @@ def linha_oportunidade(op: Oportunidade, produto: ProdutoLiga, agora: datetime) 
         preco_alertado=op.preco_alertado, menor_preco=op.menor_preco, preco_liga=op.preco_liga,
         desconto_pct=op.desconto_pct,
         motivo=None if op.motivo_encerramento is None else str(op.motivo_encerramento),
+        anuncio=AnuncioResumo(anuncio.titulo, anuncio.url, anuncio.imagem_chave),
     )
 
 
@@ -190,7 +192,8 @@ def encerradas(
                   O.motivo_encerramento == motivo if motivo is not None else literal(True))
     total = s.scalar(select(func.count()).select_from(O).where(filtro))
     linhas = s.execute(
-        select(O, ProdutoLiga).join(ProdutoLiga, ProdutoLiga.id == O.produto_id).where(filtro)
+        select(O, ProdutoLiga, AnuncioAmazon).join(ProdutoLiga, ProdutoLiga.id == O.produto_id)
+        .join(AnuncioAmazon, AnuncioAmazon.id == O.anuncio_id).where(filtro)
         .order_by(O.fechada_em.desc(), O.id.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina)
     ).all()
-    return Pagina([linha_oportunidade(op, p, agora) for op, p in linhas], total, pagina, por_pagina)
+    return Pagina([linha_oportunidade(op, p, a, agora) for op, p, a in linhas], total, pagina, por_pagina)

@@ -14,9 +14,10 @@ from tcg_sniper.api.dependencias import Contexto, exige_todas
 from tcg_sniper.api.erros import ErroApi
 from tcg_sniper.api.imagens import base_imagens, com_imagens
 from tcg_sniper.api.permissoes import Permissao
-from tcg_sniper.api.rotas_oportunidades import HistoricoSaida
+from tcg_sniper.api.rotas_oportunidades import AnuncioSaida, HistoricoSaida
 from tcg_sniper.avisos.servico import zona_e_host
 from tcg_sniper.consultas import catalogo_gestao as q
+from tcg_sniper.consultas.anuncio_do_produto import anuncio_do_produto
 from tcg_sniper.consultas.casamentos import categorias_da_liga
 from tcg_sniper.consultas.historico_produto import historico_produto
 from tcg_sniper.consultas.variacao import pistas_variacao
@@ -148,6 +149,9 @@ class ProdutoGestaoSaida(BaseModel):
     liga: LigaSaida
     melhor_amazon: MelhorAmazonSaida | None
     casamentos: ContagemCasamentosSaida
+    anuncio: AnuncioSaida | None  # o anúncio confirmado que representa o produto (mais barato com preço, senão o mais recente)
+    sem_preco: bool
+    anuncios_casados: int
     curva: HistoricoSaida | None
 
 
@@ -251,6 +255,7 @@ def produto_gestao(request: Request, produto_id: int, _c: VerCatalogo) -> Produt
             s, produto_id, agora - timedelta(days=CURVA_DIAS), agora, Regras.de(config),
             config.quase_oportunidade_min_pct, zona,
         )
+        anuncio = anuncio_do_produto(s, produto_id)
         melhor = linha.melhor_amazon
         preco_liga = linha.preco_liga
         saida = {
@@ -270,6 +275,11 @@ def produto_gestao(request: Request, produto_id: int, _c: VerCatalogo) -> Produt
                 "diferenca_pct": desconto_pct(melhor, preco_liga) if preco_liga and preco_liga > 0 else None,
             },
             "casamentos": {"pendentes": linha.pendentes, "confirmados": linha.confirmados, "ignorados": linha.ignorados},
+            "anuncio": None if anuncio is None else {
+                "titulo": anuncio.titulo, "url": anuncio.url, "imagem_chave": anuncio.imagem_chave,
+            },
+            "sem_preco": anuncio is not None and anuncio.sem_preco,
+            "anuncios_casados": 0 if anuncio is None else anuncio.anuncios_casados,
             "curva": None if historico is None else {**asdict(historico), "periodo": f"{CURVA_DIAS}d"},
         }
     return ProdutoGestaoSaida.model_validate(com_imagens(saida, base_imagens(request)))

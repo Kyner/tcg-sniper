@@ -86,6 +86,7 @@ class OportunidadeSaida(BaseModel):
     preco_liga: Decimal
     desconto_pct: Decimal
     motivo: str | None
+    anuncio: AnuncioSaida
 
 
 class EncerradasSaida(BaseModel):
@@ -141,6 +142,8 @@ class FaixaSaida(BaseModel):
 class HistoricoSaida(BaseModel):
     produto: CabecalhoSaida
     anuncio: AnuncioSaida | None
+    sem_preco: bool
+    anuncios_casados: int
     periodo: str
     escala: str
     amazon: list[PontoAmazonSaida]

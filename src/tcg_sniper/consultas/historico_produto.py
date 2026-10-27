@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from tcg_sniper.consultas.anuncio_do_produto import anuncio_do_produto
 from tcg_sniper.consultas.oportunidades import AnuncioResumo, Encerrada, linha_oportunidade
 from tcg_sniper.consultas.quase_la import quase_la
 from tcg_sniper.db.models import (
@@ -21,7 +22,6 @@ from tcg_sniper.db.models import (
     MotivoEncerramento,
     Oportunidade,
     PrecoAmazon,
-    PrecoAtualAmazon,
     PrecoListagem,
     ProdutoLiga,
     ResumoPreco,
@@ -70,6 +70,8 @@ class CabecalhoProduto:
 class Historico:
     produto: CabecalhoProduto
     anuncio: AnuncioResumo | None
+    sem_preco: bool
+    anuncios_casados: int
     escala: str
     amazon: list[PontoAmazon]
     liga: list[PontoLiga]
@@ -155,20 +157,20 @@ def historico_produto(
                 Oportunidade.deixou_de_valer_em, Oportunidade.fechada_em, agora) >= desde]))
         .order_by(Oportunidade.aberta_em.desc())
     ))
+    por_anuncio = {a.id: a for a in s.scalars(
+        select(AnuncioAmazon).where(AnuncioAmazon.id.in_({op.anuncio_id for op in ops})))}
     faixas = [Faixa(op.id, op.aberta_em, op.deixou_de_valer_em or op.fechada_em or agora, op.fechada_em is None,
                     None if op.motivo_encerramento is None else str(op.motivo_encerramento)) for op in ops]
     recorrencia = len([op for op in s.scalars(select(Oportunidade).where(
         Oportunidade.produto_id == produto_id, Oportunidade.aberta_em >= agora - timedelta(days=30),
     )) if op.motivo_encerramento != MotivoEncerramento.CASAMENTO_DESFEITO])
-    atual = s.execute(
-        select(AnuncioAmazon).join(PrecoAtualAmazon, PrecoAtualAmazon.anuncio_id == AnuncioAmazon.id)
-        .where(AnuncioAmazon.id.in_([a.id for a in anuncios]), PrecoAtualAmazon.preco.is_not(None))
-        .order_by(PrecoAtualAmazon.preco).limit(1)
-    ).scalar()
+    atual = anuncio_do_produto(s, produto_id)
     return Historico(
         produto=CabecalhoProduto(produto.id, produto.nome, produto.edicao, produto.imagem_chave, produto.url),
         anuncio=None if atual is None else AnuncioResumo(atual.titulo, atual.url, atual.imagem_chave),
+        sem_preco=atual is not None and atual.sem_preco,
+        anuncios_casados=0 if atual is None else atual.anuncios_casados,
         escala=escala, amazon=amazon, liga=liga, liga_medio=liga_medio, desconto_min_pct=regras.desconto_min_pct,
-        faixas=faixas, oportunidades=[linha_oportunidade(op, produto, agora) for op in ops],
+        faixas=faixas, oportunidades=[linha_oportunidade(op, produto, por_anuncio[op.anuncio_id], agora) for op in ops],
         recorrencia_30d=recorrencia, quase_la=bool(quase_la(s, regras, piso_pct, agora, produto_id=produto_id)),
     )

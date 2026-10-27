@@ -116,3 +116,20 @@ def test_recorrencia_exclui_casamento_desfeito(s):
     h = _hist(s, p, desde=None)
     assert h.recorrencia_30d == 1
     assert len(h.oportunidades) == 2
+
+
+def test_anuncio_do_historico_sem_preco_agora_ainda_leva_ao_anuncio(s):
+    p = criar_produto(s, "linksem")
+    a = criar_anuncio(s, "B0LINKSEM1", p, StatusCasamento.CONFIRMADO)
+    criar_anuncio(s, "B0LINKSEM2", p, StatusCasamento.CONFIRMADO)
+    criar_atual_amazon(s, a, None, coletado_em=T0 + timedelta(hours=1))
+    h = _hist(s, p)
+    assert h.anuncio.url == a.url and h.sem_preco is True and h.anuncios_casados == 2
+
+
+def test_anuncio_do_historico_com_preco(s):
+    p = criar_produto(s, "linkcom")
+    a = criar_anuncio(s, "B0LINKCOM1", p, StatusCasamento.CONFIRMADO)
+    criar_atual_amazon(s, a, "500.00")
+    h = _hist(s, p)
+    assert h.anuncio.url == a.url and h.sem_preco is False and h.anuncios_casados == 1

@@ -177,11 +177,14 @@ def test_produto_de_gestao_inclusive_inativo(cliente, logar, catalogo):
     assert Decimal(corpo["melhor_amazon"]["diferenca_pct"]) == Decimal("30.00")
     assert corpo["casamentos"] == {"pendentes": 1, "confirmados": 1, "ignorados": 0}
     assert corpo["curva"] is not None and corpo["curva"]["periodo"] == "30d"
+    assert corpo["anuncio"]["url"].endswith("B0CAT00001") and corpo["sem_preco"] is False
+    assert corpo["anuncios_casados"] == 1
     inativo = cliente.get(f"{PRODUTO}/{catalogo['bd0']}")
     assert inativo.status_code == 200
     corpo = inativo.json()
     assert corpo["monitorado"] is False and corpo["curva"] is None and corpo["melhor_amazon"] is None
     assert corpo["liga"] == {"preco": None, "lojas": None, "medio": None, "lido_em": None}
+    assert corpo["anuncio"] is None and corpo["anuncios_casados"] == 0
     assert cliente.get(f"{PRODUTO}/999999").status_code == 404
 
 
@@ -249,3 +252,16 @@ def test_limites_de_tamanho_do_lote_e_da_busca(cliente, logar, catalogo):
     assert cliente.post(LOTE, json={**base, "filtro": {"busca": "x" * 201}}).status_code == 422
     assert cliente.get(LISTA, params={"busca": "x" * 201}).status_code == 422
     assert cliente.get(LISTA, params={"busca": "x" * 200}).status_code == 200
+
+
+def test_produto_de_gestao_casado_sem_preco_mostra_o_anuncio(cliente, logar, sessoes, catalogo):
+    logar(Papel.OPERADOR)
+    with sessoes() as s, s.begin():
+        p = criar_produto(s, "semprecogestao", nome="Sem preço")
+        a = criar_anuncio(s, "B0GESTSEM1", p, StatusCasamento.CONFIRMADO)
+        criar_anuncio(s, "B0GESTSEM2", p, StatusCasamento.CONFIRMADO)
+        criar_atual_amazon(s, a, None)
+        pid = p.id
+    corpo = cliente.get(f"{PRODUTO}/{pid}").json()
+    assert corpo["melhor_amazon"] is None and corpo["sem_preco"] is True
+    assert corpo["anuncio"]["url"].endswith("B0GESTSEM1") and corpo["anuncios_casados"] == 2
