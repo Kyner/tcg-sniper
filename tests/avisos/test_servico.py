@@ -355,3 +355,13 @@ def test_descartar_a_ultima_falha_resolve_o_aviso(sessoes):
     with sessoes() as s, s.begin():
         repo_msg.descartar(s, mid, T + timedelta(minutes=5))
     assert estado(sessoes, tipo).aberto is False
+
+
+def test_busca_pausada_tambem_recebe_lembrete(sessoes):
+    """É o gêmeo de AMAZON_PAUSADA (os dois vêm de `OrigemAmazon.pausada`): também só espera alguém agir."""
+    from tcg_sniper.avisos.catalogo import TIPOS_QUE_ESPERAM
+
+    assert TipoAviso.AMAZON_BUSCA_PAUSADA in TIPOS_QUE_ESPERAM
+    assert len(TIPOS_QUE_ESPERAM) == 8
+    avisar_em(sessoes, T, tipo=TipoAviso.AMAZON_BUSCA_PAUSADA)
+    assert lembrar_em(sessoes, T + timedelta(hours=2)) == 1

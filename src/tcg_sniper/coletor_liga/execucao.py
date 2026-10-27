@@ -90,10 +90,10 @@ def dados_desafio(url: str, desafios_hoje: int, esfriar_min: int) -> Dados:
     elif esfriar_min > 0:
         efeito = (
             f"1º desafio de hoje: volta {esfriar_min} min depois de você retomar, "
-            "com pausas em dobro até o fim do dia"
+            "com pausas em dobro por 24 h depois do desafio"
         )
     else:
-        efeito = "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro até o fim do dia"
+        efeito = "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro por 24 h depois do desafio"
     return Dados(linhas=(f"Página: {pagina}", "A coleta fica pausada até você retomar", efeito))
 
 

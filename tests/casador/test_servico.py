@@ -773,3 +773,39 @@ def test_casador_bate_a_cada_passo_e_a_cada_par(sessoes, config):
     )
     sv.rodar()
     assert len(batidas) == 3  # 1 passo + 2 pares
+
+
+def test_aplicar_trava_o_produto_antes_do_anuncio(engine):
+    """A desativação trava o produto e depois o anúncio; o automático segue a mesma ordem, com trava
+    compartilhada no produto: uma desativação em andamento o faz esperar (aqui, estourar o lock_timeout) em vez
+    de ler o produto ainda ativo e confirmar o par. Grava de verdade (duas conexões) e apaga no fim."""
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import sessionmaker
+
+    fabrica = sessionmaker(bind=engine, expire_on_commit=False)
+    with fabrica() as s, s.begin():
+        p = criar_produto(s, "p-trava", nome="Caixa Alfa")
+        a = criar_anuncio(s, "B0TRAVA001", produto=p)
+        repo_ia.gravar_avaliacao(
+            s, anuncio_id=a.id, produto_id=p.id, mesmo_produto=True, confianca=95, motivo="m", modelo="x",
+            assinatura=assinatura(a, p), sem_imagem=True, chamada_id=None, agora=T0,
+        )
+        produto_id, anuncio_id = p.id, a.id
+    try:
+        with fabrica() as desativando, desativando.begin():
+            desativando.execute(text("UPDATE produto_liga SET ativo = false WHERE id = :i"), {"i": produto_id})
+            with fabrica() as s, s.begin():
+                av = s.scalars(select(AvaliacaoIA).where(AvaliacaoIA.anuncio_id == anuncio_id)).one()
+                s.execute(text("SET LOCAL lock_timeout = '300ms'"))
+                with pytest.raises(OperationalError):
+                    ServicoCasador._aplicar(s, av, (90, 90), T0)
+            desativando.rollback()
+    finally:
+        with engine.begin() as c:
+            for tabela in ("avaliacao_ia", "casamento"):
+                c.execute(text(f"DELETE FROM {tabela} WHERE anuncio_id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM anuncio_amazon WHERE id = :a"), {"a": anuncio_id})
+            c.execute(text("DELETE FROM produto_liga WHERE id = :p"), {"p": produto_id})
+

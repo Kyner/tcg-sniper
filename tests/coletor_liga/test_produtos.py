@@ -262,7 +262,7 @@ def test_aviso_do_primeiro_desafio_do_dia_diz_que_volta_depois_de_esfriar(sessoe
     [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
     assert dados.linhas[1:] == (
         "A coleta fica pausada até você retomar",
-        "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia",
+        "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro por 24 h depois do desafio",
     )
 
 
@@ -271,7 +271,7 @@ def test_aviso_sem_esfriar_diz_que_volta_logo(sessoes, config):
     c = config.model_copy(update={"esfriar_desafio_min": 0})
     _, _, avisador = coletar(sessoes, c, {urls["a"]: DESAFIO})
     [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
-    assert dados.linhas[2] == "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro até o fim do dia"
+    assert dados.linhas[2] == "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro por 24 h depois do desafio"
 
 
 def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):

@@ -172,7 +172,7 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
             linhas=(
                 "Página: /?view=cards/search&card=categ%3D10",
                 "A coleta fica pausada até você retomar",
-                "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia",
+                "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro por 24 h depois do desafio",
             )
         ),
     ),
@@ -450,6 +450,7 @@ TIPOS_QUE_ESPERAM = frozenset(
         TipoAviso.AMAZON_SEM_LOGIN,
         TipoAviso.AMAZON_CARRINHO,
         TipoAviso.AMAZON_PAUSADA,
+        TipoAviso.AMAZON_BUSCA_PAUSADA,
         TipoAviso.IA_PAUSADA,
         TipoAviso.LIGA_DESAFIO,
     }

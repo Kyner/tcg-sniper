@@ -202,6 +202,7 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.notificador import servico
 
         notificador = servico.ServicoNotificador(sessoes, config)
+        Batimento(sessoes, COLETOR_NOTIFICADOR).bater()  # sinal logo na partida (apaga a marca de desligamento limpo)
         # SIGTERM pede parada limpa: não corta o envio HTTP no meio (SystemExit).
         pedida = []
 

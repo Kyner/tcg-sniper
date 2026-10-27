@@ -125,7 +125,7 @@ def test_desafio_na_segunda_categoria_pausa_e_avisa(sessoes, config):
     assert desafio.linhas == (
         "Página: /listagem?categ=11",
         "A coleta fica pausada até você retomar",
-        "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro até o fim do dia",
+        "1º desafio de hoje: volta 30 min depois de você retomar, com pausas em dobro por 24 h depois do desafio",
     )
     assert "noVNC da Liga (porta 6080)" in avisador.mensagens[0][1]
     assert avisador.dados(TipoAviso.LIGA_PRODUTOS_NOVOS)[0].linhas == ("40 produtos novos nas listagens",)

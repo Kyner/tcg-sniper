@@ -129,6 +129,7 @@ def test_notificador_instala_sigterm_e_roda_o_servico(monkeypatch, batidas):
         assert vistos and vistos[0] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert paradas == [True]  # SIGTERM pede parada limpa, sem SystemExit
         assert batidas.encerradas == ["notificador"]
+        assert batidas == ["notificador"]  # sinal na partida (apaga a marca de desligamento limpo)
     finally:
         signal.signal(signal.SIGTERM, anterior)
 

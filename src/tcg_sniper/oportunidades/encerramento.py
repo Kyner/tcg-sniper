@@ -2,8 +2,10 @@
 aviso pela situação da mensagem do alerta (spec 2026-10-20-fim-da-oportunidade):
 
 - alerta enviado (ou oportunidade de antes desta versão, `alerta_sem_registro`): avisa o grupo do motivo;
-- alerta ainda pendente na fila: descarta o alerta (perdeu a validade) e não avisa;
-- alerta expirado, descartado, com falha ou sem mensagem: não avisa (ninguém viu o alerta);
+- alerta ainda pendente na fila: descarta o alerta (perdeu a validade); avisa só se um alerta anterior já
+  saiu (`alerta_enviado`), porque o grupo chegou a ver a oportunidade;
+- alerta expirado, descartado, com falha ou sem mensagem: avisa só se um alerta anterior saiu
+  (`alerta_enviado`); do contrário não avisa (ninguém viu o alerta);
 - motivo `produto_desativado` (decisão do usuário, não do mercado): nunca avisa, nem o grupo nem o admin.
 
 Roda na transação de quem chama; o aviso roda em savepoint (`avisos.servico.avisar`): falha nele não desfaz o

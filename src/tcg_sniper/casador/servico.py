@@ -223,11 +223,13 @@ class ServicoCasador:
         produto não tem anúncio em português confirmado (nem confirmado de idioma não registrado); senão o
         par fica pendente para você. Avaliação sem idioma (de antes da regra) segue como antes."""
         confirmar, ignorar = limites
+        # Mesma ordem da desativação (produto, depois anúncio): o produto com trava compartilhada, para uma
+        # desativação em andamento não deixar o par confirmado.
+        produto = s.get(ProdutoLiga, av.produto_id, populate_existing=True, with_for_update={"read": True})
         repo_casamento.travar_anuncio(s, av.anuncio_id)
         par = repo_casamento.obter_par(s, av.anuncio_id, av.produto_id)
         if par is None or par.status is not StatusCasamento.PENDENTE:
             return None  # você decidiu enquanto a IA respondia
-        produto = s.get(ProdutoLiga, av.produto_id, populate_existing=True)
         if produto is None or not produto.ativo:
             return None  # o produto foi desativado enquanto a IA respondia: o par fica pendente
         try:
