@@ -58,12 +58,14 @@ def test_coletor_liga_instala_sigterm_antes_de_rodar(monkeypatch, batidas):
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)  # docker stop: vira SystemExit
 
     monkeypatch.setattr(agendador, "Agendador", AgendadorFalso)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     try:
-        cli.main(["coletor-liga"])
+        with pytest.raises(SystemExit):
+            cli.main(["coletor-liga"])
         assert callable(vistos[0])  # o dormir bate em fatias
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["liga"]
@@ -84,13 +86,15 @@ def test_coletor_amazon_instala_sigterm_e_usa_o_perfil_da_amazon(monkeypatch, tm
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
 
     monkeypatch.setattr(varredura_monitor, "VarreduraMonitor", VarreduraFalsa)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     monkeypatch.setenv("DIR_DADOS", str(tmp_path))
     try:
-        cli.main(["coletor-amazon"])
+        with pytest.raises(SystemExit):
+            cli.main(["coletor-amazon"])
         assert vistos[0] == tmp_path / "perfil-amazon"
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["amazon"]
@@ -153,6 +157,7 @@ def test_casador_so_cria_transporte_com_chave(monkeypatch, chave, batidas):
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
 
     monkeypatch.setattr(servico, "ServicoCasador", ServicoFalso)
     monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda c, **kw: ("transporte", c, kw))
@@ -498,16 +503,19 @@ def test_coletor_amazon_busca_usa_perfil_proprio_e_bate_como_amazon_busca(monkey
 
         def rodar(self):
             vistos.append(signal.getsignal(signal.SIGTERM))
+            vistos[-1](signal.SIGTERM, None)
 
     monkeypatch.setattr(varredura_busca, "VarreduraBusca", VarreduraFalsa)
     monkeypatch.setattr(cli, "criar_engine", lambda url: object())
     monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
     monkeypatch.setenv("DIR_DADOS", str(tmp_path))
     try:
-        cli.main(["coletor-amazon-busca"])
+        with pytest.raises(SystemExit):
+            cli.main(["coletor-amazon-busca"])
         assert vistos[0] == tmp_path / "perfil-amazon-busca"
         assert vistos[1] not in (anterior, signal.SIG_DFL, signal.SIG_IGN)
         assert batidas == ["amazon_busca"]
+        assert batidas.encerradas == ["amazon_busca"]
     finally:
         signal.signal(signal.SIGTERM, anterior)
 
@@ -599,3 +607,48 @@ def test_casamento_soltar_inativos_aplicando_solta_so_os_inativos(banco, capsys)
     assert _status_do_par(banco, a, p) == "pendente" and _status_do_par(banco, a2, ativo_id) == "confirmado"
     cli.main(["casamento", "soltar-inativos"])
     assert "Nenhum produto inativo" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("fim", ["queda", "saida_antecipada"])
+@pytest.mark.parametrize("comando", ["coletor-liga", "coletor-amazon", "coletor-amazon-busca", "casador", "notificador"])
+def test_so_sigterm_marca_desligamento_limpo(monkeypatch, tmp_path, batidas, comando, fim):
+    """Queda (exceção) ou saída antecipada ("outra varredura já está rodando") não são parada de propósito."""
+    from tcg_sniper.casador import servico as servico_casador
+    from tcg_sniper.coletor_amazon import varredura_busca, varredura_monitor
+    from tcg_sniper.coletor_liga import agendador
+    from tcg_sniper.notificador import servico as servico_notificador
+
+    anterior = signal.getsignal(signal.SIGTERM)
+
+    class Falso:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def parar(self):
+            pass
+
+        def rodar(self):
+            if fim == "queda":
+                raise RuntimeError("caiu")
+
+    alvos = {
+        "coletor-liga": (agendador, "Agendador"),
+        "coletor-amazon": (varredura_monitor, "VarreduraMonitor"),
+        "coletor-amazon-busca": (varredura_busca, "VarreduraBusca"),
+        "casador": (servico_casador, "ServicoCasador"),
+        "notificador": (servico_notificador, "ServicoNotificador"),
+    }
+    modulo, nome = alvos[comando]
+    monkeypatch.setattr(modulo, nome, Falso)
+    monkeypatch.setattr(cli, "criar_engine", lambda url: object())
+    monkeypatch.setattr(cli, "criar_sessoes", lambda engine: object())
+    monkeypatch.setenv("DIR_DADOS", str(tmp_path))
+    try:
+        if fim == "queda":
+            with pytest.raises(RuntimeError):
+                cli.main([comando])
+        else:
+            cli.main([comando])
+        assert batidas.encerradas == []
+    finally:
+        signal.signal(signal.SIGTERM, anterior)

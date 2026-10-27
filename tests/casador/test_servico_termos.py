@@ -219,3 +219,13 @@ def test_espera_dos_termos_sobrevive_a_reinicio_do_casador(sessoes, config):
     with sessoes() as s:
         fila = s.get(FilaAmazon, p)
         assert (fila.termos_falhas, fila.termos_espera_ate) == (0, None)
+
+
+def test_geracao_de_termos_bate_a_cada_produto(sessoes, config):
+    configurar(sessoes)
+    na_fila(sessoes, "p1", "p2", "p3")
+    sv, t, _ = servico(sessoes, config, [termos(("a", "pt")), termos(("b", "pt")), termos(("c", "pt"))], T0 + 7 * DIA)
+    batidas = []
+    sv._batida = lambda: batidas.append(1)
+    sv.ciclo()
+    assert len(t.pedidos) == 3 and len(batidas) >= 3

@@ -273,6 +273,7 @@ class ServicoCasador:
         for produto in produtos:
             if self._parar.is_set():
                 break
+            self._batida()
             try:
                 try:
                     termos = gerar_termos(self._sessoes, self._transporte, produto, zona=zona, relogio=self._relogio)

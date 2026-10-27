@@ -132,3 +132,25 @@ def test_origens_nao_dividem_estado_trava_nem_avisos(origem):
     assert origem.coletor != outra.coletor and origem.id_lock != outra.id_lock
     assert {origem.captcha, origem.pausada, origem.erro}.isdisjoint({outra.captcha, outra.pausada, outra.erro})
     assert dados_captcha(origem, "https://www.amazon.com.br/s?k=a").linhas[1] == origem.efeito_captcha
+
+
+def test_rodar_com_espera_de_erro_bate_a_cada_fatia_de_60_s(engine, sessoes, config):
+    """Laço real (`rodar`): a espera de 15 min depois de um erro não pode deixar o serviço mudo (limite de 10 min)."""
+    from tcg_sniper.avisos.vigia import Batimento
+
+    laco, *_ = criar_laco(LacoDaBusca, engine, sessoes, config, {})
+    batidas, dormidas = [], []
+    batimento = Batimento(sessoes, COLETOR_AMAZON_BUSCA)
+    batimento.bater = lambda: batidas.append(len(dormidas))
+
+    def fim(segundos):
+        dormidas.append(segundos)
+        if len(dormidas) >= 15:
+            raise SystemExit(0)  # encerra o laço depois da espera inteira
+
+    laco._dormir = batimento.dormir(dormir=fim)
+    laco.passo = lambda: ESPERA_ERRO_S
+    with pytest.raises(SystemExit):
+        laco.rodar()
+    assert dormidas == [60] * 15
+    assert max(dormidas) <= 60 and len(batidas) >= 15  # bateu antes e a cada fatia
