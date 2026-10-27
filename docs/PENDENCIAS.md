@@ -255,7 +255,7 @@ Nenhuma no momento.
 ### Pacote de pequenas (2026-10-27)
 
 - [x] Login com o celular digitado sem o 9 extra: `numero_de_login` (`api/acesso.py`) usa a variante cadastrada com o 9 antes do HMAC, dividindo os limites; fixo nunca vira celular; consulta feita sempre, sem mudar o tempo. Commit `916f165`.
-- [x] Espera do Casador gravada no banco: a espera de 1 h, 6 h e 24 h dos pares cuja chamada da IA falha (`casamento.ia_falhas/ia_espera_ate/ia_falha_assinatura`; dados mudados zeram) e dos termos de busca (`fila_amazon.termos_falhas/termos_espera_ate`) sobrevive a reinício do container, sem chamada paga a mais. Commit `COMMIT`.
+- [x] Espera do Casador gravada no banco: a espera de 1 h, 6 h e 24 h dos pares cuja chamada da IA falha (`casamento.ia_falhas/ia_espera_ate/ia_falha_assinatura`; dados mudados zeram) e dos termos de busca (`fila_amazon.termos_falhas/termos_espera_ate`) sobrevive a reinício do container, sem chamada paga a mais. Commit `488c92c`.
 
 ### Fase 3B — Serviços, Atividade e Dashboard na gestão (merge `266cc9d`, em produção desde 2026-10-25 20:37)
 
