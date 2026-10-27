@@ -7,7 +7,23 @@ Da mais nova para a mais antiga.
 
 ## Pacote de pequenas (2026-10-27)
 
-Com migração (colunas novas): **backup do banco antes do deploy**. Suba tudo junto (`docker compose up -d --build`).
+Com migração: **backup do banco antes do deploy**. A migração `a4c7e1b9d3f6` só acrescenta colunas, um índice (`oportunidade.mensagem_alerta_id`) e CHECKs (motivo novo `produto_desativado`); nenhum dado é reescrito nem apagado.
+
+1. Backup do banco antes de tudo:
+
+   ```bash
+   mkdir -p dados/backups
+   docker compose exec -T postgres pg_dump -U tcg -Fc tcg > dados/backups/tcg-antes-pacote-pequenas-<data>.dump
+   ```
+
+2. Atualize o código e recrie **todos** os serviços de uma vez (o `migrate` roda antes):
+
+   ```bash
+   git pull
+   docker compose up -d --build
+   ```
+
+3. Passos de dados, depois do deploy:
 
 - **Idioma dos casamentos antigos:** depois do deploy, preencha o idioma dos anúncios já confirmados pelo título. Primeiro a simulação (só mostra as contagens e lista o que o título não decide), depois aplique:
 
@@ -24,6 +40,12 @@ Com migração (colunas novas): **backup do banco antes do deploy**. Suba tudo j
   docker compose exec casador tcg-sniper casamento soltar-inativos
   docker compose exec casador tcg-sniper casamento soltar-inativos --aplicar
   ```
+
+4. Confira depois do deploy:
+   - **Login sem o 9:** entre no site com o celular digitado sem o 9 extra (o cadastrado tem o 9); o código chega e a entrada funciona.
+   - **Serviços** (`/gestao/servicos`): todos os serviços com selo de estado; um serviço parado de propósito (`docker stop`) não gera "sem sinal" no grupo; a LigaMagic parada por desafio mostra a espera de 30 min a partir da retomada.
+   - **Lembretes:** um bloqueio que só espera (por exemplo Amazon pausada) volta a ser lembrado a cada 2 h; "mensagem não enviada" fecha sozinho quando não sobra falha na última hora.
+   - **Idioma:** na revisão de casamentos, o cartão do anúncio confirmado mostra o idioma e o botão "definir idioma".
 
 ## Site novo, fase 3B: Serviços, Atividade e Dashboard (2026-10-25, implantada às 20:37)
 
