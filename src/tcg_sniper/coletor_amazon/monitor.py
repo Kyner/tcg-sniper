@@ -223,7 +223,8 @@ def _alertar(
     """Enfileira o alerta (abertura ou realerta) na transação da decisão e liga a mensagem à oportunidade.
     Sem mensagem nova (aviso desligado ou falhou) fica a do alerta anterior e `alertas` não muda (conta os
     avisos enfileirados). Com mensagem nova, a anterior ainda na fila é descartada: o preço antigo, mais
-    alto, não sai depois; o realerta soma 1 em `alertas`."""
+    alto, não sai depois; o realerta soma 1 em `alertas`. Se a anterior já saiu, `alerta_enviado` fica True
+    (o notificador não precisa marcar: só a troca de mensagem pode deixar o alerta atual na fila)."""
     mensagem_id = ctx.avisador.avisar_em(s, TipoAviso.OPORTUNIDADE, str(op.anuncio_id), aviso)
     if mensagem_id is None:
         return
@@ -233,6 +234,8 @@ def _alertar(
         anterior = s.get(MensagemSaida, op.mensagem_alerta_id, with_for_update=True, populate_existing=True)
         if anterior is not None and anterior.status is StatusMensagem.PENDENTE:
             repo_msg.descartar(s, anterior.id, agora)
+        elif anterior is not None and anterior.status is StatusMensagem.ENVIADA:
+            op.alerta_enviado = True  # o grupo já viu um alerta: o encerramento avisa mesmo com o novo na fila
     op.mensagem_alerta_id = mensagem_id
     s.flush()
 

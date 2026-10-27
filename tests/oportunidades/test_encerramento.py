@@ -70,6 +70,26 @@ def test_alerta_pendente_e_descartado_sem_aviso(sessoes, oportunidade):
         assert _avisos(s) == [] and s.get(Oportunidade, op_id).encerramento_avisado_em is None
 
 
+def test_realerta_na_fila_descartado_ainda_avisa_se_o_anterior_saiu(sessoes, oportunidade):
+    op_id, msg_id = oportunidade
+    with sessoes() as s, s.begin():
+        s.get(Oportunidade, op_id).alerta_enviado = True  # um alerta anterior saiu; o atual ainda está na fila
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA)
+    with sessoes() as s:
+        assert s.get(MensagemSaida, msg_id).status is StatusMensagem.DESCARTADA
+        [aviso] = _avisos(s)
+        assert "Oferta encerrada" in aviso.texto and s.get(Oportunidade, op_id).encerramento_avisado_em == AGORA
+
+
+def test_nenhum_alerta_saiu_continua_sem_aviso(sessoes, oportunidade):
+    op_id, _ = oportunidade
+    with sessoes() as s, s.begin():
+        encerrar(s, op_id, M.PRECO_SUBIU, AGORA)
+    with sessoes() as s:
+        assert _avisos(s) == [] and s.get(Oportunidade, op_id).alerta_enviado is False
+
+
 @pytest.mark.parametrize("status", [StatusMensagem.EXPIRADA, StatusMensagem.DESCARTADA, StatusMensagem.FALHA])
 def test_alerta_que_nao_saiu_nao_avisa(sessoes, oportunidade, status):
     op_id, msg_id = oportunidade

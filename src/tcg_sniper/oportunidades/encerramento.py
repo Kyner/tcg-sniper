@@ -39,7 +39,8 @@ def _alerta_saiu(s: Session, op: Oportunidade, agora: datetime) -> bool:
     )
     if mensagem is not None and mensagem.status is StatusMensagem.PENDENTE:
         repo_msg.descartar(s, mensagem.id, agora)
-        return False
+        # Realerta ainda na fila: o grupo viu o alerta anterior se ele saiu (`alerta_enviado`, marcado pelo monitor).
+        return op.alerta_enviado or op.alerta_sem_registro
     if op.alerta_sem_registro:
         return True
     return mensagem is not None and mensagem.status is StatusMensagem.ENVIADA
