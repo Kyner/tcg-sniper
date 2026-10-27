@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.avisos import vigia
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
-from tcg_sniper.avisos.servico import Avisador
+from tcg_sniper.avisos.servico import Avisador, lembrar_abertos
 from tcg_sniper.config import Config
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_manutencao as repo_man
@@ -132,6 +132,7 @@ class ServicoManutencao:
         with self._sessoes() as s, s.begin():
             repo_man.registrar_ciclo(s, agora)
             vigia.verificar(s, agora, self._vigia_desde)  # roda também com o backup desligado
+            lembrar_abertos(s, agora)  # lembrete dos bloqueios que só esperam
             if repo.obter_estado(s, agora, COLETOR_MANUTENCAO).estado is not EstadoColetorTipo.ATIVO:
                 return False
             self._ativo = True

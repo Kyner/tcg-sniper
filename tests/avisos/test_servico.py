@@ -9,7 +9,7 @@ from tcg_sniper.avisos.catalogo import CATALOGO, CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.avisos.formato import UrlProibida
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_mensagens as repo_msg
-from tcg_sniper.db.models import ConfigAviso, EstadoAviso, MensagemSaida
+from tcg_sniper.db.models import ConfigAviso, EstadoAviso, MensagemSaida, StatusMensagem
 
 T = datetime(2026, 10, 18, 13, 0, tzinfo=UTC)  # 10:00 em São Paulo
 CAPTCHA = TipoAviso.AMAZON_CAPTCHA
@@ -262,3 +262,96 @@ def test_avisar_desligado_devolve_none(sessoes):
     with sessoes() as s, s.begin():
         servico.definir_ligado(s, TipoAviso.OPORTUNIDADE, False)
         assert servico.avisar(s, TipoAviso.OPORTUNIDADE, "1", CATALOGO[TipoAviso.OPORTUNIDADE].exemplo, T) is None
+
+
+def lembrar_em(sessoes, quando):
+    with sessoes() as s, s.begin():
+        return servico.lembrar_abertos(s, quando)
+
+
+def test_bloqueio_que_espera_recebe_lembrete_a_cada_2h(sessoes):
+    avisar_em(sessoes, T)
+    assert lembrar_em(sessoes, T + timedelta(hours=1, minutes=59)) == 0
+    assert lembrar_em(sessoes, T + timedelta(hours=2)) == 1
+    assert lembrar_em(sessoes, T + timedelta(hours=3)) == 0
+    assert lembrar_em(sessoes, T + timedelta(hours=4)) == 1
+    _, primeiro, segundo = saidas(sessoes)
+    assert primeiro.texto.startswith("🔴 *Amazon (monitor) · CAPTCHA continua · 1 vezes desde 10:00*\n")
+    assert "*O que fazer:*" in primeiro.texto and primeiro.texto.endswith("_18/10 12:00 · monitor Amazon_")
+    assert "Página:" not in primeiro.texto
+    assert estado(sessoes).ultimo_envio_em == T + timedelta(hours=4) and segundo.criada_em == T + timedelta(hours=4)
+
+
+def test_lembrete_de_aberto_respeita_aviso_desligado(sessoes):
+    avisar_em(sessoes, T)
+    desligar(sessoes)
+    assert lembrar_em(sessoes, T + timedelta(hours=3)) == 0
+    assert len(saidas(sessoes)) == 1
+
+
+def test_lembrete_de_aberto_nao_soma_ocorrencias_nem_duplica(sessoes):
+    avisar_em(sessoes, T)
+    lembrar_em(sessoes, T + timedelta(hours=2))
+    avisar_em(sessoes, T + timedelta(hours=2, minutes=1))  # a repetição não reenvia: o lembrete acabou de sair
+    lembrar_em(sessoes, T + timedelta(hours=2, minutes=2))
+    assert len(saidas(sessoes)) == 2
+    e = estado(sessoes)
+    assert (e.ocorrencias, e.ultimo_em) == (2, T + timedelta(hours=2, minutes=1))
+
+
+def test_tipo_que_nao_espera_nao_recebe_lembrete_sozinho(sessoes):
+    avisar_em(sessoes, T, TipoAviso.AMAZON_ERRO)
+    assert lembrar_em(sessoes, T + timedelta(hours=5)) == 0
+    assert len(saidas(sessoes)) == 1
+
+
+def test_lembrete_de_aberto_fechado_nao_sai(sessoes):
+    avisar_em(sessoes, T)
+    resolver_em(sessoes, T + timedelta(minutes=5))
+    assert lembrar_em(sessoes, T + timedelta(hours=5)) == 0
+
+
+def test_mensagem_nao_enviada_resolve_sem_falhas_na_janela(sessoes):
+    tipo = TipoAviso.MENSAGEM_NAO_ENVIADA
+    with sessoes() as s, s.begin():
+        falha = repo_msg.enfileirar(s, "oportunidades", "oferta", T)
+        falha.status = StatusMensagem.FALHA
+        outra = repo_msg.enfileirar(s, "admin", "outra", T)
+        outra.status = StatusMensagem.FALHA
+        ids = (falha.id, outra.id)
+    avisar_em(sessoes, T, tipo)
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, ids[0]).status = StatusMensagem.ENVIADA
+        servico.resolver_nao_enviada_sem_falhas(s, T + timedelta(minutes=5))
+    assert estado(sessoes, tipo).aberto is True  # outra falha segue
+    with sessoes() as s, s.begin():
+        s.get(MensagemSaida, ids[1]).status = StatusMensagem.DESCARTADA
+        servico.resolver_nao_enviada_sem_falhas(s, T + timedelta(minutes=10))
+    assert estado(sessoes, tipo).aberto is False
+    assert saidas(sessoes)[-1].texto.startswith("✅ *WhatsApp · mensagem não enviada resolvido")
+
+
+def test_reenviar_a_ultima_falha_resolve_o_aviso(sessoes):
+    tipo = TipoAviso.MENSAGEM_NAO_ENVIADA
+    with sessoes() as s, s.begin():
+        falha = repo_msg.enfileirar(s, "oportunidades", "oferta", T)
+        falha.status = StatusMensagem.FALHA
+        falha.atualizado_em = T
+        mid = falha.id
+    avisar_em(sessoes, T, tipo)
+    with sessoes() as s, s.begin():
+        repo_msg.reenviar(s, mid, T + timedelta(minutes=5))
+    assert estado(sessoes, tipo).aberto is False
+
+
+def test_descartar_a_ultima_falha_resolve_o_aviso(sessoes):
+    tipo = TipoAviso.MENSAGEM_NAO_ENVIADA
+    with sessoes() as s, s.begin():
+        falha = repo_msg.enfileirar(s, "oportunidades", "oferta", T)
+        falha.status = StatusMensagem.FALHA
+        falha.atualizado_em = T
+        mid = falha.id
+    avisar_em(sessoes, T, tipo)
+    with sessoes() as s, s.begin():
+        repo_msg.descartar(s, mid, T + timedelta(minutes=5))
+    assert estado(sessoes, tipo).aberto is False

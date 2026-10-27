@@ -440,3 +440,17 @@ CATALOGO: dict[TipoAviso, DefinicaoAviso] = {
         Dados(linhas=("Limite: 3 códigos por número em 15 min", "Número com final 34")),
     ),
 }
+
+# Bloqueios que só esperam por alguém (nada repete o aviso enquanto esperam): o lembrete sai do relógio da
+# manutenção (`servico.lembrar_abertos`), não de uma nova ocorrência.
+TIPOS_QUE_ESPERAM = frozenset(
+    {
+        TipoAviso.AMAZON_BUSCA_CAPTCHA,
+        TipoAviso.AMAZON_CAPTCHA,
+        TipoAviso.AMAZON_SEM_LOGIN,
+        TipoAviso.AMAZON_CARRINHO,
+        TipoAviso.AMAZON_PAUSADA,
+        TipoAviso.IA_PAUSADA,
+        TipoAviso.LIGA_DESAFIO,
+    }
+)
