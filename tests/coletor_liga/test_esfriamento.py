@@ -115,10 +115,19 @@ def test_desligar_e_religar_nao_reinicia_a_espera_do_desafio(s):
     assert situacao(s, local(11, 30)).esfriando_ate is None
 
 
-def test_ligar_comum_sem_desafio_resolvido_nao_esfria(s):
+def test_ligar_direto_do_estado_de_desafio_ainda_esfria(s):
     desafio(s, local(10, 30))
-    repo.retomar(s, local(11), solicitar=False)  # sem passar pelo Retomar do desafio
-    assert situacao(s, local(11, 5)).esfriando_ate is None
+    repo.retomar(s, local(11), solicitar=False)  # "Ligar" sem passar pelo Retomar do desafio
+    assert situacao(s, local(11, 5)).esfriando_ate == local(11, 30)
+
+
+def test_sem_marca_da_retomada_a_espera_cai_para_o_atualizado_em(s):
+    desafio(s, local(10, 30))
+    repo.retomar(s, local(11), desafio_resolvido=True)
+    estado = repo.obter_estado(s, local(11))
+    estado.retomado_desafio_em = None  # linha resolvida antes da coluna existir
+    s.flush()
+    assert situacao(s, local(11, 5)).esfriando_ate == local(11, 30)
 
 
 def test_ligar_na_espera_mantem_o_pedido(s):

@@ -73,7 +73,7 @@ def _esfriando_ate(s: Session, agora: datetime, esfriar_min: int) -> datetime | 
         return None  # ainda esperando alguém resolver e retomar
     retomado = estado.retomado_desafio_em
     if retomado is None or retomado < ultimo:
-        return None  # só a retomada depois do desafio inicia a espera (ligar/desligar comum não)
+        retomado = estado.atualizado_em  # sem a marca da retomada: como antes, nunca menos conservador
     fim = retomado + timedelta(minutes=esfriar_min)
     return fim if agora < fim else None
 

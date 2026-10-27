@@ -199,7 +199,7 @@ class Agendador:
         """Roda as etapas do job. Devolve True se parou num desafio do Cloudflare. Se o job vai até o fim
         sem desafio, sem etapa interrompida por erro e sem etapa que falhou, avisa "concluída" (ou
         "parcial") e resolve as falhas e erros abertos. O job só roda com a Liga ativa: um desafio aberto
-        foi resolvido (retomada). Depois de um desafio hoje, as pausas são em dobro."""
+        foi resolvido (retomada). Depois de um desafio nas últimas 24 h, as pausas são em dobro."""
         inicio = self._relogio()
         config = self._config_do_job()
         self._avisador.resolver(TipoAviso.LIGA_DESAFIO, CHAVE_GERAL)

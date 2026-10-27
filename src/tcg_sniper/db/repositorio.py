@@ -237,11 +237,12 @@ def retomar(
     quem já está ativo mantém o pedido de execução que houver. `desafio_resolvido` marca a retomada de onde conta a espera do esfriamento."""
     estado = obter_estado(s, agora, coletor)
     ja_ativo = estado.estado is EstadoColetorTipo.ATIVO
+    era_desafio = estado.estado is EstadoColetorTipo.PAUSADO_DESAFIO
     estado.estado = EstadoColetorTipo.ATIVO
     estado.motivo = None
     estado.execucao_solicitada = solicitar or (ja_ativo and estado.execucao_solicitada)
     estado.atualizado_em = agora
-    if desafio_resolvido:
+    if desafio_resolvido or era_desafio:  # qualquer saída do estado de desafio marca a retomada
         estado.retomado_desafio_em = agora
     s.flush()
 
