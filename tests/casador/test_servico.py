@@ -80,6 +80,16 @@ def status_de(sessoes, anuncio_id, produto_id=None):
     return par.status
 
 
+def esperas(sessoes):
+    """(falhas seguidas, espera até, assinatura) de cada par que tem falha gravada."""
+    with sessoes() as s:
+        return [
+            (c.ia_falhas, c.ia_espera_ate, c.ia_falha_assinatura)
+            for c in s.scalars(select(Casamento).order_by(Casamento.anuncio_id, Casamento.produto_id))
+            if c.ia_falhas or c.ia_espera_ate is not None or c.ia_falha_assinatura is not None
+        ]
+
+
 def test_desligada_nao_chama(sessoes, config):
     pares(sessoes)
     sv, t, _ = servico(sessoes, config, [])
@@ -384,7 +394,7 @@ def test_espera_crescente_depois_de_falhar(sessoes, config):
     relogio.avancar(hours=24)  # 24 h
     sv.ciclo()
     assert len(t.pedidos) == 4
-    assert sv._falhas[next(iter(sv._falhas))][1] == 4  # limite de 24 h a partir daqui
+    assert esperas(sessoes)[0][0] == 4  # limite de 24 h a partir daqui
 
 
 def test_espera_maxima_e_24_horas(sessoes, config):
@@ -413,7 +423,7 @@ def test_dados_mudados_tiram_o_par_da_espera(sessoes, config):
     assert len(t.pedidos) == 1
     with sessoes() as s, s.begin():
         s.get(AnuncioAmazon, a).titulo = "Título novo"
-    assert sv.ciclo() == 1 and sv._falhas == {}
+    assert sv.ciclo() == 1 and esperas(sessoes) == []
 
 
 def test_sucesso_limpa_a_falha(sessoes, config):
@@ -422,9 +432,36 @@ def test_sucesso_limpa_a_falha(sessoes, config):
     relogio = Relogio()
     sv, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()], relogio=relogio)
     sv.ciclo()
-    assert len(sv._falhas) == 1
+    assert len(esperas(sessoes)) == 1
     relogio.avancar(hours=1)
-    assert sv.ciclo() == 1 and sv._falhas == {}
+    assert sv.ciclo() == 1 and esperas(sessoes) == []
+
+
+def test_espera_sobrevive_a_reinicio_do_casador(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    relogio = Relogio()
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500")], relogio=relogio)
+    sv.ciclo()
+    assert len(t.pedidos) == 1
+    relogio.avancar(minutes=59)
+    novo, t2, _ = servico(sessoes, config, [veredito()], relogio=relogio)  # container reiniciado
+    assert novo.ciclo() == 0 and t2.pedidos == []
+    relogio.avancar(minutes=1)
+    assert novo.ciclo() == 1 and len(t2.pedidos) == 1 and esperas(sessoes) == []
+
+
+def test_falhas_continuam_contando_depois_do_reinicio(sessoes, config):
+    configurar(sessoes)
+    pares(sessoes)
+    relogio = Relogio()
+    sv, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500")], relogio=relogio)
+    sv.ciclo()
+    relogio.avancar(hours=1)
+    novo, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500")], relogio=relogio)
+    novo.ciclo()
+    [(n, ate, _)] = esperas(sessoes)
+    assert n == 2 and ate == relogio.agora + timedelta(hours=6)
 
 
 def test_erros_de_formato_nao_encerram_o_ciclo(sessoes, config):
@@ -433,7 +470,7 @@ def test_erros_de_formato_nao_encerram_o_ciclo(sessoes, config):
     ruim = Bruta(json.dumps({"mesmo_produto": "sim", "confianca": 90, "motivo": "x"}), 10, 1)
     sv, t, _ = servico(sessoes, config, [ruim, ruim, ruim, veredito()])
     assert sv.ciclo() == 1 and len(t.pedidos) == 4
-    assert len(sv._falhas) == 3
+    assert len(esperas(sessoes)) == 3
 
 
 def test_excecao_inesperada_num_par_nao_derruba_o_lote(sessoes, config, monkeypatch, caplog):
@@ -452,7 +489,7 @@ def test_excecao_inesperada_num_par_nao_derruba_o_lote(sessoes, config, monkeypa
 
     monkeypatch.setattr(modulo, "avaliar_par", avaliar_par)
     sv, t, _ = servico(sessoes, config, [veredito()])
-    assert sv.ciclo() == 1 and len(sv._falhas) == 1 and len(t.pedidos) == 1
+    assert sv.ciclo() == 1 and len(esperas(sessoes)) == 1 and len(t.pedidos) == 1
     assert "RuntimeError" in caplog.text
     assert sv.ciclo() == 0 and len(chamadas) == 2  # o par que quebrou espera
 

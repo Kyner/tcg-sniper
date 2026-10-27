@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -89,6 +89,10 @@ class ParPendente:
     preco_liga: Decimal | None
     preco_amazon: Decimal | None
     reavaliar: bool = False  # Desfazer ou "Reavaliar com a IA": avalia de novo mesmo com a assinatura igual
+    # Espera gravada depois de falhas da IA neste par (sobrevive a reinício): quantas, até quando e a assinatura
+    ia_falhas: int = 0
+    ia_espera_ate: datetime | None = None
+    ia_falha_assinatura: str | None = None
 
 
 def origem_da_decisao(s: Session, anuncio_id: int, produto_id: int | None) -> OrigemCasamento:
@@ -136,9 +140,35 @@ def pares_pendentes(s: Session, so_descoberta: bool = False) -> list[ParPendente
             or_(casado_desde.is_(None), Casamento.visto_primeiro_em > casado_desde, Casamento.reavaliar.is_(True))
         )
     return [
-        ParPendente(anuncio, produto, avaliacao, liga, amazon, par.reavaliar)
+        ParPendente(
+            anuncio, produto, avaliacao, liga, amazon, par.reavaliar,
+            par.ia_falhas, par.ia_espera_ate, par.ia_falha_assinatura,
+        )
         for par, anuncio, produto, avaliacao, liga, amazon in s.execute(consulta)
     ]
+
+
+def registrar_falha_par(
+    s: Session, anuncio_id: int, produto_id: int, assinatura: str, agora: datetime, esperas: Sequence[timedelta]
+) -> None:
+    """A IA falhou neste par: conta mais uma falha seguida (zera se os dados mudaram desde a última) e grava
+    até quando esperar (`esperas[n - 1]`, a última vale daí em diante)."""
+    par = s.get(Casamento, (anuncio_id, produto_id))
+    if par is None:
+        return
+    n = par.ia_falhas + 1 if par.ia_falha_assinatura == assinatura else 1
+    par.ia_falhas = n
+    par.ia_falha_assinatura = assinatura
+    par.ia_espera_ate = agora + esperas[min(n, len(esperas)) - 1]
+
+
+def limpar_falha_par(s: Session, anuncio_id: int, produto_id: int) -> None:
+    """A IA avaliou o par: some a espera."""
+    s.execute(
+        update(Casamento)
+        .where(Casamento.anuncio_id == anuncio_id, Casamento.produto_id == produto_id)
+        .values(ia_falhas=0, ia_espera_ate=None, ia_falha_assinatura=None)
+    )
 
 
 def gravar_avaliacao(

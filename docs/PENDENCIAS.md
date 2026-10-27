@@ -92,7 +92,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Casamento por par: um anúncio confirmado para um produto que foi **desativado** continua confirmado nele (como antes): sai do monitor, mas não aparece como pendente para outros produtos e não pode ser confirmado em outro até você reativar o produto ou desfazer o par. Decidir se desativar um produto deve soltar os confirmados dele.
 - [ ] Casamento por par: `marcar_reavaliado` pode tirar a marca de reavaliar com uma resposta da IA que já estava a caminho, mais antiga que o pedido de reavaliar (inofensivo: a avaliação gravada vale para os mesmos dados; para reavaliar de novo, é só clicar outra vez).
 - [ ] Casamento por par: a guarda global contra as colunas antigas (`tests/test_sem_casamento_no_anuncio.py`) só pega os prefixos `anuncio.` e `AnuncioAmazon.`; uma variável com outro nome (`a.produto_id`, `item.status_casamento`) passaria. As colunas já saíram do banco, então o erro apareceria em execução.
-- [ ] Casador: a espera de 1 h, 6 h e 24 h dos anúncios que sempre falham fica só em memória; cada reinício do container gera uma chamada paga a mais por anúncio. Vale também para a espera dos termos de busca cuja chamada falhou.
 
 ### LigaMagic
 
@@ -256,6 +255,7 @@ Nenhuma no momento.
 ### Pacote de pequenas (2026-10-27)
 
 - [x] Login com o celular digitado sem o 9 extra: `numero_de_login` (`api/acesso.py`) usa a variante cadastrada com o 9 antes do HMAC, dividindo os limites; fixo nunca vira celular; consulta feita sempre, sem mudar o tempo. Commit `916f165`.
+- [x] Espera do Casador gravada no banco: a espera de 1 h, 6 h e 24 h dos pares cuja chamada da IA falha (`casamento.ia_falhas/ia_espera_ate/ia_falha_assinatura`; dados mudados zeram) e dos termos de busca (`fila_amazon.termos_falhas/termos_espera_ate`) sobrevive a reinício do container, sem chamada paga a mais. Commit `COMMIT`.
 
 ### Fase 3B — Serviços, Atividade e Dashboard na gestão (merge `266cc9d`, em produção desde 2026-10-25 20:37)
 
