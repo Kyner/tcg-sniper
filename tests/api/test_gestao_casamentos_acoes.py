@@ -11,6 +11,7 @@ from tcg_sniper.db import repositorio_casamento as repo_casamento
 from tcg_sniper.db import repositorio_ia as repo_ia
 from tcg_sniper.db.models import (
     COLETOR_CASADOR,
+    AnuncioAmazon,
     AvaliacaoIA,
     Casamento,
     FilaAmazon,
@@ -55,6 +56,7 @@ def test_permissoes_401_e_403_em_todas_as_rotas(cliente, logar, dois):
         ("post", f"{BASE}/{p}/rebuscar", None),
         ("post", f"{BASE}/{p}/reavaliar", None),
         ("post", f"{BASE}/{p}/termos", None),
+        ("patch", f"{BASE}/anuncios/{a}/idioma", {"idioma": "pt"}),
     ]
     for metodo, rota, corpo in rotas:
         assert cliente.request(metodo, rota, json=corpo).status_code == 401
@@ -265,3 +267,18 @@ def test_busca_e_link_com_tamanho_maximo(cliente, logar, dois):
     assert r.status_code == 422
     r = cliente.post(f"{BASE}/{dois['jogo']}/link", json={"link": "https://www.amazon.com.br/dp/" + "x" * 500})
     assert r.status_code == 422
+
+
+def test_definir_idioma_do_anuncio(cliente, logar, sessoes, dois):
+    logar(Papel.OPERADOR)
+    rota = f"{BASE}/anuncios/{dois['anuncio']}/idioma"
+    r = cliente.patch(rota, json={"idioma": "ja"})
+    assert r.status_code == 200 and r.json() == {"anuncio_id": dois["anuncio"], "idioma": "ja"}
+    with sessoes() as s:
+        assert s.get(AnuncioAmazon, dois["anuncio"]).idioma == "ja"
+    revisao = cliente.get(f"{BASE}/{dois['jogo']}?situacao=todos").json()
+    assert revisao["para_decidir"][0]["idioma"] == "ja"
+    for invalido in ("fr", "indefinido", ""):
+        assert cliente.patch(rota, json={"idioma": invalido}).status_code == 422
+    assert cliente.patch(rota, json={}).status_code == 422
+    assert cliente.patch(f"{BASE}/anuncios/999999/idioma", json={"idioma": "pt"}).status_code == 404

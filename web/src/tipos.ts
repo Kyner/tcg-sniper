@@ -192,6 +192,8 @@ export interface AnuncioRevisao {
   preco: string | null;
   vendedor: string | null;
   termos_variacao: string[];
+  /** O idioma definido no anúncio ou, sem ele, o lido pela IA. */
+  idioma: string | null;
   ia: ParecerIa | null;
   origem: string | null;
   revisado_em: string | null;

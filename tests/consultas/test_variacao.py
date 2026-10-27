@@ -32,3 +32,13 @@ def test_termos_por_palavra_sem_diferenciar_maiusculas():
     assert termos_variacao("Secret Lair FOIL edition 36 boosters") == ["FOIL", "36 boosters"]
     assert termos_variacao("Foiled Booster Englishman") == []
     assert termos_variacao("Caixa sem variação") == []
+
+
+def test_idioma_do_titulo_so_quando_um_idioma_aparece():
+    from tcg_sniper.consultas.variacao import idioma_do_titulo
+
+    assert idioma_do_titulo("Booster Box Foil English") == "en"
+    assert idioma_do_titulo("Caixa de Booster (Português)") == "pt"
+    assert idioma_do_titulo("Secret Lair Japanese") == "ja"
+    assert idioma_do_titulo("Caixa sem idioma") is None
+    assert idioma_do_titulo("Box English and Portuguese") is None  # dois idiomas: não decide

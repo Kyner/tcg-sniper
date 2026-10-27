@@ -238,7 +238,7 @@ class ServicoCasador:
     def _idioma_permite_confirmar(s: Session, av) -> bool:
         if av.idioma_anuncio in IDIOMAS_NUNCA_CONFIRMAR:
             return False
-        if av.idioma_anuncio == "en":
+        if av.idioma_anuncio in ("en", "indefinido"):  # idioma que não se leu com certeza: segue a regra do inglês
             return repo_ia.portugues_confirmado(s, av.produto_id) is False
         return True
 

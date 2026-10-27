@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tcg_sniper.consultas.variacao import idioma_do_titulo
 from tcg_sniper.db.models import (
     AnuncioAmazon,
     AvaliacaoIA,
@@ -36,6 +37,7 @@ from tcg_sniper.db.models import (
     OrigemCasamento,
     StatusCasamento,
 )
+from tcg_sniper.db.repositorio_ia import IDIOMAS_CONHECIDOS
 
 PENDENTE, CONFIRMADO, IGNORADO = StatusCasamento.PENDENTE, StatusCasamento.CONFIRMADO, StatusCasamento.IGNORADO
 # Ignorados que "Reavaliar com a IA" devolve a pendente. `manual` e `sugerido_ia` são decisões suas (no
@@ -374,6 +376,60 @@ def reabrir_ignorados_por_ingles(s: Session, agora: datetime, *, aplicar: bool) 
     else:
         savepoint.rollback()
     return Reabertura(len(alvos), resultados.count(REABERTO), resultados.count(CONFIRMADO_EM_OUTRO))
+
+
+@dataclass(frozen=True)
+class ResultadoIdioma:
+    definidos: dict[str, int]  # idioma -> quantos anúncios receberam (ou receberiam) esse idioma
+    sem_decisao: list[tuple[int, str]]  # (anuncio_id, título) que a heurística do título não decidiu
+
+
+def definir_idioma(s: Session, anuncio_id: int, idioma: str) -> bool:
+    """Define à mão o idioma do anúncio (`pt`, `en`, `ja` ou `outro`). False se o anúncio não existe."""
+    anuncio = s.get(AnuncioAmazon, anuncio_id, with_for_update=True)
+    if anuncio is None:
+        return False
+    anuncio.idioma = idioma
+    s.flush()
+    return True
+
+
+def definir_idioma_confirmados(s: Session, agora: datetime, *, aplicar: bool) -> ResultadoIdioma:
+    """Preenche o idioma dos anúncios confirmados que ainda não têm idioma conhecido (nem no anúncio, nem numa
+    avaliação da IA), pelo que o título diz (`idioma_do_titulo`). O que o título não decide fica na lista
+    `sem_decisao`, para definir à mão. Sem `aplicar`, só conta (tudo num SAVEPOINT desfeito). Sem chamada à IA."""
+    conhecido = (
+        select(AvaliacaoIA.id)
+        .where(AvaliacaoIA.anuncio_id == AnuncioAmazon.id, AvaliacaoIA.idioma_anuncio.in_(IDIOMAS_CONHECIDOS))
+        .exists()
+    )
+    confirmado = select(Casamento.anuncio_id).where(Casamento.status == CONFIRMADO)
+    alvos = s.scalars(
+        select(AnuncioAmazon)
+        .where(
+            AnuncioAmazon.id.in_(confirmado),
+            or_(AnuncioAmazon.idioma.is_(None), AnuncioAmazon.idioma.not_in(IDIOMAS_CONHECIDOS)),
+            ~conhecido,
+        )
+        .order_by(AnuncioAmazon.id)
+        .with_for_update()
+    ).all()
+    savepoint = s.begin_nested()
+    definidos: dict[str, int] = {}
+    sem_decisao: list[tuple[int, str]] = []
+    for anuncio in alvos:
+        idioma = idioma_do_titulo(anuncio.titulo_exibicao)
+        if idioma is None:
+            sem_decisao.append((anuncio.id, anuncio.titulo_exibicao))
+            continue
+        anuncio.idioma = idioma
+        definidos[idioma] = definidos.get(idioma, 0) + 1
+    s.flush()
+    if aplicar:
+        savepoint.commit()
+    else:
+        savepoint.rollback()
+    return ResultadoIdioma(definidos, sem_decisao)
 
 
 def marcar_reavaliado(s: Session, anuncio_id: int, produto_id: int) -> None:

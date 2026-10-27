@@ -699,3 +699,20 @@ def test_avaliacao_antiga_sem_idioma_segue_a_regra_de_antes(sessoes, config):
 def repo_ia_avaliacao(sessoes, anuncio_id, produto_id):
     with sessoes() as s:
         return repo_ia.avaliacoes_dos_pares(s, [(anuncio_id, produto_id)])[(anuncio_id, produto_id)]
+
+
+def test_indefinido_com_portugues_confirmado_nao_confirma_sozinho(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    p, _, pend = produto_com_confirmado(sessoes, "pt")
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("indefinido", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, pend, p) is StatusCasamento.PENDENTE
+    assert repo_ia_avaliacao(sessoes, pend, p).aplicada_em is None
+
+
+def test_indefinido_sem_portugues_confirmado_confirma(sessoes, config):
+    configurar(sessoes, automatico=True, confianca_confirmar=90, confianca_ignorar=90)
+    _, [a] = pares(sessoes)
+    sv, _, _ = servico(sessoes, config, [veredito_idioma("indefinido", True, 99)])
+    sv.ciclo()
+    assert status_de(sessoes, a) is StatusCasamento.CONFIRMADO

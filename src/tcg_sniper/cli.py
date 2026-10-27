@@ -77,6 +77,11 @@ def main(argv: list[str] | None = None) -> None:
         help="reabre para a IA reavaliar os pares ignorados pelo automático por serem em inglês (regra de idioma revista)",
     )
     reabrir_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só mostra as contagens)")
+    idioma_p = casamento_sub.add_parser(
+        "definir-idioma",
+        help="preenche o idioma dos anúncios confirmados pelo título (o que o título não decide fica listado)",
+    )
+    idioma_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só mostra as contagens)")
     amazon = sub.add_parser("amazon", help="ferramentas da Amazon")
     amazon_sub = amazon.add_subparsers(dest="acao_amazon", required=True)
     capturar_p = amazon_sub.add_parser(
@@ -217,6 +222,18 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.db import repositorio_casamento as repo_casamento
         from tcg_sniper.db.repositorio import agora_utc
 
+        if args.acao_casamento == "definir-idioma":
+            with sessoes() as s, s.begin():
+                resultado = repo_casamento.definir_idioma_confirmados(s, agora_utc(), aplicar=args.aplicar)
+            if not args.aplicar:
+                print("simulação: nada mudou (use --aplicar para gravar)")
+            print("Idioma definido pelo título:")
+            for idioma, quantos in sorted(resultado.definidos.items()):
+                print(f"  {idioma}: {quantos}")
+            print(f"Sem decisão: {len(resultado.sem_decisao)} (defina à mão na revisão de casamentos)")
+            for anuncio_id, titulo in resultado.sem_decisao:
+                print(f"  #{anuncio_id} {titulo}")
+            return
         with sessoes() as s, s.begin():
             r = repo_casamento.reabrir_ignorados_por_ingles(s, agora_utc(), aplicar=args.aplicar)
         if not args.aplicar:

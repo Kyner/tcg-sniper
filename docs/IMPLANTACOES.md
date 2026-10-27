@@ -5,6 +5,19 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 Da mais nova para a mais antiga.
 
 
+## Pacote de pequenas (2026-10-27)
+
+Com migração (colunas novas): **backup do banco antes do deploy**. Suba tudo junto (`docker compose up -d --build`).
+
+- **Idioma dos casamentos antigos:** depois do deploy, preencha o idioma dos anúncios já confirmados pelo título. Primeiro a simulação (só mostra as contagens e lista o que o título não decide), depois aplique:
+
+  ```bash
+  docker compose exec casador tcg-sniper casamento definir-idioma
+  docker compose exec casador tcg-sniper casamento definir-idioma --aplicar
+  ```
+
+  O que ficar na lista "Sem decisão" você define à mão na revisão de casamentos, com o botão "definir idioma" no cartão do anúncio confirmado.
+
 ## Site novo, fase 3B: Serviços, Atividade e Dashboard (2026-10-25, implantada às 20:37)
 
 Com migração (só índices): **backup do banco antes do deploy**. A migração `d6a2f8c4b1e9` cria índices no instante de `coleta`, `oferta_amazon`, `conferencia_checkout`, `mensagem_saida` (criada e enviada), `resumo_preco`, `execucao_manutencao` e `estado_aviso`, para a Atividade e o estado dos serviços não lerem as tabelas grandes inteiras. Nada é apagado nem reescrito, mas a criação dos índices em `oferta_amazon` e `resumo_preco` pode levar alguns segundos e segura as gravações nessas tabelas enquanto roda.

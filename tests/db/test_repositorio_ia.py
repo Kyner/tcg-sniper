@@ -235,3 +235,20 @@ def test_portugues_pendente_ou_ignorado_nao_conta(s):
     b = criar_anuncio(s, "B2", produto=p)
     _avaliar(s, b, p, "pt")
     assert repo_ia.portugues_confirmado(s, p.id) is False
+
+
+def test_idioma_definido_no_anuncio_vale_para_portugues_confirmado(s):
+    p = criar_produto(s, "p1")
+    a = criar_anuncio(s, "B1", produto=p, status=StatusCasamento.CONFIRMADO, origem=OrigemCasamento.MANUAL)
+    assert repo_ia.portugues_confirmado(s, p.id) is None  # sem idioma em lugar nenhum
+    a.idioma = "pt"
+    s.flush()
+    assert repo_ia.portugues_confirmado(s, p.id) is True
+    a.idioma = "en"
+    s.flush()
+    assert repo_ia.portugues_confirmado(s, p.id) is False
+    _avaliar(s, a, p, "pt")  # o idioma do anúncio vale mais que o da avaliação
+    assert repo_ia.portugues_confirmado(s, p.id) is False
+    a.idioma = None
+    s.flush()
+    assert repo_ia.portugues_confirmado(s, p.id) is True  # sem idioma no anúncio, vale o da avaliação
