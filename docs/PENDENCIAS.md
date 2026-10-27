@@ -102,7 +102,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Login, usuários e site novo
 
-- [ ] Celular digitado sem o 9 extra (10 dígitos) é normalizado diferente do cadastrado com 11 dígitos e não entra. **Decidido (2026-10-19):** aceitar a variante sem o 9 no login, normalizando para o número cadastrado.
 - [ ] `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
 - [ ] `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
 - [ ] `repositorio_acesso.travar_limite` ainda cita o "limite total" na docstring, e o caminho sem número (chave fixa) e `contar_pedidos` sem número ficaram sem uso desde a segurança etapa 1.
@@ -253,6 +252,10 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Pacote de pequenas (2026-10-27)
+
+- [x] Login com o celular digitado sem o 9 extra: `numero_de_login` (`api/acesso.py`) usa a variante cadastrada com o 9 antes do HMAC, dividindo os limites; fixo nunca vira celular; consulta feita sempre, sem mudar o tempo. Commit `COMMIT`.
 
 ### Fase 3B — Serviços, Atividade e Dashboard na gestão (merge `266cc9d`, em produção desde 2026-10-25 20:37)
 

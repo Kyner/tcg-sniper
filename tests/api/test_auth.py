@@ -362,3 +362,43 @@ def test_limite_de_entrar_tem_mensagem_propria_e_neutra(cliente, sessoes, codigo
     r = entrar(cliente, "999999")
     assert r.status_code == 429
     assert r.json() == {"erro": "limite", "mensagem": "Muitas tentativas. Espere alguns minutos e tente de novo."}
+
+
+CELULAR_COM_NOVE = "+5511987654321"
+CELULAR_SEM_NOVE = "(11) 8765-4321"
+
+
+def test_entra_digitando_o_celular_sem_o_nove(cliente, sessoes):
+    criar_usuario(sessoes, Papel.GRUPO, numero=CELULAR_COM_NOVE)
+    assert pedir(cliente, CELULAR_SEM_NOVE).status_code == 200
+    [m] = individuais(sessoes)
+    assert m.numero == CELULAR_COM_NOVE
+    r = entrar(cliente, codigo_da_fila(sessoes), numero=CELULAR_SEM_NOVE)
+    assert r.status_code == 200 and r.json()["papel"] == "grupo"
+
+
+def test_com_e_sem_o_nove_dividem_os_limites(cliente, sessoes):
+    criar_usuario(sessoes, Papel.GRUPO, numero=CELULAR_COM_NOVE)
+    assert pedir(cliente, CELULAR_SEM_NOVE).status_code == 200
+    assert pedir(cliente, "(11) 98765-4321").status_code == 200
+    assert pedir(cliente, CELULAR_SEM_NOVE).status_code == 200
+    assert pedir(cliente, "(11) 98765-4321").status_code == 429
+    with sessoes() as s:
+        assert len(set(s.scalars(select(PedidoCodigo.numero_hash)))) == 1
+
+
+def test_fixo_de_8_digitos_nao_vira_celular(cliente, sessoes):
+    criar_usuario(sessoes, Papel.GRUPO, numero="+5511930000001")  # o fixo com um 9 na frente existiria
+    assert pedir(cliente, "(11) 3000-0001").status_code == 200
+    assert individuais(sessoes) == []
+    with sessoes() as s:
+        assert s.scalars(select(PedidoCodigo.numero_hash)).one() == hash_segredo(SEGREDO_TESTE, "+551130000001")
+
+
+def test_sem_o_nove_sem_cadastro_responde_igual(cliente, sessoes):
+    criar_usuario(sessoes, Papel.GRUPO, numero=CELULAR_COM_NOVE)
+    com = pedir(cliente, CELULAR_SEM_NOVE)
+    sem = pedir(cliente, "(21) 8765-4321")  # a variante com o 9 não existe
+    assert (com.status_code, com.json()) == (sem.status_code, sem.json())
+    assert len(individuais(sessoes)) == 1
+    assert entrar(cliente, "000000", numero="(21) 8765-4321").status_code == 401
