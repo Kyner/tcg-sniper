@@ -3,12 +3,13 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-28 (pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: 3C, fase 4, segurança etapa 2).
+Última revisão: 2026-10-28 (Liga parada por desafio desde 27/10 16:54, a resolver; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: 3C, fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
+0. **Liga parada por desafio do Cloudflare** (seção 0).
 1. Casamento e idioma (seção 3, "Coleta e casamento"): conferir os casamentos #322, #382 e #462 e o idioma de 4 anúncios.
-2. Acompanhar a primeira semana do monitor por grupo e a primeira coleta da Liga depois da retomada (seção 3).
+2. Acompanhar a primeira semana do monitor por grupo (seção 3).
 3. Site novo, fase 3, entrega 3C (Configurações, Ofertas e Mensagens), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4). A 3B está em produção desde 2026-10-25 20:37 (merge `266cc9d`). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
@@ -18,7 +19,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico
 
-Nenhum no momento.
+- [ ] **LigaMagic parada com desafio do Cloudflare desde 2026-10-27 16:54** (logo depois de religar a produção): a coleta de 28/10 não rodou. Resolver a verificação no noVNC da Liga (`http://localhost:6080/vnc.html`) e clicar em **Retomar** (gestão → Serviços → LigaMagic). Depois de retomar, a coleta espera 30 min e roda com pausas em dobro por 24 h.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -131,20 +132,8 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ## 3. Acompanhar (sem código)
 
-### Fase 3A (em produção desde 2026-10-22 11:37)
-
-- [ ] Abrir a gestão (`localhost:8090/gestao`): menu lateral, selo de Casamentos, lista com filtros, "Revisar em sequência", confirmar e ignorar um par, "Voltar à lista" na mesma página.
-- [ ] Catálogo: desligar e religar um produto pela chave e conferir o registro (`SELECT * FROM acao_gestao ORDER BY em DESC LIMIT 5`).
-- [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/casamentos` e `/gestao/catalogo`) e olhar à mão, no celular e nos temas claro e escuro, a revisão de um produto e a página do produto (roteiro em `docs/IMPLANTACOES.md`).
-
-### Fase 3B (em produção desde 2026-10-25 20:37)
-
-- [ ] Layout depois do deploy: rodar `scripts/verificar_layout.py` (agora com `/gestao/servicos` e `/gestao/atividade`).
-- [ ] Olhar a Atividade e o Dashboard com dados reais: tempo de resposta com a tabela de ofertas cheia, e se "Precisa de você" bate com o que o grupo espera.
-
 ### Monitor por grupo e atualizações de segurança (em produção desde 2026-10-23 13:28)
 
-- [ ] Na primeira coleta da Liga depois da retomada (Chromium novo, Playwright 1.64.1), conferir que o Cloudflare não pede desafio.
 - [ ] Primeira rodada de cópia de fotos com a Pillow 13 (Atividade, filtro "backup"): falha só nos itens fora de JPEG/PNG/WEBP/GIF.
 - [ ] Primeira semana: conferir o ritmo da fila rápida (card em Serviços), quão velhas ficam as leituras do grupo lento e o tamanho da lista "esgotado na Liga" (Catálogo), vendo se algum desses produtos merece ação.
 - [ ] Se a fila rápida crescer demais, ajustar `quase_oportunidade_min_pct` ou o intervalo da fila rápida.
@@ -166,7 +155,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] CAPTCHA da Amazon com os dois navegadores no mesmo endereço: busca até 90/h e monitor limitado na prática pelas pausas (~211 páginas/h com 8–20 s; o teto configurado é 1.000). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
 - [ ] Quantos produtos ativos ainda não foram buscados (card Amazon (busca) no Dashboard; eram 1941 de 1969 sem candidato em 2026-10-19). Com 90 buscas/h e a janela de 14 h, a primeira passada nos ~2000 produtos leva cerca de 2 dias.
 - [ ] Primeira semana do casamento por par: quantos ignorados foram recuperados (anúncios confirmados para um produto que antes estavam ignorados para outro: `SELECT count(*) FROM casamento c WHERE c.status = 'confirmado' AND EXISTS (SELECT 1 FROM casamento o WHERE o.anuncio_id = c.anuncio_id AND o.produto_id <> c.produto_id AND o.status = 'ignorado' AND o.origem <> 'outro_confirmado')`) e quantos produtos entraram na busca alternativa (`SELECT count(DISTINCT produto_id) FROM termo_busca`; com tentativa sem termo válido: `SELECT count(*) FROM fila_amazon WHERE termos_tentados_em IS NOT NULL`). Se a recuperação estiver lenta, plano B: a IA reavalia os ignorados contra os produtos de nome parecido (com o teto de gasto valendo).
-- [ ] Gasto da IA em 2026-10-21: US$ 21,36 de US$ 30 no dia (4.047 chamadas), provavelmente a fila andando depois do religamento. Conferir se repete depois de retomar o casador.
 - [ ] Resultado dos 19 pares em inglês reabertos em 2026-10-19 (`reabrir-ingles --aplicar`): quantos a IA confirmou e quantos voltaram a ignorado.
 - [ ] Fila e gasto da IA nos primeiros dias depois de implantar o casamento por par (volume aceito; o teto de gasto protege): pares pendentes esperando a IA (Dashboard → "esperando você" e Casamentos), gasto do dia e do mês em Logs → IA (filtro "termos de busca" para a busca alternativa, 5 produtos por ciclo) e se o teto do dia está sendo atingido cedo. Se a fila não baixar, ajustar o lote ou os tetos em Configurações → IA.
 
@@ -250,6 +238,13 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Conferido em produção (2026-10-26 a 2026-10-28)
+
+- [x] 3A e 3B conferidas pelo usuário em 2026-10-26 ("está tudo certo"): gestão, Casamentos, Catálogo, Serviços, Atividade e Dashboard. Os problemas achados nessa conferência (botão Voltar e link da Amazon) foram corrigidos em `9314e27`, `ce2af1c`. O layout das telas novas foi conferido pelo ponta a ponta em 390 e 1440 px, temas claro e escuro.
+- [x] Primeira coleta da Liga depois da retomada de 2026-10-25 (Chromium novo, Playwright 1.64.1): rodou sem desafio em 25/10 e 26/10. O 1º desafio veio em 2026-10-27 16:54, logo depois de religar a produção (seção 3, "Coleta e casamento").
+- [x] Gasto da IA depois de retomar o casador: US$ 2,69 a 6,69 por dia de 24/10 a 27/10 (520 a 950 chamadas), longe dos US$ 21,36 de 2026-10-21.
+- [x] Sem `SERVICO_SEM_SINAL` nem CAPTCHA da Amazon de 25/10 a 28/10.
 
 ### Pacote de pequenas (merge `9a765b6`, em produção desde 2026-10-27 17:08)
 
