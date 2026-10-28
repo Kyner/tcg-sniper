@@ -210,14 +210,17 @@ def portugues_confirmado(s: Session, produto_id: int) -> bool | None:
     confirmados = select(Casamento.anuncio_id).where(
         Casamento.produto_id == produto_id, Casamento.status == StatusCasamento.CONFIRMADO
     )
-    definidos = dict(
-        s.execute(select(AnuncioAmazon.id, AnuncioAmazon.idioma).where(AnuncioAmazon.id.in_(confirmados))).tuples().all()
-    )
+    definidos = {
+        anuncio_id: idioma
+        for anuncio_id, idioma in s.execute(
+            select(AnuncioAmazon.id, AnuncioAmazon.idioma).where(AnuncioAmazon.id.in_(confirmados))
+        )
+    }
     das_avaliacoes: dict[int, set[str]] = {}
     avaliadas = select(AvaliacaoIA.anuncio_id, AvaliacaoIA.idioma_anuncio).where(
         AvaliacaoIA.anuncio_id.in_(confirmados), AvaliacaoIA.idioma_anuncio.in_(IDIOMAS_CONHECIDOS)
     )
-    for anuncio_id, idioma in s.execute(avaliadas).tuples():
+    for anuncio_id, idioma in s.execute(avaliadas):
         das_avaliacoes.setdefault(anuncio_id, set()).add(idioma)
     sem_idioma = False
     for anuncio_id, idioma in definidos.items():

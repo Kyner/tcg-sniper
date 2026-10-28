@@ -424,7 +424,9 @@ def _resultado_ia(c: ChamadaIA, av: AvaliacaoIA | None) -> str:
         return _com("erro", c.erro)
     if av is None:
         # a avaliação do par aponta para a chamada mais recente dele; a antiga fica sem veredito
-        return "termos de busca gerados" if c.finalidade == "termos" else "avaliação feita"
+        if c.finalidade == "termos":
+            return "termos de busca gerados"
+        return "idioma consultado" if c.finalidade == "idioma" else "avaliação feita"
     palavra = "mesmo" if av.mesmo_produto else "outro"
     if av.aplicada_em is not None and av.aplicada_em >= c.em:
         desfecho = "confirmado sozinho" if av.mesmo_produto else "ignorado sozinho"

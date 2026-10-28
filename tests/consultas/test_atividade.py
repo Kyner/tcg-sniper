@@ -334,6 +334,17 @@ def test_resultado_em_portugues_da_ia_e_do_checkout(s):
     assert linhas[f"coleta:{parcial.id}"].resultado == "parcial · 512 de 791"
 
 
+def test_chamada_sem_avaliacao_diz_o_que_era(s):
+    termos = _chamada(s, T - timedelta(minutes=2), finalidade="termos")
+    idioma = _chamada(s, T - timedelta(minutes=1), finalidade="idioma")
+    casamento = _chamada(s, T)
+    s.flush()
+    linhas = {l.chave: l for l in linha_do_tempo(s, _filtro(), None)[0]}
+    assert linhas[f"chamada_ia:{termos.id}"].resultado == "termos de busca gerados"
+    assert linhas[f"chamada_ia:{idioma.id}"].resultado == "idioma consultado"
+    assert linhas[f"chamada_ia:{casamento.id}"].resultado == "avaliação feita"
+
+
 def test_ia_que_o_automatico_aplicou_diz_o_que_fez(s):
     produto = criar_produto(s, "p1")
     anuncio = criar_anuncio(s, "B0AUTOMAT1", produto)
