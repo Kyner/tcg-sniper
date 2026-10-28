@@ -566,6 +566,68 @@ def test_casamento_definir_idioma_aplicando_pelo_titulo_e_avisa_japones(banco, c
     assert "possível casamento errado" in saida and "Booster Box Japanese" in saida
 
 
+def _ia_falsa(monkeypatch, respostas):
+    import json
+
+    from fakes import TransporteFake
+
+    from tcg_sniper.ia import transporte_openai
+    from tcg_sniper.ia.modelos import Bruta
+
+    transporte = TransporteFake([
+        r if isinstance(r, Exception) else Bruta(json.dumps(r), 1000, 100) for r in respostas
+    ])
+    monkeypatch.setattr(transporte_openai, "TransporteOpenAI", lambda chave, **kw: transporte)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-teste")
+    return transporte
+
+
+def _veredito(idioma, motivo="Caixa em inglês"):
+    return {"mesmo_produto": True, "confianca": 90, "motivo": motivo, "idioma_anuncio": idioma}
+
+
+def test_casamento_definir_idioma_ia_sem_aplicar_pergunta_mas_nao_grava(banco, capsys, monkeypatch):
+    a = _confirmado_com_titulo(banco, "Booster Box sem idioma")
+    t = _ia_falsa(monkeypatch, [_veredito("en", "Texto em inglês na caixa")])
+    cli.main(["casamento", "definir-idioma", "--ia"])
+    saida = capsys.readouterr().out
+    assert len(t.pedidos) == 1 and "simulação" in saida
+    assert f"#{a}" in saida and "en" in saida and "Booster Box sem idioma" in saida and "Texto em inglês na caixa" in saida
+    assert _idioma_do_anuncio(banco, a) is None
+
+
+def test_casamento_definir_idioma_ia_aplicando_grava(banco, capsys, monkeypatch):
+    a = _confirmado_com_titulo(banco, "Booster Box sem idioma")
+    j = _confirmado_com_titulo(banco, "Outra caixa sem idioma", asin="B2")
+    _ia_falsa(monkeypatch, [_veredito("pt"), _veredito("ja", "Caixa japonesa")])
+    cli.main(["casamento", "definir-idioma", "--ia", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert _idioma_do_anuncio(banco, a) == "pt" and _idioma_do_anuncio(banco, j) == "ja"
+    assert "simulação" not in saida and "possível casamento errado" in saida and "Sem decisão: 0" in saida
+
+
+def test_casamento_definir_idioma_ia_sem_chave_para_com_mensagem(banco, monkeypatch):
+    _confirmado_com_titulo(banco, "Booster Box sem idioma")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    with pytest.raises(SystemExit) as erro:
+        cli.main(["casamento", "definir-idioma", "--ia"])
+    assert "OPENAI_API_KEY ausente" in str(erro.value)
+
+
+def test_casamento_definir_idioma_ia_sem_orcamento_avisa_sem_traceback(banco, capsys, monkeypatch):
+    from fakes import T0
+
+    from tcg_sniper.db import repositorio_ia as repo_ia
+
+    _confirmado_com_titulo(banco, "Booster Box sem idioma")
+    with banco() as s, s.begin():
+        repo_ia.salvar_config_ia(s, {"max_chamadas_dia": 0}, T0)
+    t = _ia_falsa(monkeypatch, [])
+    cli.main(["casamento", "definir-idioma", "--ia", "--aplicar"])
+    saida = capsys.readouterr().out
+    assert t.pedidos == [] and "Interrompido" in saida and "chamadas" in saida
+
+
 def _inativo_com_confirmado(sessoes, asin="B7"):
     from fakes import criar_anuncio, criar_produto
 

@@ -842,7 +842,7 @@ class ChamadaIA(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     em: Mapped[datetime] = mapped_column(DATA)
-    finalidade: Mapped[str] = mapped_column(Text)  # "casamento" | "avaliacao" | "termos"
+    finalidade: Mapped[str] = mapped_column(Text)  # "casamento" | "avaliacao" | "termos" | "idioma"
     modelo: Mapped[str] = mapped_column(Text)
     tokens_entrada: Mapped[int] = mapped_column(Integer)
     tokens_saida: Mapped[int] = mapped_column(Integer)

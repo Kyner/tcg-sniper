@@ -98,6 +98,10 @@ def main(argv: list[str] | None = None) -> None:
         help="preenche o idioma dos anúncios confirmados pelo título (o que o título não decide fica listado)",
     )
     idioma_p.add_argument("--aplicar", action="store_true", help="aplica (sem ela, só mostra as contagens)")
+    idioma_p.add_argument(
+        "--ia", action="store_true",
+        help="a IA decide o idioma do que o título não decide (chamada paga; sem --aplicar não grava)",
+    )
     soltar_p = casamento_sub.add_parser(
         "soltar-inativos",
         help="solta os anúncios confirmados de produtos já inativos (a desativação passou a soltar sozinha)",
@@ -269,6 +273,43 @@ def main(argv: list[str] | None = None) -> None:
         from tcg_sniper.db import repositorio_casamento as repo_casamento
         from tcg_sniper.db.repositorio import agora_utc
 
+        if args.acao_casamento == "definir-idioma" and args.ia:
+            import httpx
+
+            from tcg_sniper.casador.idioma import definir_idioma_com_ia
+            from tcg_sniper.db import repositorio as repo
+            from tcg_sniper.ia.transporte_openai import TransporteOpenAI
+
+            chave = (config.openai_api_key or "").strip()
+            if not chave:
+                raise SystemExit("OPENAI_API_KEY ausente no .env")
+            with sessoes() as s:
+                zona = ZoneInfo(repo.obter_config_geral(s, config).fuso)
+            with httpx.Client(timeout=15, headers={"User-Agent": "Mozilla/5.0"}) as http:
+                r = definir_idioma_com_ia(
+                    sessoes, TransporteOpenAI(chave), http, zona, agora_utc, aplicar=args.aplicar
+                )
+            if not args.aplicar:
+                print("simulação: nada mudou (use --aplicar para gravar; as chamadas à IA foram feitas e contam no gasto)")
+            print("Idioma definido (título e IA):")
+            for idioma, quantos in sorted(r.definidos.items()):
+                print(f"  {idioma}: {quantos}")
+            for d in r.decisoes:
+                titulo = d.titulo if len(d.titulo) <= 70 else d.titulo[:69] + "…"
+                motivo = " ".join(d.motivo.split())
+                print(f"  #{d.anuncio_id} [{d.idioma}] {titulo} | {motivo}")
+            if r.suspeitos:
+                print(f"Atenção, possível casamento errado (japonês/outro idioma confirmado): {len(r.suspeitos)}")
+                for anuncio_id, titulo in r.suspeitos:
+                    print(f"  #{anuncio_id} {titulo}")
+            if r.falhas:
+                print(f"Falhas de chamada à IA: {r.falhas}")
+            if r.interrompida:
+                print(f"Interrompido: {r.interrompida}")
+            print(f"Sem decisão: {len(r.sem_decisao)} (defina à mão na revisão de casamentos)")
+            for anuncio_id, titulo in r.sem_decisao:
+                print(f"  #{anuncio_id} {titulo}")
+            return
         if args.acao_casamento == "definir-idioma":
             with sessoes() as s, s.begin():
                 resultado = repo_casamento.definir_idioma_confirmados(s, agora_utc(), aplicar=args.aplicar)

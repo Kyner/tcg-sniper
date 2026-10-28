@@ -32,6 +32,13 @@ Com migração: **backup do banco antes do deploy**. A migração `a4c7e1b9d3f6`
   docker compose exec casador tcg-sniper casamento definir-idioma --aplicar
   ```
 
+  Para o que o título não decide, `--ia` pergunta à IA do Casador (título e foto, com o par confirmado): sem `--aplicar` as chamadas são feitas e pagas (ficam em `chamada_ia`, finalidade `idioma`), mas nada é gravado em `anuncio_amazon`; com `--aplicar` grava o idioma devolvido (`pt`, `en`, `ja`, `outro`; `indefinido` continua em "Sem decisão"). Respeita o teto de gasto e para com mensagem se a IA estiver desligada ou sem chave:
+
+  ```bash
+  docker compose exec casador tcg-sniper casamento definir-idioma --ia
+  docker compose exec casador tcg-sniper casamento definir-idioma --ia --aplicar
+  ```
+
   O que ficar na lista "Sem decisão" você define à mão na revisão de casamentos, com o botão "definir idioma" no cartão do anúncio confirmado.
 
 - **Produtos inativos com anúncio confirmado:** desativar um produto passou a soltar os anúncios confirmados dele, mas os de produtos já inativos antes do deploy continuam confirmados. Depois do deploy, a simulação (lista os produtos, quantos anúncios soltaria e quantas oportunidades abertas fecharia, sem aviso), a conferência e então `--aplicar`:
