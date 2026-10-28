@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
-1. Conferir o casamento #322 (anúncio em japonês confirmado; desfazer na revisão se for o caso) e definir à mão o idioma dos 34 anúncios que o título não decide (botão "definir idioma" na revisão).
+1. Casamento e idioma (seção 3, "Coleta e casamento"): conferir o #322 (anúncio em japonês confirmado) e o idioma dos 34 anúncios que o título não decide.
 2. Acompanhar a primeira semana do monitor por grupo e a primeira coleta da Liga depois da retomada (seção 3).
 3. Site novo, fase 3, entrega 3C (Configurações, Ofertas e Mensagens), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4). A 3B está em produção desde 2026-10-25 20:37 (merge `266cc9d`). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
@@ -158,6 +158,8 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Coleta e casamento
 
+- [ ] **Casamento #322** (pendente com o usuário): anúncio "Secret Lair x Final Fantasy: Grimoire – Rainbow Foil Edition (Japanese)" está confirmado num produto da Liga; pela regra, japonês é sempre produto diferente. Conferir e desfazer na revisão se for o caso (o `definir-idioma` só marcou o idioma, não mexeu no casamento).
+- [ ] **Idioma de 34 anúncios confirmados** que o título não decide (2026-10-27): seguem a regra antiga até ter idioma. Definir pela foto da caixa (botão "definir idioma" na revisão).
 - [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: a etapa dos produtos da Liga lê ~450–500 páginas por dia (leitura por interesse; eram ~10 h com todos os ativos); a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
 - [ ] Acompanhar uma semana sem desafio com ~500 páginas/dia (leitura por interesse, desde a implantação): avisos "Liga · desafio do Cloudflare" e a linha "Produtos: … de … · casados, candidatos, novos, rodízio" do resumo diário. Se o desafio voltar, baixar o rodízio (por exemplo para 14 dias) ou subir as pausas em Configurações → LigaMagic. No fim, revisar também o máximo de cliques em "Exibir mais" com os números reais.
 - [ ] CAPTCHA da Amazon com os dois navegadores no mesmo endereço: busca até 90/h e monitor limitado na prática pelas pausas (~211 páginas/h com 8–20 s; o teto configurado é 1.000). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
