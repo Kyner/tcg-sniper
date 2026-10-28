@@ -5,7 +5,7 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 Da mais nova para a mais antiga.
 
 
-## Pacote de pequenas (2026-10-27)
+## Pacote de pequenas (2026-10-27, implantado às 17:08)
 
 Com migração: **backup do banco antes do deploy**. A migração `a4c7e1b9d3f6` só acrescenta colunas, um índice (`oportunidade.mensagem_alerta_id`) e CHECKs (motivo novo `produto_desativado`); nenhum dado é reescrito nem apagado.
 

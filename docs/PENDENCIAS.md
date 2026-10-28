@@ -3,11 +3,11 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-27 (pacote de pequenas pronto na branch `worktree-pacote-pequenas`, **deploy pendente** — passos em `docs/IMPLANTACOES.md`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: 3C, fase 4, segurança etapa 2).
+Última revisão: 2026-10-28 (pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: 3C, fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
-1. **Deploy do pacote de pequenas** (pronto, só falta o usuário pedir): backup, `docker compose up -d --build`, `casamento definir-idioma` e `casamento soltar-inativos` (simulação, conferência, `--aplicar`), conforme `docs/IMPLANTACOES.md`.
+1. Conferir o casamento #322 (anúncio em japonês confirmado; desfazer na revisão se for o caso) e definir à mão o idioma dos 34 anúncios que o título não decide (botão "definir idioma" na revisão).
 2. Acompanhar a primeira semana do monitor por grupo e a primeira coleta da Liga depois da retomada (seção 3).
 3. Site novo, fase 3, entrega 3C (Configurações, Ofertas e Mensagens), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4). A 3B está em produção desde 2026-10-25 20:37 (merge `266cc9d`). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
@@ -248,8 +248,9 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### Pacote de pequenas (2026-10-27)
+### Pacote de pequenas (merge `9a765b6`, em produção desde 2026-10-27 17:08)
 
+- [x] Deploy em 2026-10-27 17:08 (backup `dados/backups/tcg-antes-pacote-pequenas-2026-10-27.dump`, migração `a4c7e1b9d3f6`); `casamento definir-idioma --aplicar` gravou 21 anúncios em inglês e 1 em japonês (#322, possível casamento errado, a conferir), 34 ficaram sem decisão; `casamento soltar-inativos` não tinha nada a soltar.
 - [x] Login com o celular digitado sem o 9 extra: `numero_de_login` (`api/acesso.py`) usa a variante cadastrada com o 9 antes do HMAC, dividindo os limites; fixo nunca vira celular; consulta feita sempre, sem mudar o tempo. Commits `916f165` e `bf147ba` (correção da revisão).
 - [x] Espera do Casador gravada no banco: a espera de 1 h, 6 h e 24 h dos pares cuja chamada da IA falha (`casamento.ia_falhas/ia_espera_ate/ia_falha_assinatura`; dados mudados zeram) e dos termos de busca (`fila_amazon.termos_falhas/termos_espera_ate`) sobrevive a reinício do container, sem chamada paga a mais. Commit `488c92c`.
 - [x] Idioma dos casamentos antigos e brecha do "indefinido": `anuncio_amazon.idioma` (definido à mão ou por comando) passa a valer antes do idioma da avaliação na regra "português confirmado" (`coalesce`); `tcg-sniper casamento definir-idioma [--aplicar]` preenche os confirmados sem idioma pelo título (sem chamada à IA) e lista o que o título não decide; botão "definir idioma" (português, inglês, japonês, outro) no cartão do confirmado na revisão de casamentos (`PATCH /api/gestao/casamentos/anuncios/{id}/idioma`); o automático trata "indefinido" como inglês (só confirma sem português confirmado). Depois do deploy: rodar `casamento definir-idioma` sem e depois com `--aplicar` (ver `docs/IMPLANTACOES.md`). Commits `ca59caa` e `74fa1d7` (correção da revisão).
