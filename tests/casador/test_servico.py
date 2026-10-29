@@ -504,7 +504,7 @@ def test_falha_ao_gravar_a_falha_nao_derruba_o_ciclo(sessoes, config, monkeypatc
         raise OperationalError("UPDATE", {}, Exception("banco fora"))
 
     monkeypatch.setattr(repo_ia, "registrar_falha_par", registrar_falha_par)
-    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()])
+    sv, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()])
     assert sv.ciclo() == 1  # a falha do 1º não pôde ser gravada, mas o 2º foi avaliado
     assert [av.anuncio_id for av in avaliacoes(sessoes)] == [ids[1]]
     assert "gravar a falha do par" in caplog.text

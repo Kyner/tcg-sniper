@@ -126,20 +126,20 @@ class ServicoCasador:
                 decisao = self._gravar(par, veredito, resposta, sem_imagem, automatico, limites)
             except SemOrcamento as erro:
                 interrompido = True
-                self._sem_derrubar("avisar a falta de orçamento", lambda: self._avisar_orcamento(str(erro), zona))
+                self._sem_derrubar("avisar a falta de orçamento", self._avisar_orcamento, str(erro), zona)
                 break
             except (ChaveInvalida, ConfiguracaoInvalida) as erro:
                 interrompido = True
-                self._sem_derrubar("pausar o casador", lambda: self._pausar_por_configuracao(erro))
+                self._sem_derrubar("pausar o casador", self._pausar_por_configuracao, erro)
                 break
             except RespostaForaDoFormato as erro:  # a chamada funcionou: só o par espera
                 falhas = 0
-                self._sem_derrubar("gravar a falha do par", lambda: self._marcar_falha(chave, atual))
+                self._sem_derrubar("gravar a falha do par", self._marcar_falha, chave, atual)
                 log.warning("resposta fora do formato no anúncio %s: %s", par.anuncio.asin, erro)
                 continue
             except ErroIA as erro:  # falha da chamada: o par espera e, se repetir, a rodada acaba
                 falhas += 1
-                self._sem_derrubar("gravar a falha do par", lambda: self._marcar_falha(chave, atual))
+                self._sem_derrubar("gravar a falha do par", self._marcar_falha, chave, atual)
                 log.warning("IA falhou no anúncio %s: %s", par.anuncio.asin, erro)
                 if falhas >= FALHAS_SEGUIDAS_MAX:
                     dados = Dados(
@@ -150,7 +150,7 @@ class ServicoCasador:
                     break
                 continue
             except Exception:
-                self._sem_derrubar("gravar a falha do par", lambda: self._marcar_falha(chave, atual))
+                self._sem_derrubar("gravar a falha do par", self._marcar_falha, chave, atual)
                 log.exception("erro inesperado no anúncio %s; segue para o próximo", par.anuncio.asin)
                 continue
             if not chamada_ok:  # a primeira chamada ok da rodada fecha falhas seguidas e falta de orçamento
@@ -158,7 +158,7 @@ class ServicoCasador:
                 self._avisador.resolver(TipoAviso.IA_FALHAS_SEGUIDAS, CHAVE_GERAL)
                 self._avisador.resolver_todos(TipoAviso.IA_SEM_ORCAMENTO)
             falhas = 0
-            self._sem_derrubar("limpar a falha do par", lambda: self._limpar_falha(chave))
+            self._sem_derrubar("limpar a falha do par", self._limpar_falha, chave)
             avaliados += 1
             produtos_avaliados.add(par.produto.id)
             confirmados += decisao is StatusCasamento.CONFIRMADO
@@ -195,10 +195,10 @@ class ServicoCasador:
         return agora < par.ia_espera_ate
 
     @staticmethod
-    def _sem_derrubar(descricao: str, acao: Callable[[], None]) -> None:
+    def _sem_derrubar(descricao: str, acao: Callable[..., None], *args) -> None:
         """Rodar o que só registra estado (falha, pausa, aviso): com o banco fora, loga e segue, sem perder a rodada."""
         try:
-            acao()
+            acao(*args)
         except Exception:
             log.exception("não consegui %s; segue", descricao)
 
@@ -303,14 +303,14 @@ class ServicoCasador:
                     else:
                         repo_termos.marcar_tentativa(s, produto.id, self._relogio())
             except SemOrcamento as erro:
-                self._sem_derrubar("avisar a falta de orçamento", lambda: self._avisar_orcamento(str(erro), zona))
+                self._sem_derrubar("avisar a falta de orçamento", self._avisar_orcamento, str(erro), zona)
                 break
             except (ChaveInvalida, ConfiguracaoInvalida) as erro:
-                self._sem_derrubar("pausar o casador", lambda: self._pausar_por_configuracao(erro))
+                self._sem_derrubar("pausar o casador", self._pausar_por_configuracao, erro)
                 break
             except ErroIA as erro:
                 falhas += 1
-                self._sem_derrubar("gravar a falha dos termos", lambda: self._marcar_falha_termos(produto.id))
+                self._sem_derrubar("gravar a falha dos termos", self._marcar_falha_termos, produto.id)
                 log.warning("IA falhou ao gerar termos do produto %s: %s", produto.id, erro)
                 if falhas >= FALHAS_SEGUIDAS_MAX:
                     dados = Dados(
@@ -323,11 +323,11 @@ class ServicoCasador:
                     break
                 continue
             except Exception:
-                self._sem_derrubar("gravar a falha dos termos", lambda: self._marcar_falha_termos(produto.id))
+                self._sem_derrubar("gravar a falha dos termos", self._marcar_falha_termos, produto.id)
                 log.exception("erro inesperado ao gerar termos do produto %s; segue para o próximo", produto.id)
                 continue
             falhas = 0
-            self._sem_derrubar("limpar a falha dos termos", lambda: self._limpar_falha_termos(produto.id))
+            self._sem_derrubar("limpar a falha dos termos", self._limpar_falha_termos, produto.id)
             gerados += bool(termos)
         if gerados:
             log.info("busca alternativa: termos gerados para %d produto(s)", gerados)

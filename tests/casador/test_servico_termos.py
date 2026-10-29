@@ -205,7 +205,7 @@ def test_falha_ao_gravar_falha_de_termos_nao_derruba(sessoes, config, monkeypatc
     from sqlalchemy.exc import OperationalError
 
     configurar(sessoes)
-    p1, p2 = na_fila(sessoes, "alfa", "beta")
+    _, p2 = na_fila(sessoes, "alfa", "beta")
 
     def registrar_falha_termos(*args, **kw):
         raise OperationalError("UPDATE", {}, Exception("banco fora"))
