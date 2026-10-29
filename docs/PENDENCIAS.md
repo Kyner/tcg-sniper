@@ -3,14 +3,14 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-29 (fase 3C mergeada em `f3f7c72`, deploy pendente; coletor da Liga no Google Chrome em produção desde 2026-10-29 11:23 (`7232f8b`); Liga com desafio na 1ª página em toda tentativa desde 27/10 16:54; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
+Última revisão: 2026-10-29 (fase 3C em produção desde 2026-10-29 11:35 (merge `f3f7c72`), conferência pelo usuário pendente; coletor da Liga no Google Chrome em produção desde 2026-10-29 11:23 (`7232f8b`); Liga com desafio na 1ª página em toda tentativa desde 27/10 16:54; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
 0. **Liga com desafio do Cloudflare em toda tentativa** (seção 0): ver se o Google Chrome resolve.
 1. Casamento e idioma (seção 3, "Coleta e casamento"): conferir os casamentos #322, #382 e #462 e o idioma de 4 anúncios.
 2. Acompanhar a primeira semana do monitor por grupo (seção 3).
-3. Deploy da 3C (merge `f3f7c72`; sem migração, conferência em `docs/IMPLANTACOES.md`), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+3. Conferir a 3C em produção (roteiro em `docs/IMPLANTACOES.md`), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
@@ -180,7 +180,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] **Site novo, fase 3 — área administrativa**, organizada por tarefa (spec de 2026-10-21: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, a partir da auditoria de UX do mesmo dia), em três entregas:
   - [x] **3A. Casamentos e Catálogo** (merge `43fdd04`, em produção desde 2026-10-22 11:37; detalhe em "Concluídas").
   - [x] **3B. Serviços, Atividade e Dashboard** (merge `266cc9d`, em produção desde 2026-10-25 20:37; detalhe em "Concluídas").
-  - [x] **3C. Configurações, Ofertas e Mensagens** (merge `f3f7c72`, deploy pendente; detalhe em "Concluídas"). Do que sobrou da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo, o que não entrou fica na seção 2.
+  - [x] **3C. Configurações, Ofertas e Mensagens** (merge `f3f7c72`, em produção desde 2026-10-29 11:35; detalhe em "Concluídas"). Do que sobrou da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo, o que não entrou fica na seção 2.
 - [ ] **Site novo, fase 4 — desligar o admin antigo:** apagar `admin/`, o serviço `admin` do compose e a porta 8000, depois do deploy e da conferência da 3C. Cobertura do admin antigo (rota antiga → onde fica no site novo):
 
 | Rota antiga | Onde fica |
@@ -247,7 +247,7 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### Fase 3C — Configurações, Ofertas e Mensagens na gestão (merge `f3f7c72` em 2026-10-29, deploy pendente; sem migração)
+### Fase 3C — Configurações, Ofertas e Mensagens na gestão (merge `f3f7c72`, em produção desde 2026-10-29 11:35; sem migração)
 
 Plano `docs/superpowers/plans/2026-10-28-fase3c-configuracoes-ofertas.md`. Decisões do plano: Efeito calculado na API, categorias da Liga por ID, grupos do WhatsApp por ID, avisos agrupados por origem (37 tipos), Mensagens como filtro da Atividade.
 

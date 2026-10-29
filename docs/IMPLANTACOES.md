@@ -4,7 +4,7 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 
 Da mais nova para a mais antiga.
 
-## Site novo, fase 3C (Configurações, Ofertas e Mensagens na Atividade)
+## Site novo, fase 3C (Configurações, Ofertas e Mensagens na Atividade) (2026-10-29, implantado às 11:35)
 
 Sem migração e sem passo de dados: **não precisa de backup extra** (o backup diário das 04:00 segue valendo). Só código novo na `api` e no `web`.
 
