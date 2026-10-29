@@ -925,6 +925,23 @@ def test_segundo_desafio_nada_roda_ate_amanha_nem_com_rodar_agora(engine, sessoe
     assert chamadas == [True]
 
 
+def test_reinicio_com_dia_encerrado_nao_agenda_atrasada(engine, sessoes, config, caplog):
+    job_ok(sessoes, TERCA - timedelta(days=2), 10)  # > 24 h: sem a regra, armaria uma atrasada
+    desafio(sessoes, local(TERCA, 10, 30))
+    desafio(sessoes, local(TERCA, 12, 0))
+    relogio = Relogio(local(TERCA, 12, 41))
+    chamadas = []
+    a, _ = agendador(engine, sessoes, config, relogio, chamadas)
+    with caplog.at_level("INFO"):
+        a.inicializar()
+    assert "execução atrasada" not in caplog.text
+    assert "dia encerrado pelo 2º desafio; a próxima coleta é amanhã no horário" in caplog.text
+    assert a.tick() is None
+    relogio.agora = local(TERCA + timedelta(days=1), 10, 31)
+    assert a.tick() == "agendado"
+    assert chamadas == [True]
+
+
 HTML_PRODUTO = fixture_liga("produto_varios_vendedores")
 
 
