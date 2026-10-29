@@ -206,6 +206,68 @@ describe("Catálogo", () => {
     expect(screen.queryByRole("region", { name: "Ação em lote" })).not.toBeInTheDocument();
   });
 
+  it("selo da situação tem tooltip e mostra as contagens do casamento", async () => {
+    apiFalsa({
+      ...base,
+      [LISTAR]: ok({
+        ...LISTA,
+        itens: [ITEM, { ...ITEM, id: 6, nome: "Goblin Box", situacao: "esperando_decisao", pendentes: 1, confirmados: 0 }],
+      }),
+    });
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    const casado = t.getByText("casado · 2 anúncios");
+    expect(casado.closest(".tooltip")).toHaveAttribute("data-tip", expect.stringMatching(/confirmado/));
+    const esperando = t.getByText("1 esperando você");
+    expect(esperando.closest(".tooltip")).toHaveAttribute("data-tip", expect.stringMatching(/decisão/));
+  });
+
+  it("a linha mostra o nome em inglês e as lojas", async () => {
+    apiFalsa({ ...base, [LISTAR]: ok({ ...LISTA, itens: [{ ...ITEM, nome_en: "Hydra's Lair" }] }) });
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    expect(t.getByText("Hydra's Lair")).toBeInTheDocument();
+    expect(t.getByText("4 lojas")).toBeInTheDocument();
+    const cartoes = within(screen.getByRole("list", { name: "Produtos" }));
+    expect(cartoes.getByText("Hydra's Lair")).toBeInTheDocument();
+    expect(cartoes.getByText(/4 lojas/)).toBeInTheDocument();
+  });
+
+  it("depois do lote mostra quantos produtos mudaram", async () => {
+    apiFalsa({
+      ...base, [LISTAR]: ok(LISTA),
+      "POST /api/gestao/catalogo/lote": ok({ alvo: 2, alterados: 1 }),
+    });
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    await userEvent.click(t.getByRole("checkbox", { name: "Selecionar Lair of the Hydra" }));
+    await userEvent.click(t.getByRole("checkbox", { name: "Selecionar Goblin Box" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ligar" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
+    expect(await screen.findByText("1 produto alterado (de 2).")).toBeInTheDocument();
+  });
+
+  it("resposta antiga da lista não desfaz a chave recém-trocada", async () => {
+    apiFalsa({
+      ...base, [LISTAR]: ok(LISTA),
+      "POST /api/gestao/catalogo/lote": ok({ alvo: 1, alterados: 0 }),
+      "PATCH /api/gestao/produtos/6": ok({ ...ITEM, id: 6, nome: "Goblin Box", monitorado: true }),
+    });
+    const soltar = segurar("/catalogo?", 2); // a recarga depois do lote fica pendente
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    await userEvent.click(t.getByRole("checkbox", { name: "Selecionar Lair of the Hydra" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ligar" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const chave = t.getByRole("checkbox", { name: "Monitorar Goblin Box" });
+    await userEvent.click(chave);
+    await waitFor(() => expect(chave).toBeEnabled());
+    soltar();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.getByRole("checkbox", { name: "Monitorar Goblin Box" })).toBeChecked();
+  });
+
   it("Escape durante a nova contagem do 409 não fecha o modal", async () => {
     apiFalsa({
       ...base, [LISTAR]: ok(LISTA),

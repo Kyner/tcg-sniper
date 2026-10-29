@@ -22,9 +22,27 @@ const SITUACOES: Record<string, string> = {
   "": "Qualquer situação", casado: "Casado", esperando_decisao: "Esperando decisão", so_ignorados: "Só ignorados",
   sem_candidato: "Sem candidato",
 };
+/** O que cada situação quer dizer (tooltip do selo). */
+const DICAS_SITUACAO: Record<string, string> = {
+  casado: "Tem anúncio da Amazon confirmado para este produto.",
+  esperando_decisao: "Nenhum anúncio confirmado; há pares esperando a sua decisão.",
+  so_ignorados: "Todos os anúncios achados para este produto foram ignorados.",
+  sem_candidato: "Nenhum anúncio da Amazon achado para este produto ainda.",
+};
 const PRECOS_LIGA: Record<string, string> = {
   todos: "Com ou sem preço", com: "Com preço", esgotado: "Esgotado (com anúncio casado)",
 };
+
+/** O texto do selo da situação, com as contagens ("1 esperando você", "casado · 4 anúncios"). */
+export function textoSituacao(p: LinhaCatalogo): string {
+  if (p.situacao === "casado") return `casado · ${p.confirmados} ${p.confirmados === 1 ? "anúncio" : "anúncios"}`;
+  if (p.situacao === "esperando_decisao") return `${p.pendentes} esperando você`;
+  if (p.situacao === "so_ignorados") return "só ignorados";
+  if (p.situacao === "sem_candidato") return "sem candidato";
+  return p.situacao;
+}
+
+const textoLojas = (n: number | null) => (n === null ? null : `${n} ${n === 1 ? "loja" : "lojas"}`);
 
 /** Query canônica: ordem fixa, vazios e o "preco_liga" padrão fora; a mesma vai para a API, para o produto e para o "voltar". */
 export function montarQueryCatalogo(filtros: Record<string, string>, comPagina: boolean): string {
@@ -54,6 +72,10 @@ export function Catalogo() {
   const [todoFiltro, setTodoFiltro] = useState<number | null>(null);
   const [lote, setLote] = useState<Lote | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [feito, setFeito] = useState<string | null>(null);
+  // Chaves trocadas na tela, com a ordem em que foram trocadas: uma lista pedida antes da troca não as desfaz.
+  const ordem = useRef(0);
+  const trocas = useRef(new Map<number, { valor: boolean; ordem: number }>());
   const query = montarQueryCatalogo(filtros, true);
   const caminho = `/api/gestao/catalogo?${query}`;
   // Sempre o caminho da tela agora: respostas que voltam depois de uma troca de filtro são descartadas.
@@ -70,13 +92,22 @@ export function Catalogo() {
   }, [texto, filtros.busca, mudar]);
 
   // Outra lista (filtro ou página): a seleção anterior não vale mais.
-  useEffect(() => { setMarcados(new Set()); setTodoFiltro(null); setLote(null); }, [caminho]);
+  useEffect(() => { setMarcados(new Set()); setTodoFiltro(null); setLote(null); setFeito(null); }, [caminho]);
 
   useEffect(() => {
     const sinal = { cancelado: false };
+    const pedidaEm = ordem.current;
     setErro(null);
     chamarApi<ListaCatalogo>(caminho).then(
-      (r) => { if (!sinal.cancelado) { setDados(r); setCarregadoDe(caminho); } },
+      (r) => {
+        if (sinal.cancelado) return;
+        const itens = r.itens.map((i) => {
+          const troca = trocas.current.get(i.id);
+          return troca && troca.ordem > pedidaEm ? { ...i, monitorado: troca.valor } : i;
+        });
+        setDados({ ...r, itens });
+        setCarregadoDe(caminho);
+      },
       (e: unknown) => { if (!sinal.cancelado) setErro(tratarErro(e)); },
     );
     return () => { sinal.cancelado = true; };
@@ -89,8 +120,10 @@ export function Catalogo() {
 
   async function alternar(p: LinhaCatalogo) {
     const novo = !p.monitorado;
-    const pinta = (valor: boolean) =>
+    const pinta = (valor: boolean) => {
+      trocas.current.set(p.id, { valor, ordem: ++ordem.current });
       setDados((d) => d && { ...d, itens: d.itens.map((i) => (i.id === p.id ? { ...i, monitorado: valor } : i)) });
+    };
     setAviso(null);
     setOcupados((o) => new Set(o).add(p.id));
     pinta(novo);
@@ -138,8 +171,12 @@ export function Catalogo() {
     if (!lote) return;
     const de = caminho;
     setEnviando(true);
+    setFeito(null);
     try {
-      await chamarApi<LoteCatalogo>("/api/gestao/catalogo/lote", { metodo: "POST", corpo: corpoLote(lote.acao, lote.alvo, true) });
+      const r = await chamarApi<LoteCatalogo>("/api/gestao/catalogo/lote", {
+        metodo: "POST", corpo: corpoLote(lote.acao, lote.alvo, true),
+      });
+      setFeito(`${r.alterados} ${r.alterados === 1 ? "produto alterado" : "produtos alterados"} (de ${r.alvo}).`);
       setLote(null);
       limparSelecao();
       setRecarga((n) => n + 1);
@@ -199,7 +236,9 @@ export function Catalogo() {
   );
   const semVendedor = (p: LinhaCatalogo) => (p.sem_vendedor_desde ? dataComAno(p.sem_vendedor_desde) : "sem registro de preço");
   const situacao = (p: LinhaCatalogo) => (
-    <span className="badge badge-outline badge-sm">{SITUACOES[p.situacao] ?? p.situacao}</span>
+    <span className="tooltip" data-tip={DICAS_SITUACAO[p.situacao] ?? SITUACOES[p.situacao] ?? p.situacao}>
+      <span className="badge badge-outline badge-sm whitespace-nowrap">{textoSituacao(p)}</span>
+    </span>
   );
 
   return (
@@ -235,6 +274,12 @@ export function Catalogo() {
         <div role="alert" className="alert alert-error">
           <span>{erro}</span>
           <button type="button" className="btn btn-sm" onClick={() => setRecarga((n) => n + 1)}>Tentar de novo</button>
+        </div>
+      )}
+      {feito && (
+        <div role="status" className="alert alert-success">
+          <span>{feito}</span>
+          <button type="button" className="btn btn-sm" onClick={() => setFeito(null)}>Fechar</button>
         </div>
       )}
       {aviso && (
@@ -273,8 +318,9 @@ export function Catalogo() {
                 <Foto src={p.imagem} alt={p.nome} tamanho="p" />
                 <div className="list-col-grow min-w-0 space-y-1">
                   <Link className="link block truncate" to={linkProduto(p.id)}>{p.nome}</Link>
+                  {p.nome_en && <div className="truncate text-xs opacity-70">{p.nome_en}</div>}
                   <div className="text-xs opacity-70">
-                    {reais(p.preco_liga)}{p.categoria ? ` · ${p.categoria}` : ""}
+                    {reais(p.preco_liga)}{p.lojas !== null ? ` · ${textoLojas(p.lojas)}` : ""}{p.categoria ? ` · ${p.categoria}` : ""}
                   </div>
                   {esgotado && (
                     <div className="flex flex-wrap items-center gap-1 text-xs">
@@ -294,7 +340,7 @@ export function Catalogo() {
               <thead>
                 <tr>
                   {podeEditar && <th>Seleção</th>}
-                  <th></th><th>Produto</th><th>Categoria</th><th>Preço Liga</th><th>Melhor Amazon</th>
+                  <th></th><th>Produto</th><th>Categoria</th><th>Preço Liga</th><th>Lojas</th><th>Melhor Amazon</th>
                   {esgotado && <><th>Média Liga</th><th>Diferença</th><th>Sem vendedor desde</th></>}
                   <th>Situação</th>
                   {podeEditar && <th>Monitorar</th>}
@@ -309,9 +355,11 @@ export function Catalogo() {
                       <div className="tooltip max-w-full" data-tip={p.nome}>
                         <Link className="link block truncate" to={linkProduto(p.id)}>{p.nome}</Link>
                       </div>
+                      {p.nome_en && <div className="truncate text-xs opacity-70">{p.nome_en}</div>}
                     </td>
                     <td>{p.categoria ?? "—"}</td>
                     <td>{reais(p.preco_liga)}</td>
+                    <td className="whitespace-nowrap">{textoLojas(p.lojas) ?? "—"}</td>
                     <td>{reais(p.melhor_amazon)}</td>
                     {esgotado && <><td>{reais(p.medio_liga)}</td><td>{diferenca(p)}</td><td>{semVendedor(p)}</td></>}
                     <td>{situacao(p)}</td>
