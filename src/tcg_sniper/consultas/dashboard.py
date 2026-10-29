@@ -168,7 +168,10 @@ def rotulo_de(aviso: painel.Aviso) -> str:
 
 
 def destino_de(aviso: painel.Aviso) -> str:
-    return DESTINO_MONITOR_ATRASADO if aviso.chave == "monitor_atrasado" else destino_novo(aviso.link)
+    """Os avisos do monitor abrem o grupo Monitor; o resto segue o link do painel."""
+    if aviso.chave in ("monitor_atrasado", "monitor_nao_cabe"):
+        return DESTINO_MONITOR_ATRASADO
+    return destino_novo(aviso.link)
 
 
 def _item(texto: str, rotulo: str, destino: str) -> ItemPrecisa:

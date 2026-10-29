@@ -183,6 +183,9 @@ def test_dashboard_avisa_monitor_que_nao_cabe_no_intervalo(s, config):
     aplicar_config(s, {"monitor_max_paginas_hora": 10}, AGORA)  # 3 anúncios a cada 15 min = 12 páginas/h
     [aviso] = avisos_de(s, config)
     assert aviso.tipo == "warning" and "12 páginas por hora" in aviso.texto and aviso.link == "/configuracoes?secao=amazon"
+    from tcg_sniper.consultas import dashboard
+
+    assert aviso.chave == "monitor_nao_cabe" and dashboard.destino_de(aviso) == "/gestao/configuracoes?grupo=monitor"
 
 
 def test_capacidade_por_hora_usa_as_pausas_e_o_tempo_da_pagina(s):

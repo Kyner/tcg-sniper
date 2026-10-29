@@ -87,7 +87,7 @@ class Aviso:
     rotulo_link: str
     acao: str | None = None  # POST de um botão ao lado do link (ex.: "Já conferi")
     rotulo_acao: str | None = None
-    chave: str | None = None  # marca o tipo do aviso para o Dashboard novo ("servico_pausado", "servico_problema", "monitor_atrasado")
+    chave: str | None = None  # marca o tipo do aviso para o Dashboard novo ("servico_pausado", "servico_problema", "monitor_atrasado", "monitor_nao_cabe")
 
 
 @dataclass(frozen=True)
@@ -563,6 +563,7 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
                 "as leituras da fila rápida vão atrasar.",
                 "/configuracoes?secao=amazon",
                 "Ajustar em Configurações",
+                chave="monitor_nao_cabe",
             )
         )
     local = agora.astimezone(cfg.zona)
