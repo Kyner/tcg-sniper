@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from tcg_sniper.api.dependencias import Contexto, exige_todas
 from tcg_sniper.api.erros import ErroApi
 from tcg_sniper.api.permissoes import Permissao
+from tcg_sniper.api.rotas_usuarios import MAX_ID  # integer do Postgres; fora de 1..MAX_ID é 404, como no admin antigo
 from tcg_sniper.avisos.servico import zona_e_host
 from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.config_banco import carregar_config
@@ -231,6 +232,8 @@ def ajustar_amazon(request: Request, chave: str, acao: str, contexto: PausarServ
 def carrinho_conferido(request: Request, conferencia_id: int, contexto: PausarServicos) -> ResultadoSaida:
     estado = request.app.state
     agora = estado.relogio()
+    if not 1 <= conferencia_id <= MAX_ID:
+        raise ErroApi(404, "nao_encontrado", "Esse item não está esperando conferência.")
     with estado.sessoes() as s, s.begin():
         if not acoes.carrinho_conferido(s, conferencia_id, agora):
             raise ErroApi(404, "nao_encontrado", "Esse item não está esperando conferência.")
