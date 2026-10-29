@@ -90,11 +90,21 @@ class Agendador:
         with self._sessoes() as s, s.begin():
             interrompidas = repo.marcar_interrompidas(s, agora, TIPOS_LIGA)
             ultima = repo.ultima_coleta_sucesso(s, TipoColeta.PRODUTOS)
+            dia_encerrado = situacao_desafio(
+                s, agora, self._config.zona, self._config.esfriar_desafio_min
+            ).parada_hoje
         if interrompidas:
             log.warning("%d coleta(s) interrompida(s) marcadas como falha", interrompidas)
             dados = Dados(linhas=(f"{interrompidas} coleta(s) marcada(s) como falha: o coletor reiniciou no meio do job",))
             self._avisador.avisar(TipoAviso.LIGA_INTERROMPIDA, CHAVE_GERAL, dados)
         if ultima is None or agora - ultima > timedelta(hours=24):
+            if dia_encerrado:
+                # O tick descartaria a atrasada em silêncio; não a prometa no log.
+                log.info(
+                    "último job com sucesso: %s; dia encerrado pelo 2º desafio; a próxima coleta é amanhã no horário",
+                    ultima,
+                )
+                return
             self._atrasada_em = agora + timedelta(minutes=self._rng.uniform(0, self._config.coleta_jitter_min))
             log.info("último job com sucesso: %s; execução atrasada em %s", ultima, self._atrasada_em)
 

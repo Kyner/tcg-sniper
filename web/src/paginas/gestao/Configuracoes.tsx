@@ -1,7 +1,7 @@
 // Gestão: Configurações. Grupos que abrem e fecham, cada um com a frase de propósito e a caixa "Efeito"; barra fixa
 // com Descartar/Salvar (só para quem pode editar); avisos do WhatsApp ao fim. Salvar manda só o que mudou, com as
 // versões lidas (409: alguém salvou antes). Sair com alteração pede confirmação.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { chamarApi, ErroApi } from "../../api";
 import { AvisosConfig } from "../../componentes/AvisosConfig";
@@ -18,11 +18,39 @@ function valoresDe(dados: Dados): Record<string, ValorConfig> {
   return Object.fromEntries(dados.grupos.flatMap((g) => g.campos.map((c) => [c.chave, c.valor])));
 }
 
-/** Avisa antes de perder alterações: fechar/recarregar a aba (beforeunload) e clicar em link interno. O app usa
- * BrowserRouter (sem roteador de dados), onde `useBlocker` não funciona; o botão Voltar do navegador não é coberto. */
+/** Avisa antes de perder alterações: fechar/recarregar a aba (beforeunload), clicar em link interno e o botão Voltar
+ * do navegador. O app usa BrowserRouter (sem roteador de dados), onde `useBlocker` não funciona; por isso o Voltar é
+ * pego com uma entrada-guarda no histórico (mesma URL) e um ouvinte de popstate. Ao limpar sem sair, a guarda é
+ * consumida para não exigir dois Voltar. */
 function useAvisarAoSair(sujo: boolean) {
+  const guarda = useRef(false);
   useEffect(() => {
-    if (!sujo) return;
+    if (!sujo) {
+      if (guarda.current) {
+        guarda.current = false;
+        if (window.history.state?.guardaSair) window.history.back();
+      }
+      return;
+    }
+    // A guarda copia o estado do roteador (idx/key/usr): sem isso o próximo push do roteador calcularia idx NaN.
+    const href = window.location.href;
+    const empilhar = () => window.history.pushState({ ...window.history.state, guardaSair: true }, "", href);
+    empilhar();
+    guarda.current = true;
+    let liberado = false;
+    const aoVoltar = () => {
+      // Só é "Voltar" o pop que saiu da guarda para a entrada da tela; fragmento (#grupo, #avisos) e o pop de volta
+      // para a própria guarda não contam.
+      if (window.history.state?.guardaSair || window.location.href !== href) return;
+      if (window.confirm(MENSAGEM_SAIR)) {
+        window.removeEventListener("popstate", aoVoltar);
+        window.removeEventListener("beforeunload", aoFechar); // já confirmou: sem segundo diálogo do navegador
+        guarda.current = false;
+        window.history.back();
+      } else {
+        empilhar();
+      }
+    };
     const aoFechar = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
@@ -31,15 +59,27 @@ function useAvisarAoSair(sujo: boolean) {
       const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
       if (!link || link.hasAttribute("download") || link.target === "_blank" || link.origin !== window.location.origin) return;
-      if (link.pathname === window.location.pathname) return;
+      if (link.pathname === window.location.pathname || liberado) return;
       if (!window.confirm(MENSAGEM_SAIR)) {
         e.preventDefault();
         e.stopPropagation();
+        return;
       }
+      window.removeEventListener("beforeunload", aoFechar); // já confirmou: sem segundo diálogo do navegador
+      if (!window.history.state?.guardaSair) return;
+      // Confirmado: primeiro sai da guarda (para o histórico não ficar com a tela duplicada) e só então segue o link.
+      e.preventDefault();
+      e.stopPropagation();
+      window.removeEventListener("popstate", aoVoltar);
+      guarda.current = false;
+      window.addEventListener("popstate", () => { liberado = true; link.click(); }, { once: true });
+      window.history.back();
     };
     window.addEventListener("beforeunload", aoFechar);
     document.addEventListener("click", aoClicar, true);
+    window.addEventListener("popstate", aoVoltar);
     return () => {
+      window.removeEventListener("popstate", aoVoltar);
       window.removeEventListener("beforeunload", aoFechar);
       document.removeEventListener("click", aoClicar, true);
     };

@@ -92,14 +92,14 @@ export function CampoConfig({ campo, valor, erro, editavel, aoMudar }: Props) {
           {campo.rotulo}
         </label>
         <div className="tooltip tooltip-bottom" data-tip={campo.explicacao}>
-          <button type="button" className="btn btn-ghost btn-xs btn-circle" aria-label={`Explicação: ${campo.rotulo}`}>
+          <button type="button" className="btn btn-ghost btn-sm btn-circle" aria-label={`Explicação: ${campo.rotulo}`}>
             ⓘ
           </button>
         </div>
         {editavel && diferente && (
           <button
             type="button"
-            className="btn btn-ghost btn-xs btn-circle"
+            className="btn btn-ghost btn-sm btn-circle"
             aria-label={`Voltar ao padrão: ${campo.rotulo}`}
             onClick={() => aoMudar(campo.padrao)}
           >

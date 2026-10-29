@@ -3,14 +3,16 @@
 
 import threading
 import time
+from datetime import timedelta
 
 import pytest
 from fakes_api import SEGREDO_TESTE, T0
-from sqlalchemy import delete, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
 from tcg_sniper.api import acesso
 from tcg_sniper.api.segredos import hash_segredo
+from tcg_sniper.db import repositorio_acesso as repo_acesso
 from tcg_sniper.db.models import PedidoCodigo
 
 NUMERO_A = "+5511900000071"
@@ -83,3 +85,41 @@ def test_duas_entradas_ao_mesmo_tempo_nao_levam_a_ultima_vaga(engine, limpar, mo
         lambda s: acesso.registrar_entrada(s, NUMERO_A, T0, SEGREDO_TESTE),
     )
     assert resultado is False
+
+
+@pytest.mark.parametrize(
+    "chamar",
+    [
+        lambda s: acesso.pedir_codigo(s, NUMERO_A, T0, SEGREDO_TESTE),
+        lambda s: acesso.registrar_entrada(s, NUMERO_A, T0, SEGREDO_TESTE),
+    ],
+    ids=["pedir_codigo", "registrar_entrada"],
+)
+def test_trava_vem_antes_da_limpeza(engine, limpar, monkeypatch, chamar):
+    """Fixa a ordem (travar, depois limpar). Apagar linhas antes da trava deixa duas requisições se esperando em ordem trocada (deadlock)."""
+    ordem = []
+    travar, limpar_antigos = acesso.repo_acesso.travar_limite, acesso.repo_acesso.limpar_antigos
+    monkeypatch.setattr(acesso.repo_acesso, "travar_limite", lambda *a, **k: (ordem.append("travar"), travar(*a, **k))[1])
+    monkeypatch.setattr(
+        acesso.repo_acesso, "limpar_antigos", lambda *a, **k: (ordem.append("limpar"), limpar_antigos(*a, **k))[1]
+    )
+    with Session(engine) as s:
+        chamar(s)
+        s.rollback()
+    assert ordem == ["travar", "limpar"]
+
+
+def test_limpeza_nao_espera_outra_limpeza_em_andamento(engine, limpar):
+    """Com a trava de limpeza presa por outra transação, `limpar_antigos` volta na hora sem apagar; sem ela, apaga."""
+    velho = T0 - timedelta(days=2)
+    hash_velho = hash_segredo(SEGREDO_TESTE, NUMERO_A)
+    with Session(engine) as s:
+        repo_acesso.registrar_pedido(s, hash_velho, repo_acesso.ACEITO, velho)
+        with engine.connect() as outra:
+            outra.execute(select(func.pg_advisory_xact_lock(repo_acesso.TRAVA_LIMPEZA, 0)))
+            repo_acesso.limpar_antigos(s, T0)
+            assert s.scalar(select(func.count()).select_from(PedidoCodigo).where(PedidoCodigo.numero_hash == hash_velho)) == 1
+            outra.rollback()
+        repo_acesso.limpar_antigos(s, T0)
+        assert s.scalar(select(func.count()).select_from(PedidoCodigo).where(PedidoCodigo.numero_hash == hash_velho)) == 0
+        s.rollback()

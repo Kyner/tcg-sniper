@@ -22,6 +22,7 @@ from tcg_sniper.oportunidades.motor import Regras
 
 roteador = APIRouter(prefix="/api", tags=["oportunidades"])
 VerOportunidades = Annotated[Contexto, Depends(exige(Permissao.VER_OPORTUNIDADES))]
+LIMITE_QUASE_PADRAO = 200
 
 
 class ProdutoSaida(BaseModel):
@@ -203,7 +204,7 @@ def _regras_e_piso(s) -> tuple[Regras, int]:
 
 @roteador.get("/oportunidades/quase")
 def quase(
-    request: Request, _c: VerOportunidades, limite: Annotated[int | None, Query(ge=1, le=500)] = None
+    request: Request, _c: VerOportunidades, limite: Annotated[int, Query(ge=1, le=500)] = LIMITE_QUASE_PADRAO
 ) -> QuaseListaSaida:
     estado = request.app.state
     with estado.sessoes() as s:

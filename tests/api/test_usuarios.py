@@ -30,6 +30,14 @@ def test_admin_lista_com_numero_mascarado(cliente, logar, sessoes):
     assert por_papel["admin"]["sessoes_ativas"] == 1
 
 
+def test_admin_comum_nao_ve_sessoes_de_admins_na_lista(cliente, logar, sessoes):
+    logar(Papel.ADMIN, numero="+5511900000006")
+    criar_usuario(sessoes, Papel.OPERADOR)
+    por_papel = {u["papel"]: u for u in cliente.get("/api/usuarios").json()["usuarios"]}
+    assert por_papel["admin"]["sessoes_ativas"] is None
+    assert por_papel["operador"]["sessoes_ativas"] == 0
+
+
 def test_criar_usuario_avisa_sem_numero(cliente, logar, sessoes):
     logar(Papel.ADMIN, nome="Pessoa Admin")
     r = cliente.post("/api/usuarios", json={"nome": " Pessoa Nova ", "numero": "(11) 90000-0005", "papel": "operador"})

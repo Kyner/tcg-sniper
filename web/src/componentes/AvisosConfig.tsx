@@ -76,7 +76,7 @@ export function AvisosConfig({ avisos, editavel, aoAtualizar }: Props) {
                         {a.agrupa && <span className="badge badge-ghost">agrupa</span>}
                         <button
                           type="button"
-                          className="btn btn-ghost btn-xs"
+                          className="btn btn-ghost btn-sm"
                           aria-label={`Ver exemplo: ${a.titulo}`}
                           onClick={() => setExemplo(exemplo === a.tipo ? null : a.tipo)}
                         >

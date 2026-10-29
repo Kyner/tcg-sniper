@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
-from tcg_sniper.avisos import formato
+from tcg_sniper.avisos import formato, vigia
 from tcg_sniper.avisos import servico as avisos
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
 from tcg_sniper.config import Config
@@ -29,8 +29,14 @@ MAX_TENTATIVAS_DEFINITIVAS = 5
 ESPERA_SEM_DESTINO = timedelta(minutes=1)
 ESPERA_MAX_MIN = 30
 INTERVALO_LIMPEZA = timedelta(hours=24)
+INTERVALO_VIGIA = timedelta(minutes=1)
 TIMEOUT_S = 15
 JANELA_FALHAS = repo_msg.JANELA_FALHAS
+
+
+def _espera(tentativas: int) -> timedelta:
+    """Backoff de uma mensagem que não saiu: 1, 2, 4... min, até `ESPERA_MAX_MIN`."""
+    return timedelta(minutes=min(2 ** min(tentativas - 1, 5), ESPERA_MAX_MIN))
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,8 @@ class ServicoNotificador:
         self._dormir = dormir
         self._parar = threading.Event()
         self._ultima_limpeza: datetime | None = None
+        self._ultima_vigia: datetime | None = None
+        self._desde = self._relogio()  # início da vigia da manutenção: reinício do notificador não alarma
         chave = (config_env.evolution_api_key or "").strip()
         self._chave = chave if config_env.evolution_url and chave not in ("", CHAVE_PADRAO) else None
 
@@ -77,6 +85,7 @@ class ServicoNotificador:
                 repo_msg.expirar_individuais_vencidas(s, agora)
         except Exception:
             log.exception("não consegui expirar os códigos vencidos")
+        self._vigiar_manutencao(agora)
         with self._sessoes() as s, s.begin():
             if repo.obter_estado(s, agora, COLETOR_NOTIFICADOR).estado != EstadoColetorTipo.ATIVO:
                 repo_msg.registrar_ciclo(s, agora)
@@ -98,15 +107,31 @@ class ServicoNotificador:
             self._ultima_limpeza = agora
         processadas = 0
         enviou = False
+        pular: set[int] = set()  # só deste ciclo: mensagens que nem o adiamento conseguiu gravar
         for _ in range(LOTE):
             if self._parar.is_set():
                 break
             agora = self._relogio()
-            with self._sessoes() as s, s.begin():
-                lote = repo_msg.lote_pendente(s, agora, 1)
-                if not lote:
+            mid: int | None = None
+            try:
+                with self._sessoes() as s, s.begin():
+                    lote = repo_msg.lote_pendente(s, agora, 1, excluir=pular)
+                    if not lote:
+                        break
+                    mid = lote[0].id
+                    resultado = self._processar(s, lote[0], cfg, agora)
+            except Exception as exc:
+                if mid is None:  # nem a leitura da fila funcionou: o `rodar` registra e tenta no próximo ciclo
+                    raise
+                log.exception("erro ao processar a mensagem %d; ela é adiada e a fila segue", mid)
+                try:
+                    self._adiar(mid, agora, f"erro ao gravar o resultado: {type(exc).__name__}")
+                except Exception:
+                    log.exception("não consegui nem adiar a mensagem %d; encerro o lote", mid)
+                    pular.add(mid)
                     break
-                resultado = self._processar(s, lote[0], cfg, agora)
+                processadas += 1
+                continue
             processadas += 1
             if resultado is Resultado.OK:
                 enviou = True
@@ -124,6 +149,38 @@ class ServicoNotificador:
             if acordadas:
                 log.info("%d mensagem(ns) em espera voltam à fila", acordadas)
         return processadas
+
+    def _vigiar_manutencao(self, agora: datetime) -> None:
+        """A `manutencao` vigia os outros serviços; quem vigia a `manutencao` é este. No máximo 1x/min; nunca lança."""
+        if self._ultima_vigia is not None and agora - self._ultima_vigia < INTERVALO_VIGIA:
+            return
+        self._ultima_vigia = agora
+        try:
+            with self._sessoes() as s, s.begin():
+                vigia.verificar_manutencao(s, agora, self._desde)
+        except Exception as erro:
+            if avisos.deve_subir(erro):
+                raise
+            log.exception("não consegui vigiar a manutenção")
+
+    def _adiar(self, mid: int, agora: datetime, erro: str) -> None:
+        """Em transação nova (a anterior caiu): conta a tentativa e adia pelo mesmo backoff da falha de envio.
+        Ao atingir `MAX_TENTATIVAS_DEFINITIVAS` vira falha, para não reenviar para sempre."""
+        with self._sessoes() as s, s.begin():
+            m = s.get(MensagemSaida, mid)
+            if m is None or m.status != StatusMensagem.PENDENTE:
+                return
+            m.tentativas += 1
+            m.atualizado_em = agora
+            m.ultimo_erro = erro
+            if m.tentativas >= MAX_TENTATIVAS_DEFINITIVAS:
+                m.status = StatusMensagem.FALHA
+                repo_msg.apagar_texto_individual(m)
+                log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
+                if not formato.eh_do_proprio_aviso(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
+                    self._avisar_falha(s, agora)
+            else:
+                m.proxima_tentativa_em = agora + _espera(m.tentativas)
 
     def _processar(self, s: Session, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
         """Devolve o resultado do envio, ou `None` se a mensagem nem chegou a ser enviada."""
@@ -175,7 +232,7 @@ class ServicoNotificador:
             if not formato.eh_do_proprio_aviso(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
                 self._avisar_falha(s, agora)
             return resultado
-        m.proxima_tentativa_em = agora + timedelta(minutes=min(2 ** min(m.tentativas - 1, 5), ESPERA_MAX_MIN))
+        m.proxima_tentativa_em = agora + _espera(m.tentativas)
         log.warning("mensagem %d para %s não saiu (tentativa %d): %s", m.id, m.destino, m.tentativas, erro)
         return resultado
 

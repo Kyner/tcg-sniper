@@ -36,6 +36,8 @@ Estado = Literal["rodando", "esperando", "atrasado", "com_problema", "desligado"
 
 QUIETO = timedelta(minutes=2)  # desligado: sem registro novo por este tempo, o serviço parou de verdade
 INICIANDO = timedelta(minutes=10)  # ligado: até este tempo sem registro novo depois de ligar é "iniciando…"
+# Esperam o próprio horário (agenda, fila de mensagens): ligar não os faz começar em seguida, então não há "iniciando…".
+SERVICOS_POR_HORARIO = frozenset({Servico.LIGA, Servico.WHATSAPP, Servico.BACKUP})
 
 _POR_SITUACAO: dict[str, Estado] = {
     "rodando": "rodando",
@@ -135,13 +137,14 @@ def em_andamento(s: Session, servico: Servico, agora: datetime) -> bool:
 def transicao(s: Session, servico: Servico, estado: EstadoColetor, agora: datetime) -> Transicao | None:
     """Palavra de transição. Desligado: "parando" enquanto há ciclo aberto ou registro dos últimos 2 min, depois
     "parado" desde o maior entre o desligamento e o último registro. Ligado: "iniciando" por até 10 min, se
-    nada novo apareceu depois de ligar. Nos demais casos (inclusive desafio pendente), None."""
+    nada novo apareceu depois de ligar (nunca para os serviços por horário). Nos demais casos (inclusive
+    desafio pendente), None."""
     ultimo = ultimo_registro(s, servico)
     if estado.estado is EstadoColetorTipo.PAUSADO:
         if em_andamento(s, servico, agora) or (ultimo is not None and agora - ultimo < QUIETO):
             return Transicao("parando", estado.atualizado_em)
         return Transicao("parado", _maior(estado.atualizado_em, ultimo))
-    if estado.estado is EstadoColetorTipo.ATIVO:
+    if estado.estado is EstadoColetorTipo.ATIVO and servico not in SERVICOS_POR_HORARIO:
         sem_sinal = ultimo is None or ultimo <= estado.atualizado_em
         if agora - estado.atualizado_em < INICIANDO and sem_sinal and not em_andamento(s, servico, agora):
             return Transicao("iniciando", estado.atualizado_em)

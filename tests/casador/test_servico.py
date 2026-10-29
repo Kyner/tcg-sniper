@@ -494,6 +494,22 @@ def test_excecao_inesperada_num_par_nao_derruba_o_lote(sessoes, config, monkeypa
     assert sv.ciclo() == 0 and len(chamadas) == 2  # o par que quebrou espera
 
 
+def test_falha_ao_gravar_a_falha_nao_derruba_o_ciclo(sessoes, config, monkeypatch, caplog):
+    from sqlalchemy.exc import OperationalError
+
+    configurar(sessoes)
+    _, ids = pares(sessoes, 2)
+
+    def registrar_falha_par(*args, **kw):
+        raise OperationalError("UPDATE", {}, Exception("banco fora"))
+
+    monkeypatch.setattr(repo_ia, "registrar_falha_par", registrar_falha_par)
+    sv, _, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()])
+    assert sv.ciclo() == 1  # a falha do 1º não pôde ser gravada, mas o 2º foi avaliado
+    assert [av.anuncio_id for av in avaliacoes(sessoes)] == [ids[1]]
+    assert "gravar a falha do par" in caplog.text
+
+
 def test_erro_no_ciclo_nao_repete_no_passo_seguinte(sessoes, config):
     configurar(sessoes, intervalo_min=10)
     passos = []
@@ -809,3 +825,18 @@ def test_aplicar_trava_o_produto_antes_do_anuncio(engine):
             c.execute(text("DELETE FROM anuncio_amazon WHERE id = :a"), {"a": anuncio_id})
             c.execute(text("DELETE FROM produto_liga WHERE id = :p"), {"p": produto_id})
 
+
+
+def test_url_proibida_no_aviso_sobe_no_modo_estrito(sessoes, config):
+    import pytest
+
+    from tcg_sniper.avisos.formato import UrlProibida
+
+    sv, _, _ = servico(sessoes, config, [])
+
+    def aviso_com_url_proibida():
+        raise UrlProibida("link fora da Amazon e da LigaMagic")
+
+    with pytest.raises(UrlProibida):
+        sv._sem_derrubar("avisar a falta de orçamento", aviso_com_url_proibida)
+    sv._sem_derrubar("gravar a falha do par", lambda: (_ for _ in ()).throw(RuntimeError("banco fora")))  # o resto segue

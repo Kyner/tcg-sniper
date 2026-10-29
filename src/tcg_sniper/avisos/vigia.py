@@ -1,5 +1,5 @@
 """Vigia de serviços: a batida de vida dos coletores (Liga, Amazon monitor e Amazon busca) e do casador (`sinal_servico`) e a verificação, feita
-pelo serviço `manutencao` a cada minuto, que abre `SERVICO_SEM_SINAL` para serviço ativo mudo há mais de
+pelo serviço `manutencao` (que o notificador, por sua vez, vigia: `verificar_manutencao`) a cada minuto, que abre `SERVICO_SEM_SINAL` para serviço ativo mudo há mais de
 10 min e resolve quando o sinal volta. O notificador já registra o próprio ciclo (`estado_notificador`).
 A batida sai de dentro do laço de trabalho (cada passo, cada página, cada fatia de espera): um laço ou
 navegador travado deixa de bater e dispara o aviso. Desligamento limpo (SIGTERM, `docker stop`) grava
@@ -19,6 +19,7 @@ from tcg_sniper.avisos import servico as avisos
 from tcg_sniper.avisos.catalogo import Dados, TipoAviso
 from tcg_sniper.avisos.formato import formatar_duracao
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
     COLETOR_AMAZON_BUSCA,
@@ -39,6 +40,7 @@ SERVICOS = {
     COLETOR_CASADOR: "casador",
     COLETOR_NOTIFICADOR: "notificador",
 }
+NOME_MANUTENCAO = "manutencao"
 LIMITE_SEM_SINAL = timedelta(minutes=10)
 FATIA_ESPERA_S = 60  # espera longa bate a cada fatia desta duração (o limite é de 10 min)
 
@@ -103,10 +105,27 @@ def verificar(s: Session, agora: datetime, desde: datetime) -> None:
         if encerrado is not None and (ultimo is None or encerrado >= ultimo):
             avisos.resolver(s, TipoAviso.SERVICO_SEM_SINAL, nome, agora)  # parado de propósito: nada a avisar
             continue
-        if agora - (ultimo or desde) > LIMITE_SEM_SINAL:
-            avisos.avisar(s, TipoAviso.SERVICO_SEM_SINAL, nome, _dados(nome, ultimo, agora, zona), agora)
-        else:
-            avisos.resolver(s, TipoAviso.SERVICO_SEM_SINAL, nome, agora)
+        _abrir_ou_fechar(s, nome, ultimo, agora, desde, zona)
+
+
+def _abrir_ou_fechar(s: Session, nome: str, ultimo: datetime | None, agora: datetime, desde: datetime, zona) -> None:
+    if agora - (ultimo or desde) > LIMITE_SEM_SINAL:
+        avisos.avisar(s, TipoAviso.SERVICO_SEM_SINAL, nome, _dados(nome, ultimo, agora, zona), agora)
+    else:
+        avisos.resolver(s, TipoAviso.SERVICO_SEM_SINAL, nome, agora)
+
+
+def verificar_manutencao(s: Session, agora: datetime, desde: datetime) -> None:
+    """Quem vigia a `manutencao` (que vigia os outros) é o notificador. Mesmo limite e mesmo aviso; `desde` é
+    quando quem vigia começou. Nunca lança exceção."""
+    try:
+        with s.begin_nested():
+            ultimo = repo_man.ultimo_ciclo(s)
+            zona, _ = avisos.zona_e_host(s)
+    except Exception:
+        log.exception("vigia: não consegui ler o sinal da manutenção")
+        return
+    _abrir_ou_fechar(s, NOME_MANUTENCAO, ultimo, agora, desde, zona)
 
 
 class Batimento:

@@ -108,22 +108,28 @@ def test_desligado_sem_nenhum_registro_parado_desde_a_pausa(s):
 
 def test_ligado_ha_5_min_sem_registro_esta_iniciando(s):
     ligou = AGORA - timedelta(minutes=5)
-    estado = _estado(s, Servico.WHATSAPP, False, ligou)
-    assert transicao(s, Servico.WHATSAPP, estado, AGORA) == Transicao("iniciando", ligou)
+    estado = _estado(s, Servico.CASADOR, False, ligou)
+    assert transicao(s, Servico.CASADOR, estado, AGORA) == Transicao("iniciando", ligou)
+
+
+@pytest.mark.parametrize("servico", [Servico.LIGA, Servico.WHATSAPP, Servico.BACKUP])
+def test_servico_de_horario_ligado_sem_registro_nao_fica_iniciando(s, servico):
+    estado = _estado(s, servico, False, AGORA - timedelta(minutes=5))
+    assert transicao(s, servico, estado, AGORA) is None
 
 
 def test_ligado_ha_11_min_sem_registro_volta_ao_estado_normal(s):
-    estado = _estado(s, Servico.WHATSAPP, False, AGORA - timedelta(minutes=11))
-    assert transicao(s, Servico.WHATSAPP, estado, AGORA) is None
+    estado = _estado(s, Servico.CASADOR, False, AGORA - timedelta(minutes=11))
+    assert transicao(s, Servico.CASADOR, estado, AGORA) is None
 
 
 def test_ligado_com_registro_depois_de_ligar_nao_esta_iniciando(s):
     ligou = AGORA - timedelta(minutes=5)
-    estado = _estado(s, Servico.WHATSAPP, False, ligou)
-    s.add(MensagemSaida(destino="admin", texto="oi", status=StatusMensagem.ENVIADA, proxima_tentativa_em=AGORA,
-                        criada_em=ligou, atualizado_em=ligou, enviada_em=ligou + timedelta(minutes=1)))
+    estado = _estado(s, Servico.CASADOR, False, ligou)
+    s.add(ChamadaIA(em=ligou + timedelta(minutes=1), finalidade="casamento", modelo="m", tokens_entrada=1,
+                    tokens_saida=1, custo_usd=Decimal("0.01"), ok=True))
     s.flush()
-    assert transicao(s, Servico.WHATSAPP, estado, AGORA) is None
+    assert transicao(s, Servico.CASADOR, estado, AGORA) is None
 
 
 def test_desafio_pendente_nao_tem_transicao(s):

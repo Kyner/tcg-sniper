@@ -30,6 +30,12 @@ def env(config):
     return config.model_copy(update={"evolution_url": URL, "evolution_api_key": "chave"})
 
 
+@pytest.fixture(autouse=True)
+def sem_vigia_da_manutencao(monkeypatch):
+    """Os testes de fila avançam o relógio horas: sem sinal da manutenção, a vigia abriria um aviso a mais na fila."""
+    monkeypatch.setattr("tcg_sniper.notificador.servico.vigia.verificar_manutencao", lambda s, agora, desde: None)
+
+
 @pytest.fixture
 def configurado(sessoes, env):
     with sessoes() as s, s.begin():
@@ -233,26 +239,109 @@ def test_erro_no_ciclo_nao_derruba_o_laco(sessoes, env, caplog, monkeypatch):
     assert len(chamadas) == 2 and "banco caiu" in caplog.text
 
 
-def test_erro_no_meio_do_lote_nao_desfaz_as_ja_enviadas(sessoes, env, configurado, monkeypatch):
+def test_ciclo_vigia_a_manutencao_uma_vez_por_minuto(sessoes, env, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(
+        "tcg_sniper.notificador.servico.vigia.verificar_manutencao", lambda s, agora, desde: chamadas.append((agora, desde))
+    )
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    svc.ciclo()
+    relogio.agora = AGORA + timedelta(seconds=30)
+    svc.ciclo()
+    assert chamadas == [(AGORA, AGORA)]  # `desde` é o início do próprio notificador
+    relogio.agora = AGORA + timedelta(seconds=61)
+    svc.ciclo()
+    assert len(chamadas) == 2
+
+
+def test_falha_ao_vigiar_a_manutencao_nao_derruba_o_ciclo(sessoes, env, configurado, caplog, monkeypatch):
+    def quebra(s, agora, desde):
+        raise RuntimeError("vigia caiu")
+
+    monkeypatch.setattr("tcg_sniper.notificador.servico.vigia.verificar_manutencao", quebra)
+    nova(sessoes)
+    with respx.mock, caplog.at_level(logging.ERROR):
+        respx.post(ROTA).mock(return_value=httpx.Response(201))
+        assert servico(sessoes, env).ciclo() == 1
+    assert "vigia caiu" in caplog.text
+
+
+def _falha_ao_gravar(monkeypatch, mid_ruim):
+    """O registro do resultado de `mid_ruim` lança (como um commit que falha)."""
+    original = repo_msg.apagar_texto_individual
+
+    def apagar(m):
+        if m.id == mid_ruim and m.status is StatusMensagem.ENVIADA:
+            raise RuntimeError("não gravou")
+        original(m)
+
+    monkeypatch.setattr(repo_msg, "apagar_texto_individual", apagar)
+
+
+def test_mensagem_que_sempre_falha_ao_gravar_nao_trava_a_fila(sessoes, env, configurado, monkeypatch, caplog):
     from tcg_sniper.notificador import servico as modulo
     from tcg_sniper.notificador.evolution import Resultado
 
-    ids = [nova(sessoes, "admin", f"m{i}", AGORA - timedelta(minutes=3 - i)) for i in range(3)]
+    a = nova(sessoes, "admin", "a", AGORA - timedelta(minutes=2))
+    b = nova(sessoes, "admin", "b", AGORA - timedelta(minutes=1))
+    monkeypatch.setattr(modulo, "enviar_uma_vez", lambda *args: (Resultado.OK, None))
+    _falha_ao_gravar(monkeypatch, a)
+    with caplog.at_level(logging.ERROR):
+        servico(sessoes, env).ciclo()
+    ma, mb = ler(sessoes, a), ler(sessoes, b)
+    assert mb.status is StatusMensagem.ENVIADA
+    assert (ma.status, ma.tentativas) == (StatusMensagem.PENDENTE, 1)
+    assert ma.proxima_tentativa_em > AGORA
+    assert "não gravou" in caplog.text
+
+
+def test_mensagem_que_nunca_grava_vira_falha_e_nao_reenvia(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.notificador import servico as modulo
+    from tcg_sniper.notificador.evolution import Resultado
+
+    a = nova(sessoes, "admin", "a")
     chamadas = []
 
     def envio(*args):
         chamadas.append(1)
-        if len(chamadas) == 2:
-            raise RuntimeError("morreu no meio")
         return Resultado.OK, None
 
     monkeypatch.setattr(modulo, "enviar_uma_vez", envio)
-    with pytest.raises(RuntimeError):
-        servico(sessoes, env).ciclo()
-    primeira, segunda, terceira = (ler(sessoes, i) for i in ids)
-    assert primeira.status is StatusMensagem.ENVIADA
-    assert (segunda.status, segunda.tentativas) == (StatusMensagem.PENDENTE, 0)
-    assert (terceira.status, terceira.tentativas) == (StatusMensagem.PENDENTE, 0)
+    _falha_ao_gravar(monkeypatch, a)
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    for _ in range(modulo.MAX_TENTATIVAS_DEFINITIVAS + 2):
+        svc.ciclo()
+        relogio.agora += timedelta(minutes=31)
+    m = ler(sessoes, a)
+    assert (m.status, m.tentativas) == (StatusMensagem.FALHA, modulo.MAX_TENTATIVAS_DEFINITIVAS)
+    assert "RuntimeError" in m.ultimo_erro
+    assert len(chamadas) == modulo.MAX_TENTATIVAS_DEFINITIVAS + 1  # as tentativas da mensagem + o aviso de falha ao admin
+
+
+def test_banco_fora_no_adiamento_nao_reenvia_em_loop(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.notificador import servico as modulo
+    from tcg_sniper.notificador.evolution import Resultado
+
+    a = nova(sessoes, "admin", "a", AGORA - timedelta(minutes=2))
+    nova(sessoes, "admin", "b", AGORA - timedelta(minutes=1))
+    chamadas = []
+
+    def envio(*args):
+        chamadas.append(1)
+        return Resultado.OK, None
+
+    def adiar_quebrado(mid, agora, erro):
+        raise RuntimeError("banco fora")
+
+    monkeypatch.setattr(modulo, "enviar_uma_vez", envio)
+    _falha_ao_gravar(monkeypatch, a)
+    svc = servico(sessoes, env)
+    monkeypatch.setattr(svc, "_adiar", adiar_quebrado)
+    svc.ciclo()
+    assert len(chamadas) == 1
+    assert ler(sessoes, a).status is StatusMensagem.PENDENTE
 
 
 @respx.mock
@@ -482,3 +571,37 @@ def test_mensagem_nao_enviada_fecha_quando_a_falha_sai_da_janela(sessoes, env, c
     svc.ciclo()
     with sessoes() as s:
         assert avisos.abertos(s, TipoAviso.MENSAGEM_NAO_ENVIADA) == []
+
+
+def test_url_proibida_na_vigia_da_manutencao_sobe_no_modo_estrito(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.avisos import vigia
+    from tcg_sniper.avisos.formato import UrlProibida
+
+    def quebrado(*args):
+        raise UrlProibida("link fora da Amazon e da LigaMagic")
+
+    monkeypatch.setattr(vigia, "verificar_manutencao", quebrado)
+    with pytest.raises(UrlProibida):
+        servico(sessoes, env)._vigiar_manutencao(AGORA)
+    monkeypatch.setattr(vigia, "verificar_manutencao", lambda *a: (_ for _ in ()).throw(RuntimeError("banco fora")))
+    servico(sessoes, env)._vigiar_manutencao(AGORA)  # outro erro só é logado
+
+
+@respx.mock
+def test_adiamento_que_vira_falha_definitiva_avisa_o_grupo_admin(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.avisos import servico as avisos
+    from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
+    from tcg_sniper.notificador import servico as modulo
+    from tcg_sniper.notificador.evolution import Resultado
+
+    monkeypatch.setattr(modulo, "enviar_uma_vez", lambda *args: (Resultado.OK, None))
+    a = nova(sessoes, "oportunidades", "oferta")
+    _falha_ao_gravar(monkeypatch, a)
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    for _ in range(modulo.MAX_TENTATIVAS_DEFINITIVAS):
+        svc.ciclo()
+        relogio.agora += timedelta(minutes=31)
+    assert ler(sessoes, a).status is StatusMensagem.FALHA
+    with sessoes() as s:
+        assert avisos.abertos(s, TipoAviso.MENSAGEM_NAO_ENVIADA) == [CHAVE_GERAL]

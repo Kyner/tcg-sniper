@@ -201,6 +201,22 @@ def test_erro_ao_gravar_os_termos_de_um_produto_nao_derruba_o_ciclo(sessoes, con
     assert guardados(sessoes, p1) == [] and guardados(sessoes, p2) == [("beta booster box", "en")]
 
 
+def test_falha_ao_gravar_falha_de_termos_nao_derruba(sessoes, config, monkeypatch, caplog):
+    from sqlalchemy.exc import OperationalError
+
+    configurar(sessoes)
+    _, p2 = na_fila(sessoes, "alfa", "beta")
+
+    def registrar_falha_termos(*args, **kw):
+        raise OperationalError("UPDATE", {}, Exception("banco fora"))
+
+    monkeypatch.setattr(repo_termos, "registrar_falha_termos", registrar_falha_termos)
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), termos(("beta booster box", "en"))], T0 + 7 * DIA)
+    assert sv.ciclo() == 0  # não lança
+    assert len(t.pedidos) == 2 and guardados(sessoes, p2) == [("beta booster box", "en")]
+    assert "gravar a falha dos termos" in caplog.text
+
+
 def test_espera_dos_termos_sobrevive_a_reinicio_do_casador(sessoes, config):
     configurar(sessoes)
     [p] = na_fila(sessoes, "alfa")

@@ -94,3 +94,15 @@ def test_produto_inexistente_404(cliente, logar):
     logar(Papel.GRUPO)
     r = cliente.get("/api/produtos/999999/historico")
     assert r.status_code == 404 and r.json()["erro"] == "nao_encontrado"
+
+
+def test_quase_la_sem_limite_usa_200(sessoes, relogio, cliente, logar):
+    agora = relogio()
+    with sessoes() as s, s.begin():
+        for i in range(201):
+            p = criar_produto(s, f"quase{i}", nome=f"Quase {i}")
+            criar_preco_liga(s, p, "1000.00", listagem_em=agora)
+            criar_atual_amazon(s, criar_anuncio(s, f"BQ{i:08d}", p, StatusCasamento.CONFIRMADO), "850.00")  # 15%
+    logar(Papel.GRUPO)
+    assert len(cliente.get("/api/oportunidades/quase").json()["itens"]) == 200
+    assert len(cliente.get("/api/oportunidades/quase?limite=5").json()["itens"]) == 5

@@ -424,7 +424,8 @@ def test_acao_de_configuracoes_diz_o_que_mudou(s):
     siglas = _acao(s, T - timedelta(minutes=4), tipo=TipoAcaoGestao.CONFIGURACOES, detalhe={"campos": {
         "amazon.url_busca": ["a", "b"], "ia.ligado": [False, True], "geral.host_publico": ["x", "y"],
     }})
-    linhas = {l.chave: l.resultado for l in linha_do_tempo(s, _filtro(o_que="acao_gestao"), None)[0]}
+    filtro = _filtro(o_que="acao_gestao", mostrar_valores_configuracao=True)
+    linhas = {l.chave: l.resultado for l in linha_do_tempo(s, filtro, None)[0]}
     assert linhas[f"acao_gestao:{um.id}"] == "admin antigo · salvou 1 campo: desconto mínimo sobre a Liga (%) 20→22"
     assert linhas[f"acao_gestao:{varios.id}"] == (
         "admin antigo · salvou 5 campos: desconto mínimo sobre a Liga (%) 20→22, automático não→sim, "
@@ -435,6 +436,22 @@ def test_acao_de_configuracoes_diz_o_que_mudou(s):
     assert linhas[f"acao_gestao:{siglas.id}"] == (
         "admin antigo · salvou 3 campos: URL da busca a→b, IA ligada não→sim, IP ou nome deste PC na rede x→y"
     )
+
+
+def test_acao_de_configuracoes_sem_ver_valores_so_traz_os_rotulos(s):
+    acao = _acao(s, T, tipo=TipoAcaoGestao.CONFIGURACOES, detalhe={"campos": {
+        "amazon.desconto_min_pct": [20, 22], "geral.whatsapp_grupo_admin": [None, "1@g.us"],
+    }})
+    [linha], _ = linha_do_tempo(s, _filtro(o_que="acao_gestao"), None)
+    assert linha.resultado == (
+        "admin antigo · salvou 2 campos: desconto mínimo sobre a Liga (%), grupo de WhatsApp do admin"
+    )
+    assert linha.detalhe["campos"] == '["amazon.desconto_min_pct", "geral.whatsapp_grupo_admin"]'
+    assert "1@g.us" not in str(linha.detalhe)
+    assert linha_do_tempo(s, _filtro(busca="1@g.us"), None)[0] == []
+    assert [l.chave for l in linha_do_tempo(s, _filtro(busca="1@g.us", mostrar_valores_configuracao=True), None)[0]] == [
+        f"acao_gestao:{acao.id}"
+    ]
 
 
 def test_situacao_pendente_traz_so_mensagens_pendentes(s):

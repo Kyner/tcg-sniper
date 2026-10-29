@@ -78,6 +78,7 @@ def listar(
     filtro = q.FiltroAtividade(
         servico, o_que, situacao, de, ate, busca, mostrar_reinicios=reinicios, destino=destino,
         mostrar_texto_mensagem=Permissao.VER_MENSAGENS in contexto.permissoes,
+        mostrar_valores_configuracao=Permissao.VER_CONFIGURACOES in contexto.permissoes,
     )
     try:
         with request.app.state.sessoes() as s:

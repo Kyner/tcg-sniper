@@ -40,6 +40,11 @@ def _deixar_subir(erro: Exception) -> bool:
     return formato.ESTRITO and isinstance(erro, formato.UrlProibida)
 
 
+def deve_subir(erro: Exception) -> bool:
+    """No modo estrito (testes), o erro de URL proibida não pode ser engolido por quem protege o laço."""
+    return _deixar_subir(erro)
+
+
 def zona_e_host(s: Session) -> tuple[ZoneInfo, str | None]:
     """Fuso e host_publico de Configurações → Geral (sem a linha: fuso padrão e nenhum host)."""
     geral = s.get(ConfigGeral, 1)

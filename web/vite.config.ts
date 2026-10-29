@@ -16,5 +16,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/teste/configuracao.ts"],
     css: false,
+    // Folga acima do `asyncUtilTimeout` (5 s): com o mesmo limite, o teste estourava junto com o `findBy`
+    // que espera o chunk do Recharts na 1ª abertura de Oportunidades sob carga.
+    testTimeout: 15000,
   },
 });

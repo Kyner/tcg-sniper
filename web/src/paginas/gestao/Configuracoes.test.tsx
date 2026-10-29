@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 
 const campo = (o: Record<string, unknown>) => ({
@@ -45,6 +45,8 @@ const EFEITO = "POST /api/gestao/configuracoes/efeito";
 const EFEITO_OK = ok({ linhas: ["Lê 24 páginas por dia."], nivel: "info", barras: [] });
 
 afterEach(() => vi.restoreAllMocks());
+// O histórico do jsdom é global: cada teste começa numa entrada limpa (sem guarda de teste anterior por baixo).
+beforeEach(() => window.history.pushState(null, "", "/"));
 
 async function abrir(caminho = "/gestao/configuracoes", extra: Record<string, unknown> = {}) {
   const chamadas = apiFalsa({ ...base, [LER]: ok(CONFIG), [EFEITO]: EFEITO_OK, ...extra } as never);
@@ -174,6 +176,77 @@ describe("Configurações", () => {
     expect(screen.getByLabelText("Intervalo do monitor")).toBeInTheDocument();
   });
 
+  it("Voltar com alteração pergunta e fica se cancelar", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    const entrada = await screen.findByLabelText("Intervalo do monitor");
+    await userEvent.type(entrada, "1");
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const empilha = vi.spyOn(window.history, "pushState");
+    window.history.back();
+    await waitFor(() => expect(confirma).toHaveBeenCalled());
+    expect(empilha).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Intervalo do monitor")).toHaveValue("15001");
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeInTheDocument();
+  });
+
+  it("Voltar com alteração e confirmar sai", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const volta = vi.spyOn(window.history, "back");
+    window.history.back();
+    await waitFor(() => expect(volta).toHaveBeenCalledTimes(2));
+  });
+
+  it("depois de confirmar a saída, o navegador não pergunta de novo (beforeunload)", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    const antes = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(antes);
+    expect(antes.defaultPrevented).toBe(true); // com alteração, fechar a aba pergunta
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(true);
+    window.history.back();
+    await waitFor(() => expect(confirma).toHaveBeenCalled());
+    const depois = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(depois);
+    expect(depois.defaultPrevented).toBe(false);
+  });
+
+  it("fragmento (#avisos) com alteração não é tratado como Voltar", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(false);
+    window.history.pushState(null, "", "#avisos");
+    fireEvent.popState(window);
+    expect(confirma).not.toHaveBeenCalled();
+  });
+
+  it("a guarda preserva o estado do roteador (idx/key)", async () => {
+    window.history.replaceState({ idx: 3, key: "k3", usr: null }, "");
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    expect(window.history.state).toMatchObject({ idx: 3, key: "k3", guardaSair: true });
+  });
+
+  it("confirmar a saída por link sai da guarda antes de navegar", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    expect(window.history.state?.guardaSair).toBe(true);
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await userEvent.click(screen.getAllByRole("link", { name: "Atividade" })[0]);
+    await waitFor(() => expect(screen.queryByLabelText("Intervalo do monitor")).not.toBeInTheDocument());
+    expect(confirma).toHaveBeenCalledTimes(1);
+    expect(window.history.state?.guardaSair).toBeFalsy();
+  });
+
+  it("Voltar sem alteração não pergunta", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await screen.findByLabelText("Intervalo do monitor");
+    const confirma = vi.spyOn(window, "confirm");
+    fireEvent.popState(window);
+    expect(confirma).not.toHaveBeenCalled();
+  });
+
   it("operador sem editar vê tudo só leitura e sem barra", async () => {
     apiFalsa({ "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }), [LER]: ok(CONFIG), [EFEITO]: EFEITO_OK });
     renderizarEm("/gestao/configuracoes?grupo=monitor");
@@ -192,6 +265,20 @@ describe("Configurações", () => {
     expect(screen.getByText("1 alteração")).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Adicionar categoria"), "9{Enter}");
     expect(screen.getByText("categoria 9")).toBeInTheDocument();
+  });
+
+  it("categoria inválida ou repetida avisa o motivo e mantém o texto", async () => {
+    await abrir("/gestao/configuracoes?grupo=liga");
+    expect(await screen.findByText("categoria 7")).toBeInTheDocument();
+    const campo = screen.getByLabelText("Adicionar categoria");
+    await userEvent.type(campo, "abc{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("Informe o número da categoria.");
+    expect(campo).toHaveValue("abc");
+    await userEvent.clear(campo);
+    await userEvent.type(campo, "7{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("A categoria 7 já está na lista.");
+    await userEvent.type(campo, "1");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("avisos agrupados por área, com busca, toggle no lugar e exemplo ao tocar", async () => {

@@ -98,7 +98,7 @@ export function Usuarios() {
                       <span className="badge badge-neutral">Desativado</span>
                     )}
                   </td>
-                  <td>{u.sessoes_ativas}</td>
+                  <td>{u.sessoes_ativas ?? "—"}</td>
                   <td className="whitespace-nowrap">
                     {podeEditar(u) && (
                       <button type="button" className="btn btn-ghost btn-xs" onClick={() => setEditando(u)}>

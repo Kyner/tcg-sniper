@@ -12,12 +12,22 @@ interface Props {
 export function CategoriasConfig({ ids, editavel, aoMudar, rotulo }: Props) {
   const [busca, setBusca] = useState("");
   const [novo, setNovo] = useState("");
+  const [aviso, setAviso] = useState("");
   const visiveis = ids.filter((n) => `categoria ${n}`.includes(busca.trim().toLowerCase()));
 
   const adicionar = () => {
     const n = Number(novo.trim());
+    if (!novo.trim() || !Number.isInteger(n) || n <= 0) {
+      setAviso("Informe o número da categoria.");
+      return;
+    }
+    if (ids.includes(n)) {
+      setAviso(`A categoria ${n} já está na lista.`);
+      return;
+    }
+    setAviso("");
     setNovo("");
-    if (Number.isInteger(n) && n > 0 && !ids.includes(n)) aoMudar([...ids, n]);
+    aoMudar([...ids, n]);
   };
 
   return (
@@ -37,7 +47,7 @@ export function CategoriasConfig({ ids, editavel, aoMudar, rotulo }: Props) {
             {editavel && (
               <button
                 type="button"
-                className="btn btn-ghost btn-xs btn-circle"
+                className="btn btn-ghost btn-sm btn-circle"
                 aria-label={`Remover categoria ${n}`}
                 onClick={() => aoMudar(ids.filter((i) => i !== n))}
               >
@@ -49,21 +59,33 @@ export function CategoriasConfig({ ids, editavel, aoMudar, rotulo }: Props) {
         {visiveis.length === 0 && <span className="text-sm text-base-content/70">Nenhuma categoria.</span>}
       </div>
       {editavel && (
-        <input
-          type="text"
-          inputMode="numeric"
-          className="input input-bordered input-sm w-full"
-          placeholder="Número da categoria + Enter"
-          aria-label="Adicionar categoria"
-          value={novo}
-          onChange={(e) => setNovo(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              adicionar();
-            }
-          }}
-        />
+        <>
+          <input
+            type="text"
+            inputMode="numeric"
+            className="input input-bordered input-sm w-full"
+            placeholder="Número da categoria + Enter"
+            aria-label="Adicionar categoria"
+            value={novo}
+            aria-invalid={aviso ? true : undefined}
+            aria-describedby={aviso ? "aviso-categoria" : undefined}
+            onChange={(e) => {
+              setNovo(e.target.value);
+              setAviso("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                adicionar();
+              }
+            }}
+          />
+          {aviso && (
+            <p id="aviso-categoria" className="text-sm text-error" role="alert">
+              {aviso}
+            </p>
+          )}
+        </>
       )}
     </div>
   );

@@ -213,6 +213,16 @@ def test_carrinho_conferido_e_404_sem_conferencia(cliente, logar, sessoes):
     assert len(_acoes(sessoes)) == 1
 
 
+def test_carrinho_conferido_com_id_gigante_e_404(cliente, logar, sessoes):
+    logar(Papel.ADMIN)
+    for cid in (2**31, 0):
+        r = cliente.post(f"{LISTA}/carrinho/{cid}/conferido")
+        assert r.status_code == 404
+        assert r.json()["erro"] == "nao_encontrado"
+        assert r.json()["mensagem"] == "Esse item não está esperando conferência."
+    assert _acoes(sessoes) == []
+
+
 def test_desligado_mostra_parado_de_verdade(cliente, logar, sessoes):
     logar(Papel.ADMIN)
     _pausar(sessoes, COLETOR_CASADOR, agora=T0 - timedelta(hours=1))
