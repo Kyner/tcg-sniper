@@ -71,10 +71,16 @@ def test_destino_novo_cobre_todo_link_que_o_painel_emite():
     """Varre o código do painel e das mensagens: todo link literal vira destino migrado (ou as Configurações)."""
     texto = (FONTES / "painel.py").read_text(encoding="utf-8") + (FONTES / "mensagens.py").read_text(encoding="utf-8")
     links = set(re.findall(r'"(/(?:servicos|logs|mensagens|casamentos|configuracoes)[^"{]*)"', texto))
-    assert {"/servicos", "/logs?aba=liga", "/logs?aba=manutencao", "/mensagens?situacao=falha", "/configuracoes"} <= links
+    assert {"/servicos", "/logs?aba=liga", "/logs?aba=manutencao", "/mensagens?situacao=falha", "/configuracoes?secao=ia"} <= links
     for link in links:
         destino = dashboard.destino_novo(link)
         assert destino.startswith("/gestao"), (link, destino)
+
+
+def test_avisos_do_painel_apontam_para_a_secao_certa():
+    texto = (FONTES / "painel.py").read_text(encoding="utf-8")
+    assert "/configuracoes?secao=amazon" in texto and "/configuracoes?secao=ia" in texto
+    assert not re.search(r'"/configuracoes"', texto)
 
 
 def test_permissao_do_destino():

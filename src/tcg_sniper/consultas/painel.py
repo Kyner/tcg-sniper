@@ -347,7 +347,7 @@ def _saude_casador(s: Session, agora: datetime, cfg: Config, chave_ia: bool) -> 
         )
     if not cfg_ia.ligado:
         return SaudeServico(
-            "Casador (IA)", "inativo", "IA desligada", "Liga em Configurações → IA.", "/configuracoes", "desligada"
+            "Casador (IA)", "inativo", "IA desligada", "Liga em Configurações → IA.", "/configuracoes?secao=ia", "desligada"
         )
     if not chave_ia:
         return SaudeServico(
@@ -561,7 +561,7 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
                 f"rápida a cada {intervalo} min, acima do que cabe ({carga.limite} por hora: teto "
                 f"{cfg_amazon.monitor_max_paginas_hora}, pausas de {cfg_amazon.pausa_min_s}–{cfg_amazon.pausa_max_s} s): "
                 "as leituras da fila rápida vão atrasar.",
-                "/configuracoes",
+                "/configuracoes?secao=amazon",
                 "Ajustar em Configurações",
             )
         )

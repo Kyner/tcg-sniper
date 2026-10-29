@@ -1,11 +1,12 @@
-from datetime import time
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
-from tcg_sniper.coletor_amazon.config import CAMPOS
+from tcg_sniper.coletor_amazon.config import CAMPOS, aplicar_config
 from tcg_sniper.config import Config
 from tcg_sniper.configuracoes.geral_liga import CAMPOS_GERAL, CAMPOS_LIGA
 from tcg_sniper.configuracoes.grupos import GRUPOS, campo, valores_atuais, versoes
 from tcg_sniper.configuracoes.ia import CAMPOS_IA
+from tcg_sniper.gestao import servicos
 
 IDS = (
     "oportunidades", "vendedores", "busca", "monitor", "checkout", "bloqueio", "liga",
@@ -100,3 +101,21 @@ def test_versoes_por_tabela(s, config):
     v = versoes(s)
     assert set(v) == {"geral", "liga", "amazon", "ia"}
     assert all(isinstance(x, str) and "T" in x for x in v.values())
+
+
+def test_ligar_e_desligar_servicos_nao_mudam_a_versao_das_configuracoes(s, config):
+    valores_atuais(s, config)
+    antes = versoes(s)["amazon"]
+    depois = datetime.now(UTC) + timedelta(hours=1)
+    servicos.ajustar_amazon(s, "monitor_ligado", True, depois)
+    servicos.ajustar_amazon(s, "checkout_ligado", True, depois)
+    servicos.retomar_checkout(s, depois)
+    aplicar_config(s, {"checkout_sem_login_em": depois}, depois)
+    assert versoes(s)["amazon"] == antes
+
+
+def test_salvar_campo_de_configuracao_muda_a_versao(s, config):
+    valores_atuais(s, config)
+    antes = versoes(s)["amazon"]
+    aplicar_config(s, {"desconto_min_pct": 30}, datetime.now(UTC) + timedelta(hours=1))
+    assert versoes(s)["amazon"] != antes

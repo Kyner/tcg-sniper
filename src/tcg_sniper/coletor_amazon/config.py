@@ -178,6 +178,12 @@ def validar_config(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[s
     return valores, erros
 
 
+# Campos de Serviços: mexer só neles não é "editar configuração", então não muda a versão
+# (`atualizado_em`) que as Configurações do site usam para detectar edição concorrente.
+CAMPOS_DE_SERVICOS = frozenset({"monitor_ligado", "checkout_ligado", "checkout_sem_login_em"})
+
+
 def aplicar_config(s: Session, valores: Mapping[str, object], agora: datetime) -> None:
-    s.execute(update(ConfigAmazon).where(ConfigAmazon.id == 1).values(**valores, atualizado_em=agora))
+    extra = {"atualizado_em": agora} if set(valores) - CAMPOS_DE_SERVICOS else {}
+    s.execute(update(ConfigAmazon).where(ConfigAmazon.id == 1).values(**valores, **extra))
     s.flush()
