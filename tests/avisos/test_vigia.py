@@ -6,6 +6,7 @@ from tcg_sniper.avisos import servico as avisos
 from tcg_sniper.avisos import vigia
 from tcg_sniper.avisos.catalogo import TipoAviso
 from tcg_sniper.db import repositorio as repo
+from tcg_sniper.db import repositorio_manutencao as repo_man
 from tcg_sniper.db import repositorio_mensagens as repo_msg
 from tcg_sniper.db.models import (
     COLETOR_AMAZON,
@@ -102,6 +103,40 @@ def test_servico_que_nunca_deu_sinal_conta_desde_o_inicio_da_vigia(sessoes):
     verificar(sessoes, AGORA + timedelta(minutes=6), desde=AGORA - timedelta(minutes=5))
     assert abertos(sessoes) == ["casador"]
     assert "• Último sinal: nenhum desde que a vigia começou\n" in textos(sessoes)[0]
+
+
+def verificar_manutencao(sessoes, agora, desde=INICIO):
+    with sessoes() as s, s.begin():
+        vigia.verificar_manutencao(s, agora, desde)
+
+
+def ciclo_da_manutencao(sessoes, quando):
+    with sessoes() as s, s.begin():
+        repo_man.registrar_ciclo(s, quando)
+
+
+def test_manutencao_muda_mais_de_10_min_abre(sessoes):
+    ciclo_da_manutencao(sessoes, AGORA - timedelta(minutes=11))
+    verificar_manutencao(sessoes, AGORA)
+    assert abertos(sessoes) == ["manutencao"]
+    [texto] = textos(sessoes)
+    assert texto.startswith("🔴 *Serviço sem sinal · manutencao*\n• Último sinal: 18/10 09:49 (há 11 min)\n")
+
+
+def test_manutencao_volta_fecha(sessoes):
+    ciclo_da_manutencao(sessoes, AGORA - timedelta(minutes=11))
+    verificar_manutencao(sessoes, AGORA)
+    ciclo_da_manutencao(sessoes, AGORA + timedelta(minutes=1))
+    verificar_manutencao(sessoes, AGORA + timedelta(minutes=1))
+    assert abertos(sessoes) == []
+    assert textos(sessoes)[-1].startswith("✅ *Serviço sem sinal · manutencao resolvido")
+
+
+def test_manutencao_sem_sinal_conta_desde_o_inicio_de_quem_vigia(sessoes):
+    verificar_manutencao(sessoes, AGORA, desde=AGORA - timedelta(minutes=5))
+    assert abertos(sessoes) == []
+    verificar_manutencao(sessoes, AGORA + timedelta(minutes=6), desde=AGORA - timedelta(minutes=5))
+    assert abertos(sessoes) == ["manutencao"]
 
 
 def test_batimento_registra_o_sinal(sessoes):

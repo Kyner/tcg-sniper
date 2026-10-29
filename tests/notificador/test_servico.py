@@ -30,6 +30,12 @@ def env(config):
     return config.model_copy(update={"evolution_url": URL, "evolution_api_key": "chave"})
 
 
+@pytest.fixture(autouse=True)
+def sem_vigia_da_manutencao(monkeypatch):
+    """Os testes de fila avançam o relógio horas: sem sinal da manutenção, a vigia abriria um aviso a mais na fila."""
+    monkeypatch.setattr("tcg_sniper.notificador.servico.vigia.verificar_manutencao", lambda s, agora, desde: None)
+
+
 @pytest.fixture
 def configurado(sessoes, env):
     with sessoes() as s, s.begin():
@@ -231,6 +237,34 @@ def test_erro_no_ciclo_nao_derruba_o_laco(sessoes, env, caplog, monkeypatch):
     with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
         svc.rodar()
     assert len(chamadas) == 2 and "banco caiu" in caplog.text
+
+
+def test_ciclo_vigia_a_manutencao_uma_vez_por_minuto(sessoes, env, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(
+        "tcg_sniper.notificador.servico.vigia.verificar_manutencao", lambda s, agora, desde: chamadas.append((agora, desde))
+    )
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    svc.ciclo()
+    relogio.agora = AGORA + timedelta(seconds=30)
+    svc.ciclo()
+    assert chamadas == [(AGORA, AGORA)]  # `desde` é o início do próprio notificador
+    relogio.agora = AGORA + timedelta(seconds=61)
+    svc.ciclo()
+    assert len(chamadas) == 2
+
+
+def test_falha_ao_vigiar_a_manutencao_nao_derruba_o_ciclo(sessoes, env, configurado, caplog, monkeypatch):
+    def quebra(s, agora, desde):
+        raise RuntimeError("vigia caiu")
+
+    monkeypatch.setattr("tcg_sniper.notificador.servico.vigia.verificar_manutencao", quebra)
+    nova(sessoes)
+    with respx.mock, caplog.at_level(logging.ERROR):
+        respx.post(ROTA).mock(return_value=httpx.Response(201))
+        assert servico(sessoes, env).ciclo() == 1
+    assert "vigia caiu" in caplog.text
 
 
 def _falha_ao_gravar(monkeypatch, mid_ruim):
