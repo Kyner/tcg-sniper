@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 
 const campo = (o: Record<string, unknown>) => ({
@@ -45,6 +45,8 @@ const EFEITO = "POST /api/gestao/configuracoes/efeito";
 const EFEITO_OK = ok({ linhas: ["Lê 24 páginas por dia."], nivel: "info", barras: [] });
 
 afterEach(() => vi.restoreAllMocks());
+// O histórico do jsdom é global: cada teste começa numa entrada limpa (sem guarda de teste anterior por baixo).
+beforeEach(() => window.history.pushState(null, "", "/"));
 
 async function abrir(caminho = "/gestao/configuracoes", extra: Record<string, unknown> = {}) {
   const chamadas = apiFalsa({ ...base, [LER]: ok(CONFIG), [EFEITO]: EFEITO_OK, ...extra } as never);
@@ -180,8 +182,8 @@ describe("Configurações", () => {
     await userEvent.type(entrada, "1");
     const confirma = vi.spyOn(window, "confirm").mockReturnValue(false);
     const empilha = vi.spyOn(window.history, "pushState");
-    fireEvent.popState(window);
-    expect(confirma).toHaveBeenCalled();
+    window.history.back();
+    await waitFor(() => expect(confirma).toHaveBeenCalled());
     expect(empilha).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText("Intervalo do monitor")).toHaveValue("15001");
     expect(screen.getByRole("button", { name: "Salvar" })).toBeInTheDocument();
@@ -191,9 +193,36 @@ describe("Configurações", () => {
     await abrir("/gestao/configuracoes?grupo=monitor");
     await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const volta = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    const volta = vi.spyOn(window.history, "back");
+    window.history.back();
+    await waitFor(() => expect(volta).toHaveBeenCalledTimes(2));
+  });
+
+  it("fragmento (#avisos) com alteração não é tratado como Voltar", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(false);
+    window.history.pushState(null, "", "#avisos");
     fireEvent.popState(window);
-    expect(volta).toHaveBeenCalledTimes(1);
+    expect(confirma).not.toHaveBeenCalled();
+  });
+
+  it("a guarda preserva o estado do roteador (idx/key)", async () => {
+    window.history.replaceState({ idx: 3, key: "k3", usr: null }, "");
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    expect(window.history.state).toMatchObject({ idx: 3, key: "k3", guardaSair: true });
+  });
+
+  it("confirmar a saída por link sai da guarda antes de navegar", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    expect(window.history.state?.guardaSair).toBe(true);
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await userEvent.click(screen.getAllByRole("link", { name: "Atividade" })[0]);
+    await waitFor(() => expect(screen.queryByLabelText("Intervalo do monitor")).not.toBeInTheDocument());
+    expect(confirma).toHaveBeenCalledTimes(1);
+    expect(window.history.state?.guardaSair).toBeFalsy();
   });
 
   it("Voltar sem alteração não pergunta", async () => {

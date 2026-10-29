@@ -32,10 +32,16 @@ function useAvisarAoSair(sujo: boolean) {
       }
       return;
     }
-    const empilhar = () => window.history.pushState({ guardaSair: true }, "", window.location.href);
+    // A guarda copia o estado do roteador (idx/key/usr): sem isso o próximo push do roteador calcularia idx NaN.
+    const href = window.location.href;
+    const empilhar = () => window.history.pushState({ ...window.history.state, guardaSair: true }, "", href);
     empilhar();
     guarda.current = true;
+    let liberado = false;
     const aoVoltar = () => {
+      // Só é "Voltar" o pop que saiu da guarda para a entrada da tela; fragmento (#grupo, #avisos) e o pop de volta
+      // para a própria guarda não contam.
+      if (window.history.state?.guardaSair || window.location.href !== href) return;
       if (window.confirm(MENSAGEM_SAIR)) {
         window.removeEventListener("popstate", aoVoltar);
         guarda.current = false;
@@ -52,11 +58,20 @@ function useAvisarAoSair(sujo: boolean) {
       const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
       if (!link || link.hasAttribute("download") || link.target === "_blank" || link.origin !== window.location.origin) return;
-      if (link.pathname === window.location.pathname) return;
+      if (link.pathname === window.location.pathname || liberado) return;
       if (!window.confirm(MENSAGEM_SAIR)) {
         e.preventDefault();
         e.stopPropagation();
+        return;
       }
+      if (!window.history.state?.guardaSair) return;
+      // Confirmado: primeiro sai da guarda (para o histórico não ficar com a tela duplicada) e só então segue o link.
+      e.preventDefault();
+      e.stopPropagation();
+      window.removeEventListener("popstate", aoVoltar);
+      guarda.current = false;
+      window.addEventListener("popstate", () => { liberado = true; link.click(); }, { once: true });
+      window.history.back();
     };
     window.addEventListener("beforeunload", aoFechar);
     document.addEventListener("click", aoClicar, true);
