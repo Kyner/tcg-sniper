@@ -76,6 +76,7 @@ class FiltroAtividade:
     busca: str | None  # nome do produto (pt ou en), ASIN ou texto/erro da linha
     mostrar_reinicios: bool = False
     mostrar_texto_mensagem: bool = True  # False: sem `ver_mensagens`; o texto não sai nem entra na busca
+    mostrar_valores_configuracao: bool = False  # False: sem `ver_configuracoes`; só os rótulos dos campos salvos
     destino: Destino | None = None  # só mensagens: com destino, as outras fontes não entram na lista
 
 
@@ -645,7 +646,7 @@ def _avisos(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Bruta
     return linhas
 
 
-def _descricao_acao(acao: AcaoGestao) -> str:
+def _descricao_acao(acao: AcaoGestao, mostrar_valores: bool) -> str:
     d = acao.detalhe or {}
     match acao.tipo:
         case TipoAcaoGestao.SERVICO:
@@ -661,7 +662,7 @@ def _descricao_acao(acao: AcaoGestao) -> str:
         case TipoAcaoGestao.CATALOGO_PRODUTO:
             return f"{'ligou' if d.get('ativo') else 'desligou'} o monitoramento de um produto"
         case TipoAcaoGestao.CONFIGURACOES:
-            return _descricao_configuracoes(d)
+            return _descricao_configuracoes(d, mostrar_valores)
     return "salvou as configurações"
 
 
@@ -688,8 +689,9 @@ def _rotulo_config(chave: str) -> str:
     return rotulo[:1].lower() + rotulo[1:]
 
 
-def _descricao_configuracoes(d: dict) -> str:
-    """"salvou 3 campos: desconto mínimo 20→22, …" ou "ligou/desligou o aviso X"."""
+def _descricao_configuracoes(d: dict, mostrar_valores: bool = True) -> str:
+    """"salvou 3 campos: desconto mínimo 20→22, …" (sem `mostrar_valores`: só os rótulos)
+    ou "ligou/desligou o aviso X"."""
     if "aviso" in d:
         tipo = d.get("aviso")
         try:
@@ -702,6 +704,9 @@ def _descricao_configuracoes(d: dict) -> str:
         return "salvou as configurações"
     partes = []
     for chave, par in list(campos.items())[:CAMPOS_NA_DESCRICAO]:
+        if not mostrar_valores:
+            partes.append(_rotulo_config(chave))
+            continue
         antes, depois = par if isinstance(par, list) and len(par) == 2 else (None, par)
         partes.append(f"{_rotulo_config(chave)} {_valor_config(antes)}→{_valor_config(depois)}")
     texto = ", ".join(partes)
@@ -734,7 +739,10 @@ def _acoes(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Bruta]
     if f.servico is not None:
         condicoes += [a.tipo == TipoAcaoGestao.SERVICO, a.detalhe["servico"].astext == f.servico.value]
     if f.busca:
-        condicoes.append(or_(_like(cast(a.detalhe, Text), f.busca), _like(Usuario.nome, f.busca)))
+        no_detalhe = _like(cast(a.detalhe, Text), f.busca)
+        if not f.mostrar_valores_configuracao:  # os valores salvos não entram na busca de quem não os vê
+            no_detalhe = and_(a.tipo != TipoAcaoGestao.CONFIGURACOES, no_detalhe)
+        condicoes.append(or_(no_detalhe, _like(Usuario.nome, f.busca)))
     consulta = (
         select(a, Usuario.nome)
         .outerjoin(Usuario, Usuario.id == a.usuario_id)
@@ -746,12 +754,14 @@ def _acoes(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Bruta]
     for acao, nome in s.execute(consulta):
         usuario = nome or SEM_USUARIO
         produto_id = acao.detalhe.get("produto_id") if acao.tipo is TipoAcaoGestao.CATALOGO_PRODUTO else None
+        plano = {chave: _plano(valor) for chave, valor in (acao.detalhe or {}).items()}
+        if not f.mostrar_valores_configuracao and isinstance(campos := (acao.detalhe or {}).get("campos"), dict):
+            plano["campos"] = _plano(list(campos))
         linhas.append(_Bruta(
             acao.em, ACAO, (acao.id,), f"{ACAO}:{acao.id}", _servico_da_acao(acao), "acao_gestao", "ok",
-            f"{usuario} · {_descricao_acao(acao)}", produto_id if isinstance(produto_id, int) else None,
+            f"{usuario} · {_descricao_acao(acao, f.mostrar_valores_configuracao)}", produto_id if isinstance(produto_id, int) else None,
             detalhe={
-                **{chave: _plano(valor) for chave, valor in (acao.detalhe or {}).items()},
-                "tipo": acao.tipo.value, "usuario": usuario,
+                **plano, "tipo": acao.tipo.value, "usuario": usuario,
             },
         ))
     return linhas

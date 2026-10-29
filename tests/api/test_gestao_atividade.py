@@ -4,7 +4,7 @@ from fakes import T0
 from sqlalchemy import func, select
 
 from tcg_sniper.db import repositorio_acesso as repo_acesso
-from tcg_sniper.db.models import AcaoGestao, MensagemSaida, Papel, StatusMensagem
+from tcg_sniper.db.models import AcaoGestao, MensagemSaida, Papel, StatusMensagem, TipoAcaoGestao
 
 ROTA = "/api/gestao/atividade"
 MSG = "/api/gestao/mensagens"
@@ -90,6 +90,25 @@ def test_sem_ver_mensagens_esconde_o_texto(cliente, app_api, logar, sessoes):
     item = r.json()["itens"][0]
     assert item["detalhe"]["texto"] is None
     assert "Caixa Azul" not in r.text  # nem no resultado da linha
+
+
+def test_sem_ver_configuracoes_esconde_os_valores(cliente, app_api, logar, sessoes):
+    with sessoes() as s, s.begin():
+        s.add(AcaoGestao(
+            tipo=TipoAcaoGestao.CONFIGURACOES, em=T0,
+            detalhe={"campos": {"geral.whatsapp_grupo_admin": [None, "grupo-secreto@g.us"]}},
+        ))
+    logar(Papel.OPERADOR)
+    assert "grupo-secreto@g.us" in cliente.get(ROTA, params={"o_que": "acao_gestao"}).text
+    with sessoes() as s, s.begin():
+        repo_acesso.salvar_permissao(s, Papel.OPERADOR, "ver_configuracoes", False)
+    app_api.state.grade.invalidar()
+    r = cliente.get(ROTA, params={"o_que": "acao_gestao"})
+    assert r.status_code == 200
+    [item] = r.json()["itens"]
+    assert "grupo de WhatsApp do admin" in item["resultado"]
+    assert "grupo-secreto" not in r.text and "→" not in item["resultado"]
+    assert cliente.get(ROTA, params={"busca": "grupo-secreto"}).json()["itens"] == []
 
 
 def test_texto_individual_nunca_aparece(cliente, logar, sessoes):
