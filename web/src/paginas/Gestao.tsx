@@ -61,29 +61,32 @@ export function Gestao() {
           <button type="button" className="btn btn-sm" onClick={() => setRecarga((n) => n + 1)}>Tentar de novo</button>
         </div>
       )}
-      {dados === null ? (erro === null ? <Carregando /> : null) : <Blocos dados={dados} recarregar={() => setRecarga((n) => n + 1)} />}
+      {dados === null ? (erro === null ? <Carregando /> : null) : <Blocos dados={dados} recarregar={async () => { setDados(await chamarApi<DashboardGestao>("/api/gestao/dashboard")); }} />}
     </section>
   );
 }
 
-function Blocos({ dados, recarregar }: { dados: DashboardGestao; recarregar: () => void }) {
+function Blocos({ dados, recarregar }: { dados: DashboardGestao; recarregar: () => Promise<void> }) {
   const { pode, tratarErro } = useSessao();
+  const { precisa, saude, oportunidades, funil } = dados;
   const [ocupado, setOcupado] = useState(false);
   const [erroAcao, setErroAcao] = useState<string | null>(null);
   // O botão de um item (ex.: "Já conferi" do carrinho): POST e recarrega o Dashboard.
+  // O botão fica travado até a recarga terminar (o item some da lista), senão um 2º clique repetiria o POST.
   async function agir(caminho: string) {
     setOcupado(true);
     setErroAcao(null);
     try {
       await chamarApi<unknown>(caminho, { metodo: "POST" });
-      recarregar();
+      await recarregar();
     } catch (e) {
       setErroAcao(tratarErro(e));
     } finally {
       setOcupado(false);
     }
   }
-  const { precisa, saude, oportunidades, funil } = dados;
+  // Sem item com botão, um erro de ação antigo não faz mais sentido.
+  useEffect(() => { if (!precisa.some((p) => p.acao)) setErroAcao(null); }, [precisa]);
   // O produto das oportunidades fica na área de negócio.
   const abreProduto = pode("ver_area_negocio") && pode("ver_oportunidades");
   return (

@@ -74,14 +74,20 @@ def test_destino_novo_desconhecido_avisa_no_log(caplog):
     assert [r.getMessage() for r in caplog.records] == ["link do painel sem destino novo: /algo-desconhecido"]
 
 
-def test_destino_novo_cobre_todo_link_que_o_painel_emite():
+def test_destino_novo_cobre_todo_link_que_o_painel_emite(caplog):
     """Varre o código do painel e das mensagens: todo link literal vira destino migrado (ou as Configurações)."""
     texto = (FONTES / "painel.py").read_text(encoding="utf-8") + (FONTES / "mensagens.py").read_text(encoding="utf-8")
     links = set(re.findall(r'"(/(?:servicos|logs|mensagens|casamentos|configuracoes)[^"{]*)"', texto))
     assert {"/servicos", "/logs?aba=liga", "/logs?aba=manutencao", "/mensagens?situacao=falha", "/configuracoes?secao=ia"} <= links
-    for link in links:
-        destino = dashboard.destino_novo(link)
-        assert destino.startswith("/gestao"), (link, destino)
+    # Links montados com f-string (painel.py: `f"/logs?aba={aba}"`, abas liga e amazon): valores reais.
+    assert 'f"/logs?aba={aba}"' in texto
+    links |= {"/logs?aba=liga", "/logs?aba=amazon"}
+    with caplog.at_level("WARNING", logger="tcg_sniper.consultas.dashboard"):
+        for link in links:
+            destino = dashboard.destino_novo(link)
+            assert destino.startswith("/gestao"), (link, destino)
+            assert destino != "/gestao", (link, destino)
+    assert caplog.records == []  # link sem destino novo logaria a cada carga do Dashboard
 
 
 def test_avisos_do_painel_apontam_para_a_secao_certa():

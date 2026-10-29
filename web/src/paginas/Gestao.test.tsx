@@ -73,6 +73,32 @@ describe("Dashboard da gestão", () => {
       ]);
     });
 
+    it("o botão fica travado até a recarga terminar: segundo clique não repete o POST", async () => {
+      const eu = { ...EU_OPERADOR, permissoes: [...EU_OPERADOR.permissoes, "pausar_servicos" as const] };
+      const chamadas = apiFalsa({
+        ...base, "GET /api/auth/eu": ok(eu), [POST]: ok({ mensagem: "ok" }),
+        [DASH]: [ok(CARRINHO), ok({ ...CARRINHO, precisa: [] })],
+      });
+      // A 2ª leitura do Dashboard só termina quando o teste soltar.
+      const fetchFalso = globalThis.fetch;
+      let soltar: () => void = () => undefined;
+      const trava = new Promise<void>((r) => { soltar = r; });
+      let leituras = 0;
+      vi.stubGlobal("fetch", (entrada: RequestInfo | URL, init?: RequestInit) => {
+        if (String(entrada) === "/api/gestao/dashboard" && ++leituras === 2) return trava.then(() => fetchFalso(entrada, init));
+        return fetchFalso(entrada, init);
+      });
+      renderizarEm("/gestao");
+      const botao = await screen.findByRole("button", { name: "Já conferi" });
+      await userEvent.click(botao);
+      await waitFor(() => expect(leituras).toBe(2));
+      expect(botao).toBeDisabled();
+      await userEvent.click(botao);
+      expect(chamadas.filter((c) => c.metodo === "POST")).toHaveLength(1);
+      soltar();
+      await waitFor(() => expect(screen.queryByText("Confira o carrinho da Amazon")).not.toBeInTheDocument());
+    });
+
     it("sem pausar_servicos não mostra o botão, só o link", async () => {
       apiFalsa({ ...base, [DASH]: ok(CARRINHO) });
       renderizarEm("/gestao");

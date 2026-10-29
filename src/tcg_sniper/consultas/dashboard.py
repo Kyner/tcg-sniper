@@ -186,7 +186,7 @@ def destino_de(aviso: painel.Aviso) -> str:
     return destino_novo(aviso.link)
 
 
-_CARRINHO_CONFERIDO = re.compile(r"/amazon/carrinho/(\d+)/conferido")
+_CARRINHO_CONFERIDO = re.compile(r"/amazon/carrinho/([0-9]+)/conferido")
 
 
 def acao_de(aviso: painel.Aviso) -> AcaoPrecisa | None:
