@@ -84,11 +84,11 @@ def pedir_codigo(s: Session, numero: str, agora: datetime, segredo: str) -> Resu
     """`numero` já normalizado. Dentro dos limites, registra o pedido e, se for de um usuário ativo, emite o código e
     enfileira a mensagem individual. Fora dos limites, registra, avisa o grupo admin e devolve o limite atingido.
     O chamador responde igual para número com ou sem cadastro."""
-    repo_acesso.limpar_antigos(s, agora)
     numero = numero_de_login(s, numero)
     numero_hash = hash_segredo(segredo, numero)
     # Só limites por número: um limite total deixaria qualquer um trancar o login de todos.
     repo_acesso.travar_limite(s, repo_acesso.TRAVA_PEDIDOS_NUMERO, numero_hash)
+    repo_acesso.limpar_antigos(s, agora)  # depois da trava: apagar antes inverte a ordem de espera entre requisições
     if repo_acesso.contar_pedidos(s, agora - JANELA_NUMERO, numero_hash) >= LIMITE_POR_NUMERO:
         return _recusar(s, numero, numero_hash, ResultadoPedido.LIMITE_NUMERO, agora)
     repo_acesso.registrar_pedido(s, numero_hash, ResultadoPedido.ACEITO.value, agora)
@@ -109,10 +109,10 @@ def registrar_entrada(s: Session, numero: str, agora: datetime, segredo: str) ->
     """Conta uma tentativa de entrar (`numero` já normalizado), tenha ou não cadastro. False (nada gravado) se o
     número já fez `LIMITE_ENTRADAS` tentativas na janela: o chamador responde 429 sem conferir o código.
     Também apaga pedidos e códigos antigos (como `pedir_codigo`)."""
-    repo_acesso.limpar_antigos(s, agora)
     numero = numero_de_login(s, numero)
     numero_hash = hash_segredo(segredo, numero)
     repo_acesso.travar_limite(s, repo_acesso.TRAVA_ENTRADAS_NUMERO, numero_hash)
+    repo_acesso.limpar_antigos(s, agora)  # depois da trava: apagar antes inverte a ordem de espera entre requisições
     if repo_acesso.contar_pedidos(s, agora - JANELA_ENTRADAS, numero_hash, repo_acesso.ENTRADA) >= LIMITE_ENTRADAS:
         log.warning("entrada recusada para %s: limite de tentativas", mascarar_numero(numero))
         return False

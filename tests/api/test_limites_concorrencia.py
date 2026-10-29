@@ -83,3 +83,25 @@ def test_duas_entradas_ao_mesmo_tempo_nao_levam_a_ultima_vaga(engine, limpar, mo
         lambda s: acesso.registrar_entrada(s, NUMERO_A, T0, SEGREDO_TESTE),
     )
     assert resultado is False
+
+
+@pytest.mark.parametrize(
+    "chamar",
+    [
+        lambda s: acesso.pedir_codigo(s, NUMERO_A, T0, SEGREDO_TESTE),
+        lambda s: acesso.registrar_entrada(s, NUMERO_A, T0, SEGREDO_TESTE),
+    ],
+    ids=["pedir_codigo", "registrar_entrada"],
+)
+def test_trava_vem_antes_da_limpeza(engine, limpar, monkeypatch, chamar):
+    """Apagar linhas antes da trava deixa duas requisições se esperando em ordem trocada (deadlock)."""
+    ordem = []
+    travar, limpar_antigos = acesso.repo_acesso.travar_limite, acesso.repo_acesso.limpar_antigos
+    monkeypatch.setattr(acesso.repo_acesso, "travar_limite", lambda *a, **k: (ordem.append("travar"), travar(*a, **k))[1])
+    monkeypatch.setattr(
+        acesso.repo_acesso, "limpar_antigos", lambda *a, **k: (ordem.append("limpar"), limpar_antigos(*a, **k))[1]
+    )
+    with Session(engine) as s:
+        chamar(s)
+        s.rollback()
+    assert ordem == ["travar", "limpar"]
