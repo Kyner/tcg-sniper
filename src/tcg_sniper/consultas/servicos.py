@@ -137,7 +137,8 @@ def em_andamento(s: Session, servico: Servico, agora: datetime) -> bool:
 def transicao(s: Session, servico: Servico, estado: EstadoColetor, agora: datetime) -> Transicao | None:
     """Palavra de transição. Desligado: "parando" enquanto há ciclo aberto ou registro dos últimos 2 min, depois
     "parado" desde o maior entre o desligamento e o último registro. Ligado: "iniciando" por até 10 min, se
-    nada novo apareceu depois de ligar (nunca para os serviços por horário). Nos demais casos (inclusive desafio pendente), None."""
+    nada novo apareceu depois de ligar (nunca para os serviços por horário). Nos demais casos (inclusive
+    desafio pendente), None."""
     ultimo = ultimo_registro(s, servico)
     if estado.estado is EstadoColetorTipo.PAUSADO:
         if em_andamento(s, servico, agora) or (ultimo is not None and agora - ultimo < QUIETO):
