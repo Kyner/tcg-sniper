@@ -253,6 +253,20 @@ describe("Configurações", () => {
     expect(screen.getByText("categoria 9")).toBeInTheDocument();
   });
 
+  it("categoria inválida ou repetida avisa o motivo e mantém o texto", async () => {
+    await abrir("/gestao/configuracoes?grupo=liga");
+    expect(await screen.findByText("categoria 7")).toBeInTheDocument();
+    const campo = screen.getByLabelText("Adicionar categoria");
+    await userEvent.type(campo, "abc{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("Informe o número da categoria.");
+    expect(campo).toHaveValue("abc");
+    await userEvent.clear(campo);
+    await userEvent.type(campo, "7{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("A categoria 7 já está na lista.");
+    await userEvent.type(campo, "1");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("avisos agrupados por área, com busca, toggle no lugar e exemplo ao tocar", async () => {
     const chamadas = await abrir("/gestao/configuracoes", {
       "PATCH /api/gestao/avisos/ia_teto": ok({ ...AVISOS[1], ligado: true }),
