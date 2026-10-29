@@ -79,6 +79,25 @@ describe("Atividade", () => {
     await waitFor(() => expect(chamadas.at(-1)!.caminho).toBe("/api/gestao/atividade?servico=liga&o_que=coleta_liga"));
   });
 
+  it("com o_que=mensagem mostra Destino e a situação pendente; outro o_que esconde", async () => {
+    const chamadas = apiFalsa({
+      ...base,
+      "GET /api/gestao/atividade?o_que=mensagem&situacao=pendente&destino=admin": ok({ itens: [MSG], proximo: null }),
+      "GET /api/gestao/atividade?o_que=mensagem&situacao=pendente": ok({ itens: [MSG], proximo: null }),
+      "GET /api/gestao/atividade?o_que=mensagem": ok({ itens: [MSG], proximo: null }),
+      "GET /api/gestao/atividade": ok({ itens: [MSG], proximo: null }),
+    });
+    renderizarEm("/gestao/atividade?o_que=mensagem&situacao=pendente");
+    await screen.findByRole("combobox", { name: "Destino" });
+    expect(screen.getByRole("option", { name: "pendente (na fila)" })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Destino" }), "admin");
+    await waitFor(() => expect(chamadas.at(-1)!.caminho).toBe("/api/gestao/atividade?o_que=mensagem&situacao=pendente&destino=admin"));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "O quê" }), "");
+    await waitFor(() => expect(chamadas.at(-1)!.caminho).toBe("/api/gestao/atividade"));
+    expect(screen.queryByRole("combobox", { name: "Destino" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "pendente (na fila)" })).not.toBeInTheDocument();
+  });
+
   it("a busca aplica sozinha, com espera", async () => {
     const chamadas = apiFalsa({
       ...base,

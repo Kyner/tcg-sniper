@@ -138,3 +138,15 @@ def test_sem_ver_mensagens_a_busca_nao_sonda_o_texto(cliente, app_api, logar, se
         repo_acesso.salvar_permissao(s, Papel.OPERADOR, "ver_mensagens", False)
     app_api.state.grade.invalidar()
     assert cliente.get(ROTA, params={"busca": "Azul"}).json()["itens"] == []
+
+
+def test_destino_e_situacao_pendente(cliente, logar, sessoes):
+    _mensagem(sessoes, T0, status=StatusMensagem.PENDENTE, destino="admin")
+    _mensagem(sessoes, T0 + timedelta(minutes=1), status=StatusMensagem.FALHA, destino="oportunidades")
+    logar(Papel.OPERADOR)
+    pend = cliente.get(ROTA, params={"situacao": "pendente"}).json()["itens"]
+    assert [i["detalhe"]["status"] for i in pend] == ["pendente"]
+    adm = cliente.get(ROTA, params={"destino": "admin"}).json()["itens"]
+    assert [i["detalhe"]["destino"] for i in adm] == ["admin"]
+    assert cliente.get(ROTA, params={"destino": "inventado"}).status_code == 422
+    assert cliente.get(ROTA, params={"situacao": "inventada"}).status_code == 422

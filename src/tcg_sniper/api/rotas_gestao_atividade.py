@@ -68,6 +68,7 @@ def listar(
     servico: Servico | None = None,
     o_que: q.OQue | None = None,
     situacao: q.FiltroSituacao | None = None,
+    destino: q.Destino | None = None,
     de: ComFuso = None,
     ate: ComFuso = None,
     busca: Annotated[str | None, Query(max_length=100)] = None,
@@ -75,7 +76,7 @@ def listar(
     cursor: Annotated[str | None, Query(max_length=300)] = None,
 ) -> PaginaAtividadeSaida:
     filtro = q.FiltroAtividade(
-        servico, o_que, situacao, de, ate, busca, mostrar_reinicios=reinicios,
+        servico, o_que, situacao, de, ate, busca, mostrar_reinicios=reinicios, destino=destino,
         mostrar_texto_mensagem=Permissao.VER_MENSAGENS in contexto.permissoes,
     )
     try:

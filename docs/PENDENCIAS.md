@@ -83,7 +83,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Atividade mostra "US$ 0.000000" em chamada da IA de custo zero (esconder quando 0).
 - [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (id acima de 2³¹ dá 500; reusar `MAX_ID`).
 - [ ] Dashboard: rótulo "Ligar" para quem não pode pausar serviços (usar "Ver"); links das oportunidades exigem também `ver_area_negocio`.
-- [ ] `destino_novo` perde o filtro de mensagens pendentes (`/mensagens?situacao=pendente`).
+- [x] `destino_novo` perde o filtro de mensagens pendentes (`/mensagens?situacao=pendente`). Feito na 3C (Atividade com filtro de destino e situação pendente).
 - [ ] "iniciando…" por 10 min em Liga/WhatsApp/Backup, que esperam o próprio horário (não mostrar para esses).
 - [ ] `listar` dos serviços repete `ultimo_registro` para monitor, casador e WhatsApp.
 - [ ] Guarda "não importa admin" não cobre o pacote `api`.

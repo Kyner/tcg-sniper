@@ -106,7 +106,12 @@ def destino_novo(link_antigo: str) -> str:
     if caminho == "/logs":
         return _destino_logs(p)
     if caminho == "/mensagens":
-        return _com_query("/gestao/atividade", {"o_que": "mensagem", **({"situacao": "falha"} if p.get("situacao") == "falha" else {})})
+        saida = {"o_que": "mensagem"}
+        if p.get("situacao") in ("falha", "pendente"):
+            saida["situacao"] = p["situacao"]
+        if p.get("destino") in ("admin", "oportunidades", "individual"):
+            saida["destino"] = p["destino"]
+        return _com_query("/gestao/atividade", saida)
     if caminho == "/casamentos" or caminho.startswith("/casamentos/produto/"):
         return _destino_casamentos(caminho, p)
     if caminho == "/configuracoes":

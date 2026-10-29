@@ -11,7 +11,7 @@ import { dataHora } from "../../formato";
 import { useSessao } from "../../sessao";
 import type { LinhaAtividade, PaginaAtividade, SituacaoAtividade } from "../../tipos";
 
-export const PADROES = { servico: "", o_que: "", situacao: "", de: "", ate: "", busca: "", reinicios: "" };
+export const PADROES = { servico: "", o_que: "", situacao: "", destino: "", de: "", ate: "", busca: "", reinicios: "" };
 const ESPERA_BUSCA_MS = 350;
 
 const SERVICOS: Record<string, string> = {
@@ -23,6 +23,9 @@ const O_QUE: Record<string, string> = {
   mensagem: "mensagem", backup: "backup", aviso: "aviso", acao_gestao: "ação da gestão",
 };
 const SITUACOES: Record<string, string> = { ok: "ok", parcial: "parcial", falha: "falha", problemas: "problemas (parcial e falha)" };
+const DESTINOS: Record<string, string> = {
+  admin: "grupo do admin", oportunidades: "grupo de oportunidades", individual: "individual",
+};
 const SELO: Record<SituacaoAtividade, string> = { ok: "badge badge-success", parcial: "badge badge-warning", falha: "badge badge-error" };
 
 const ROTULO_MENSAGEM: Record<string, string> = {
@@ -52,6 +55,7 @@ function montarQuery(f: Record<string, string>, cursor: string | null): string {
   if (f.servico) mais("servico", f.servico);
   if (f.o_que) mais("o_que", f.o_que);
   if (f.situacao) mais("situacao", f.situacao);
+  if (f.destino) mais("destino", f.destino);
   if (f.de) mais("de", inicioDoDia(f.de));
   if (f.ate) mais("ate", fimDoDia(f.ate));
   if (f.busca) mais("busca", f.busca);
@@ -213,7 +217,12 @@ export function Atividade() {
           {Object.entries(SERVICOS).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
         </select>
         <select className="select w-full" aria-label="O quê" value={filtros.o_que}
-          onChange={(ev) => mudar({ o_que: ev.target.value })}>
+          onChange={(ev) => {
+            const novo = ev.target.value;
+            // destino e "pendente" só existem para mensagens
+            if (novo === "mensagem") mudar({ o_que: novo });
+            else mudar({ o_que: novo, destino: "", ...(filtros.situacao === "pendente" ? { situacao: "" } : {}) });
+          }}>
           <option value="">Tudo</option>
           {Object.entries(O_QUE).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
         </select>
@@ -221,7 +230,15 @@ export function Atividade() {
           onChange={(ev) => mudar({ situacao: ev.target.value })}>
           <option value="">Todas as situações</option>
           {Object.entries(SITUACOES).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+          {filtros.o_que === "mensagem" && <option value="pendente">pendente (na fila)</option>}
         </select>
+        {filtros.o_que === "mensagem" && (
+          <select className="select w-full" aria-label="Destino" value={filtros.destino}
+            onChange={(ev) => mudar({ destino: ev.target.value })}>
+            <option value="">Todos os destinos</option>
+            {Object.entries(DESTINOS).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+          </select>
+        )}
         <label className="floating-label">
           <span>De</span>
           <input type="date" className="input w-full" aria-label="De" value={filtros.de}

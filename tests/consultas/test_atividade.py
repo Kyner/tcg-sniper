@@ -77,9 +77,9 @@ def _chamada(s, quando, ok=True, custo="0.012345", finalidade="casamento", erro=
     return c
 
 
-def _mensagem(s, quando, status=StatusMensagem.ENVIADA, texto="*Oportunidade*\nCaixa X", erro=None):
+def _mensagem(s, quando, status=StatusMensagem.ENVIADA, texto="*Oportunidade*\nCaixa X", erro=None, destino="oportunidades"):
     m = MensagemSaida(
-        destino="oportunidades", texto=texto, status=status, proxima_tentativa_em=quando, criada_em=quando,
+        destino=destino, numero="+5511900000009" if destino == "individual" else None, texto=texto, status=status, proxima_tentativa_em=quando, criada_em=quando,
         atualizado_em=quando, enviada_em=quando if status is StatusMensagem.ENVIADA else None, ultimo_erro=erro,
     )
     s.add(m)
@@ -435,3 +435,25 @@ def test_acao_de_configuracoes_diz_o_que_mudou(s):
     assert linhas[f"acao_gestao:{siglas.id}"] == (
         "admin antigo · salvou 3 campos: URL da busca a→b, IA ligada não→sim, IP ou nome deste PC na rede x→y"
     )
+
+
+def test_situacao_pendente_traz_so_mensagens_pendentes(s):
+    _coleta(s, T, status=StatusColeta.PARCIAL)
+    pendente = _mensagem(s, T - timedelta(minutes=1), status=StatusMensagem.PENDENTE)
+    _mensagem(s, T - timedelta(minutes=2), status=StatusMensagem.EXPIRADA)
+    _mensagem(s, T - timedelta(minutes=3), status=StatusMensagem.FALHA)
+    linhas, _ = linha_do_tempo(s, _filtro(situacao="pendente"), None)
+    assert [l.chave for l in linhas] == [f"mensagem_saida:{pendente.id}"]
+    assert linha_do_tempo(s, _filtro(situacao="pendente", o_que="coleta_liga"), None)[0] == []
+
+
+def test_filtro_destino_traz_so_mensagens_do_destino(s):
+    _coleta(s, T)
+    admin = _mensagem(s, T - timedelta(minutes=1), destino="admin")
+    _mensagem(s, T - timedelta(minutes=2), destino="oportunidades")
+    individual = _mensagem(s, T - timedelta(minutes=3), destino="individual")
+    assert [l.chave for l in linha_do_tempo(s, _filtro(destino="admin"), None)[0]] == [f"mensagem_saida:{admin.id}"]
+    assert [l.chave for l in linha_do_tempo(s, _filtro(destino="individual"), None)[0]] == [
+        f"mensagem_saida:{individual.id}"
+    ]
+    assert linha_do_tempo(s, _filtro(destino="admin", situacao="falha"), None)[0] == []

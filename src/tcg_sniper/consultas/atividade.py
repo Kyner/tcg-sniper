@@ -52,7 +52,8 @@ OQue = Literal[
     "coleta_liga", "busca", "leitura_monitor", "checkout", "ia", "mensagem", "backup", "aviso", "acao_gestao"
 ]
 Situacao = Literal["ok", "parcial", "falha"]
-FiltroSituacao = Literal["ok", "parcial", "falha", "problemas"]
+FiltroSituacao = Literal["ok", "parcial", "falha", "problemas", "pendente"]  # "pendente": só mensagens na fila
+Destino = Literal["admin", "oportunidades", "individual"]
 Detalhe = dict[str, str | int | None]
 
 POR_PAGINA = 50
@@ -75,6 +76,7 @@ class FiltroAtividade:
     busca: str | None  # nome do produto (pt ou en), ASIN ou texto/erro da linha
     mostrar_reinicios: bool = False
     mostrar_texto_mensagem: bool = True  # False: sem `ver_mensagens`; o texto não sai nem entra na busca
+    destino: Destino | None = None  # só mensagens: com destino, as outras fontes não entram na lista
 
 
 @dataclass(frozen=True)
@@ -179,6 +181,8 @@ def _quer(filtro: FiltroAtividade) -> set[Situacao] | None:
             return None
         case "problemas":
             return {"parcial", "falha"}
+        case "pendente":
+            return set()  # nenhuma fonte tem "pendente" na tabela de situações; só a de mensagens trata à parte
         case situacao:
             return {situacao}
 
@@ -489,11 +493,16 @@ _ROTULO_DESTINO = {"admin": "grupo do admin", "oportunidades": "grupo de oportun
 
 
 def _mensagens(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Bruta]:
-    situacao = _por_situacao(MensagemSaida.status, _SITUACAO_MENSAGEM, quer)
+    if f.situacao == "pendente":
+        situacao = [MensagemSaida.status == StatusMensagem.PENDENTE]
+    else:
+        situacao = _por_situacao(MensagemSaida.status, _SITUACAO_MENSAGEM, quer)
     if not _pode(f, Servico.WHATSAPP, "mensagem") or situacao is None:
         return []
     m = MensagemSaida
     condicoes = [*situacao, *_periodo(m.criada_em, f), *_keyset(MENSAGEM, m.criada_em, (m.id,), cursor)]
+    if f.destino:
+        condicoes.append(m.destino == f.destino)
     if f.busca:
         # o texto individual (código de acesso) nunca aparece nem entra na busca, como no admin antigo
         no_texto = and_(m.destino != INDIVIDUAL, _like(m.texto, f.busca)) if f.mostrar_texto_mensagem else None
@@ -761,7 +770,8 @@ def linha_do_tempo(
     depois_de = _ler_cursor(cursor) if cursor else None
     filtro = replace(filtro, busca=(filtro.busca or "").strip() or None)
     quer = _quer(filtro)
-    brutas = [linha for fonte in _FONTES for linha in fonte(s, filtro, quer, depois_de, limite)]
+    fontes = (_mensagens,) if filtro.destino else _FONTES  # destino só existe nas mensagens
+    brutas = [linha for fonte in fontes for linha in fonte(s, filtro, quer, depois_de, limite)]
     brutas.sort(key=lambda b: (b.em, b.fonte, b.ordem), reverse=True)
     pagina = brutas[:limite]
     proximo = _escrever_cursor(pagina[-1]) if len(brutas) > limite else None
