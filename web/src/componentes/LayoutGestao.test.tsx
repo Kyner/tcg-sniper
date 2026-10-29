@@ -95,6 +95,18 @@ describe("LayoutGestao", () => {
     expect(caixa.checked).toBe(false);
   });
 
+  it("o botão do menu no celular diz se a gaveta está aberta e qual ela é", async () => {
+    apiFalsa({ ...MENU, "GET /api/auth/eu": ok(EU_OPERADOR) });
+    renderizarEm("/gestao");
+    const botao = await screen.findByRole("button", { name: /Menu da gestão/ });
+    expect(botao).toHaveAttribute("aria-expanded", "false");
+    const alvo = botao.getAttribute("aria-controls");
+    expect(alvo).toBeTruthy();
+    expect(document.getElementById(alvo!)).toContainElement(screen.getByRole("link", { name: "Catálogo" }));
+    await userEvent.click(botao);
+    expect(botao).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("rota de casamentos sem a permissão vai para Sem acesso", async () => {
     const eu = { ...EU_OPERADOR, permissoes: EU_OPERADOR.permissoes.filter((p) => p !== "revisar_casamentos") };
     apiFalsa({ ...MENU, "GET /api/auth/eu": ok(eu) });

@@ -44,12 +44,15 @@ export function LayoutGestao() {
         onChange={(e) => setAberto(e.target.checked)}
       />
       <div className="drawer-content">
-        <button type="button" className="btn btn-ghost btn-sm mb-2 lg:hidden" onClick={() => setAberto((a) => !a)}>
+        <button
+          type="button" className="btn btn-ghost btn-sm mb-2 lg:hidden" aria-expanded={aberto} aria-controls="gaveta-gestao"
+          onClick={() => setAberto((a) => !a)}
+        >
           ☰ Menu da gestão
         </button>
         <Outlet />
       </div>
-      <div className="drawer-side z-20 lg:z-auto">
+      <div id="gaveta-gestao" className="drawer-side z-20 lg:z-auto">
         <label htmlFor="menu-gestao" aria-label="Fechar menu" className="drawer-overlay"></label>
         <ul className="menu min-h-full w-56 bg-base-100 p-2 text-base-content">
           <li>
