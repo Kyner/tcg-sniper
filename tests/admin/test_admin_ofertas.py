@@ -7,10 +7,10 @@ import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from fastapi.testclient import TestClient
 
-from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas_amazon import FiltroOfertas
 from tcg_sniper.coletor_amazon.modelos import AvaliacaoVendedor
+from tcg_sniper.consultas import ofertas as consultas_ofertas
+from tcg_sniper.consultas.ofertas import FiltroOfertas
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import Envio, OrigemPreco, StatusCasamento
 
@@ -59,7 +59,7 @@ def cenario(sessoes):
 
 def asins(s, **campos):
     config = repo_amz.obter_config(s)
-    return [linha.anuncio.asin for linha in consultas_amazon.ofertas(s, FiltroOfertas(**campos), config)]
+    return [linha.anuncio.asin for linha in consultas_ofertas.ofertas(s, FiltroOfertas(**campos), config)]
 
 
 def test_ordens(s, cenario):
@@ -85,7 +85,7 @@ def test_busca_categoria_desconto_e_situacao(s, cenario):
 
 def test_diferenca_em_reais(s, cenario):
     config = repo_amz.obter_config(s)
-    [deck] = consultas_amazon.ofertas(s, FiltroOfertas(busca="Deck"), config)
+    [deck] = consultas_ofertas.ofertas(s, FiltroOfertas(busca="Deck"), config)
     assert deck.diferenca == Decimal("20.00")
 
 
@@ -180,7 +180,7 @@ def test_filtro_de_desconto_compara_o_desconto_exato(sessoes, cliente):
     with sessoes() as s:
         assert asins(s, desconto_min=25) == ["B0EXATO001"]
         config = repo_amz.obter_config(s)
-        quase_linha = next(l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.anuncio.asin == "B0QUASE001")
+        quase_linha = next(l for l in consultas_ofertas.ofertas(s, FiltroOfertas(), config) if l.anuncio.asin == "B0QUASE001")
     assert quase_linha.desconto == Decimal("24.99")  # a tela nunca mostra 25,00% para 24,996%
     texto = cliente.get("/ofertas").text
     assert "24,99%" in texto and "25,00%" in texto

@@ -8,11 +8,11 @@ from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas_amazon import FiltroOfertas
 from tcg_sniper.coletor_amazon.modelos import AvaliacaoVendedor
 from tcg_sniper.consultas import casamentos
+from tcg_sniper.consultas import ofertas as consultas_ofertas
+from tcg_sniper.consultas.ofertas import FiltroOfertas
 from tcg_sniper.db import repositorio as repo
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import (
@@ -166,14 +166,14 @@ def preparar_ofertas(s):
 def test_ofertas_melhor_oferta_por_produto_ordenada_por_desconto(s):
     ff, sem_desconto, _, _ = preparar_ofertas(s)
     config = repo_amz.obter_config(s)
-    linhas = consultas_amazon.ofertas(s, FiltroOfertas(), config)
+    linhas = consultas_ofertas.ofertas(s, FiltroOfertas(), config)
     assert [(l.produto.id, l.anuncio.asin, l.preco, l.desconto) for l in linhas] == [
         (ff.id, "B02", Decimal("690.00"), Decimal("31.00")),
         (sem_desconto.id, "B03", Decimal("95.00"), Decimal("5.00")),
     ]
     assert linhas[0].aberta and linhas[0].confiavel and not linhas[1].aberta
-    assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(desconto_min=config.desconto_min_pct), config)] == [ff.id]
-    assert [l.produto.id for l in consultas_amazon.ofertas(s, FiltroOfertas(situacao="abertas"), config)] == [ff.id]
+    assert [l.produto.id for l in consultas_ofertas.ofertas(s, FiltroOfertas(desconto_min=config.desconto_min_pct), config)] == [ff.id]
+    assert [l.produto.id for l in consultas_ofertas.ofertas(s, FiltroOfertas(situacao="abertas"), config)] == [ff.id]
 
 
 def test_ofertas_mostra_o_risco_da_oportunidade(s):
@@ -182,7 +182,7 @@ def test_ofertas_mostra_o_risco_da_oportunidade(s):
     op = s.scalar(select(Oportunidade).where(Oportunidade.produto_id == ff.id, Oportunidade.fechada_em.is_(None)))
     op.em_risco_desde, op.motivo_risco = T0, MotivoEncerramento.PRECO_SUBIU
     s.flush()
-    [linha] = [l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
+    [linha] = [l for l in consultas_ofertas.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
     assert linha.risco == (T0, "preço subiu")
 
 
@@ -203,7 +203,7 @@ def test_ofertas_mostra_o_risco_da_oportunidade_do_proprio_anuncio(s, risco_no_d
     s.flush()
     outra.preco_amazon = Decimal("899.00")  # a do outro anúncio é a última gravada (e a última lida)
     s.flush()
-    [linha] = [l for l in consultas_amazon.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
+    [linha] = [l for l in consultas_ofertas.ofertas(s, FiltroOfertas(), config) if l.produto.id == ff.id]
     assert linha.anuncio.id == barato.id and linha.aberta
     assert linha.risco == ((T0, "preço subiu") if risco_no_da_linha else None)
 
@@ -214,7 +214,7 @@ def test_lojista_fba_confiavel_ou_nao(s):
     anuncio = anuncio_com_preco(s, "B01", ff, "700.00", status=StatusCasamento.CONFIRMADO)
     loja = repo_amz.gravar_vendedor(s, AvaliacaoVendedor("A1", "Loja", Decimal(85), 50), T0)
     repo_amz.registrar_preco(s, anuncio.id, Decimal("700.00"), OrigemPreco.PRODUTO, loja.id, Envio.FBA, T0, SP)
-    [linha] = consultas_amazon.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
+    [linha] = consultas_ofertas.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
     assert (linha.envio, linha.vendedor.nome, linha.confiavel) == (Envio.FBA, "Loja", False)
 
 

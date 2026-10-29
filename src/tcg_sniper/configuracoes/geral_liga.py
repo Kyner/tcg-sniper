@@ -168,3 +168,7 @@ def validar_liga(campos: Mapping[str, str]) -> tuple[dict[str, object], dict[str
     else:
         valores["url_listagem"] = url
     return valores, erros
+
+
+# Nomes das categorias da Liga por ID (vazio por ora; ID sem nome aparece como "categoria N").
+NOMES_CATEGORIAS: dict[int, str] = {}
