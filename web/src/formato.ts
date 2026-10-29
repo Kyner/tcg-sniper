@@ -45,3 +45,11 @@ export const ROTULOS_MOTIVO: Record<Motivo, string> = {
   casamento_desfeito: "casamento desfeito",
   produto_desativado: "produto desativado",
 };
+
+const MILHAR = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 6 });
+
+/** Número com separador de milhar (1.500); texto que não é número volta como veio. */
+export function milhar(valor: string | number): string {
+  const n = typeof valor === "number" ? valor : Number(valor);
+  return Number.isFinite(n) && String(valor).trim() !== "" ? MILHAR.format(n) : String(valor);
+}

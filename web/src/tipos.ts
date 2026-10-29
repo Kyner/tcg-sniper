@@ -323,3 +323,52 @@ export interface DashboardGestao {
   oportunidades: { top: TopOportunidade[]; abertas: number; alertas_hoje: number; alertas_semana: number } | null;
   funil: FunilGestao | null;
 }
+
+/** Valor de um campo de Configurações: hora "HH:MM", decimal em texto, booleano, inteiro, lista de IDs de categoria. */
+export type ValorConfig = string | number | boolean | null | number[];
+
+export type TipoCampoConfig = "int" | "decimal" | "float" | "hora" | "texto" | "bool" | "escolha" | "categorias";
+
+/** GET /api/gestao/configuracoes. */
+export interface CampoConfig {
+  chave: string;
+  rotulo: string;
+  explicacao: string;
+  tipo: TipoCampoConfig;
+  padrao: ValorConfig;
+  minimo: number | null;
+  maximo: number | null;
+  opcoes: { valor: string; rotulo: string }[];
+  avancado: boolean;
+  vinculo: string | null;
+  valor: ValorConfig;
+}
+export interface GrupoConfig {
+  id: string;
+  titulo: string;
+  proposito: string;
+  tem_efeito: boolean;
+  campos: CampoConfig[];
+}
+export interface AvisoConfig {
+  tipo: string;
+  titulo: string;
+  descricao: string;
+  area: string;
+  destino: string;
+  agrupa: boolean;
+  ligado: boolean;
+  exemplo: string;
+}
+export interface Configuracoes {
+  grupos: GrupoConfig[];
+  versoes: Record<string, string>;
+  avisos: AvisoConfig[];
+  ia: { chave_configurada: boolean };
+}
+/** POST /api/gestao/configuracoes/efeito (null: o grupo não tem conta para mostrar). */
+export interface EfeitoConfig {
+  linhas: string[];
+  nivel: "info" | "aviso" | "erro";
+  barras: { rotulo: string; pct: number }[];
+}
