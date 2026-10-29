@@ -494,6 +494,22 @@ def test_excecao_inesperada_num_par_nao_derruba_o_lote(sessoes, config, monkeypa
     assert sv.ciclo() == 0 and len(chamadas) == 2  # o par que quebrou espera
 
 
+def test_falha_ao_gravar_a_falha_nao_derruba_o_ciclo(sessoes, config, monkeypatch, caplog):
+    from sqlalchemy.exc import OperationalError
+
+    configurar(sessoes)
+    _, ids = pares(sessoes, 2)
+
+    def registrar_falha_par(*args, **kw):
+        raise OperationalError("UPDATE", {}, Exception("banco fora"))
+
+    monkeypatch.setattr(repo_ia, "registrar_falha_par", registrar_falha_par)
+    sv, t, _ = servico(sessoes, config, [ErroIA("OpenAI 500"), veredito()])
+    assert sv.ciclo() == 1  # a falha do 1º não pôde ser gravada, mas o 2º foi avaliado
+    assert [av.anuncio_id for av in avaliacoes(sessoes)] == [ids[1]]
+    assert "gravar a falha do par" in caplog.text
+
+
 def test_erro_no_ciclo_nao_repete_no_passo_seguinte(sessoes, config):
     configurar(sessoes, intervalo_min=10)
     passos = []
