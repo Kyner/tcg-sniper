@@ -44,6 +44,7 @@ function useAvisarAoSair(sujo: boolean) {
       if (window.history.state?.guardaSair || window.location.href !== href) return;
       if (window.confirm(MENSAGEM_SAIR)) {
         window.removeEventListener("popstate", aoVoltar);
+        window.removeEventListener("beforeunload", aoFechar); // já confirmou: sem segundo diálogo do navegador
         guarda.current = false;
         window.history.back();
       } else {
@@ -64,6 +65,7 @@ function useAvisarAoSair(sujo: boolean) {
         e.stopPropagation();
         return;
       }
+      window.removeEventListener("beforeunload", aoFechar); // já confirmou: sem segundo diálogo do navegador
       if (!window.history.state?.guardaSair) return;
       // Confirmado: primeiro sai da guarda (para o histórico não ficar com a tela duplicada) e só então segue o link.
       e.preventDefault();

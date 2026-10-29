@@ -11,7 +11,7 @@ import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.avisos.catalogo import CHAVE_GERAL, Dados, TipoAviso
-from tcg_sniper.avisos.servico import Avisador
+from tcg_sniper.avisos.servico import Avisador, deve_subir
 from tcg_sniper.casador.pergunta import assinatura, avaliar_par
 from tcg_sniper.casador.termos import gerar_termos
 from tcg_sniper.config import Config
@@ -199,7 +199,9 @@ class ServicoCasador:
         """Rodar o que só registra estado (falha, pausa, aviso): com o banco fora, loga e segue, sem perder a rodada."""
         try:
             acao(*args)
-        except Exception:
+        except Exception as erro:
+            if deve_subir(erro):
+                raise
             log.exception("não consegui %s; segue", descricao)
 
     def _limpar_falha(self, chave: tuple[int, int]) -> None:

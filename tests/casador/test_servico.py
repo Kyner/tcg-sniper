@@ -825,3 +825,18 @@ def test_aplicar_trava_o_produto_antes_do_anuncio(engine):
             c.execute(text("DELETE FROM anuncio_amazon WHERE id = :a"), {"a": anuncio_id})
             c.execute(text("DELETE FROM produto_liga WHERE id = :p"), {"p": produto_id})
 
+
+
+def test_url_proibida_no_aviso_sobe_no_modo_estrito(sessoes, config):
+    import pytest
+
+    from tcg_sniper.avisos.formato import UrlProibida
+
+    sv, _, _ = servico(sessoes, config, [])
+
+    def aviso_com_url_proibida():
+        raise UrlProibida("link fora da Amazon e da LigaMagic")
+
+    with pytest.raises(UrlProibida):
+        sv._sem_derrubar("avisar a falta de orçamento", aviso_com_url_proibida)
+    sv._sem_derrubar("gravar a falha do par", lambda: (_ for _ in ()).throw(RuntimeError("banco fora")))  # o resto segue

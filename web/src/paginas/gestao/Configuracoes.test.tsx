@@ -198,6 +198,20 @@ describe("Configurações", () => {
     await waitFor(() => expect(volta).toHaveBeenCalledTimes(2));
   });
 
+  it("depois de confirmar a saída, o navegador não pergunta de novo (beforeunload)", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    const antes = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(antes);
+    expect(antes.defaultPrevented).toBe(true); // com alteração, fechar a aba pergunta
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(true);
+    window.history.back();
+    await waitFor(() => expect(confirma).toHaveBeenCalled());
+    const depois = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(depois);
+    expect(depois.defaultPrevented).toBe(false);
+  });
+
   it("fragmento (#avisos) com alteração não é tratado como Voltar", async () => {
     await abrir("/gestao/configuracoes?grupo=monitor");
     await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");

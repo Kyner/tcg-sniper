@@ -158,7 +158,9 @@ class ServicoNotificador:
         try:
             with self._sessoes() as s, s.begin():
                 vigia.verificar_manutencao(s, agora, self._desde)
-        except Exception:
+        except Exception as erro:
+            if avisos.deve_subir(erro):
+                raise
             log.exception("não consegui vigiar a manutenção")
 
     def _adiar(self, mid: int, agora: datetime, erro: str) -> None:
@@ -175,6 +177,8 @@ class ServicoNotificador:
                 m.status = StatusMensagem.FALHA
                 repo_msg.apagar_texto_individual(m)
                 log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
+                if not formato.eh_do_proprio_aviso(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
+                    self._avisar_falha(s, agora)
             else:
                 m.proxima_tentativa_em = agora + _espera(m.tentativas)
 

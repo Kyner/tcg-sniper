@@ -317,7 +317,7 @@ def test_mensagem_que_nunca_grava_vira_falha_e_nao_reenvia(sessoes, env, configu
     m = ler(sessoes, a)
     assert (m.status, m.tentativas) == (StatusMensagem.FALHA, modulo.MAX_TENTATIVAS_DEFINITIVAS)
     assert "RuntimeError" in m.ultimo_erro
-    assert len(chamadas) == modulo.MAX_TENTATIVAS_DEFINITIVAS
+    assert len(chamadas) == modulo.MAX_TENTATIVAS_DEFINITIVAS + 1  # as tentativas da mensagem + o aviso de falha ao admin
 
 
 def test_banco_fora_no_adiamento_nao_reenvia_em_loop(sessoes, env, configurado, monkeypatch):
@@ -571,3 +571,37 @@ def test_mensagem_nao_enviada_fecha_quando_a_falha_sai_da_janela(sessoes, env, c
     svc.ciclo()
     with sessoes() as s:
         assert avisos.abertos(s, TipoAviso.MENSAGEM_NAO_ENVIADA) == []
+
+
+def test_url_proibida_na_vigia_da_manutencao_sobe_no_modo_estrito(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.avisos import vigia
+    from tcg_sniper.avisos.formato import UrlProibida
+
+    def quebrado(*args):
+        raise UrlProibida("link fora da Amazon e da LigaMagic")
+
+    monkeypatch.setattr(vigia, "verificar_manutencao", quebrado)
+    with pytest.raises(UrlProibida):
+        servico(sessoes, env)._vigiar_manutencao(AGORA)
+    monkeypatch.setattr(vigia, "verificar_manutencao", lambda *a: (_ for _ in ()).throw(RuntimeError("banco fora")))
+    servico(sessoes, env)._vigiar_manutencao(AGORA)  # outro erro só é logado
+
+
+@respx.mock
+def test_adiamento_que_vira_falha_definitiva_avisa_o_grupo_admin(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.avisos import servico as avisos
+    from tcg_sniper.avisos.catalogo import CHAVE_GERAL, TipoAviso
+    from tcg_sniper.notificador import servico as modulo
+    from tcg_sniper.notificador.evolution import Resultado
+
+    monkeypatch.setattr(modulo, "enviar_uma_vez", lambda *args: (Resultado.OK, None))
+    a = nova(sessoes, "oportunidades", "oferta")
+    _falha_ao_gravar(monkeypatch, a)
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    for _ in range(modulo.MAX_TENTATIVAS_DEFINITIVAS):
+        svc.ciclo()
+        relogio.agora += timedelta(minutes=31)
+    assert ler(sessoes, a).status is StatusMensagem.FALHA
+    with sessoes() as s:
+        assert avisos.abertos(s, TipoAviso.MENSAGEM_NAO_ENVIADA) == [CHAVE_GERAL]

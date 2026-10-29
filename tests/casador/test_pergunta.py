@@ -49,7 +49,8 @@ def test_instrucoes_tem_a_regra_de_idioma_condicional():
 def test_idioma_vem_da_embalagem_nao_do_titulo():
     linha = next(l for l in INSTRUCOES.splitlines() if "Em idioma_anuncio" in l)
     assert "embalagem" in linha
-    assert "não pelo título" in linha
+    assert "não pela língua em que o título está escrito" in linha
+    assert "indicação explícita da edição no título" in linha
     assert "indefinido" in linha
 
 
