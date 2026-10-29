@@ -67,11 +67,13 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Efeito de Configurações: "IA · o que decide sozinha" mostra "até N" sem considerar a regra de idioma; o Efeito da busca ignora a releitura de produtos já casados.
 - [ ] Configurações, tela: botões `btn-xs` pequenos para toque no celular; categoria da Liga inválida ou repetida some do campo sem aviso; o Padrão de inteiros mostra milhar e o campo, o número cru; falta teste de estouro a 390 px; o teste do estado velho no aviso não reproduz a corrida real; `chat` do exemplo do aviso sem a estrutura `chat-*`; `input-bordered` não existe mais no DaisyUI 5 (inofensivo).
 - [ ] Ofertas: o tooltip perto da borda direita a 390 px não foi conferido; os cartões valem até `lg` (a spec dizia `md`).
-- [ ] Menu e Dashboard: links desconhecidos do painel caem em `/gestao` sem aviso (o teste só varre alguns prefixos; conferir se o Dashboard desenha a ação "Já conferi" do carrinho); "IA desligada" e "monitor não cabe" poderiam abrir `?grupo=ia-decide` / `?grupo=monitor` em vez de `/configuracoes` solto; o teste "sem link para o admin antigo" é fraco.
+- [ ] Menu e Dashboard: links desconhecidos do painel caem em `/gestao` sem aviso (o teste só varre alguns prefixos; conferir se o Dashboard desenha a ação "Já conferi" do carrinho); o teste "sem link para o admin antigo" é fraco.
 - [ ] Atividade: URL editada à mão com `situacao=pendente` ou `destino` sem `o_que=mensagem` aplica um filtro invisível.
+- [ ] Configurações: o botão Voltar do navegador não avisa sobre alterações não salvas (o site usa `BrowserRouter`, sem `useBlocker`).
+- [ ] Atividade mostra o antes→depois das configurações (ids dos grupos do WhatsApp, `host_publico`) para quem tem `ver_logs` sem `ver_configuracoes`: decidir se mascara os valores de `geral.*`.
 - [ ] Catálogo: a lista pedida antes de o PATCH da troca gravar ainda pode trazer a chave antiga (corrida rara); o teste dos 5 s da mensagem de Serviços é frágil (espiona `setTimeout`); o `aside` com `display: contents` da revisão pode perder o marco de acessibilidade.
 
-- [ ] **Nomes das categorias da Liga:** `NOMES_CATEGORIAS` (`configuracoes/liga.py`) está vazio; os chips de Configurações → LigaMagic mostram "categoria N". Preencher olhando a Liga (exige abrir as categorias).
+- [ ] **Nomes das categorias da Liga:** `NOMES_CATEGORIAS` (`src/tcg_sniper/configuracoes/geral_liga.py`) está vazio; os chips de Configurações → LigaMagic mostram "categoria N". Preencher olhando a Liga (exige abrir as categorias).
 - [ ] **Nomes dos grupos do WhatsApp:** Configurações mostra só o ID (`…@g.us`) dos grupos admin e de oportunidades; o projeto não tem chamada da Evolution para listar grupos. Se valer, listar pela Evolution e mostrar o nome.
 
 ### Pequenas da revisão da 3B (2026-10-25; adiadas, sem pressa)
@@ -88,10 +90,8 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Tela de Serviços: nos cartões do celular a dica (o detalhe do "agora") só aparece com o mouse; os testes usam `querySelector` por `href` em vez de papel e nome (o menu agora também tem "Atividade").
 - [ ] Teste "Entrar" do front estourou o tempo uma vez sob carga (acompanhar se é instável).
 - [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (id acima de 2³¹ dá 500; reusar `MAX_ID`).
-- [x] `destino_novo` perde o filtro de mensagens pendentes (`/mensagens?situacao=pendente`). Feito na 3C (Atividade com filtro de destino e situação pendente).
 - [ ] "iniciando…" por 10 min em Liga/WhatsApp/Backup, que esperam o próprio horário (não mostrar para esses).
 - [ ] `listar` dos serviços repete `ultimo_registro` para monitor, casador e WhatsApp.
-- [ ] Guarda "não importa admin" não cobre o pacote `api`.
 
 ### Oportunidades e monitor da Amazon
 
@@ -99,7 +99,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Fim da oportunidade: `alertas` começa em 1 ao abrir mesmo com o aviso de oportunidade desligado (padrão do banco); o sub-projeto B deve contar pelas mensagens se precisar do número exato.
 - [ ] `docs/IMPLANTACOES.md`, fim da oportunidade: "sem carência" onde o certo é "sem risco marcado" (só redação).
 - [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
-- [x] Teste de Ofertas com produto sem preço na Liga (`test_sem_preco_na_liga_aparece_sem_desconto`, 3C: `feat: management offers screen`).
 
 ### Casamento e idioma
 
@@ -193,11 +192,10 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 | `POST /amazon/monitor/ligar|desligar`, `/amazon/checkout/ligar|desligar`, `/amazon/checkout/retomar` | `POST /api/gestao/servicos/amazon_monitor/{monitor|checkout}/{ligar|desligar}`, `…/checkout/retomar` |
 | `POST /amazon/carrinho/{id}/conferido` | `POST /api/gestao/servicos/carrinho/{id}/conferido` |
 | `GET /logs` (6 abas) | `GET /api/gestao/atividade` + `/gestao/atividade` |
-| `GET /mensagens`, `POST /mensagens/{id}` (reenviar, descartar) | Atividade (o quê = mensagem) + `POST /api/gestao/mensagens/{id}/{reenviar|descartar}` |
+| `GET /mensagens` (filtros situação e destino), `POST /mensagens/{id}` (reenviar, descartar) | Atividade (o quê = mensagem, com `destino` e `situacao=pendente`) + `POST /api/gestao/mensagens/{id}/{reenviar|descartar}` |
 | `GET /configuracoes`, `POST /configuracoes/{geral,liga,amazon,ia}` | `GET`/`PUT /api/gestao/configuracoes` + `/gestao/configuracoes` (e `POST /api/gestao/configuracoes/efeito` para a caixa "Efeito") |
 | `POST /configuracoes/avisos` | `PATCH /api/gestao/avisos/{tipo}` (grupo "WhatsApp e avisos") |
 | `GET /ofertas` | `GET /api/gestao/ofertas` + `/gestao/ofertas` |
-| `GET /mensagens` (filtros situação e destino) | Atividade com `destino` e `situacao=pendente` (o quê = mensagem) |
 | Restantes (`/catalogo*`, `/produto*`, `/casamentos*`) | 3A (feito) |
 
 - [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
@@ -258,7 +256,11 @@ Plano `docs/superpowers/plans/2026-10-28-fase3c-configuracoes-ofertas.md`. Decis
 - [x] Menu da gestão sem links para o admin antigo; Dashboard aponta para as telas novas (`df2ed87`).
 - [x] Mensagens dentro da Atividade: filtro de destino e situação pendente; texto de mensagem individual continua oculto sob o filtro (`6169321`, `bfad526`).
 - [x] Pequenas de tela da 3A/3B: Catálogo (selos, contagens, lote, lista velha), Revisão de casamentos (Enter, setas, destaque, celular, menu de idioma), lista de Casamentos (retry, erro, página fora), Serviços (corrida da recarga, rótulo da chave, mensagem), Atividade sem "US$ 0.000000", Dashboard ("Ver" sem `pausar_servicos`, links por permissão), foco do modal, classes do DaisyUI sempre literais com teste-guarda (`3aea766`, `3b67ba8`, `4a54026`, `4098a8f`, `0f89f61`, `853b111`, `494685f`, `2c37dd5`, `68f746b`).
-- [x] Ponta a ponta (admin edita Oportunidades e vê a ação na Atividade; operador em leitura e nas telas da gestão; Ofertas filtra) e layout de Configurações e Ofertas a 390/1440 px nos dois temas (commit `test: phase 3C end-to-end and layout`).
+- [x] Ponta a ponta (admin edita Oportunidades e vê a ação na Atividade; operador em leitura e nas telas da gestão; Ofertas filtra) e layout de Configurações e Ofertas a 390/1440 px nos dois temas (`673c50d`).
+- [x] `destino_novo` leva o filtro de mensagens pendentes (`/mensagens?situacao=pendente`) à Atividade (`6169321`).
+- [x] Teste de Ofertas com produto sem preço na Liga, `test_sem_preco_na_liga_aparece_sem_desconto` (`c23110f`).
+- [x] Guarda "não importa admin" cobre também o pacote `api` (`b74f07b`).
+- [x] Revisão final: ligar/desligar serviços e a marca de "sem login" não mudam mais a versão das Configurações (fim do falso "As configurações mudaram"); avisos "IA desligada" e "monitor não cabe" abrem a seção certa de Configurações.
 - [x] Spec: "Pular" e "Próximo" viraram um botão só, "Próximo →" (eram o mesmo link).
 
 ### Conferido em produção (2026-10-26 a 2026-10-28)

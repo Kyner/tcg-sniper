@@ -22,6 +22,7 @@ Sem migração e sem passo de dados: **não precisa de backup extra** (o backup 
    - **Gestão → Atividade** filtrada em "o quê = mensagem" mostra as mensagens do WhatsApp (a tela Mensagens do admin antigo virou esse filtro; "Reenviar" e "Descartar" ficam nos detalhes).
    - O menu da gestão não tem mais link para o admin antigo (`:8000` continua no ar até a fase 4).
    - Com uma conta de operador: Configurações aparece só para leitura (sem a barra de salvar).
+   - Não editar mais as configurações pelo admin antigo (ele grava o formulário inteiro sem conferir versão e pode desfazer o que foi salvo no site novo).
 
 3. Dois pontos sem dado ainda: os chips das categorias da Liga mostram "categoria N" (a tabela de nomes está vazia) e o grupo do WhatsApp aparece pelo ID (`…@g.us`). Ambos estão em `docs/PENDENCIAS.md`.
 
