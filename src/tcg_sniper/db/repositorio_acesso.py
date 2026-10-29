@@ -16,6 +16,7 @@ RETENCAO = timedelta(days=1)  # pedidos e códigos mais velhos que isso não ser
 # Classes do `pg_advisory_xact_lock(classe, chave)` dos limites (contar e registrar sem corrida entre requisições).
 TRAVA_PEDIDOS_NUMERO = 2
 TRAVA_ENTRADAS_NUMERO = 3
+TRAVA_LIMPEZA = 4
 
 
 class NumeroJaCadastrado(Exception):
@@ -196,6 +197,10 @@ def travar_limite(s: Session, classe: int, numero_hash: str | None = None) -> No
 
 
 def limpar_antigos(s: Session, agora: datetime) -> None:
+    """Apaga pedidos e códigos antigos. Trava global sem espera: se outra requisição já está limpando, pula (as linhas
+    velhas saem na próxima); esperar poderia fechar um ciclo de deadlock entre DELETEs de números diferentes."""
+    if not s.scalar(select(func.pg_try_advisory_xact_lock(TRAVA_LIMPEZA, 0))):
+        return
     limite = agora - RETENCAO
     s.execute(delete(PedidoCodigo).where(PedidoCodigo.em < limite))
     s.execute(delete(CodigoAcesso).where(CodigoAcesso.criado_em < limite))
