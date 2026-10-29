@@ -493,7 +493,7 @@ _ROTULO_DESTINO = {"admin": "grupo do admin", "oportunidades": "grupo de oportun
 
 
 def _mensagens(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Bruta]:
-    if f.situacao == "pendente":
+    if f.situacao == "pendente":  # `_quer` devolve conjunto vazio para ela: as outras fontes ficam de fora
         situacao = [MensagemSaida.status == StatusMensagem.PENDENTE]
     else:
         situacao = _por_situacao(MensagemSaida.status, _SITUACAO_MENSAGEM, quer)

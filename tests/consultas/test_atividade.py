@@ -457,3 +457,13 @@ def test_filtro_destino_traz_so_mensagens_do_destino(s):
         f"mensagem_saida:{individual.id}"
     ]
     assert linha_do_tempo(s, _filtro(destino="admin", situacao="falha"), None)[0] == []
+
+
+def test_destino_individual_nao_mostra_nem_busca_o_texto(s):
+    _mensagem(s, T, texto="*Código*\nPalavraSecreta", destino="individual")
+    for mostrar in (True, False):
+        [linha], _ = linha_do_tempo(s, _filtro(destino="individual", mostrar_texto_mensagem=mostrar), None)
+        assert linha.detalhe["texto"] is None
+        assert "texto oculto" in linha.resultado
+        assert "PalavraSecreta" not in linha.resultado
+        assert linha_do_tempo(s, _filtro(destino="individual", busca="PalavraSecreta", mostrar_texto_mensagem=mostrar), None)[0] == []
