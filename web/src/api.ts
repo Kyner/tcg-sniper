@@ -5,11 +5,14 @@
 export class ErroApi extends Error {
   readonly status: number;
   readonly erro: string;
+  /** Mensagem por campo (422 `validacao`), quando a API manda. */
+  readonly campos: Record<string, string> | null;
 
-  constructor(status: number, erro: string, mensagem: string) {
+  constructor(status: number, erro: string, mensagem: string, campos: Record<string, string> | null = null) {
     super(mensagem);
     this.status = status;
     this.erro = erro;
+    this.campos = campos;
   }
 }
 
@@ -47,11 +50,12 @@ export async function chamarApi<T>(caminho: string, { metodo = "GET", corpo }: O
     throw new ApiIndisponivel();
   }
   if (!resposta.ok) {
-    const { erro = "desconhecido", mensagem = "Erro inesperado. Tente de novo." } = (dados ?? {}) as {
+    const { erro = "desconhecido", mensagem = "Erro inesperado. Tente de novo.", campos } = (dados ?? {}) as {
       erro?: string;
       mensagem?: string;
+      campos?: Record<string, string>;
     };
-    throw new ErroApi(resposta.status, erro, mensagem);
+    throw new ErroApi(resposta.status, erro, mensagem, campos ?? null);
   }
   return dados as T;
 }

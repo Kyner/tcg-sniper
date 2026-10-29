@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
 from tcg_sniper.consultas import menu as consultas_menu
+from tcg_sniper.consultas import ofertas as consultas_ofertas
 from tcg_sniper.consultas import painel
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_casamento as repo_casamento
@@ -67,7 +68,7 @@ def test_ofertas_e_produto_usam_o_par_confirmado_e_a_origem_dele(s):
     anuncio = criar_anuncio(s, "B0OFERTA01", produto=sugerido)
     repo_casamento.confirmar(s, anuncio.id, certo.id, T0, OrigemCasamento.AUTOMATICO_IA)
     preco(s, anuncio, "700.00", OrigemPreco.PRODUTO)
-    [linha] = consultas_amazon.ofertas(s, consultas_amazon.FiltroOfertas(), repo_amz.obter_config(s))
+    [linha] = consultas_ofertas.ofertas(s, consultas_ofertas.FiltroOfertas(), repo_amz.obter_config(s))
     assert (linha.produto.liga_id, linha.origem_casamento) == ("certo", OrigemCasamento.AUTOMATICO_IA)
     [no_produto] = consultas_amazon.amazon_do_produto(s, certo.id, repo_amz.obter_config(s), T0)
     assert no_produto.casamento.origem is OrigemCasamento.AUTOMATICO_IA

@@ -1,10 +1,9 @@
 """Dashboard da gestão: "Precisa de você", funil e oportunidades em destaque. Sem HTTP nem Jinja.
 
 Os avisos do painel antigo (`consultas.painel`) trazem links do admin antigo; `destino_novo` os traduz para as
-telas novas. O que ainda não foi migrado (hoje, as Configurações) volta como `antigo:<caminho>` e o front monta o
-endereço do admin antigo."""
+telas novas. Link sem tela própria cai no dashboard (`/gestao`)."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -18,7 +17,6 @@ from tcg_sniper.consultas.catalogo import SituacaoCatalogo, contar_esperando_dec
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
 
-PREFIXO_ANTIGO = "antigo:"
 DESTINO_ESPERANDO = "/gestao/casamentos?situacao=esperando_decisao"
 LIMITE_TETO_IA = Decimal("0.8")  # a partir de 80% do teto (do dia ou do mês) a IA entra em "Precisa de você"
 
@@ -46,7 +44,9 @@ _SITUACOES_PRODUTO = ("casado", "esperando_decisao", "so_ignorados", "sem_candid
 _REQUER_DO_CAMINHO = (
     ("/gestao/servicos", "ver_servicos"),
     ("/gestao/casamentos", "revisar_casamentos"),
-    ("antigo:/configuracoes", "ver_configuracoes"),
+    ("/gestao/configuracoes", "ver_configuracoes"),
+    ("/gestao/ofertas", "ver_catalogo"),
+    ("/produtos/", "ver_oportunidades"),  # área de negócio: pede também `ver_area_negocio` (ver `pode_abrir`)
 )
 
 
@@ -86,8 +86,18 @@ def _destino_casamentos(caminho: str, p: dict[str, str]) -> str:
     return _com_query("/gestao/casamentos", saida)
 
 
+# Seção da tela antiga de Configurações (?secao=) -> grupo da tela nova.
+_GRUPO_DA_SECAO = {
+    "geral": "sistema",
+    "liga": "liga",
+    "amazon": "oportunidades",
+    "ia": "ia-decide",
+    "avisos": "whatsapp",
+}
+
+
 def destino_novo(link_antigo: str) -> str:
-    """Link do admin antigo -> destino da gestão nova. O que não foi migrado vira `antigo:<link>`."""
+    """Link do admin antigo -> destino da gestão nova. Sem tela correspondente, volta para o dashboard."""
     partes = urlsplit(link_antigo)
     caminho, p = partes.path, dict(parse_qsl(partes.query))
     if caminho == "/":
@@ -97,10 +107,22 @@ def destino_novo(link_antigo: str) -> str:
     if caminho == "/logs":
         return _destino_logs(p)
     if caminho == "/mensagens":
-        return _com_query("/gestao/atividade", {"o_que": "mensagem", **({"situacao": "falha"} if p.get("situacao") == "falha" else {})})
+        saida = {"o_que": "mensagem"}
+        if p.get("situacao") in ("falha", "pendente"):
+            saida["situacao"] = p["situacao"]
+        if p.get("destino") in ("admin", "oportunidades", "individual"):
+            saida["destino"] = p["destino"]
+        return _com_query("/gestao/atividade", saida)
     if caminho == "/casamentos" or caminho.startswith("/casamentos/produto/"):
         return _destino_casamentos(caminho, p)
-    return PREFIXO_ANTIGO + link_antigo
+    if caminho == "/configuracoes":
+        grupo = _GRUPO_DA_SECAO.get(p.get("secao", ""))
+        return _com_query("/gestao/configuracoes", {"grupo": grupo} if grupo else {})
+    if caminho == "/ofertas":
+        return "/gestao/ofertas"
+    if caminho.startswith("/produtos/"):
+        return caminho  # a página do produto já é do site novo
+    return "/gestao"
 
 
 def permissao_do_destino(destino: str) -> str | None:
@@ -121,8 +143,23 @@ class ItemPrecisa:
     requer: str | None  # permissão da tela de destino; a rota esconde o item de quem não a tem
 
 
-DESTINO_MONITOR_ATRASADO = PREFIXO_ANTIGO + "/configuracoes?secao=amazon"  # até a 3C migrar as Configurações
-_ROTULO_POR_CHAVE = {"servico_pausado": "Ligar", "servico_problema": "Ver", "monitor_atrasado": "Ver o efeito"}
+def pode_abrir(item: ItemPrecisa, permissoes: Collection[str]) -> bool:
+    """Se quem tem estas permissões abre a tela de destino: a dela e, fora da gestão, `ver_area_negocio`."""
+    if item.requer is not None and item.requer not in permissoes:
+        return False
+    return item.destino.startswith("/gestao") or "ver_area_negocio" in permissoes
+
+
+def rotulo_para(item: ItemPrecisa, permissoes: Collection[str]) -> str:
+    """"Ligar" só para quem pode ligar o serviço; os outros só veem a tela ("Ver")."""
+    if item.rotulo == ROTULO_LIGAR and "pausar_servicos" not in permissoes:
+        return "Ver"
+    return item.rotulo
+
+
+DESTINO_MONITOR_ATRASADO = "/gestao/configuracoes?grupo=monitor"
+ROTULO_LIGAR = "Ligar"
+_ROTULO_POR_CHAVE = {"servico_pausado": ROTULO_LIGAR, "servico_problema": "Ver", "monitor_atrasado": "Ver o efeito"}
 
 
 def rotulo_de(aviso: painel.Aviso) -> str:
@@ -131,7 +168,10 @@ def rotulo_de(aviso: painel.Aviso) -> str:
 
 
 def destino_de(aviso: painel.Aviso) -> str:
-    return DESTINO_MONITOR_ATRASADO if aviso.chave == "monitor_atrasado" else destino_novo(aviso.link)
+    """Os avisos do monitor abrem o grupo Monitor; o resto segue o link do painel."""
+    if aviso.chave in ("monitor_atrasado", "monitor_nao_cabe"):
+        return DESTINO_MONITOR_ATRASADO
+    return destino_novo(aviso.link)
 
 
 def _item(texto: str, rotulo: str, destino: str) -> ItemPrecisa:
@@ -158,7 +198,7 @@ def ia_perto_do_teto(s: Session, agora: datetime, cfg: Config) -> list[ItemPreci
     for nome, usado, teto in (("dia", gasto.dia_usd, cfg_ia.teto_dia_usd), ("mês", gasto.mes_usd, cfg_ia.teto_mes_usd)):
         if teto > 0 and usado >= teto * LIMITE_TETO_IA:
             texto = f"A IA já usou {_pct(usado, teto)}% do teto do {nome} ({painel.usd(usado)} de {painel.usd(teto)})."
-            itens.append(_item(texto, "Ajustar em Configurações", PREFIXO_ANTIGO + "/configuracoes"))
+            itens.append(_item(texto, "Ajustar em Configurações", "/gestao/configuracoes?grupo=ia-gasto"))
     return itens
 
 

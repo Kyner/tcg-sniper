@@ -2,7 +2,7 @@ from datetime import time
 
 import pytest
 
-from tcg_sniper.admin.formularios_config import validar_geral, validar_liga
+from tcg_sniper.configuracoes.geral_liga import validar_geral, validar_liga
 
 GERAL = {
     "host_publico": "192.168.0.10",

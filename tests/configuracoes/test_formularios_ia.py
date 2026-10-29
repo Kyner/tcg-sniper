@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from tcg_sniper.admin.formularios_ia import CAMPOS_IA, validar_ia
+from tcg_sniper.configuracoes.ia import CAMPOS_IA, validar_ia
 
 VALIDO = {
     "ligado": "sim", "modelo": "gpt-5-mini", "esforco": "minimal",

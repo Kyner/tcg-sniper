@@ -22,21 +22,27 @@ PADROES = {
 
 
 class ErroApi(Exception):
-    def __init__(self, status: int, erro: str, mensagem: str):
+    """`campos` (opcional): mensagem por campo, para a tela mostrar cada erro junto ao seu campo."""
+
+    def __init__(self, status: int, erro: str, mensagem: str, campos: dict[str, str] | None = None):
         super().__init__(erro)
         self.status = status
         self.erro = erro
         self.mensagem = mensagem
+        self.campos = campos
 
 
-def _resposta(status: int, erro: str, mensagem: str) -> JSONResponse:
-    return JSONResponse({"erro": erro, "mensagem": mensagem}, status_code=status)
+def _resposta(status: int, erro: str, mensagem: str, campos: dict[str, str] | None = None) -> JSONResponse:
+    corpo: dict[str, object] = {"erro": erro, "mensagem": mensagem}
+    if campos is not None:
+        corpo["campos"] = campos
+    return JSONResponse(corpo, status_code=status)
 
 
 def instalar_tratadores(app: FastAPI) -> None:
     @app.exception_handler(ErroApi)
     async def _erro_api(_request: Request, erro: ErroApi) -> JSONResponse:
-        return _resposta(erro.status, erro.erro, erro.mensagem)
+        return _resposta(erro.status, erro.erro, erro.mensagem, erro.campos)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_request: Request, erro: StarletteHTTPException) -> JSONResponse:

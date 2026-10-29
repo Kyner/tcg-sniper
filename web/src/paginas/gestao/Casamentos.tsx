@@ -1,5 +1,5 @@
 // Gestão: lista de produtos da Liga para revisar casamentos. Busca, filtros, ordem e página ficam na URL.
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { chamarApi } from "../../api";
 import { Carregando } from "../../componentes/Carregando";
@@ -56,7 +56,10 @@ export function Casamentos() {
   const [filtros, mudar] = useFiltrosUrl(PADROES);
   const [texto, setTexto] = useState(filtros.busca);
   const [dados, setDados] = useState<ListaCasamentos | null>(null);
+  // Depois de um erro a lista na tela é de outro filtro: fica fora até chegar a lista nova.
+  const [listaVelha, setListaVelha] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
   const caminho = `/api/gestao/casamentos?${montarQuery(filtros, true)}`;
   const queryRevisao = montarQuery(filtros, true);
 
@@ -67,23 +70,16 @@ export function Casamentos() {
     return () => window.clearTimeout(id);
   }, [texto, filtros.busca, mudar]);
 
-  const carregar = useCallback(async (sinal?: { cancelado: boolean }) => {
-    setErro(null);
-    try {
-      const r = await chamarApi<ListaCasamentos>(caminho);
-      if (sinal?.cancelado) return;
-      setDados(r);
-    } catch (e) {
-      if (sinal?.cancelado) return;
-      setErro(tratarErro(e));
-    }
-  }, [caminho, tratarErro]);
-
+  // "Tentar de novo" só refaz este efeito: a tentativa que chega depois de uma troca de filtro é descartada.
   useEffect(() => {
     const sinal = { cancelado: false };
-    void carregar(sinal);
+    setErro(null);
+    chamarApi<ListaCasamentos>(caminho).then(
+      (r) => { if (!sinal.cancelado) { setDados(r); setListaVelha(false); } },
+      (e: unknown) => { if (!sinal.cancelado) { setErro(tratarErro(e)); setListaVelha(true); } },
+    );
     return () => { sinal.cancelado = true; };
-  }, [carregar]);
+  }, [caminho, recarga, tratarErro]);
 
   const filtrado = Object.keys(PADROES).some((k) => k !== "pagina" && filtros[k as keyof typeof PADROES] !== PADROES[k as keyof typeof PADROES]);
   const pagina = Number(filtros.pagina) || 1;
@@ -91,13 +87,15 @@ export function Casamentos() {
   const linkRevisao = (id: number) => `/gestao/casamentos/${id}${queryRevisao ? `?${queryRevisao}` : ""}`;
 
   if (dados === null && !erro) return <Carregando />;
+  // Com erro, a lista anterior (de outro filtro) sai da tela; numa nova tentativa ela também não volta.
+  const lista = erro || listaVelha ? null : dados;
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Casamentos</h1>
-        {dados && dados.itens.length > 0 && (
-          <Link className="btn btn-primary btn-sm" to={linkRevisao(dados.itens[0].id)}>Revisar em sequência</Link>
+        {lista && lista.itens.length > 0 && (
+          <Link className="btn btn-primary btn-sm" to={linkRevisao(lista.itens[0].id)}>Revisar em sequência</Link>
         )}
       </div>
 
@@ -130,11 +128,20 @@ export function Casamentos() {
       {erro && (
         <div role="alert" className="alert alert-error">
           <span>{erro}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void carregar()}>Tentar de novo</button>
+          <button type="button" className="btn btn-sm" onClick={() => setRecarga((n) => n + 1)}>Tentar de novo</button>
         </div>
       )}
 
-      {dados && dados.itens.length === 0 && !erro && (
+      {listaVelha && !erro && <Carregando />}
+
+      {lista && lista.itens.length === 0 && lista.total > 0 && pagina > 1 && (
+        <div className="space-y-3 py-6 text-center">
+          <p className="opacity-70">Esta página não existe: a lista tem {paginas} {paginas === 1 ? "página" : "páginas"}.</p>
+          <button type="button" className="btn btn-sm" onClick={() => mudar({ pagina: "1" })}>Ir para a primeira página</button>
+        </div>
+      )}
+
+      {lista && lista.itens.length === 0 && (lista.total === 0 || pagina <= 1) && (
         <div className="space-y-3 py-6 text-center">
           <p className="opacity-70">{filtrado ? "Nenhum produto com esses filtros" : "Nenhum produto para revisar"}</p>
           {filtrado && (
@@ -145,10 +152,10 @@ export function Casamentos() {
         </div>
       )}
 
-      {dados && dados.itens.length > 0 && (
+      {lista && lista.itens.length > 0 && (
         <>
           <ul className="list rounded-box bg-base-100 shadow-sm md:hidden" aria-label="Produtos">
-            {dados.itens.map((p) => (
+            {lista.itens.map((p) => (
               <li key={p.id} className="list-row">
                 <Foto src={p.imagem} alt={p.nome} tamanho="p" />
                 <div className="list-col-grow min-w-0 space-y-1">
@@ -166,7 +173,7 @@ export function Casamentos() {
                 <tr><th></th><th>Produto</th><th>Categoria</th><th>Preço Liga</th><th>Anúncios</th><th>Situação</th></tr>
               </thead>
               <tbody>
-                {dados.itens.map((p) => (
+                {lista.itens.map((p) => (
                   <tr key={p.id}>
                     <td><Foto src={p.imagem} alt={p.nome} tamanho="p" /></td>
                     <td className="max-w-xs">
@@ -186,7 +193,7 @@ export function Casamentos() {
         </>
       )}
 
-      {paginas > 1 && (
+      {lista && paginas > 1 && (
         <div className="join">
           <button type="button" className="btn btn-sm join-item" disabled={pagina <= 1}
             onClick={() => mudar({ pagina: String(pagina - 1) })}>«</button>

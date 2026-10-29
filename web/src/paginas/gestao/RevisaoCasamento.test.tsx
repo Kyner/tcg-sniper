@@ -75,14 +75,14 @@ describe("Revisão de um produto", () => {
     expect(within(grupo("Para decidir")).getByText(/outro · 80%/)).toHaveClass("badge-error");
   });
 
-  it("mantém a query da lista em Voltar, Anterior, Pular e Próximo", async () => {
+  it("mantém a query da lista em Voltar, Anterior e Próximo (sem um Pular igual ao Próximo)", async () => {
     const chamadas = apiFalsa({ ...base, [G(31, QL)]: ok(REVISAO) });
     renderizarEm(`/gestao/casamentos/31?${QL}`);
     await screen.findByRole("heading", { name: "Lair of the Hydra" });
     expect(chamadas.some((c) => c.caminho === `/api/gestao/casamentos/31?${QL}`)).toBe(true);
     expect(screen.getByRole("link", { name: "Voltar à lista" })).toHaveAttribute("href", `/gestao/casamentos?${QL}`);
     expect(screen.getByRole("link", { name: /Próximo/ })).toHaveAttribute("href", `/gestao/casamentos/32?${QL}`);
-    expect(screen.getByRole("link", { name: /Pular/ })).toHaveAttribute("href", `/gestao/casamentos/32?${QL}`);
+    expect(screen.queryByRole("link", { name: /Pular/ })).toBeNull();
     expect(screen.getByRole("link", { name: /Anterior/ })).toHaveAttribute("href", `/gestao/casamentos/30?${QL}`);
   });
 
@@ -267,5 +267,112 @@ describe("Revisão de um produto", () => {
     await userEvent.click(screen.getByRole("button", { name: "Casar" }));
     await waitFor(() => expect(within(grupo("Confirmados")).getAllByRole("listitem")).toHaveLength(2));
     expect(chamadas.find((c) => c.metodo === "POST")?.corpo).toEqual({ link: "B0401" });
+  });
+
+  it("Enter com o foco no menu ⋯ não avança para o próximo produto", async () => {
+    const chamadas = apiFalsa({ ...base, [G(31)]: ok(REVISAO), [G(32)]: ok(REVISAO_32) });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    screen.getByRole("button", { name: "Mais ações" }).focus();
+    await userEvent.keyboard("{Enter}");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByRole("heading", { name: "Lair of the Hydra" })).toBeInTheDocument();
+    expect(chamadas.some((c) => c.caminho.startsWith("/api/gestao/casamentos/32"))).toBe(false);
+  });
+
+  it("↑/↓ rolam até o cartão escolhido", async () => {
+    const rolar = vi.fn();
+    Element.prototype.scrollIntoView = rolar;
+    apiFalsa({ ...base, [G(31)]: ok(REVISAO) });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    await userEvent.keyboard("{ArrowDown}");
+    await waitFor(() => expect(rolar).toHaveBeenCalled());
+    const alvo = rolar.mock.contexts.at(-1) as HTMLElement;
+    expect(alvo).toHaveTextContent("Lair of the Hydra Booster");
+    expect(alvo).not.toHaveTextContent("Foil");
+  });
+
+  it("desfazer não troca o cartão destacado", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    apiFalsa({
+      ...base, [G(31)]: ok(REVISAO),
+      "POST /api/gestao/casamentos/31/anuncios/201": ok({ anuncio: CONF, grupo: "para_decidir", mensagem: null }),
+    });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    await userEvent.keyboard("{ArrowDown}");
+    const destacado = () => within(grupo("Para decidir")).getAllByRole("article").find((a) => a.getAttribute("aria-current") === "true");
+    expect(destacado()).toHaveTextContent("Lair of the Hydra Booster");
+    await userEvent.click(within(grupo("Confirmados")).getByRole("button", { name: "desfazer" }));
+    await waitFor(() => expect(within(grupo("Para decidir")).getAllByRole("listitem")).toHaveLength(4));
+    expect(destacado()).toHaveTextContent("Lair of the Hydra Booster");
+    expect(destacado()).not.toHaveTextContent("Foil");
+  });
+
+  it("no celular a Liga fica compacta acima e os anúncios logo depois, antes dos parecidos", async () => {
+    apiFalsa({ ...base, [G(31)]: ok({ ...REVISAO, produto: { ...REVISAO.produto, imagem: "https://img/x.jpg" } }) });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    // Foto do produto pequena no celular, grande só no lg.
+    const foto = screen.getByRole("img", { name: "Lair of the Hydra" });
+    expect(foto).toHaveClass("h-20", "lg:h-40");
+    // Ordem no celular: produto (1), anúncios (2), parecidos (3); no lg a ordem do HTML.
+    const produto = screen.getByRole("heading", { name: "Lair of the Hydra" }).closest(".card")!;
+    const anuncios = grupo("Para decidir").closest("section")!.parentElement!;
+    const parecidos = grupo("Parecidos na Liga").closest(".card")!;
+    expect(produto).toHaveClass("order-1", "lg:order-none");
+    expect(anuncios).toHaveClass("order-2", "lg:order-none");
+    expect(parecidos).toHaveClass("order-3", "lg:order-none");
+  });
+
+  it("menu definir idioma fecha com Esc e com clique fora", async () => {
+    apiFalsa({ ...base, [G(31)]: ok(REVISAO) });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    const cartao = within(grupo("Confirmados")).getAllByRole("listitem")[0];
+    await userEvent.click(within(cartao).getByRole("button", { name: /definir idioma/ }));
+    expect(within(cartao).getByRole("button", { name: "japonês" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(within(cartao).queryByRole("button", { name: "japonês" })).toBeNull();
+    await userEvent.click(within(cartao).getByRole("button", { name: /definir idioma/ }));
+    expect(within(cartao).getByRole("button", { name: "japonês" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("heading", { name: "Lair of the Hydra" }));
+    expect(within(cartao).queryByRole("button", { name: "japonês" })).toBeNull();
+  });
+
+  it("desfazer sem ter usado as setas mantém o destaque no cartão que o tinha", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    apiFalsa({
+      ...base, [G(31)]: ok(REVISAO),
+      "POST /api/gestao/casamentos/31/anuncios/201": ok({ anuncio: CONF, grupo: "para_decidir", mensagem: null }),
+    });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    const destacado = () => within(grupo("Para decidir")).getAllByRole("article").find((a) => a.getAttribute("aria-current") === "true");
+    expect(destacado()).toHaveTextContent("Foil");
+    await userEvent.click(within(grupo("Confirmados")).getByRole("button", { name: "desfazer" }));
+    await waitFor(() => expect(within(grupo("Para decidir")).getAllByRole("listitem")).toHaveLength(4));
+    expect(destacado()).toHaveTextContent("Foil");
+  });
+
+  it("C e depois desfazer: o destaque fica no próximo pendente, não no desfeito", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    apiFalsa({
+      ...base, [G(31)]: ok(REVISAO),
+      [P(101)]: ok({ anuncio: A1, grupo: "confirmados", mensagem: null }),
+      "POST /api/gestao/casamentos/31/anuncios/201": ok({ anuncio: CONF, grupo: "para_decidir", mensagem: null }),
+    });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    const destacado = () => within(grupo("Para decidir")).getAllByRole("article").find((a) => a.getAttribute("aria-current") === "true");
+    await userEvent.keyboard("c");
+    await waitFor(() => expect(within(grupo("Confirmados")).getAllByRole("listitem")).toHaveLength(2));
+    expect(destacado()).toHaveTextContent("Lair of the Hydra Booster");
+    const conf = within(grupo("Confirmados")).getAllByRole("listitem").find((li) => li.textContent?.includes("confirmado"))!;
+    await userEvent.click(within(conf).getByRole("button", { name: "desfazer" }));
+    await waitFor(() => expect(within(grupo("Para decidir")).getAllByRole("listitem")).toHaveLength(3));
+    expect(destacado()).toHaveTextContent("Lair of the Hydra Booster");
+    expect(destacado()).not.toHaveTextContent("confirmado");
   });
 });

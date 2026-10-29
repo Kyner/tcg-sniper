@@ -7,10 +7,10 @@ import pytest
 from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto, oferta_lista
 from fastapi.testclient import TestClient
 
-from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.admin.app import criar_app
-from tcg_sniper.admin.consultas_amazon import FiltroOfertas
 from tcg_sniper.consultas import casamentos
+from tcg_sniper.consultas import ofertas as consultas_ofertas
+from tcg_sniper.consultas.ofertas import FiltroOfertas
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.models import Envio, OrigemCasamento, OrigemPreco, SituacaoCheckout, StatusCasamento
 
@@ -83,7 +83,7 @@ def test_tela_do_produto_em_casamentos_mostra_tabela_origem_e_conferido(cliente,
 def test_ofertas_mostra_conferido_selos_e_origem(sessoes, cliente, cenario, monkeypatch):
     monkeypatch.setattr("tcg_sniper.db.repositorio.agora_utc", lambda: T0)
     with sessoes() as s:
-        [linha] = consultas_amazon.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
+        [linha] = consultas_ofertas.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
     assert linha.conferencia.total == Decimal("285.99")
     assert (linha.importada, linha.origem_envio, linha.prime) == (True, "Estados Unidos", True)
     assert linha.origem_casamento is OrigemCasamento.AUTOMATICO_IA
@@ -143,7 +143,7 @@ def test_ofertas_busca_as_conferencias_de_uma_vez(sessoes, cliente, cenario, mon
 
     monkeypatch.setattr(repo_amz, "conferencia_valida", uma_por_linha)
     with sessoes() as s:
-        [linha] = consultas_amazon.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
+        [linha] = consultas_ofertas.ofertas(s, FiltroOfertas(), repo_amz.obter_config(s))
         assert linha.conferencia.total == Decimal("285.99")
         d = casamentos.detalhe_casamento(s, cenario[0], repo_amz.obter_config(s), T0)
         assert d.confirmados[0].conferencia.total == Decimal("285.99")
@@ -155,10 +155,10 @@ def test_desconto_e_filtro_das_ofertas_usam_o_conferido_quando_ha_conferencia(se
     monkeypatch.setattr("tcg_sniper.db.repositorio.agora_utc", lambda: T0)
     with sessoes() as s:
         config = repo_amz.obter_config(s)
-        [linha] = consultas_amazon.ofertas(s, FiltroOfertas(), config)
+        [linha] = consultas_ofertas.ofertas(s, FiltroOfertas(), config)
         assert (linha.preco, linha.desconto, linha.diferenca) == (Decimal("275.91"), Decimal("28.50"), Decimal("114.01"))
-        assert consultas_amazon.ofertas(s, FiltroOfertas(desconto_min=30), config) == []
+        assert consultas_ofertas.ofertas(s, FiltroOfertas(desconto_min=30), config) == []
     monkeypatch.setattr("tcg_sniper.db.repositorio.agora_utc", lambda: T0 + timedelta(hours=7))  # conferência vencida
     with sessoes() as s:
-        [linha] = consultas_amazon.ofertas(s, FiltroOfertas(desconto_min=30), repo_amz.obter_config(s))
+        [linha] = consultas_ofertas.ofertas(s, FiltroOfertas(desconto_min=30), repo_amz.obter_config(s))
         assert (linha.conferencia, linha.desconto) == (None, Decimal("31.02"))

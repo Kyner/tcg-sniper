@@ -40,6 +40,21 @@ describe("Atividade", () => {
     expect(within(item).getByText("ok")).toHaveClass("badge-success");
   });
 
+  it("chamada da IA de custo zero não mostra US$ 0.000000 (nem na linha, nem no detalhe)", async () => {
+    const ia = (chave: string, custo: string, asin: string) => linha({
+      chave, servico: "casador", o_que: "ia", asin, custo_usd: custo,
+      detalhe: { finalidade: "casamento", modelo: "gpt-5-mini", custo_usd: custo },
+    });
+    apiFalsa({ ...base, [LISTAR]: ok({ itens: [ia("ia:1", "0.000000", "B0ZERO0001"), ia("ia:2", "0.012300", "B0PAGO0001")], proximo: null }) });
+    renderizarEm("/gestao/atividade");
+    const zero = (await screen.findByRole("link", { name: "B0ZERO0001" })).closest("li")!;
+    expect(within(zero).queryByText(/US\$/)).toBeNull();
+    await userEvent.click(within(zero).getByRole("button", { name: "Detalhes" }));
+    expect(within(zero).queryByText("0.000000")).toBeNull();
+    const pago = screen.getByRole("link", { name: "B0PAGO0001" }).closest("li")!;
+    expect(within(pago).getByText("US$ 0.012300")).toBeInTheDocument();
+  });
+
   it("mapeia parcial e falha para as cores", async () => {
     apiFalsa({
       ...base,
@@ -77,6 +92,25 @@ describe("Atividade", () => {
     expect(screen.getByText(/leituras do monitor só aparecem/i)).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Situação" }), "");
     await waitFor(() => expect(chamadas.at(-1)!.caminho).toBe("/api/gestao/atividade?servico=liga&o_que=coleta_liga"));
+  });
+
+  it("com o_que=mensagem mostra Destino e a situação pendente; outro o_que esconde", async () => {
+    const chamadas = apiFalsa({
+      ...base,
+      "GET /api/gestao/atividade?o_que=mensagem&situacao=pendente&destino=admin": ok({ itens: [MSG], proximo: null }),
+      "GET /api/gestao/atividade?o_que=mensagem&situacao=pendente": ok({ itens: [MSG], proximo: null }),
+      "GET /api/gestao/atividade?o_que=mensagem": ok({ itens: [MSG], proximo: null }),
+      "GET /api/gestao/atividade": ok({ itens: [MSG], proximo: null }),
+    });
+    renderizarEm("/gestao/atividade?o_que=mensagem&situacao=pendente");
+    await screen.findByRole("combobox", { name: "Destino" });
+    expect(screen.getByRole("option", { name: "pendente (na fila)" })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Destino" }), "admin");
+    await waitFor(() => expect(chamadas.at(-1)!.caminho).toBe("/api/gestao/atividade?o_que=mensagem&situacao=pendente&destino=admin"));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "O quê" }), "");
+    await waitFor(() => expect(chamadas.at(-1)!.caminho).toBe("/api/gestao/atividade"));
+    expect(screen.queryByRole("combobox", { name: "Destino" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "pendente (na fila)" })).not.toBeInTheDocument();
   });
 
   it("a busca aplica sozinha, com espera", async () => {

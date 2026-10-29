@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from tcg_sniper.avisos.catalogo import CATALOGO, TipoAviso
 from tcg_sniper.coletor_liga.esfriamento import TIPOS_LIGA
+from tcg_sniper.configuracoes.grupos import campo as campo_config
 from tcg_sniper.consultas.catalogo import casa_nome, escapar_like
 from tcg_sniper.consultas.historico import produto_id_da_linha
 from tcg_sniper.db.models import (
@@ -51,7 +52,8 @@ OQue = Literal[
     "coleta_liga", "busca", "leitura_monitor", "checkout", "ia", "mensagem", "backup", "aviso", "acao_gestao"
 ]
 Situacao = Literal["ok", "parcial", "falha"]
-FiltroSituacao = Literal["ok", "parcial", "falha", "problemas"]
+FiltroSituacao = Literal["ok", "parcial", "falha", "problemas", "pendente"]  # "pendente": só mensagens na fila
+Destino = Literal["admin", "oportunidades", "individual"]
 Detalhe = dict[str, str | int | None]
 
 POR_PAGINA = 50
@@ -74,6 +76,7 @@ class FiltroAtividade:
     busca: str | None  # nome do produto (pt ou en), ASIN ou texto/erro da linha
     mostrar_reinicios: bool = False
     mostrar_texto_mensagem: bool = True  # False: sem `ver_mensagens`; o texto não sai nem entra na busca
+    destino: Destino | None = None  # só mensagens: com destino, as outras fontes não entram na lista
 
 
 @dataclass(frozen=True)
@@ -178,6 +181,8 @@ def _quer(filtro: FiltroAtividade) -> set[Situacao] | None:
             return None
         case "problemas":
             return {"parcial", "falha"}
+        case "pendente":
+            return set()  # nenhuma fonte tem "pendente" na tabela de situações; só a de mensagens trata à parte
         case situacao:
             return {situacao}
 
@@ -488,11 +493,16 @@ _ROTULO_DESTINO = {"admin": "grupo do admin", "oportunidades": "grupo de oportun
 
 
 def _mensagens(s: Session, f: FiltroAtividade, quer, cursor, n: int) -> list[_Bruta]:
-    situacao = _por_situacao(MensagemSaida.status, _SITUACAO_MENSAGEM, quer)
+    if f.situacao == "pendente":  # `_quer` devolve conjunto vazio para ela: as outras fontes ficam de fora
+        situacao = [MensagemSaida.status == StatusMensagem.PENDENTE]
+    else:
+        situacao = _por_situacao(MensagemSaida.status, _SITUACAO_MENSAGEM, quer)
     if not _pode(f, Servico.WHATSAPP, "mensagem") or situacao is None:
         return []
     m = MensagemSaida
     condicoes = [*situacao, *_periodo(m.criada_em, f), *_keyset(MENSAGEM, m.criada_em, (m.id,), cursor)]
+    if f.destino:
+        condicoes.append(m.destino == f.destino)
     if f.busca:
         # o texto individual (código de acesso) nunca aparece nem entra na busca, como no admin antigo
         no_texto = and_(m.destino != INDIVIDUAL, _like(m.texto, f.busca)) if f.mostrar_texto_mensagem else None
@@ -650,7 +660,55 @@ def _descricao_acao(acao: AcaoGestao) -> str:
             return f"{verbo} o monitoramento de {quantos} produtos (lote)"
         case TipoAcaoGestao.CATALOGO_PRODUTO:
             return f"{'ligou' if d.get('ativo') else 'desligou'} o monitoramento de um produto"
+        case TipoAcaoGestao.CONFIGURACOES:
+            return _descricao_configuracoes(d)
     return "salvou as configurações"
+
+
+CAMPOS_NA_DESCRICAO = 3  # campos listados na linha; o resto vira "e mais N"
+
+
+def _valor_config(valor) -> str:
+    if valor is None or valor == "":
+        return "vazio"
+    if isinstance(valor, bool):
+        return "sim" if valor else "não"
+    if isinstance(valor, float):
+        return f"{valor:g}"
+    return str(valor)
+
+
+def _rotulo_config(chave: str) -> str:
+    try:
+        rotulo = campo_config(chave).rotulo
+    except KeyError:
+        return chave
+    if rotulo[1:2].isupper():  # sigla no começo (URL, IA, IP): fica como está
+        return rotulo
+    return rotulo[:1].lower() + rotulo[1:]
+
+
+def _descricao_configuracoes(d: dict) -> str:
+    """"salvou 3 campos: desconto mínimo 20→22, …" ou "ligou/desligou o aviso X"."""
+    if "aviso" in d:
+        tipo = d.get("aviso")
+        try:
+            titulo = CATALOGO[TipoAviso(tipo)].titulo
+        except ValueError:
+            titulo = str(tipo)
+        return f"{'ligou' if d.get('ligado') else 'desligou'} o aviso {titulo}"
+    campos = d.get("campos")
+    if not isinstance(campos, dict) or not campos:
+        return "salvou as configurações"
+    partes = []
+    for chave, par in list(campos.items())[:CAMPOS_NA_DESCRICAO]:
+        antes, depois = par if isinstance(par, list) and len(par) == 2 else (None, par)
+        partes.append(f"{_rotulo_config(chave)} {_valor_config(antes)}→{_valor_config(depois)}")
+    texto = ", ".join(partes)
+    if len(campos) > CAMPOS_NA_DESCRICAO:
+        texto += f" e mais {formatar_milhar(len(campos) - CAMPOS_NA_DESCRICAO)}"
+    quantos = "1 campo" if len(campos) == 1 else f"{formatar_milhar(len(campos))} campos"
+    return f"salvou {quantos}: {texto}"
 
 
 def _servico_da_acao(acao: AcaoGestao) -> Servico | None:
@@ -712,7 +770,8 @@ def linha_do_tempo(
     depois_de = _ler_cursor(cursor) if cursor else None
     filtro = replace(filtro, busca=(filtro.busca or "").strip() or None)
     quer = _quer(filtro)
-    brutas = [linha for fonte in _FONTES for linha in fonte(s, filtro, quer, depois_de, limite)]
+    fontes = (_mensagens,) if filtro.destino else _FONTES  # destino só existe nas mensagens
+    brutas = [linha for fonte in fontes for linha in fonte(s, filtro, quer, depois_de, limite)]
     brutas.sort(key=lambda b: (b.em, b.fonte, b.ordem), reverse=True)
     pagina = brutas[:limite]
     proximo = _escrever_cursor(pagina[-1]) if len(brutas) > limite else None

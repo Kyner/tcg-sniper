@@ -293,3 +293,25 @@ def test_lote_de_desligar_solta_os_confirmados_de_todos(cliente, logar, sessoes,
     ]
     with sessoes() as s:
         assert s.scalars(select(Casamento).where(Casamento.status == StatusCasamento.CONFIRMADO)).all() == []
+
+
+def test_patch_sem_mudanca_nao_grava_acao(cliente, logar, sessoes, catalogo):
+    logar(Papel.OPERADOR)
+    ligado, desligado = catalogo["cx1"], catalogo["bd0"]
+    r = cliente.patch(f"{PRODUTO}/{ligado}", json={"ativo": True})
+    assert r.status_code == 200 and r.json()["monitorado"] is True
+    r = cliente.patch(f"{PRODUTO}/{desligado}", json={"ativo": False})
+    assert r.status_code == 200 and r.json()["monitorado"] is False
+    assert _acoes(sessoes) == []
+
+
+def test_patch_desligar_de_novo_que_solta_confirmados_grava_acao(cliente, logar, sessoes, catalogo):
+    """Inativo de antes da regra com par confirmado: desligar de novo solta o par, e isso fica registrado."""
+    usuario = logar(Papel.OPERADOR)
+    pid = catalogo["bd1"]
+    with sessoes() as s, s.begin():
+        criar_anuncio(s, "B0CAT00009", s.get(ProdutoLiga, pid), StatusCasamento.CONFIRMADO)
+    assert cliente.patch(f"{PRODUTO}/{pid}", json={"ativo": False}).status_code == 200
+    assert _acoes(sessoes) == [
+        (usuario, TipoAcaoGestao.CATALOGO_PRODUTO, {"produto_id": pid, "ativo": False, "anuncios_soltos": 1})
+    ]

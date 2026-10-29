@@ -11,7 +11,7 @@ const FUNIL = {
 const COMPLETO = {
   precisa: [
     { texto: "96 casamentos esperando decisão", rotulo: "Revisar em sequência", destino: "/gestao/casamentos" },
-    { texto: "WhatsApp desconectado", rotulo: "Ligar", destino: "antigo:configuracoes" },
+    { texto: "WhatsApp desconectado", rotulo: "Ligar", destino: "/gestao/configuracoes?grupo=whatsapp" },
   ],
   saude: [
     { id: "liga", nome: "LigaMagic", estado: "rodando", resumo: "coletando" },
@@ -38,14 +38,14 @@ describe("Dashboard da gestão", () => {
     expect(titulos).toEqual(["Precisa de você", "Saúde dos serviços", "Oportunidades", "Funil"]);
   });
 
-  it("destino interno é Link e destino antigo abre o admin antigo em nova aba", async () => {
+  it("todo destino é Link interno, nenhum abre o admin antigo", async () => {
     apiFalsa({ ...base, [DASH]: ok(COMPLETO) });
     renderizarEm("/gestao");
     const rev = await screen.findByRole("link", { name: "Revisar em sequência" });
     expect(rev).toHaveAttribute("href", "/gestao/casamentos");
     const ligar = screen.getByRole("link", { name: "Ligar" });
-    expect(ligar).toHaveAttribute("href", "http://localhost:8000/configuracoes");
-    expect(ligar).toHaveAttribute("target", "_blank");
+    expect(ligar).toHaveAttribute("href", "/gestao/configuracoes?grupo=whatsapp");
+    expect(ligar).not.toHaveAttribute("target");
     expect(screen.getByText("96 casamentos esperando decisão")).toBeInTheDocument();
   });
 
@@ -127,5 +127,22 @@ describe("Dashboard da gestão", () => {
     const antes = n();
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     await waitFor(() => expect(n()).toBe(antes + 1));
+  });
+
+  it("sem ver_area_negocio as oportunidades e o funil não levam à área de negócio", async () => {
+    const eu = { ...EU_OPERADOR, permissoes: EU_OPERADOR.permissoes.filter((p) => p !== "ver_area_negocio") };
+    apiFalsa({ ...base, "GET /api/auth/eu": ok(eu), [DASH]: ok(COMPLETO) });
+    renderizarEm("/gestao");
+    expect(await screen.findByText("Booster Box Alfa")).toBeInTheDocument();
+    expect(screen.getByText("Booster Box Alfa").closest("a")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Oportunidades abertas/ })).toBeNull();
+    expect(screen.getByText("Oportunidades abertas")).toBeInTheDocument();
+  });
+
+  it("com ver_area_negocio as oportunidades levam ao produto", async () => {
+    apiFalsa({ ...base, [DASH]: ok(COMPLETO) });
+    renderizarEm("/gestao");
+    expect((await screen.findByText("Booster Box Alfa")).closest("a")).toHaveAttribute("href", "/produtos/7");
+    expect(screen.getByRole("link", { name: /Oportunidades abertas/ })).toHaveAttribute("href", "/");
   });
 });

@@ -2,14 +2,8 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { chamarApi } from "../api";
-import { enderecoAdminAntigo } from "../enderecos";
 import { useSessao } from "../sessao";
-import type { MenuGestao, Permissao } from "../tipos";
-
-const TELAS_ANTIGAS: readonly (readonly [string, string, Permissao])[] = [
-  ["Ofertas", "ofertas", "ver_catalogo"],
-  ["Configurações", "configuracoes", "ver_configuracoes"],
-];
+import type { MenuGestao } from "../tipos";
 
 const RECARGA_MS = 60_000;
 
@@ -40,18 +34,6 @@ export function LayoutGestao() {
     };
   }, [veCasamentos]);
 
-  const antiga = (nome: string) => {
-    const tela = TELAS_ANTIGAS.find(([n]) => n === nome);
-    if (!tela || !pode(tela[2])) return null;
-    return (
-      <li>
-        <a href={enderecoAdminAntigo(tela[1])} target="_blank" rel="noreferrer">
-          {nome}
-        </a>
-      </li>
-    );
-  };
-
   return (
     <div className="drawer lg:drawer-open">
       <input
@@ -62,12 +44,15 @@ export function LayoutGestao() {
         onChange={(e) => setAberto(e.target.checked)}
       />
       <div className="drawer-content">
-        <button type="button" className="btn btn-ghost btn-sm mb-2 lg:hidden" onClick={() => setAberto((a) => !a)}>
+        <button
+          type="button" className="btn btn-ghost btn-sm mb-2 lg:hidden" aria-expanded={aberto} aria-controls="gaveta-gestao"
+          onClick={() => setAberto((a) => !a)}
+        >
           ☰ Menu da gestão
         </button>
         <Outlet />
       </div>
-      <div className="drawer-side z-20 lg:z-auto">
+      <div id="gaveta-gestao" className="drawer-side z-20 lg:z-auto">
         <label htmlFor="menu-gestao" aria-label="Fechar menu" className="drawer-overlay"></label>
         <ul className="menu min-h-full w-56 bg-base-100 p-2 text-base-content">
           <li>
@@ -88,7 +73,11 @@ export function LayoutGestao() {
               <NavLink to="/gestao/catalogo">Catálogo</NavLink>
             </li>
           )}
-          {antiga("Ofertas")}
+          {pode("ver_catalogo") && (
+            <li>
+              <NavLink to="/gestao/ofertas">Ofertas</NavLink>
+            </li>
+          )}
           {pode("ver_servicos") && (
             <li>
               <NavLink to="/gestao/servicos">Serviços</NavLink>
@@ -99,7 +88,11 @@ export function LayoutGestao() {
               <NavLink to="/gestao/atividade">Atividade</NavLink>
             </li>
           )}
-          {antiga("Configurações")}
+          {pode("ver_configuracoes") && (
+            <li>
+              <NavLink to="/gestao/configuracoes">Configurações</NavLink>
+            </li>
+          )}
           {pode("gerir_usuarios") && (
             <li>
               <NavLink to="/gestao/usuarios">Usuários</NavLink>

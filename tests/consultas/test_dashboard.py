@@ -38,16 +38,29 @@ FONTES = Path(__file__).resolve().parents[2] / "src" / "tcg_sniper" / "consultas
         ("/logs?aba=inexistente", "/gestao/atividade"),
         ("/mensagens", "/gestao/atividade?o_que=mensagem"),
         ("/mensagens?situacao=falha", "/gestao/atividade?o_que=mensagem&situacao=falha"),
-        ("/mensagens?situacao=pendente", "/gestao/atividade?o_que=mensagem"),
+        ("/mensagens?situacao=pendente", "/gestao/atividade?o_que=mensagem&situacao=pendente"),
+        ("/mensagens?destino=admin", "/gestao/atividade?o_que=mensagem&destino=admin"),
+        ("/mensagens?situacao=falha&destino=individual", "/gestao/atividade?o_que=mensagem&situacao=falha&destino=individual"),
+        ("/mensagens?destino=todos", "/gestao/atividade?o_que=mensagem"),
+        ("/mensagens?destino=outro", "/gestao/atividade?o_que=mensagem"),
         ("/casamentos", "/gestao/casamentos"),
         ("/casamentos?situacao=todos&situacao_produto=sem_candidato", "/gestao/casamentos?situacao=sem_candidato"),
         ("/casamentos?situacao=pendentes", "/gestao/casamentos?situacao=esperando_decisao"),
         ("/casamentos?situacao=sem_par&busca=ab", "/gestao/casamentos?busca=ab&situacao=sem_candidato"),
         ("/casamentos?situacao=casados&com_preco=1", "/gestao/casamentos?situacao=casado&com_preco=true"),
         ("/casamentos/produto/7", "/gestao/casamentos/7"),
-        ("/configuracoes", "antigo:/configuracoes"),
-        ("/configuracoes?aba=ia", "antigo:/configuracoes?aba=ia"),
-        ("/produtos/3", "antigo:/produtos/3"),
+        ("/configuracoes", "/gestao/configuracoes"),
+        ("/configuracoes?aba=ia", "/gestao/configuracoes"),
+        ("/configuracoes?secao=geral", "/gestao/configuracoes?grupo=sistema"),
+        ("/configuracoes?secao=liga", "/gestao/configuracoes?grupo=liga"),
+        ("/configuracoes?secao=amazon", "/gestao/configuracoes?grupo=oportunidades"),
+        ("/configuracoes?secao=ia", "/gestao/configuracoes?grupo=ia-decide"),
+        ("/configuracoes?secao=avisos", "/gestao/configuracoes?grupo=whatsapp"),
+        ("/configuracoes?secao=inexistente", "/gestao/configuracoes"),
+        ("/ofertas", "/gestao/ofertas"),
+        ("/ofertas?pagina=2", "/gestao/ofertas"),
+        ("/produtos/3", "/produtos/3"),
+        ("/algo-desconhecido", "/gestao"),
     ],
 )
 def test_destino_novo_traduz_cada_link_antigo(antigo, novo):
@@ -58,13 +71,16 @@ def test_destino_novo_cobre_todo_link_que_o_painel_emite():
     """Varre o código do painel e das mensagens: todo link literal vira destino migrado (ou as Configurações)."""
     texto = (FONTES / "painel.py").read_text(encoding="utf-8") + (FONTES / "mensagens.py").read_text(encoding="utf-8")
     links = set(re.findall(r'"(/(?:servicos|logs|mensagens|casamentos|configuracoes)[^"{]*)"', texto))
-    assert {"/servicos", "/logs?aba=liga", "/logs?aba=manutencao", "/mensagens?situacao=falha", "/configuracoes"} <= links
+    assert {"/servicos", "/logs?aba=liga", "/logs?aba=manutencao", "/mensagens?situacao=falha", "/configuracoes?secao=ia"} <= links
     for link in links:
         destino = dashboard.destino_novo(link)
-        if link.startswith("/configuracoes"):
-            assert destino == f"antigo:{link}"
-        else:
-            assert destino.startswith("/gestao"), (link, destino)
+        assert destino.startswith("/gestao"), (link, destino)
+
+
+def test_avisos_do_painel_apontam_para_a_secao_certa():
+    texto = (FONTES / "painel.py").read_text(encoding="utf-8")
+    assert "/configuracoes?secao=amazon" in texto and "/configuracoes?secao=ia" in texto
+    assert not re.search(r'"/configuracoes"', texto)
 
 
 def test_permissao_do_destino():
@@ -72,7 +88,28 @@ def test_permissao_do_destino():
     assert dashboard.permissao_do_destino("/gestao/atividade?o_que=mensagem") == "ver_logs"
     assert dashboard.permissao_do_destino("/gestao/atividade?o_que=busca") == "ver_logs"
     assert dashboard.permissao_do_destino("/gestao/casamentos?situacao=casado") == "revisar_casamentos"
-    assert dashboard.permissao_do_destino("antigo:/configuracoes") == "ver_configuracoes"
+    assert dashboard.permissao_do_destino("/gestao/configuracoes?grupo=monitor") == "ver_configuracoes"
+    assert dashboard.permissao_do_destino("/gestao/ofertas") == "ver_catalogo"
+    assert dashboard.permissao_do_destino("/produtos/5") == "ver_oportunidades"
+
+
+def test_destino_da_area_de_negocio_pede_tambem_ver_area_negocio():
+    produto = dashboard.ItemPrecisa("x", "Ver", "/produtos/5", dashboard.permissao_do_destino("/produtos/5"))
+    assert dashboard.pode_abrir(produto, {"ver_oportunidades", "ver_area_negocio"})
+    assert not dashboard.pode_abrir(produto, {"ver_oportunidades"})
+    assert not dashboard.pode_abrir(produto, {"ver_area_negocio"})
+    servicos = dashboard.ItemPrecisa("x", "Ver", "/gestao/servicos", "ver_servicos")
+    assert dashboard.pode_abrir(servicos, {"ver_servicos"})
+    assert not dashboard.pode_abrir(servicos, {"ver_area_negocio"})
+    assert dashboard.pode_abrir(dashboard.ItemPrecisa("x", "Ver", "/gestao", None), set())
+
+
+def test_ligar_vira_ver_para_quem_nao_pode_pausar():
+    item = dashboard.ItemPrecisa("LigaMagic pausado.", "Ligar", "/gestao/servicos", "ver_servicos")
+    assert dashboard.rotulo_para(item, {"ver_servicos", "pausar_servicos"}) == "Ligar"
+    assert dashboard.rotulo_para(item, {"ver_servicos"}) == "Ver"
+    outro = dashboard.ItemPrecisa("x", "Ver o efeito", "/gestao/configuracoes", "ver_configuracoes")
+    assert dashboard.rotulo_para(outro, set()) == "Ver o efeito"
 
 
 def test_precisa_some_quando_nao_ha_nada(s, config):
@@ -104,7 +141,7 @@ def test_ia_perto_do_teto_entra(s, config):
     _gastar(s, str(teto * Decimal("0.02")), AGORA - timedelta(minutes=4))
     [item] = dashboard.ia_perto_do_teto(s, AGORA, config)
     assert "81% do teto do dia" in item.texto
-    assert item.destino == "antigo:/configuracoes" and item.requer == "ver_configuracoes"
+    assert item.destino == "/gestao/configuracoes?grupo=ia-gasto" and item.requer == "ver_configuracoes"
 
 
 def test_funil_soma_com_o_catalogo(s, config):
@@ -172,7 +209,7 @@ def test_monitor_atrasado_abre_configuracoes_com_ver_o_efeito(s, config):
     avisos = painel.avisos(s, AGORA, config, [], mensagens.resumo(s, AGORA))
     [item] = [i for i in dashboard.precisa(s, AGORA, config, avisos) if "atrasado" in i.texto]
     assert item.rotulo == "Ver o efeito"
-    assert item.destino == "antigo:/configuracoes?secao=amazon"
+    assert item.destino == "/gestao/configuracoes?grupo=monitor"
     assert item.requer == "ver_configuracoes"
 
 
@@ -184,3 +221,7 @@ def test_aviso_de_servico_leva_ligar_ou_ver_conforme_o_estado():
     desafio = SaudeServico("Backup", "pausado_desafio", "captcha", "", "/servicos")
     rotulos = [dashboard.rotulo_de(a) for sv in (pausado, falha, desafio) for a in avisos_backup(sv)]
     assert rotulos == ["Ligar", "Ver", "Ver"]
+
+
+def test_nenhum_destino_do_dashboard_aponta_para_o_admin_antigo():
+    assert not hasattr(dashboard, "PREFIXO_ANTIGO")

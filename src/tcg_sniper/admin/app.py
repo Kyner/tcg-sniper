@@ -15,8 +15,6 @@ from jinja2 import pass_context
 from sqlalchemy.orm import Session, sessionmaker
 
 from tcg_sniper.admin import consultas, consultas_amazon, estilo
-from tcg_sniper.admin import formularios_config as form_cfg
-from tcg_sniper.admin import formularios_ia as form_ia
 from tcg_sniper.admin.icones import icone
 from tcg_sniper.avisos import formato
 from tcg_sniper.avisos import servico as avisos
@@ -27,9 +25,12 @@ from tcg_sniper.coletor_liga.agendador import TIPOS_LIGA
 from tcg_sniper.coletor_liga.esfriamento import situacao_desafio
 from tcg_sniper.config import CATEGORIAS_SELADOS, Config
 from tcg_sniper.config_banco import carregar_config
+from tcg_sniper.configuracoes import geral_liga as form_cfg
+from tcg_sniper.configuracoes import ia as form_ia
 from tcg_sniper.consultas import historico
 from tcg_sniper.consultas import mensagens as consultas_mensagens
 from tcg_sniper.consultas import menu as consultas_menu
+from tcg_sniper.consultas import ofertas as ofertas_q
 from tcg_sniper.consultas import painel as consultas_painel
 from tcg_sniper.consultas.casamentos import (
     EXPLICACAO_REAVALIAR,
@@ -788,9 +789,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
         pagina: str = "1",
     ):
         if (
-            vendedor not in consultas_amazon.VENDEDORES_OFERTAS
-            or situacao not in consultas_amazon.SITUACOES_OFERTAS
-            or ordem not in consultas_amazon.ORDENS_OFERTAS
+            vendedor not in ofertas_q.VENDEDORES_OFERTAS
+            or situacao not in ofertas_q.SITUACOES_OFERTAS
+            or ordem not in ofertas_q.ORDENS_OFERTAS
         ):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "filtro inválido")
         texto_desconto = desconto_min.strip()
@@ -801,7 +802,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
             if categoria and categoria not in categorias:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"categoria inválida: {categoria}")
             cfg = repo_amz.obter_config(s)
-            filtro = consultas_amazon.FiltroOfertas(
+            filtro = ofertas_q.FiltroOfertas(
                 busca=busca,
                 categoria=categoria or None,
                 desconto_min=int(texto_desconto) if texto_desconto else None,
@@ -809,9 +810,9 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 situacao=situacao,
                 ordem=ordem,
             )
-            linhas = consultas_amazon.ofertas(s, filtro, cfg)
+            linhas = ofertas_q.ofertas(s, filtro, cfg)
             linhas_pagina, numero, paginas = historico.paginar(
-                linhas, numero_pagina(pagina), consultas_amazon.POR_PAGINA_OFERTAS
+                linhas, numero_pagina(pagina), ofertas_q.POR_PAGINA_OFERTAS
             )
             parametros = {
                 "busca": busca,
@@ -838,8 +839,8 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                     "f": filtro,
                     "desconto_texto": texto_desconto,
                     "categorias": categorias,
-                    "vendedores": consultas_amazon.VENDEDORES_OFERTAS,
-                    "ordens": consultas_amazon.ORDENS_OFERTAS,
+                    "vendedores": ofertas_q.VENDEDORES_OFERTAS,
+                    "ordens": ofertas_q.ORDENS_OFERTAS,
                     "desconto_min_pct": cfg.desconto_min_pct,
                 },
             )

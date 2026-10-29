@@ -6,22 +6,21 @@ import { chamarApi } from "../api";
 import { Carregando } from "../componentes/Carregando";
 import { Foto } from "../componentes/Foto";
 import { SeloEstado } from "../componentes/SeloEstado";
-import { enderecoAdminAntigo } from "../enderecos";
 import { useSessao } from "../sessao";
 import type { DashboardGestao, FunilGestao, Permissao } from "../tipos";
 
 const RECARGA_MS = 60_000;
-const PREFIXO_ANTIGO = "antigo:";
 
-const FUNIL: readonly (readonly [keyof FunilGestao, string, string, Permissao])[] = [
-  ["liga", "Na Liga", "/gestao/catalogo", "ver_catalogo"],
-  ["monitorados", "Monitorados", "/gestao/catalogo?monitorado=sim", "ver_catalogo"],
-  ["esperando_decisao", "Esperando decisão", "/gestao/casamentos?situacao=esperando_decisao", "revisar_casamentos"],
-  ["so_ignorados", "Só ignorados", "/gestao/casamentos?situacao=so_ignorados", "revisar_casamentos"],
-  ["sem_candidato", "Sem candidato", "/gestao/casamentos?situacao=sem_candidato", "revisar_casamentos"],
-  ["casados_produtos", "Produtos casados", "/gestao/casamentos?situacao=casado", "revisar_casamentos"],
-  ["casados_anuncios", "Anúncios casados", "/gestao/casamentos?situacao=casado", "revisar_casamentos"],
-  ["oportunidades", "Oportunidades abertas", "/", "ver_oportunidades"],
+// Cada linha leva à tela dela para quem tem as permissões listadas (a área de negócio pede também ver_area_negocio).
+const FUNIL: readonly (readonly [keyof FunilGestao, string, string, readonly Permissao[]])[] = [
+  ["liga", "Na Liga", "/gestao/catalogo", ["ver_catalogo"]],
+  ["monitorados", "Monitorados", "/gestao/catalogo?monitorado=sim", ["ver_catalogo"]],
+  ["esperando_decisao", "Esperando decisão", "/gestao/casamentos?situacao=esperando_decisao", ["revisar_casamentos"]],
+  ["so_ignorados", "Só ignorados", "/gestao/casamentos?situacao=so_ignorados", ["revisar_casamentos"]],
+  ["sem_candidato", "Sem candidato", "/gestao/casamentos?situacao=sem_candidato", ["revisar_casamentos"]],
+  ["casados_produtos", "Produtos casados", "/gestao/casamentos?situacao=casado", ["revisar_casamentos"]],
+  ["casados_anuncios", "Anúncios casados", "/gestao/casamentos?situacao=casado", ["revisar_casamentos"]],
+  ["oportunidades", "Oportunidades abertas", "/", ["ver_area_negocio", "ver_oportunidades"]],
 ];
 
 function porcento(v: number): string {
@@ -70,6 +69,8 @@ export function Gestao() {
 function Blocos({ dados }: { dados: DashboardGestao }) {
   const { pode } = useSessao();
   const { precisa, saude, oportunidades, funil } = dados;
+  // O produto das oportunidades fica na área de negócio.
+  const abreProduto = pode("ver_area_negocio") && pode("ver_oportunidades");
   return (
     <>
       {precisa.length > 0 && (
@@ -80,18 +81,7 @@ function Blocos({ dados }: { dados: DashboardGestao }) {
               {precisa.map((p, i) => (
                 <li key={`${i}|${p.texto}|${p.destino}`} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="min-w-0">{p.texto}</span>
-                  {p.destino.startsWith(PREFIXO_ANTIGO) ? (
-                    <a
-                      className="btn btn-primary btn-sm"
-                      href={enderecoAdminAntigo(p.destino.slice(PREFIXO_ANTIGO.length).replace(/^\//, ""))}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {p.rotulo}
-                    </a>
-                  ) : (
-                    <Link className="btn btn-primary btn-sm" to={p.destino}>{p.rotulo}</Link>
-                  )}
+                  <Link className="btn btn-primary btn-sm" to={p.destino}>{p.rotulo}</Link>
                 </li>
               ))}
             </ul>
@@ -129,11 +119,19 @@ function Blocos({ dados }: { dados: DashboardGestao }) {
             <ul className="space-y-2">
               {oportunidades.top.map((o) => (
                 <li key={o.produto_id}>
-                  <Link to={`/produtos/${o.produto_id}`} className="flex items-center gap-3 rounded p-1 hover:bg-base-200">
-                    <Foto src={o.imagem} alt={o.nome} tamanho="p" />
-                    <span className="min-w-0 flex-1 truncate">{o.nome}</span>
-                    <span className="badge badge-success">{porcento(o.desconto_pct)}</span>
-                  </Link>
+                  {abreProduto ? (
+                    <Link to={`/produtos/${o.produto_id}`} className="flex items-center gap-3 rounded p-1 hover:bg-base-200">
+                      <Foto src={o.imagem} alt={o.nome} tamanho="p" />
+                      <span className="min-w-0 flex-1 truncate">{o.nome}</span>
+                      <span className="badge badge-success">{porcento(o.desconto_pct)}</span>
+                    </Link>
+                  ) : (
+                    <div className="flex items-center gap-3 p-1">
+                      <Foto src={o.imagem} alt={o.nome} tamanho="p" />
+                      <span className="min-w-0 flex-1 truncate">{o.nome}</span>
+                      <span className="badge badge-success">{porcento(o.desconto_pct)}</span>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -146,9 +144,9 @@ function Blocos({ dados }: { dados: DashboardGestao }) {
           <div className="card-body">
             <h2 className="card-title">Funil</h2>
             <ul className="menu w-full p-0">
-              {FUNIL.map(([chave, rotulo, destino, permissao]) => (
+              {FUNIL.map(([chave, rotulo, destino, permissoes]) => (
                 <li key={chave}>
-                  {pode(permissao) ? (
+                  {permissoes.every((p) => pode(p)) ? (
                     <Link to={destino} className="flex justify-between">
                       <span>{rotulo}</span>
                       <span className="font-semibold">{funil[chave]}</span>

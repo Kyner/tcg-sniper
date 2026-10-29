@@ -7,6 +7,8 @@ import { LayoutGestao } from "./componentes/LayoutGestao";
 import { Atividade } from "./paginas/gestao/Atividade";
 import { Casamentos } from "./paginas/gestao/Casamentos";
 import { Catalogo } from "./paginas/gestao/Catalogo";
+import { Configuracoes } from "./paginas/gestao/Configuracoes";
+import { Ofertas } from "./paginas/gestao/Ofertas";
 import { ProdutoGestao } from "./paginas/gestao/ProdutoGestao";
 import { RevisaoCasamento } from "./paginas/gestao/RevisaoCasamento";
 import { Servicos } from "./paginas/gestao/Servicos";
@@ -89,6 +91,14 @@ export function Rotas() {
             }
           />
           <Route
+            path="ofertas"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "ver_catalogo"]}>
+                <Ofertas />
+              </ExigeTodas>
+            }
+          />
+          <Route
             path="produtos/:id"
             element={
               <ExigeTodas permissoes={["ver_area_gestao", "ver_catalogo"]}>
@@ -109,6 +119,14 @@ export function Rotas() {
             element={
               <ExigeTodas permissoes={["ver_area_gestao", "ver_logs"]}>
                 <Atividade />
+              </ExigeTodas>
+            }
+          />
+          <Route
+            path="configuracoes"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "ver_configuracoes"]}>
+                <Configuracoes />
               </ExigeTodas>
             }
           />

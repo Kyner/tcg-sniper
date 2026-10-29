@@ -4,6 +4,28 @@ Passos extras de cada versão que muda o banco ou o jeito de subir os serviços,
 
 Da mais nova para a mais antiga.
 
+## Site novo, fase 3C (Configurações, Ofertas e Mensagens na Atividade)
+
+Sem migração e sem passo de dados: **não precisa de backup extra** (o backup diário das 04:00 segue valendo). Só código novo na `api` e no `web`.
+
+1. Atualize o código e recrie **todos** os serviços de uma vez:
+
+   ```bash
+   git pull
+   docker compose up -d --build
+   ```
+
+2. Depois do deploy, confira no site novo (`http://localhost:8090`), com uma conta admin:
+
+   - **Gestão → Configurações** abre; um grupo (por exemplo, Oportunidades) mostra os campos e a caixa **Efeito**. Mude um valor e confira que o Efeito aparece e que a barra com Descartar e Salvar surge; descarte, sem salvar.
+   - **Gestão → Ofertas** carrega a lista e os filtros respondem.
+   - **Gestão → Atividade** filtrada em "o quê = mensagem" mostra as mensagens do WhatsApp (a tela Mensagens do admin antigo virou esse filtro; "Reenviar" e "Descartar" ficam nos detalhes).
+   - O menu da gestão não tem mais link para o admin antigo (`:8000` continua no ar até a fase 4).
+   - Com uma conta de operador: Configurações aparece só para leitura (sem a barra de salvar).
+   - Não editar mais as configurações pelo admin antigo (ele grava o formulário inteiro sem conferir versão e pode desfazer o que foi salvo no site novo).
+
+3. Dois pontos sem dado ainda: os chips das categorias da Liga mostram "categoria N" (a tabela de nomes está vazia) e o grupo do WhatsApp aparece pelo ID (`…@g.us`). Ambos estão em `docs/PENDENCIAS.md`.
+
 
 ## Pacote de pequenas (2026-10-27, implantado às 17:08)
 

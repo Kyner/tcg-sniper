@@ -323,3 +323,87 @@ export interface DashboardGestao {
   oportunidades: { top: TopOportunidade[]; abertas: number; alertas_hoje: number; alertas_semana: number } | null;
   funil: FunilGestao | null;
 }
+
+/** Valor de um campo de Configurações: hora "HH:MM", decimal em texto, booleano, inteiro, lista de IDs de categoria. */
+export type ValorConfig = string | number | boolean | null | number[];
+
+export type TipoCampoConfig = "int" | "decimal" | "float" | "hora" | "texto" | "bool" | "escolha" | "categorias";
+
+/** GET /api/gestao/configuracoes. */
+export interface CampoConfig {
+  chave: string;
+  rotulo: string;
+  explicacao: string;
+  tipo: TipoCampoConfig;
+  padrao: ValorConfig;
+  minimo: number | null;
+  maximo: number | null;
+  opcoes: { valor: string; rotulo: string }[];
+  avancado: boolean;
+  vinculo: string | null;
+  valor: ValorConfig;
+}
+export interface GrupoConfig {
+  id: string;
+  titulo: string;
+  proposito: string;
+  tem_efeito: boolean;
+  campos: CampoConfig[];
+}
+export interface AvisoConfig {
+  tipo: string;
+  titulo: string;
+  descricao: string;
+  area: string;
+  destino: string;
+  agrupa: boolean;
+  ligado: boolean;
+  exemplo: string;
+}
+export interface Configuracoes {
+  grupos: GrupoConfig[];
+  versoes: Record<string, string>;
+  avisos: AvisoConfig[];
+  ia: { chave_configurada: boolean };
+}
+/** POST /api/gestao/configuracoes/efeito (null: o grupo não tem conta para mostrar). */
+export interface EfeitoConfig {
+  linhas: string[];
+  nivel: "info" | "aviso" | "erro";
+  barras: { rotulo: string; pct: number }[];
+}
+
+/** GET /api/gestao/ofertas: a melhor oferta da Amazon por produto da Liga. */
+export interface OfertaGestao {
+  produto_id: number;
+  produto: string;
+  imagem: string | null;
+  preco_liga: string | null;
+  anuncio: { asin: string; titulo: string; url: string; imagem: string | null };
+  preco: string | null;
+  /** Já arredondado para baixo em 2 casas; null sem preço na Liga. */
+  desconto_pct: string | null;
+  diferenca: string | null;
+  envio: "amazon" | "fba" | "proprio" | "desconhecido";
+  vendedor: { nome: string | null; envio: string };
+  confiavel: boolean;
+  verificado: boolean;
+  aberta: boolean;
+  risco: { desde: string; motivo: string } | null;
+  origem: "manual" | "sugerido_ia" | "automatico_ia" | "outro_confirmado" | null;
+  prime: boolean;
+  importada: boolean;
+  origem_envio: string | null;
+  /** Itens + impostos (sem frete) da conferência válida; null: não conferido. */
+  conferido: { preco: string; impostos: string | null; frete: string | null } | null;
+  coletado_em: string;
+}
+
+export interface ListaOfertas {
+  itens: OfertaGestao[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  categorias: string[];
+  desconto_min_pct: number;
+}

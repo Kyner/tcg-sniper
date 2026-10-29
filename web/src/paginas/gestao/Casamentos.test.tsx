@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
 
 const ITEM = {
@@ -104,6 +104,81 @@ describe("Casamentos", () => {
     renderizarEm("/gestao/casamentos");
     expect(await screen.findByRole("alert")).toHaveTextContent("Erro interno");
     await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+  });
+
+  it("Tentar de novo que responde depois de trocar o filtro é descartado", async () => {
+    const TODOS = "situacao=todos&ordem=preco_liga&pagina=1";
+    const CASADO = "situacao=casado&ordem=preco_liga&pagina=1";
+    apiFalsa({
+      ...base, [L(BASE)]: ok(LISTA),
+      [L(TODOS)]: [{ status: 500, corpo: { erro: "interno", mensagem: "Erro interno." } }, ok(LISTA)],
+      [L(CASADO)]: ok({ ...LISTA, itens: [{ ...ITEM, id: 7, nome: "Só no filtro novo" }], total: 1 }),
+    });
+    renderizarEm("/gestao/casamentos");
+    await screen.findByRole("table");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Situação" }), "todos");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Erro interno");
+    // Segura a nova tentativa até depois da troca de filtro.
+    const original = globalThis.fetch;
+    let soltar: () => void = () => {};
+    const porta = new Promise<void>((r) => { soltar = r; });
+    vi.stubGlobal("fetch", (entrada: RequestInfo | URL, init?: RequestInit) =>
+      String(entrada).endsWith(`?${TODOS}`) ? porta.then(() => original(entrada, init)) : original(entrada, init));
+    await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Situação" }), "casado");
+    expect(await within(await screen.findByRole("table")).findByText("Só no filtro novo")).toBeInTheDocument();
+    soltar();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("Goblin Box")).toBeNull();
+    expect(screen.getAllByText("Só no filtro novo").length).toBeGreaterThan(0);
+  });
+
+  it("depois de um erro a lista antiga não fica sob o alerta", async () => {
+    apiFalsa({
+      ...base, [L(BASE)]: ok(LISTA),
+      [L("situacao=todos&ordem=preco_liga&pagina=1")]: { status: 500, corpo: { erro: "interno", mensagem: "Erro interno." } },
+    });
+    renderizarEm("/gestao/casamentos");
+    await screen.findByRole("table");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Situação" }), "todos");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Erro interno");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Produtos" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Revisar em sequência" })).toBeNull();
+  });
+
+  it("página além da última oferece ir à primeira", async () => {
+    apiFalsa({
+      ...base,
+      [L("situacao=esperando_decisao&ordem=preco_liga&pagina=9")]: ok({ ...LISTA, itens: [], total: 2, pagina: 9 }),
+      [L(BASE)]: ok(LISTA),
+    });
+    renderizarEm("/gestao/casamentos?pagina=9");
+    expect(await screen.findByText(/Esta página não existe/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Ir para a primeira página" }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+  });
+
+  it("durante o Tentar de novo a lista do filtro antigo não volta para a tela", async () => {
+    const TODOS = "situacao=todos&ordem=preco_liga&pagina=1";
+    apiFalsa({
+      ...base, [L(BASE)]: ok(LISTA),
+      [L(TODOS)]: [{ status: 500, corpo: { erro: "interno", mensagem: "Erro interno." } }, ok(LISTA)],
+    });
+    renderizarEm("/gestao/casamentos");
+    await screen.findByRole("table");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Situação" }), "todos");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Erro interno");
+    const original = globalThis.fetch;
+    let soltar: () => void = () => {};
+    const porta = new Promise<void>((r) => { soltar = r; });
+    vi.stubGlobal("fetch", (entrada: RequestInfo | URL, init?: RequestInit) =>
+      String(entrada).endsWith(`?${TODOS}`) ? porta.then(() => original(entrada, init)) : original(entrada, init));
+    await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText("Goblin Box")).toBeNull();
+    soltar();
     expect(await screen.findByRole("table")).toBeInTheDocument();
   });
 });

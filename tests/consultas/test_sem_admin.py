@@ -1,10 +1,10 @@
-"""Guarda: o pacote neutro de consultas e a gestão nova não dependem do admin antigo (que será apagado)."""
+"""Guarda: os pacotes neutros (consultas, gestão, configurações e API) não dependem do admin antigo (que será apagado)."""
 
 import ast
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[2] / "src" / "tcg_sniper"
-PACOTES = ("consultas", "gestao")  # `gestao` pode ainda não existir
+PACOTES = ("consultas", "gestao", "configuracoes", "api")
 
 
 def _importa_admin(arquivo: Path) -> list[str]:
@@ -17,7 +17,7 @@ def _importa_admin(arquivo: Path) -> list[str]:
     return achados
 
 
-def test_consultas_e_gestao_nao_importam_admin():
+def test_pacotes_neutros_nao_importam_admin():
     infratores = {
         str(arquivo.relative_to(RAIZ)): achados
         for pacote in PACOTES

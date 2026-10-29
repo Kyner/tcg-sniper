@@ -3,18 +3,18 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-28 (Liga parada por desafio desde 27/10 16:54, a resolver; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: 3C, fase 4, segurança etapa 2).
+Última revisão: 2026-10-29 (fase 3C pronta na branch `worktree-fase3c`, merge pendente; Liga parada por desafio desde 27/10 16:54, a resolver; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
 0. **Liga parada por desafio do Cloudflare** (seção 0).
 1. Casamento e idioma (seção 3, "Coleta e casamento"): conferir os casamentos #322, #382 e #462 e o idioma de 4 anúncios.
 2. Acompanhar a primeira semana do monitor por grupo (seção 3).
-3. Site novo, fase 3, entrega 3C (Configurações, Ofertas e Mensagens), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4). A 3B está em produção desde 2026-10-25 20:37 (merge `266cc9d`). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+3. Merge e deploy da 3C (Configurações, Ofertas e Mensagens na Atividade; sem migração, ver `docs/IMPLANTACOES.md`), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
-7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão entram na 3C).
+7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão: ver "Pequenas da revisão da 3C" e as da 3A/3B).
 8. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
@@ -45,7 +45,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Migração do pacote: o CHECK recriado e o índice de `oportunidade` sem `NOT VALID`/`CONCURRENTLY` (trava curta, aceita neste tamanho); o teste da migração cruza `casamento` × `oportunidade` sem filtrar às linhas de teste.
 - [ ] Login sem o 9: `/entrar` resolve o número duas vezes (4 consultas, constante); o caso inverso (`+55DD8…` digitado com o 9) não é tratado.
 - [ ] Casador: gravar a falha ou a limpeza dentro dos `except` pode derrubar o ciclo se o banco cair; `produtos_para_gerar_termos` ficou com o parâmetro `excluir` sem uso.
-- [ ] Idioma: o selo no cartão só considera a avaliação deste par; `definir_idioma` recebe `agora` sem usar; o menu "definir idioma" não fecha com clique fora nem Esc; o selo mostra o código e o menu mostra o rótulo; `definir-idioma` só marca como suspeitos os anúncios antes sem idioma (não os já `ja`/`outro`).
+- [ ] Idioma: o selo no cartão só considera a avaliação deste par; `definir_idioma` recebe `agora` sem usar; o selo mostra o código e o menu mostra o rótulo; `definir-idioma` só marca como suspeitos os anúncios antes sem idioma (não os já `ja`/`outro`).
 - [ ] Desativar produto: lote grande segura as travas dos anúncios até o commit; `Alterados` é subclasse de `int` (um dataclass seria mais claro); `alternar_ativo` usa `agora_utc`; a suíte do front teve falhas intermitentes por tempo sob carga (testes antigos).
 - [ ] Lembretes: `reenviar`/`descartar` sempre rodam a checagem de resolução (descartes internos de alerta pendente pagam algumas consultas); `_lembrar` trava todos os avisos abertos em espera a cada minuto; falta teste unitário de `eh_do_proprio_aviso` e de que os 7 tipos têm lembrete.
 - [ ] Vigia: a própria `manutencao` não é vigiada (anterior ao pacote).
@@ -54,18 +54,27 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 ### Testes
 
 - [ ] Teste instável: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` falhou uma vez numa rodada completa e passa sozinho (suspeita de dependência do relógio ou da ordem). Investigar antes de confiar nele no CI.
-- [ ] Ponta a ponta com um operador nas telas da gestão além de Serviços (Casamentos, Catálogo, Atividade, Dashboard), para exercitar as permissões; Serviços já tem (3B, `e255b2e`).
 - [ ] `tests/test_compose_portas.py` só lê portas no formato curto (`"ip:porta:porta"`); uma porta no formato longo (`published:`) ou só `"8000"` passaria sem ser conferida.
 - [ ] Teste da migração `acao_gestao` não confere o `ON DELETE SET NULL` no schema; a lista de permissões do operador está fixa em `tests/api/test_auth.py` (derivar de `PADROES`).
 
-### Gestão do site novo (adiadas da revisão da 3A, 2026-10-22; entram na 3C)
+### Gestão do site novo (adiadas da revisão da 3A, 2026-10-22; sem pressa)
 
-- [ ] Catálogo: selo de situação sem tooltip; depois do lote não aparece quantos produtos mudaram; uma resposta antiga da lista pode desfazer na tela uma chave recém-trocada (só visual); a linha não mostra o nome em inglês, as lojas nem as contagens do casamento ("1 esperando você", "casado · 4 anúncios"), que a spec pede e a API já devolve; a chave registra a ação mesmo quando não muda nada.
-- [ ] Revisão de casamentos: Enter com o foco no menu ⋯ avança para o próximo produto; ↑/↓ não rolam até o cartão escolhido; "desfazer" muda o cartão destacado sem avisar; no celular a foto grande e os parecidos ficam acima dos anúncios (a spec pede a Liga compacta); `RevisaoCasamento.tsx` tem ~400 linhas (dividir); "Pular" e "Próximo" levam ao mesmo produto.
-- [ ] Lista de Casamentos: "Tentar de novo" sem cancelamento; depois de um erro, a lista antiga fica sob o alerta; página além da última sem link para a 1ª.
-- [ ] Menu da gestão: o botão do menu no celular não tem `aria-expanded`/`aria-controls` (o foco pelo teclado, a contagem do selo e a Atividade no lugar de Mensagens e Logs foram feitos na 3B, `7e02a55`).
 - [ ] API da gestão: a navegação da revisão refaz a lista filtrada a cada pedido; `DecisaoSaida.mensagem` nunca é preenchida; os tipos `Literal` e a classe de filtros repetem à mão as listas de situação e de filtros; o lote conta e aplica sem trava (dois usuários ao mesmo tempo podem mudar 1–2 produtos a mais; fica registrado em `acao_gestao`).
 - [ ] Código: lambdas com parâmetro `l` e nomes parecidos `ORDENS_CASAMENTO`/`_ORDENS_CASAMENTO` (`consultas/casamentos.py`); `parecidos_na_liga` corta sufixos de forma agressiva e ordena por nome, não por proximidade.
+
+### Pequenas da revisão da 3C (2026-10-29)
+
+- [ ] Efeito de Configurações: "IA · o que decide sozinha" mostra "até N" sem considerar a regra de idioma; o Efeito da busca ignora a releitura de produtos já casados.
+- [ ] Configurações, tela: botões `btn-xs` pequenos para toque no celular; categoria da Liga inválida ou repetida some do campo sem aviso; o Padrão de inteiros mostra milhar e o campo, o número cru; falta teste de estouro a 390 px; o teste do estado velho no aviso não reproduz a corrida real; `chat` do exemplo do aviso sem a estrutura `chat-*`; `input-bordered` não existe mais no DaisyUI 5 (inofensivo).
+- [ ] Ofertas: o tooltip perto da borda direita a 390 px não foi conferido; os cartões valem até `lg` (a spec dizia `md`).
+- [ ] Menu e Dashboard: links desconhecidos do painel caem em `/gestao` sem aviso (o teste só varre alguns prefixos; conferir se o Dashboard desenha a ação "Já conferi" do carrinho); o teste "sem link para o admin antigo" é fraco.
+- [ ] Atividade: URL editada à mão com `situacao=pendente` ou `destino` sem `o_que=mensagem` aplica um filtro invisível.
+- [ ] Configurações: o botão Voltar do navegador não avisa sobre alterações não salvas (o site usa `BrowserRouter`, sem `useBlocker`).
+- [ ] Atividade mostra o antes→depois das configurações (ids dos grupos do WhatsApp, `host_publico`) para quem tem `ver_logs` sem `ver_configuracoes`: decidir se mascara os valores de `geral.*`.
+- [ ] Catálogo: a lista pedida antes de o PATCH da troca gravar ainda pode trazer a chave antiga (corrida rara); o teste dos 5 s da mensagem de Serviços é frágil (espiona `setTimeout`); o `aside` com `display: contents` da revisão pode perder o marco de acessibilidade.
+
+- [ ] **Nomes das categorias da Liga:** `NOMES_CATEGORIAS` (`src/tcg_sniper/configuracoes/geral_liga.py`) está vazio; os chips de Configurações → LigaMagic mostram "categoria N". Preencher olhando a Liga (exige abrir as categorias).
+- [ ] **Nomes dos grupos do WhatsApp:** Configurações mostra só o ID (`…@g.us`) dos grupos admin e de oportunidades; o projeto não tem chamada da Evolution para listar grupos. Se valer, listar pela Evolution e mostrar o nome.
 
 ### Pequenas da revisão da 3B (2026-10-25; adiadas, sem pressa)
 
@@ -78,15 +87,11 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Atividade (back): `atividade.py` tem 730 linhas (virar pacote se crescer); `_SERVICO_DA_ORIGEM` repete as origens de `avisos/catalogo.py`; os índices da migração não usam `CONCURRENTLY` (trava curta de escrita no deploy); `estado_aviso.ultimo_em` muda e um aviso reaberto pode repetir entre páginas; o índice de `oferta_amazon` é `(lida_em, anuncio_id)`, não de coluna única (aceito).
 - [ ] Atividade (API e tela): `de`/`ate` com `+HH:MM` precisam de URL-encode (o 422 confunde); `FiltroAtividade.mostrar_texto_mensagem` começa em `True` (falha aberta para chamadores futuros; trocar para `False`) e há uma linha em branco sobrando; `de` maior que `ate` não é validado (lista vazia); o teste "exige `ver_logs`" só confere a ausência do título; "Descartar" aparece para mensagem individual (o back decide); trocar o filtro A→B→A ou clicar duas vezes na mesma busca pode repetir uma página (um contador de geração resolveria).
 - [ ] Dashboard: `rotas_gestao_dashboard` importa `NOMES_TELA`/`ORDEM` de outro módulo de rotas; `top_oportunidades` carrega todas as abertas para fatiar 3.
-- [ ] Tela de Serviços: a recarga de 60 s pode sobrescrever o estado de uma ação recém-feita; ação que deu certo seguida de GET que falha mostra erro; nos cartões do celular a chave não tem rótulo visível, a dica só aparece com o mouse e a mensagem de sucesso nunca some; os testes usam `querySelector` por `href` em vez de papel e nome (o menu agora também tem "Atividade").
+- [ ] Tela de Serviços: nos cartões do celular a dica (o detalhe do "agora") só aparece com o mouse; os testes usam `querySelector` por `href` em vez de papel e nome (o menu agora também tem "Atividade").
 - [ ] Teste "Entrar" do front estourou o tempo uma vez sob carga (acompanhar se é instável).
-- [ ] Atividade mostra "US$ 0.000000" em chamada da IA de custo zero (esconder quando 0).
 - [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (id acima de 2³¹ dá 500; reusar `MAX_ID`).
-- [ ] Dashboard: rótulo "Ligar" para quem não pode pausar serviços (usar "Ver"); links das oportunidades exigem também `ver_area_negocio`.
-- [ ] `destino_novo` perde o filtro de mensagens pendentes (`/mensagens?situacao=pendente`).
 - [ ] "iniciando…" por 10 min em Liga/WhatsApp/Backup, que esperam o próprio horário (não mostrar para esses).
 - [ ] `listar` dos serviços repete `ultimo_registro` para monitor, casador e WhatsApp.
-- [ ] Guarda "não importa admin" não cobre o pacote `api`.
 
 ### Oportunidades e monitor da Amazon
 
@@ -94,7 +99,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Fim da oportunidade: `alertas` começa em 1 ao abrir mesmo com o aviso de oportunidade desligado (padrão do banco); o sub-projeto B deve contar pelas mensagens se precisar do número exato.
 - [ ] `docs/IMPLANTACOES.md`, fim da oportunidade: "sem carência" onde o certo é "sem risco marcado" (só redação).
 - [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
-- [ ] Teste de Ofertas com produto sem preço na Liga.
 
 ### Casamento e idioma
 
@@ -106,7 +110,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
 - [ ] `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
 - [ ] `repositorio_acesso.travar_limite` ainda cita o "limite total" na docstring, e o caminho sem número (chave fixa) e `contar_pedidos` sem número ficaram sem uso desde a segurança etapa 1.
-- [ ] Front: ao fechar um modal, o foco não volta para o botão que o abriu.
 
 ### Avisos, vigia e notificador
 
@@ -177,8 +180,8 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] **Site novo, fase 3 — área administrativa**, organizada por tarefa (spec de 2026-10-21: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, a partir da auditoria de UX do mesmo dia), em três entregas:
   - [x] **3A. Casamentos e Catálogo** (merge `43fdd04`, em produção desde 2026-10-22 11:37; detalhe em "Concluídas").
   - [x] **3B. Serviços, Atividade e Dashboard** (merge `266cc9d`, em produção desde 2026-10-25 20:37; detalhe em "Concluídas").
-  - [ ] **3C. Configurações, Ofertas e Mensagens**: Configurações por objetivo com a caixa "Efeito"; Ofertas no padrão novo; o que sobrar dos 52 achados da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo (seção 2).
-- [ ] **Site novo, fase 4 — desligar o admin antigo:** apagar `admin/`, o serviço `admin` do compose e a porta 8000, depois de a 3C cobrir o resto. Cobertura do admin antigo (rota antiga → onde fica no site novo):
+  - [x] **3C. Configurações, Ofertas e Mensagens** (pronta na branch `worktree-fase3c`, merge pendente; detalhe em "Concluídas"). Do que sobrou da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo, o que não entrou fica na seção 2.
+- [ ] **Site novo, fase 4 — desligar o admin antigo:** apagar `admin/`, o serviço `admin` do compose e a porta 8000, depois do merge da 3C. Cobertura do admin antigo (rota antiga → onde fica no site novo):
 
 | Rota antiga | Onde fica |
 |---|---|
@@ -190,8 +193,11 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 | `POST /amazon/monitor/ligar|desligar`, `/amazon/checkout/ligar|desligar`, `/amazon/checkout/retomar` | `POST /api/gestao/servicos/amazon_monitor/{monitor|checkout}/{ligar|desligar}`, `…/checkout/retomar` |
 | `POST /amazon/carrinho/{id}/conferido` | `POST /api/gestao/servicos/carrinho/{id}/conferido` |
 | `GET /logs` (6 abas) | `GET /api/gestao/atividade` + `/gestao/atividade` |
-| `GET /mensagens`, `POST /mensagens/{id}` (reenviar, descartar) | Atividade (o quê = mensagem) + `POST /api/gestao/mensagens/{id}/{reenviar|descartar}` |
-| Restantes (`/ofertas`, `/configuracoes*`, `/catalogo*`, `/produto*`, `/casamentos*`) | 3A (feito) ou 3C |
+| `GET /mensagens` (filtros situação e destino), `POST /mensagens/{id}` (reenviar, descartar) | Atividade (o quê = mensagem, com `destino` e `situacao=pendente`) + `POST /api/gestao/mensagens/{id}/{reenviar|descartar}` |
+| `GET /configuracoes`, `POST /configuracoes/{geral,liga,amazon,ia}` | `GET`/`PUT /api/gestao/configuracoes` + `/gestao/configuracoes` (e `POST /api/gestao/configuracoes/efeito` para a caixa "Efeito") |
+| `POST /configuracoes/avisos` | `PATCH /api/gestao/avisos/{tipo}` (grupo "WhatsApp e avisos") |
+| `GET /ofertas` | `GET /api/gestao/ofertas` + `/gestao/ofertas` |
+| Restantes (`/catalogo*`, `/produto*`, `/casamentos*`) | 3A (feito) |
 
 - [ ] **Publicar na internet** (depois de muitos testes em casa e da seção 1): front estático no Cloudflare Pages (ou Vercel), API pelo Cloudflare Tunnel, Cloudflare Access na frente do noVNC e da gestão. A Vercel não serve para a API Python com o banco em casa.
 - [ ] **Vender acesso às oportunidades**: assinantes na área de negócio, no mesmo sistema (sem multi-cliente). Assinatura, pagamento e planos ficam num projeto próprio; a base de permissões finas já veio na fase 1. Depende da seção 1 e de publicar na internet.
@@ -240,6 +246,24 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Fase 3C — Configurações, Ofertas e Mensagens na gestão (branch `worktree-fase3c`, merge pendente; sem migração)
+
+Plano `docs/superpowers/plans/2026-10-28-fase3c-configuracoes-ofertas.md`. Decisões do plano: Efeito calculado na API, categorias da Liga por ID, grupos do WhatsApp por ID, avisos agrupados por origem (37 tipos), Mensagens como filtro da Atividade.
+
+- [x] Base neutra: validação de configuração e consulta de ofertas fora do admin antigo (`b74f07b`).
+- [x] Configurações, API e Efeito: grupos por objetivo, caixa "Efeito" (com barras do gasto da IA), salvar com versões e avisos do WhatsApp (`8a3629f`, `59d5997`, `83c9852`, `5d9000d`).
+- [x] Configurações, tela: grupos que abrem e fecham, barra Descartar/Salvar, aviso ao sair com alteração, avisos com exemplo (`378d210`, `4951f9c`).
+- [x] Ofertas na gestão (`c23110f`, `29bc823`).
+- [x] Menu da gestão sem links para o admin antigo; Dashboard aponta para as telas novas (`df2ed87`).
+- [x] Mensagens dentro da Atividade: filtro de destino e situação pendente; texto de mensagem individual continua oculto sob o filtro (`6169321`, `bfad526`).
+- [x] Pequenas de tela da 3A/3B: Catálogo (selos, contagens, lote, lista velha), Revisão de casamentos (Enter, setas, destaque, celular, menu de idioma), lista de Casamentos (retry, erro, página fora), Serviços (corrida da recarga, rótulo da chave, mensagem), Atividade sem "US$ 0.000000", Dashboard ("Ver" sem `pausar_servicos`, links por permissão), foco do modal, classes do DaisyUI sempre literais com teste-guarda (`3aea766`, `3b67ba8`, `4a54026`, `4098a8f`, `0f89f61`, `853b111`, `494685f`, `2c37dd5`, `68f746b`).
+- [x] Ponta a ponta (admin edita Oportunidades e vê a ação na Atividade; operador em leitura e nas telas da gestão; Ofertas filtra) e layout de Configurações e Ofertas a 390/1440 px nos dois temas (`673c50d`).
+- [x] `destino_novo` leva o filtro de mensagens pendentes (`/mensagens?situacao=pendente`) à Atividade (`6169321`).
+- [x] Teste de Ofertas com produto sem preço na Liga, `test_sem_preco_na_liga_aparece_sem_desconto` (`c23110f`).
+- [x] Guarda "não importa admin" cobre também o pacote `api` (`b74f07b`).
+- [x] Revisão final: ligar/desligar serviços e a marca de "sem login" não mudam mais a versão das Configurações (fim do falso "As configurações mudaram"); avisos "IA desligada" e "monitor não cabe" abrem a seção certa de Configurações.
+- [x] Spec: "Pular" e "Próximo" viraram um botão só, "Próximo →" (eram o mesmo link).
 
 ### Conferido em produção (2026-10-26 a 2026-10-28)
 

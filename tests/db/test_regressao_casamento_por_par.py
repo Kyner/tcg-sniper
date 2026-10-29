@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from tcg_sniper.admin import consultas_amazon
 from tcg_sniper.consultas import casamentos, painel
 from tcg_sniper.consultas import menu as consultas_menu
+from tcg_sniper.consultas import ofertas as consultas_ofertas
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db.session import config_alembic
 
@@ -160,6 +161,6 @@ def test_numeros_iguais_aos_de_antes_nos_dados_migrados(migrado, config):
         assert [c.asin for c in repo_amz.candidatas_ao_checkout(s, AGORA, cfg)] == ["BREG000001"]
         ofertas = {
             l.anuncio.asin: l.origem_casamento.value
-            for l in consultas_amazon.ofertas(s, consultas_amazon.FiltroOfertas(), cfg)
+            for l in consultas_ofertas.ofertas(s, consultas_ofertas.FiltroOfertas(), cfg)
         }
         assert ofertas == {"BREG000001": "automatico_ia", "BREG000004": "manual", "BREG000007": "manual"}

@@ -286,7 +286,7 @@ As páginas ficam em `dados/capturas/` (fora do git) e só entram em `tests/fixt
 
 ### 11. Site novo e login pelo WhatsApp
 
-O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (o site, em `http://localhost:8090`). Eles já subiram no `docker compose up -d --build` do passo 8; sem uma `SEGREDO_API` válida no `.env` (passo 2), a `api` não sobe e o log diz o que fazer. O admin antigo continua em `:8000` até as telas mudarem para cá. Quem já tinha uma instalação de antes do site novo segue as [notas de implantação](docs/IMPLANTACOES.md#site-novo-front-e-login-pelo-whatsapp).
+O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (o site, em `http://localhost:8090`). Eles já subiram no `docker compose up -d --build` do passo 8; sem uma `SEGREDO_API` válida no `.env` (passo 2), a `api` não sobe e o log diz o que fazer. O admin antigo continua em `:8000` até a fase 4, mas o site novo já não tem link para ele: toda a gestão está aqui. Quem já tinha uma instalação de antes do site novo segue as [notas de implantação](docs/IMPLANTACOES.md#site-novo-front-e-login-pelo-whatsapp).
 
 1. Crie o superadmin (você):
 
@@ -294,7 +294,7 @@ O site novo roda em dois containers: `api` (JSON, em `127.0.0.1:8100`) e `web` (
    docker compose exec api tcg-sniper criar-superadmin "<Nome>" "<número>"
    ```
 
-2. Confira no admin antigo (`:8000`): em Configurações → Avisos, o aviso "Código de acesso" ligado (desligado, ninguém recebe código); em Serviços, o `notificador` rodando (ou `docker compose ps notificador`).
+2. Confira no site novo, em Gestão → Configurações → WhatsApp e avisos, o aviso "Código de acesso" ligado (desligado, ninguém recebe código), e em Gestão → Serviços o `notificador` rodando (ou `docker compose ps notificador`).
 3. Abra `http://localhost:8090` neste PC.
 
 Para entrar, digite o seu número e o código que chega no WhatsApp (vale 5 minutos). Você é o superadmin: o único que cria, edita, rebaixa ou desativa admins, e ninguém (nem você) o rebaixa ou desativa pelo site. Em Gestão → Usuários cadastre as outras pessoas com o papel de cada uma (grupo, operador ou admin); admins comuns gerenciam só operadores e grupo. Em Gestão → Acessos escolha o que cada papel pode fazer (o admin pode tudo, sempre). Toda mudança de usuário ou de acesso avisa o grupo admin. Para passar o superadmin a outra pessoa já cadastrada (ex.: número novo): `docker compose exec api tcg-sniper trocar-superadmin "(DDD) número"` (o antigo continua admin).
@@ -304,13 +304,15 @@ A área de negócio do site novo tem duas telas, ambas atrás de `ver_oportunida
 - **Oportunidades** (`/`): números do período (7, 30 ou 90 dias), as oportunidades ativas agora (com o selo de risco), as quase lá (casados com desconto entre o piso e o mínimo), um gráfico por dia e a lista das encerradas, com duração e motivo.
 - **Produto** (`/produtos/<id>`): a curva de preço do produto (menor preço elegível da Amazon, "a partir de" e média da Liga, preço alvo), com as faixas em que houve oportunidade, a recorrência e as oportunidades do produto.
 
-A área de gestão (Gestão no menu, para quem tem `ver_area_gestao`) já tem cinco telas do admin antigo (o admin antigo segue no ar até a fase 4):
+A área de gestão (Gestão no menu, para quem tem `ver_area_gestao`) já tem sete telas, que cobrem o admin antigo (ele segue no ar até a fase 4, sem link no menu):
 
 - **Casamentos** (`/gestao/casamentos`): os produtos da LigaMagic com busca, filtros e ordem; "Revisar em sequência" abre um produto por vez, com os anúncios da Amazon para decidir, confirmados e ignorados (confirmar, ignorar, passar para outro produto, casar por link, rebuscar, reavaliar com a IA e gerar termos de busca), e "Próximo" mantém os filtros da lista. Atalhos no computador: C confirma, I ignora, setas escolhem o anúncio e Enter vai ao próximo produto.
 - **Catálogo** (`/gestao/catalogo`): todos os produtos, com a chave para monitorar ou parar de monitorar, ações em lote com confirmação do número exato de produtos, e a página do produto (`/gestao/produtos/<id>`) com preços, casamentos e curva. Desligar um produto nunca apaga o histórico de preços.
 - **Dashboard** (`/gestao`): "Precisa de você" (o que está parado, com falha ou com desafio, com o botão Ver ou Ligar), a saúde dos serviços numa linha (incluindo backup), as oportunidades agora e o funil (monitorados, casados, esperando decisão, com preço).
 - **Serviços** (`/gestao/servicos`): os seis serviços com um estado único (rodando, parando…, parado de verdade, iniciando…, com problema), o último ok, a chave ligar/desligar (permissão `pausar_servicos`), "Rodar agora" na Liga e no Casador, "Retomar" depois de CAPTCHA, e na Amazon o monitor, a conferência de checkout e o carrinho a conferir. "Abrir" (noVNC) só aparece para quem pode pausar e só abre neste PC. Cada ação fica registrada.
-- **Atividade** (`/gestao/atividade`): uma linha do tempo única no lugar das seis abas de Logs e da tela Mensagens: coletas, buscas, IA, checkout, monitor, manutenção, backup, avisos, mensagens do WhatsApp e ações da gestão, com filtros por serviço, "o quê", situação, período e busca por produto, ASIN ou texto. Reenviar e descartar mensagens ficam nos detalhes (permissão `reenviar_mensagens`); o texto das mensagens só aparece para quem tem `ver_mensagens`.
+- **Atividade** (`/gestao/atividade`): uma linha do tempo única no lugar das seis abas de Logs e da antiga tela Mensagens (que agora é um filtro daqui: "o quê" = mensagem, com destino e a situação "pendente"): coletas, buscas, IA, checkout, monitor, manutenção, backup, avisos, mensagens do WhatsApp e ações da gestão, com filtros por serviço, "o quê", situação, período e busca por produto, ASIN ou texto. Reenviar e descartar mensagens ficam nos detalhes (permissão `reenviar_mensagens`); o texto das mensagens só aparece para quem tem `ver_mensagens`.
+- **Configurações** (`/gestao/configuracoes`): os ajustes organizados por objetivo (Oportunidades, Vendedores, busca e monitor da Amazon, checkout, bloqueio, LigaMagic, IA, WhatsApp e avisos, Sistema), cada grupo com a frase do que faz e a caixa **Efeito**, que mostra o que os valores digitados causariam (por exemplo, quantas oportunidades abertas e quase lá, ou quanto a IA gastaria) antes de salvar. Uma barra fixa com Descartar e Salvar manda só o que mudou; se outra pessoa salvou antes, a tela pede para recarregar. Os avisos do WhatsApp (ligar e desligar cada tipo, com exemplo) ficam no fim. Ver exige `ver_configuracoes`; salvar, `editar_configuracoes` (sem ela a tela é só leitura). Cada salvamento aparece na Atividade como ação da gestão. Segredos continuam no `.env`.
+- **Ofertas** (`/gestao/ofertas`): a melhor oferta da Amazon por produto contra a Liga, com filtros por nome, categoria, desconto mínimo (e um atalho para o desconto configurado), vendedor e situação, e ordem por desconto, diferença em R$, leitura ou nome. Só leitura.
 
 As imagens de produto são copiadas para um bucket público do R2 (`R2_BUCKET_IMAGENS`, `URL_PUBLICA_IMAGENS`); sem essas variáveis o site funciona sem fotos.
 
@@ -357,7 +359,9 @@ docker compose up -d --build
 
 ## Uso no dia a dia
 
-### Página de admin
+### Página de admin (antiga)
+
+As telas **Ofertas**, **Mensagens** e **Configurações** abaixo já existem no site novo (Gestão → Ofertas, Atividade e Configurações); o admin antigo sai na fase 4.
 
 O menu fica na lateral (recolhe para ícones no computador; botão de menu no celular).
 
@@ -553,7 +557,7 @@ Pronto:
 Próximos, nesta ordem:
 
 1. **Site novo, fase 2:** área de negócio (oportunidades, funil, resultados).
-2. **Site novo, fases 3 e 4:** telas de administração no site novo e desligamento do admin antigo.
+2. **Site novo, fase 4:** desligamento do admin antigo (as telas de administração, fases 3A a 3C, já estão no site novo).
 3. **Segurança antes da internet** e **publicação**: front estático, API por túnel, controle de acesso na frente da gestão e do noVNC.
 4. **Assinatura das oportunidades** para quem não quer instalar.
 5. **Margem líquida real:** comissão da LigaMagic, frete, imposto, cupons e cashback no cálculo, com alerta por margem mínima.

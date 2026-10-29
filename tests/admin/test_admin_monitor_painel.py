@@ -182,7 +182,10 @@ def test_dashboard_avisa_monitor_que_nao_cabe_no_intervalo(s, config):
         confirmado(s, f"B0LOG0000{i}", lido_em=AGORA - timedelta(minutes=1))
     aplicar_config(s, {"monitor_max_paginas_hora": 10}, AGORA)  # 3 anúncios a cada 15 min = 12 páginas/h
     [aviso] = avisos_de(s, config)
-    assert aviso.tipo == "warning" and "12 páginas por hora" in aviso.texto and aviso.link == "/configuracoes"
+    assert aviso.tipo == "warning" and "12 páginas por hora" in aviso.texto and aviso.link == "/configuracoes?secao=amazon"
+    from tcg_sniper.consultas import dashboard
+
+    assert aviso.chave == "monitor_nao_cabe" and dashboard.destino_de(aviso) == "/gestao/configuracoes?grupo=monitor"
 
 
 def test_capacidade_por_hora_usa_as_pausas_e_o_tempo_da_pagina(s):
@@ -197,7 +200,7 @@ def test_aviso_de_capacidade_conta_so_a_fila_rapida_e_usa_o_menor_limite(s, conf
     aplicar_config(s, {"monitor_max_paginas_hora": 500, "monitor_intervalo_min": 5}, AGORA)
     [aviso] = avisos_de(s, config)  # 18 rápidos a cada 5 min = 216/h, acima da capacidade de 211 (o teto é 500)
     assert "precisa de 216 páginas por hora para ler os 18 anúncios da fila rápida a cada 5 min" in aviso.texto
-    assert "(211 por hora: teto 500, pausas de 8–20 s)" in aviso.texto and aviso.link == "/configuracoes"
+    assert "(211 por hora: teto 500, pausas de 8–20 s)" in aviso.texto and aviso.link == "/configuracoes?secao=amazon"
 
 
 def test_lentos_atrasados_nao_geram_aviso_de_atraso(s, config):

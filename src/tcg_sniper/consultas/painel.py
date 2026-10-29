@@ -87,7 +87,7 @@ class Aviso:
     rotulo_link: str
     acao: str | None = None  # POST de um botão ao lado do link (ex.: "Já conferi")
     rotulo_acao: str | None = None
-    chave: str | None = None  # marca o tipo do aviso para o Dashboard novo ("servico_pausado", "servico_problema", "monitor_atrasado")
+    chave: str | None = None  # marca o tipo do aviso para o Dashboard novo ("servico_pausado", "servico_problema", "monitor_atrasado", "monitor_nao_cabe")
 
 
 @dataclass(frozen=True)
@@ -229,6 +229,39 @@ def capacidade_por_hora(cfg: ConfigAmazon) -> int:
     return math.floor(3600 / ((cfg.pausa_min_s + cfg.pausa_max_s) / 2 + SEGUNDOS_POR_PAGINA))
 
 
+@dataclass(frozen=True)
+class CargaMonitor:
+    """O que a fila rápida do monitor pede por hora e o que cabe (o menor entre o teto e a capacidade)."""
+
+    rapidos: int
+    intervalo_min: int
+    exigido: int  # páginas por hora para ler cada rápido a cada `intervalo_min`
+    teto: int  # monitor_max_paginas_hora
+    capacidade: int  # capacidade_por_hora (estimativa)
+
+    @property
+    def limite(self) -> int:
+        return min(self.teto, self.capacidade)
+
+    @property
+    def estoura(self) -> bool:
+        return self.exigido > self.limite
+
+    @property
+    def intervalo_sugerido_min(self) -> int:
+        """Intervalo em que os rápidos cabem no limite (o intervalo efetivo quando estoura)."""
+        return math.ceil(self.rapidos * 60 / self.limite)
+
+
+def carga_monitor(rapidos: int, cfg: ConfigAmazon) -> CargaMonitor:
+    """A conta do aviso "o monitor não cabe" (Dashboard) e do Efeito de Configurações: uma conta só."""
+    intervalo = cfg.monitor_intervalo_min
+    return CargaMonitor(
+        rapidos=rapidos, intervalo_min=intervalo, exigido=math.ceil(rapidos * 60 / intervalo),
+        teto=cfg.monitor_max_paginas_hora, capacidade=capacidade_por_hora(cfg),
+    )
+
+
 NOME_BUSCA = "Amazon (busca)"
 NOME_MONITOR = "Amazon (monitor e checkout)"
 
@@ -314,7 +347,7 @@ def _saude_casador(s: Session, agora: datetime, cfg: Config, chave_ia: bool) -> 
         )
     if not cfg_ia.ligado:
         return SaudeServico(
-            "Casador (IA)", "inativo", "IA desligada", "Liga em Configurações → IA.", "/configuracoes", "desligada"
+            "Casador (IA)", "inativo", "IA desligada", "Liga em Configurações → IA.", "/configuracoes?secao=ia", "desligada"
         )
     if not chave_ia:
         return SaudeServico(
@@ -519,18 +552,18 @@ def _avisos_monitor(s: Session, agora: datetime, cfg: Config) -> list[Aviso]:
         return lista
     intervalo = cfg_amazon.monitor_intervalo_min
     situacao = repo_amz.situacao_monitor(s, agora, cfg_amazon)
-    exigido = math.ceil(situacao.rapidos * 60 / intervalo)
-    limite = min(cfg_amazon.monitor_max_paginas_hora, capacidade_por_hora(cfg_amazon))
-    if exigido > limite:
+    carga = carga_monitor(situacao.rapidos, cfg_amazon)
+    if carga.estoura:
         lista.append(
             Aviso(
                 "warning",
-                f"O monitor precisa de {exigido} páginas por hora para ler os {situacao.rapidos} anúncios da fila "
-                f"rápida a cada {intervalo} min, acima do que cabe ({limite} por hora: teto "
+                f"O monitor precisa de {carga.exigido} páginas por hora para ler os {situacao.rapidos} anúncios da fila "
+                f"rápida a cada {intervalo} min, acima do que cabe ({carga.limite} por hora: teto "
                 f"{cfg_amazon.monitor_max_paginas_hora}, pausas de {cfg_amazon.pausa_min_s}–{cfg_amazon.pausa_max_s} s): "
                 "as leituras da fila rápida vão atrasar.",
-                "/configuracoes",
+                "/configuracoes?secao=amazon",
                 "Ajustar em Configurações",
+                chave="monitor_nao_cabe",
             )
         )
     local = agora.astimezone(cfg.zona)

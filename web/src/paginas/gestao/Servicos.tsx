@@ -1,8 +1,8 @@
 // Gestão: os seis serviços, cada um com selo de estado, a chave ligar/desligar e as ações. Cartões no celular e tabela a
 // partir de md (o mesmo HTML, com classes responsivas). Toda ação atualiza a lista no lugar; a lista se recarrega a cada 60 s.
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { chamarApi } from "../../api";
+import { chamarApi, ErroApi } from "../../api";
 import { Carregando } from "../../componentes/Carregando";
 import { SeloEstado } from "../../componentes/SeloEstado";
 import { dataHora, horaMinuto } from "../../formato";
@@ -10,6 +10,7 @@ import { useSessao } from "../../sessao";
 import type { AcaoServico, ListaServicos, ResultadoServico, ServicoGestao } from "../../tipos";
 
 const RECARGA_MS = 60_000;
+const MENSAGEM_MS = 5_000;
 const BASE = "/api/gestao/servicos";
 
 function textoTransicao(s: ServicoGestao): string | null {
@@ -25,9 +26,20 @@ export function Servicos() {
   const podeAgir = pode("pausar_servicos");
   const [dados, setDados] = useState<ListaServicos | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [mensagem, setMensagem] = useState<string | null>(null);
+  // Um objeto novo a cada ação: a mesma mensagem de novo recomeça a contagem para sumir.
+  const [mensagem, setMensagem] = useState<{ texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [recarga, setRecarga] = useState(0);
+  // Conta as ações (no começo e no fim de cada uma): uma recarga silenciosa pedida antes ou durante uma ação chega
+  // com o estado de antes dela e é descartada.
+  const acoes = useRef(0);
+
+  // A mensagem de sucesso some sozinha.
+  useEffect(() => {
+    if (mensagem === null) return;
+    const id = window.setTimeout(() => setMensagem(null), MENSAGEM_MS);
+    return () => window.clearTimeout(id);
+  }, [mensagem]);
 
   useEffect(() => {
     const sinal = { cancelado: false };
@@ -43,7 +55,11 @@ export function Servicos() {
   useEffect(() => {
     let vivo = true;
     const timer = setInterval(() => {
-      chamarApi<ListaServicos>(BASE).then((r) => { if (vivo) setDados(r); }, () => undefined);
+      const pedidaEm = acoes.current;
+      chamarApi<ListaServicos>(BASE).then(
+        (r) => { if (vivo && pedidaEm === acoes.current && pedidaEm % 2 === 0) setDados(r); },
+        () => undefined,
+      );
     }, RECARGA_MS);
     return () => { vivo = false; clearInterval(timer); };
   }, []);
@@ -51,14 +67,21 @@ export function Servicos() {
   const agir = useCallback(async (caminho: string) => {
     setOcupado(true);
     setErro(null);
+    acoes.current += 1; // ímpar: ação em andamento
     try {
       const r = await chamarApi<ResultadoServico>(`${BASE}/${caminho}`, { metodo: "POST" });
-      setMensagem(r.mensagem);
-      setDados(await chamarApi<ListaServicos>(BASE));
+      setMensagem({ texto: r.mensagem });
+      try {
+        setDados(await chamarApi<ListaServicos>(BASE));
+      } catch (e) {
+        // A ação deu certo; se a lista não veio, a próxima recarga traz (só a sessão vencida conta).
+        if (e instanceof ErroApi && e.status === 401) tratarErro(e);
+      }
     } catch (e) {
       setMensagem(null);
       setErro(tratarErro(e));
     } finally {
+      acoes.current += 1;
       setOcupado(false);
     }
   }, [tratarErro]);
@@ -78,7 +101,7 @@ export function Servicos() {
       )}
       {mensagem && (
         <div role="status" className="alert alert-info">
-          <span>{mensagem}</span>
+          <span>{mensagem.texto}</span>
         </div>
       )}
       {dados && (
@@ -125,14 +148,17 @@ function Linha({ s, podeAgir, ocupado, agir }: LinhaProps) {
         </td>
         <td className="block p-0 py-1 md:table-cell md:p-3">
           {podeAgir && (
-            <input
-              type="checkbox"
-              className="toggle toggle-success"
-              aria-label={`${s.ligado ? "Desligar" : "Ligar"} ${s.nome}`}
-              checked={s.ligado}
-              disabled={ocupado || !(tem("ligar") || tem("desligar"))}
-              onChange={() => agir(caminhoChave)}
-            />
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="toggle toggle-success"
+                aria-label={`${s.ligado ? "Desligar" : "Ligar"} ${s.nome}`}
+                checked={s.ligado}
+                disabled={ocupado || !(tem("ligar") || tem("desligar"))}
+                onChange={() => agir(caminhoChave)}
+              />
+              <span className="text-sm md:hidden">{s.ligado ? "Serviço ligado" : "Serviço desligado"}</span>
+            </label>
           )}
         </td>
         <td className="block p-0 pt-2 md:table-cell md:p-3">
