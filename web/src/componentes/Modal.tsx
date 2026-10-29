@@ -1,7 +1,7 @@
 // Janela modal do DaisyUI sobre o <dialog> nativo: abre com showModal() (foco preso, fundo inerte) e fecha no
 // Escape (onde quer que esteja o foco) ou no botão da própria tela (aoFechar). Sem showModal (ex.: jsdom nos
 // testes), abre com o atributo open.
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function Modal({
   tituloId,
@@ -14,19 +14,25 @@ export function Modal({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const fechar = useRef(aoFechar);
+  // Quem estava com o foco ao abrir (em geral, o botão que abriu a janela), lido antes de a janela tomar o foco.
+  const [origem] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
   useEffect(() => {
     fechar.current = aoFechar; // o aoFechar mais novo, sem refazer o ouvinte do Escape
   });
 
   useEffect(() => {
     const dialogo = ref.current;
-    if (!dialogo || dialogo.open) return;
-    try {
-      dialogo.showModal();
-    } catch {
-      dialogo.setAttribute("open", "");
+    if (dialogo && !dialogo.open) {
+      try {
+        dialogo.showModal();
+      } catch {
+        dialogo.setAttribute("open", "");
+      }
     }
-  }, []);
+    return () => {
+      if (origem?.isConnected) origem.focus(); // ao fechar, o foco volta para lá
+    };
+  }, [origem]);
 
   useEffect(() => {
     function tecla(evento: KeyboardEvent) {
