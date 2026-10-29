@@ -1,5 +1,6 @@
 """Tabela de saída do WhatsApp (`mensagem_saida`) e o estado do serviço notificador."""
 
+from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select, update
@@ -72,12 +73,15 @@ def apagar_texto_individual(mensagem: MensagemSaida) -> None:
         mensagem.texto = TEXTO_APAGADO
 
 
-def lote_pendente(s: Session, agora: datetime, limite: int = 20) -> list[MensagemSaida]:
+def lote_pendente(
+    s: Session, agora: datetime, limite: int = 20, excluir: Collection[int] = ()
+) -> list[MensagemSaida]:
     """Pendentes vencidas, das mais antigas, travadas para esta transação. Linhas travadas por
-    outra transação são puladas (`SKIP LOCKED`), então dois envios nunca pegam a mesma."""
+    outra transação são puladas (`SKIP LOCKED`), então dois envios nunca pegam a mesma. `excluir` são ids a ignorar."""
     consulta = (
         select(MensagemSaida)
         .where(MensagemSaida.status == StatusMensagem.PENDENTE, MensagemSaida.proxima_tentativa_em <= agora)
+        .where(MensagemSaida.id.not_in(excluir))
         .order_by(MensagemSaida.criada_em, MensagemSaida.id)
         .limit(limite)
         .with_for_update(skip_locked=True)

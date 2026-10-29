@@ -233,26 +233,57 @@ def test_erro_no_ciclo_nao_derruba_o_laco(sessoes, env, caplog, monkeypatch):
     assert len(chamadas) == 2 and "banco caiu" in caplog.text
 
 
-def test_erro_no_meio_do_lote_nao_desfaz_as_ja_enviadas(sessoes, env, configurado, monkeypatch):
+def _falha_ao_gravar(monkeypatch, mid_ruim):
+    """O registro do resultado de `mid_ruim` lança (como um commit que falha)."""
+    original = repo_msg.apagar_texto_individual
+
+    def apagar(m):
+        if m.id == mid_ruim:
+            raise RuntimeError("não gravou")
+        original(m)
+
+    monkeypatch.setattr(repo_msg, "apagar_texto_individual", apagar)
+
+
+def test_mensagem_que_sempre_falha_ao_gravar_nao_trava_a_fila(sessoes, env, configurado, monkeypatch, caplog):
     from tcg_sniper.notificador import servico as modulo
     from tcg_sniper.notificador.evolution import Resultado
 
-    ids = [nova(sessoes, "admin", f"m{i}", AGORA - timedelta(minutes=3 - i)) for i in range(3)]
+    a = nova(sessoes, "admin", "a", AGORA - timedelta(minutes=2))
+    b = nova(sessoes, "admin", "b", AGORA - timedelta(minutes=1))
+    monkeypatch.setattr(modulo, "enviar_uma_vez", lambda *args: (Resultado.OK, None))
+    _falha_ao_gravar(monkeypatch, a)
+    with caplog.at_level(logging.ERROR):
+        servico(sessoes, env).ciclo()
+    ma, mb = ler(sessoes, a), ler(sessoes, b)
+    assert mb.status is StatusMensagem.ENVIADA
+    assert (ma.status, ma.tentativas) == (StatusMensagem.PENDENTE, 1)
+    assert ma.proxima_tentativa_em > AGORA
+    assert "não gravou" in caplog.text
+
+
+def test_banco_fora_no_adiamento_nao_reenvia_em_loop(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.notificador import servico as modulo
+    from tcg_sniper.notificador.evolution import Resultado
+
+    a = nova(sessoes, "admin", "a", AGORA - timedelta(minutes=2))
+    nova(sessoes, "admin", "b", AGORA - timedelta(minutes=1))
     chamadas = []
 
     def envio(*args):
         chamadas.append(1)
-        if len(chamadas) == 2:
-            raise RuntimeError("morreu no meio")
         return Resultado.OK, None
 
+    def adiar_quebrado(mid, agora):
+        raise RuntimeError("banco fora")
+
     monkeypatch.setattr(modulo, "enviar_uma_vez", envio)
-    with pytest.raises(RuntimeError):
-        servico(sessoes, env).ciclo()
-    primeira, segunda, terceira = (ler(sessoes, i) for i in ids)
-    assert primeira.status is StatusMensagem.ENVIADA
-    assert (segunda.status, segunda.tentativas) == (StatusMensagem.PENDENTE, 0)
-    assert (terceira.status, terceira.tentativas) == (StatusMensagem.PENDENTE, 0)
+    _falha_ao_gravar(monkeypatch, a)
+    svc = servico(sessoes, env)
+    monkeypatch.setattr(svc, "_adiar", adiar_quebrado)
+    svc.ciclo()
+    assert len(chamadas) == 1
+    assert ler(sessoes, a).status is StatusMensagem.PENDENTE
 
 
 @respx.mock

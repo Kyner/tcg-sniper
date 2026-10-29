@@ -33,6 +33,11 @@ TIMEOUT_S = 15
 JANELA_FALHAS = repo_msg.JANELA_FALHAS
 
 
+def _espera(tentativas: int) -> timedelta:
+    """Backoff de uma mensagem que não saiu: 1, 2, 4... min, até `ESPERA_MAX_MIN`."""
+    return timedelta(minutes=min(2 ** min(tentativas - 1, 5), ESPERA_MAX_MIN))
+
+
 @dataclass(frozen=True)
 class _Destinos:
     """Cópia dos valores de Configurações → Geral que o ciclo usa (nada de ORM entre sessões)."""
@@ -98,15 +103,31 @@ class ServicoNotificador:
             self._ultima_limpeza = agora
         processadas = 0
         enviou = False
+        pular: set[int] = set()  # só deste ciclo: mensagens que nem o adiamento conseguiu gravar
         for _ in range(LOTE):
             if self._parar.is_set():
                 break
             agora = self._relogio()
-            with self._sessoes() as s, s.begin():
-                lote = repo_msg.lote_pendente(s, agora, 1)
-                if not lote:
+            mid: int | None = None
+            try:
+                with self._sessoes() as s, s.begin():
+                    lote = repo_msg.lote_pendente(s, agora, 1, excluir=pular)
+                    if not lote:
+                        break
+                    mid = lote[0].id
+                    resultado = self._processar(s, lote[0], cfg, agora)
+            except Exception:
+                if mid is None:  # nem a leitura da fila funcionou: o `rodar` registra e tenta no próximo ciclo
+                    raise
+                log.exception("erro ao processar a mensagem %d; ela é adiada e a fila segue", mid)
+                try:
+                    self._adiar(mid, agora)
+                except Exception:
+                    log.exception("não consegui nem adiar a mensagem %d; encerro o lote", mid)
+                    pular.add(mid)
                     break
-                resultado = self._processar(s, lote[0], cfg, agora)
+                processadas += 1
+                continue
             processadas += 1
             if resultado is Resultado.OK:
                 enviou = True
@@ -124,6 +145,15 @@ class ServicoNotificador:
             if acordadas:
                 log.info("%d mensagem(ns) em espera voltam à fila", acordadas)
         return processadas
+
+    def _adiar(self, mid: int, agora: datetime) -> None:
+        """Em transação nova (a anterior caiu): conta a tentativa e adia pelo mesmo backoff da falha de envio."""
+        with self._sessoes() as s, s.begin():
+            m = s.get(MensagemSaida, mid)
+            if m is not None and m.status == StatusMensagem.PENDENTE:
+                m.tentativas += 1
+                m.atualizado_em = agora
+                m.proxima_tentativa_em = agora + _espera(m.tentativas)
 
     def _processar(self, s: Session, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
         """Devolve o resultado do envio, ou `None` se a mensagem nem chegou a ser enviada."""
@@ -175,7 +205,7 @@ class ServicoNotificador:
             if not formato.eh_do_proprio_aviso(m.texto, TipoAviso.MENSAGEM_NAO_ENVIADA):  # nunca em laço
                 self._avisar_falha(s, agora)
             return resultado
-        m.proxima_tentativa_em = agora + timedelta(minutes=min(2 ** min(m.tentativas - 1, 5), ESPERA_MAX_MIN))
+        m.proxima_tentativa_em = agora + _espera(m.tentativas)
         log.warning("mensagem %d para %s não saiu (tentativa %d): %s", m.id, m.destino, m.tentativas, erro)
         return resultado
 
