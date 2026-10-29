@@ -168,4 +168,70 @@ describe("Serviços", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     await waitFor(() => expect(listas()).toBe(antes + 1));
   });
+
+  it("recarga de 60 s pedida antes da ação não sobrescreve o estado que a ação trouxe", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    apiFalsa({
+      ...base, [LISTAR]: [ok({ servicos: [LIGA] }), ok({ servicos: [LIGA] }), ok({ servicos: [PARANDO] })],
+      "POST /api/gestao/servicos/liga/desligar": ok({ codigo: "desligado", mensagem: "LigaMagic desligado." }),
+    });
+    // A segunda lista (a da recarga) responde só quando o teste soltar.
+    const original = globalThis.fetch;
+    let soltar: () => void = () => {};
+    const porta = new Promise<void>((r) => { soltar = r; });
+    let listas = 0;
+    vi.stubGlobal("fetch", (entrada: RequestInfo | URL, init?: RequestInit) => {
+      const resposta = original(entrada, init);
+      const lista = String(entrada) === "/api/gestao/servicos" && (init?.method ?? "GET") === "GET";
+      return lista && ++listas === 2 ? porta.then(() => resposta) : resposta;
+    });
+    renderizarEm("/gestao/servicos");
+    await screen.findByText("LigaMagic");
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    await waitFor(() => expect(listas).toBe(2));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Desligar LigaMagic" }));
+    expect(await screen.findByText("parando…")).toBeInTheDocument();
+    soltar();
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(screen.getByText("parando…")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Ligar LigaMagic" })).not.toBeChecked();
+  });
+
+  it("a chave tem rótulo visível no cartão do celular", async () => {
+    apiFalsa({ ...base, [LISTAR]: ok({ servicos: [LIGA, BACKUP] }) });
+    renderizarEm("/gestao/servicos");
+    const chave = await screen.findByRole("checkbox", { name: "Desligar LigaMagic" });
+    expect(chave.closest("label")).toHaveTextContent("Serviço ligado");
+    expect(screen.getByRole("checkbox", { name: "Ligar Backup" }).closest("label")).toHaveTextContent("Serviço desligado");
+  });
+
+  it("a mensagem de sucesso some depois de 5 s", async () => {
+    const espiao = vi.spyOn(window, "setTimeout");
+    apiFalsa({
+      ...base, [LISTAR]: ok({ servicos: [LIGA] }),
+      "POST /api/gestao/servicos/liga/rodar-agora": ok({ codigo: "rodar_agora", mensagem: "Coleta pedida." }),
+    });
+    renderizarEm("/gestao/servicos");
+    await userEvent.click(await screen.findByRole("button", { name: "Rodar agora" }));
+    expect(await screen.findByText("Coleta pedida.")).toBeInTheDocument();
+    // O temporizador da tela (o waitFor da Testing Library também usa 5 s).
+    const sumir = espiao.mock.calls.find((c) => c[1] === 5_000 && !String(c[0]).includes("handleTimeout"));
+    expect(sumir).toBeDefined();
+    act(() => { (sumir![0] as () => void)(); });
+    expect(screen.queryByText("Coleta pedida.")).toBeNull();
+    espiao.mockRestore();
+  });
+
+  it("ação que deu certo seguida de lista que falha mostra o sucesso, não erro", async () => {
+    apiFalsa({
+      ...base, [LISTAR]: [ok({ servicos: [LIGA] }), { status: 500, corpo: { erro: "falha", mensagem: "Deu ruim." } }],
+      "POST /api/gestao/servicos/liga/rodar-agora": ok({ codigo: "rodar_agora", mensagem: "Coleta pedida." }),
+    });
+    renderizarEm("/gestao/servicos");
+    await userEvent.click(await screen.findByRole("button", { name: "Rodar agora" }));
+    expect(await screen.findByText("Coleta pedida.")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("LigaMagic")).toBeInTheDocument();
+  });
 });
