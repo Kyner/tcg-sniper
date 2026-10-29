@@ -115,6 +115,14 @@ def test_menu_conta_igual_a_lista(cliente, logar, sessoes):
     assert cliente.get(MENU).json() == {"casamentos_esperando": lista["total"]}
 
 
+def _rotulos_dos_servicos(cliente):
+    itens = cliente.get(DASHBOARD).json()["precisa"]
+    por_texto = {i["texto"]: i for i in itens if i["destino"] == "/gestao/servicos"}
+    liga = next(i for t, i in por_texto.items() if t.startswith("LigaMagic"))
+    busca = next(i for t, i in por_texto.items() if t.startswith("Amazon (busca)"))
+    return liga["rotulo"], busca["rotulo"]
+
+
 def test_servico_pausado_leva_ligar_e_desafio_leva_ver(cliente, logar, sessoes):
     from tcg_sniper.db import repositorio as repo
     from tcg_sniper.db.models import COLETOR_AMAZON_BUSCA, COLETOR_LIGA
@@ -122,12 +130,19 @@ def test_servico_pausado_leva_ligar_e_desafio_leva_ver(cliente, logar, sessoes):
     with sessoes() as s, s.begin():
         repo.pausar(s, "teste", T0, COLETOR_LIGA)
         repo.pausar_por_desafio(s, "captcha", T0, COLETOR_AMAZON_BUSCA)
-    logar(Papel.OPERADOR)
-    itens = cliente.get(DASHBOARD).json()["precisa"]
-    por_texto = {i["texto"]: i for i in itens if i["destino"] == "/gestao/servicos"}
-    liga = next(i for t, i in por_texto.items() if t.startswith("LigaMagic"))
-    busca = next(i for t, i in por_texto.items() if t.startswith("Amazon (busca)"))
-    assert liga["rotulo"] == "Ligar" and busca["rotulo"] == "Ver"
+    logar(Papel.ADMIN)
+    assert _rotulos_dos_servicos(cliente) == ("Ligar", "Ver")
+
+
+def test_servico_pausado_leva_ver_para_quem_nao_pode_pausar(cliente, logar, sessoes):
+    from tcg_sniper.db import repositorio as repo
+    from tcg_sniper.db.models import COLETOR_AMAZON_BUSCA, COLETOR_LIGA
+
+    with sessoes() as s, s.begin():
+        repo.pausar(s, "teste", T0, COLETOR_LIGA)
+        repo.pausar_por_desafio(s, "captcha", T0, COLETOR_AMAZON_BUSCA)
+    logar(Papel.OPERADOR)  # sem pausar_servicos
+    assert _rotulos_dos_servicos(cliente) == ("Ver", "Ver")
 
 
 def test_admin_antigo_abre_a_secao_pedida(sessoes, config):

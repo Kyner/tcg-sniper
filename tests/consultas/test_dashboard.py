@@ -84,6 +84,26 @@ def test_permissao_do_destino():
     assert dashboard.permissao_do_destino("/gestao/casamentos?situacao=casado") == "revisar_casamentos"
     assert dashboard.permissao_do_destino("/gestao/configuracoes?grupo=monitor") == "ver_configuracoes"
     assert dashboard.permissao_do_destino("/gestao/ofertas") == "ver_catalogo"
+    assert dashboard.permissao_do_destino("/produtos/5") == "ver_oportunidades"
+
+
+def test_destino_da_area_de_negocio_pede_tambem_ver_area_negocio():
+    produto = dashboard.ItemPrecisa("x", "Ver", "/produtos/5", dashboard.permissao_do_destino("/produtos/5"))
+    assert dashboard.pode_abrir(produto, {"ver_oportunidades", "ver_area_negocio"})
+    assert not dashboard.pode_abrir(produto, {"ver_oportunidades"})
+    assert not dashboard.pode_abrir(produto, {"ver_area_negocio"})
+    servicos = dashboard.ItemPrecisa("x", "Ver", "/gestao/servicos", "ver_servicos")
+    assert dashboard.pode_abrir(servicos, {"ver_servicos"})
+    assert not dashboard.pode_abrir(servicos, {"ver_area_negocio"})
+    assert dashboard.pode_abrir(dashboard.ItemPrecisa("x", "Ver", "/gestao", None), set())
+
+
+def test_ligar_vira_ver_para_quem_nao_pode_pausar():
+    item = dashboard.ItemPrecisa("LigaMagic pausado.", "Ligar", "/gestao/servicos", "ver_servicos")
+    assert dashboard.rotulo_para(item, {"ver_servicos", "pausar_servicos"}) == "Ligar"
+    assert dashboard.rotulo_para(item, {"ver_servicos"}) == "Ver"
+    outro = dashboard.ItemPrecisa("x", "Ver o efeito", "/gestao/configuracoes", "ver_configuracoes")
+    assert dashboard.rotulo_para(outro, set()) == "Ver o efeito"
 
 
 def test_precisa_some_quando_nao_ha_nada(s, config):

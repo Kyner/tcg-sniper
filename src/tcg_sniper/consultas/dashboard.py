@@ -3,7 +3,7 @@
 Os avisos do painel antigo (`consultas.painel`) trazem links do admin antigo; `destino_novo` os traduz para as
 telas novas. Link sem tela própria cai no dashboard (`/gestao`)."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -46,6 +46,7 @@ _REQUER_DO_CAMINHO = (
     ("/gestao/casamentos", "revisar_casamentos"),
     ("/gestao/configuracoes", "ver_configuracoes"),
     ("/gestao/ofertas", "ver_catalogo"),
+    ("/produtos/", "ver_oportunidades"),  # área de negócio: pede também `ver_area_negocio` (ver `pode_abrir`)
 )
 
 
@@ -142,8 +143,23 @@ class ItemPrecisa:
     requer: str | None  # permissão da tela de destino; a rota esconde o item de quem não a tem
 
 
+def pode_abrir(item: ItemPrecisa, permissoes: Collection[str]) -> bool:
+    """Se quem tem estas permissões abre a tela de destino: a dela e, fora da gestão, `ver_area_negocio`."""
+    if item.requer is not None and item.requer not in permissoes:
+        return False
+    return item.destino.startswith("/gestao") or "ver_area_negocio" in permissoes
+
+
+def rotulo_para(item: ItemPrecisa, permissoes: Collection[str]) -> str:
+    """"Ligar" só para quem pode ligar o serviço; os outros só veem a tela ("Ver")."""
+    if item.rotulo == ROTULO_LIGAR and "pausar_servicos" not in permissoes:
+        return "Ver"
+    return item.rotulo
+
+
 DESTINO_MONITOR_ATRASADO = "/gestao/configuracoes?grupo=monitor"
-_ROTULO_POR_CHAVE = {"servico_pausado": "Ligar", "servico_problema": "Ver", "monitor_atrasado": "Ver o efeito"}
+ROTULO_LIGAR = "Ligar"
+_ROTULO_POR_CHAVE = {"servico_pausado": ROTULO_LIGAR, "servico_problema": "Ver", "monitor_atrasado": "Ver o efeito"}
 
 
 def rotulo_de(aviso: painel.Aviso) -> str:

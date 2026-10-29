@@ -77,7 +77,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Tela de Serviços: nos cartões do celular a dica (o detalhe do "agora") só aparece com o mouse; os testes usam `querySelector` por `href` em vez de papel e nome (o menu agora também tem "Atividade").
 - [ ] Teste "Entrar" do front estourou o tempo uma vez sob carga (acompanhar se é instável).
 - [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (id acima de 2³¹ dá 500; reusar `MAX_ID`).
-- [ ] Dashboard: rótulo "Ligar" para quem não pode pausar serviços (usar "Ver"); links das oportunidades exigem também `ver_area_negocio`.
 - [x] `destino_novo` perde o filtro de mensagens pendentes (`/mensagens?situacao=pendente`). Feito na 3C (Atividade com filtro de destino e situação pendente).
 - [ ] "iniciando…" por 10 min em Liga/WhatsApp/Backup, que esperam o próprio horário (não mostrar para esses).
 - [ ] `listar` dos serviços repete `ultimo_registro` para monitor, casador e WhatsApp.

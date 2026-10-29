@@ -128,4 +128,21 @@ describe("Dashboard da gestão", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     await waitFor(() => expect(n()).toBe(antes + 1));
   });
+
+  it("sem ver_area_negocio as oportunidades e o funil não levam à área de negócio", async () => {
+    const eu = { ...EU_OPERADOR, permissoes: EU_OPERADOR.permissoes.filter((p) => p !== "ver_area_negocio") };
+    apiFalsa({ ...base, "GET /api/auth/eu": ok(eu), [DASH]: ok(COMPLETO) });
+    renderizarEm("/gestao");
+    expect(await screen.findByText("Booster Box Alfa")).toBeInTheDocument();
+    expect(screen.getByText("Booster Box Alfa").closest("a")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Oportunidades abertas/ })).toBeNull();
+    expect(screen.getByText("Oportunidades abertas")).toBeInTheDocument();
+  });
+
+  it("com ver_area_negocio as oportunidades levam ao produto", async () => {
+    apiFalsa({ ...base, [DASH]: ok(COMPLETO) });
+    renderizarEm("/gestao");
+    expect((await screen.findByText("Booster Box Alfa")).closest("a")).toHaveAttribute("href", "/produtos/7");
+    expect(screen.getByRole("link", { name: /Oportunidades abertas/ })).toHaveAttribute("href", "/");
+  });
 });

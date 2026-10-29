@@ -82,7 +82,7 @@ def dashboard(request: Request, contexto: VerGestao) -> DashboardSaida:
         saudes = consultas_servicos.saude_por_servico(s, agora, efetiva, chave_ia, resumo)
         avisos = painel.avisos(s, agora, efetiva, [saudes[x] for x in ORDEM if x is not Servico.BACKUP], resumo)
         avisos += painel.avisos_backup(saudes[Servico.BACKUP])
-        itens = [i for i in q.precisa(s, agora, efetiva, avisos) if i.requer is None or Permissao(i.requer) in pode]
+        itens = [i for i in q.precisa(s, agora, efetiva, avisos) if q.pode_abrir(i, pode)]
         saude = None
         if Permissao.VER_SERVICOS in pode:
             saude = [
@@ -108,6 +108,6 @@ def dashboard(request: Request, contexto: VerGestao) -> DashboardSaida:
             if Permissao.VER_CATALOGO in pode:
                 funil = FunilSaida.model_validate(q.funil(s, agora, efetiva, numeros), from_attributes=True)
     return DashboardSaida(
-        precisa=[PrecisaSaida(texto=i.texto, rotulo=i.rotulo, destino=i.destino) for i in itens],
+        precisa=[PrecisaSaida(texto=i.texto, rotulo=q.rotulo_para(i, pode), destino=i.destino) for i in itens],
         saude=saude, oportunidades=oportunidades, funil=funil,
     )
