@@ -238,7 +238,7 @@ def _falha_ao_gravar(monkeypatch, mid_ruim):
     original = repo_msg.apagar_texto_individual
 
     def apagar(m):
-        if m.id == mid_ruim:
+        if m.id == mid_ruim and m.status is StatusMensagem.ENVIADA:
             raise RuntimeError("não gravou")
         original(m)
 
@@ -262,6 +262,30 @@ def test_mensagem_que_sempre_falha_ao_gravar_nao_trava_a_fila(sessoes, env, conf
     assert "não gravou" in caplog.text
 
 
+def test_mensagem_que_nunca_grava_vira_falha_e_nao_reenvia(sessoes, env, configurado, monkeypatch):
+    from tcg_sniper.notificador import servico as modulo
+    from tcg_sniper.notificador.evolution import Resultado
+
+    a = nova(sessoes, "admin", "a")
+    chamadas = []
+
+    def envio(*args):
+        chamadas.append(1)
+        return Resultado.OK, None
+
+    monkeypatch.setattr(modulo, "enviar_uma_vez", envio)
+    _falha_ao_gravar(monkeypatch, a)
+    relogio = Relogio(AGORA)
+    svc = servico(sessoes, env, relogio)
+    for _ in range(modulo.MAX_TENTATIVAS_DEFINITIVAS + 2):
+        svc.ciclo()
+        relogio.agora += timedelta(minutes=31)
+    m = ler(sessoes, a)
+    assert (m.status, m.tentativas) == (StatusMensagem.FALHA, modulo.MAX_TENTATIVAS_DEFINITIVAS)
+    assert "RuntimeError" in m.ultimo_erro
+    assert len(chamadas) == modulo.MAX_TENTATIVAS_DEFINITIVAS
+
+
 def test_banco_fora_no_adiamento_nao_reenvia_em_loop(sessoes, env, configurado, monkeypatch):
     from tcg_sniper.notificador import servico as modulo
     from tcg_sniper.notificador.evolution import Resultado
@@ -274,7 +298,7 @@ def test_banco_fora_no_adiamento_nao_reenvia_em_loop(sessoes, env, configurado, 
         chamadas.append(1)
         return Resultado.OK, None
 
-    def adiar_quebrado(mid, agora):
+    def adiar_quebrado(mid, agora, erro):
         raise RuntimeError("banco fora")
 
     monkeypatch.setattr(modulo, "enviar_uma_vez", envio)

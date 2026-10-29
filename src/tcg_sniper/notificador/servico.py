@@ -116,12 +116,12 @@ class ServicoNotificador:
                         break
                     mid = lote[0].id
                     resultado = self._processar(s, lote[0], cfg, agora)
-            except Exception:
+            except Exception as exc:
                 if mid is None:  # nem a leitura da fila funcionou: o `rodar` registra e tenta no próximo ciclo
                     raise
                 log.exception("erro ao processar a mensagem %d; ela é adiada e a fila segue", mid)
                 try:
-                    self._adiar(mid, agora)
+                    self._adiar(mid, agora, f"erro ao gravar o resultado: {type(exc).__name__}")
                 except Exception:
                     log.exception("não consegui nem adiar a mensagem %d; encerro o lote", mid)
                     pular.add(mid)
@@ -146,13 +146,21 @@ class ServicoNotificador:
                 log.info("%d mensagem(ns) em espera voltam à fila", acordadas)
         return processadas
 
-    def _adiar(self, mid: int, agora: datetime) -> None:
-        """Em transação nova (a anterior caiu): conta a tentativa e adia pelo mesmo backoff da falha de envio."""
+    def _adiar(self, mid: int, agora: datetime, erro: str) -> None:
+        """Em transação nova (a anterior caiu): conta a tentativa e adia pelo mesmo backoff da falha de envio.
+        Ao atingir `MAX_TENTATIVAS_DEFINITIVAS` vira falha, para não reenviar para sempre."""
         with self._sessoes() as s, s.begin():
             m = s.get(MensagemSaida, mid)
-            if m is not None and m.status == StatusMensagem.PENDENTE:
-                m.tentativas += 1
-                m.atualizado_em = agora
+            if m is None or m.status != StatusMensagem.PENDENTE:
+                return
+            m.tentativas += 1
+            m.atualizado_em = agora
+            m.ultimo_erro = erro
+            if m.tentativas >= MAX_TENTATIVAS_DEFINITIVAS:
+                m.status = StatusMensagem.FALHA
+                repo_msg.apagar_texto_individual(m)
+                log.error("mensagem %d para %s falhou de vez: %s", m.id, m.destino, erro)
+            else:
                 m.proxima_tentativa_em = agora + _espera(m.tentativas)
 
     def _processar(self, s: Session, m: MensagemSaida, geral: _Destinos, agora: datetime) -> Resultado | None:
