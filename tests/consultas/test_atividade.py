@@ -409,3 +409,23 @@ def test_sem_mostrar_texto_da_mensagem_nao_traz_nem_busca_o_texto(s):
     # o erro continua pesquisável, e com a permissão o texto volta
     assert len(linha_do_tempo(s, _filtro(mostrar_texto_mensagem=False, busca="400 grupo"), None)[0]) == 1
     assert len(linha_do_tempo(s, _filtro(busca="Azul"), None)[0]) == 1
+
+
+def test_acao_de_configuracoes_diz_o_que_mudou(s):
+    um = _acao(s, T - timedelta(minutes=3), tipo=TipoAcaoGestao.CONFIGURACOES,
+               detalhe={"campos": {"amazon.desconto_min_pct": [20, 22]}})
+    varios = _acao(s, T - timedelta(minutes=2), tipo=TipoAcaoGestao.CONFIGURACOES, detalhe={"campos": {
+        "amazon.desconto_min_pct": [20, 22], "ia.automatico": [False, True],
+        "geral.whatsapp_grupo_admin": [None, "1@g.us"], "ia.lote": [20, 30], "sumiu.campo": [1, 2],
+    }})
+    desligou = _acao(s, T - timedelta(minutes=1), tipo=TipoAcaoGestao.CONFIGURACOES,
+                     detalhe={"aviso": "liga_desafio", "ligado": False})
+    ligou = _acao(s, T, tipo=TipoAcaoGestao.CONFIGURACOES, detalhe={"aviso": "sumiu", "ligado": True})
+    linhas = {l.chave: l.resultado for l in linha_do_tempo(s, _filtro(o_que="acao_gestao"), None)[0]}
+    assert linhas[f"acao_gestao:{um.id}"] == "admin antigo · salvou 1 campo: desconto mínimo sobre a Liga (%) 20→22"
+    assert linhas[f"acao_gestao:{varios.id}"] == (
+        "admin antigo · salvou 5 campos: desconto mínimo sobre a Liga (%) 20→22, automático não→sim, "
+        "grupo de WhatsApp do admin vazio→1@g.us e mais 2"
+    )
+    assert linhas[f"acao_gestao:{desligou.id}"] == "admin antigo · desligou o aviso Liga · desafio do Cloudflare"
+    assert linhas[f"acao_gestao:{ligou.id}"] == "admin antigo · ligou o aviso sumiu"

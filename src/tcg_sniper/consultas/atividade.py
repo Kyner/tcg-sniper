@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from tcg_sniper.avisos.catalogo import CATALOGO, TipoAviso
 from tcg_sniper.coletor_liga.esfriamento import TIPOS_LIGA
+from tcg_sniper.configuracoes.grupos import campo as campo_config
 from tcg_sniper.consultas.catalogo import casa_nome, escapar_like
 from tcg_sniper.consultas.historico import produto_id_da_linha
 from tcg_sniper.db.models import (
@@ -650,7 +651,53 @@ def _descricao_acao(acao: AcaoGestao) -> str:
             return f"{verbo} o monitoramento de {quantos} produtos (lote)"
         case TipoAcaoGestao.CATALOGO_PRODUTO:
             return f"{'ligou' if d.get('ativo') else 'desligou'} o monitoramento de um produto"
+        case TipoAcaoGestao.CONFIGURACOES:
+            return _descricao_configuracoes(d)
     return "salvou as configurações"
+
+
+CAMPOS_NA_DESCRICAO = 3  # campos listados na linha; o resto vira "e mais N"
+
+
+def _valor_config(valor) -> str:
+    if valor is None or valor == "":
+        return "vazio"
+    if isinstance(valor, bool):
+        return "sim" if valor else "não"
+    if isinstance(valor, float):
+        return f"{valor:g}"
+    return str(valor)
+
+
+def _rotulo_config(chave: str) -> str:
+    try:
+        rotulo = campo_config(chave).rotulo
+    except KeyError:
+        return chave
+    return rotulo[:1].lower() + rotulo[1:]
+
+
+def _descricao_configuracoes(d: dict) -> str:
+    """"salvou 3 campos: desconto mínimo 20→22, …" ou "ligou/desligou o aviso X"."""
+    if "aviso" in d:
+        tipo = d.get("aviso")
+        try:
+            titulo = CATALOGO[TipoAviso(tipo)].titulo
+        except ValueError:
+            titulo = str(tipo)
+        return f"{'ligou' if d.get('ligado') else 'desligou'} o aviso {titulo}"
+    campos = d.get("campos")
+    if not isinstance(campos, dict) or not campos:
+        return "salvou as configurações"
+    partes = []
+    for chave, par in list(campos.items())[:CAMPOS_NA_DESCRICAO]:
+        antes, depois = par if isinstance(par, list) and len(par) == 2 else (None, par)
+        partes.append(f"{_rotulo_config(chave)} {_valor_config(antes)}→{_valor_config(depois)}")
+    texto = ", ".join(partes)
+    if len(campos) > CAMPOS_NA_DESCRICAO:
+        texto += f" e mais {formatar_milhar(len(campos) - CAMPOS_NA_DESCRICAO)}"
+    quantos = "1 campo" if len(campos) == 1 else f"{formatar_milhar(len(campos))} campos"
+    return f"salvou {quantos}: {texto}"
 
 
 def _servico_da_acao(acao: AcaoGestao) -> Servico | None:
