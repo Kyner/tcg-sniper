@@ -1,23 +1,22 @@
 // Gestão: revisão dos anúncios da Amazon de um produto da Liga. A query da lista (filtros, ordem e página) vem
-// na URL e segue igual para a API, para "Voltar à lista" e para Anterior/Pular/Próximo.
+// na URL e segue igual para a API, para "Voltar à lista" e para Anterior/Próximo. As partes da tela ficam em
+// `./revisao/`; aqui ficam o estado, as chamadas e os atalhos.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { chamarApi, ErroApi } from "../../api";
-import { CartaoAnuncio } from "../../componentes/CartaoAnuncio";
 import { Carregando } from "../../componentes/Carregando";
-import { Foto } from "../../componentes/Foto";
 import { ModalOutroProduto } from "../../componentes/ModalOutroProduto";
 import { useFiltrosUrl } from "../../filtrosUrl";
-import { reais } from "../../formato";
 import { useSessao } from "../../sessao";
 import type {
   AcaoCasamento, AnuncioRevisao, DecisaoCasamento, GrupoRevisao, ListaCasamentos, MensagemAcao, ProdutoParecido,
   RevisaoCasamento as Revisao,
 } from "../../tipos";
 import { montarQuery, PADROES } from "./Casamentos";
-
-type Grupos = Record<GrupoRevisao, AnuncioRevisao[]>;
-type Aviso = { tipo: MensagemAcao["tipo"] | "error"; mensagem: string };
+import { BarraRevisao, type AcaoTopo } from "./revisao/BarraRevisao";
+import { comAnuncio, destinoOtimista, GRUPOS_VAZIOS, idDoCartao, type Aviso, type Grupos } from "./revisao/grupos";
+import { GruposAnuncios } from "./revisao/GruposAnuncios";
+import { ParecidosNaLiga, ProdutoDaLiga } from "./revisao/ProdutoDaLiga";
 
 // Classes escritas por extenso.
 const ALERTA: Record<Aviso["tipo"], string> = {
@@ -27,31 +26,14 @@ const ALERTA: Record<Aviso["tipo"], string> = {
   error: "alert alert-error",
 };
 
-function semAnuncio(g: Grupos, id: number): Grupos {
-  return {
-    para_decidir: g.para_decidir.filter((a) => a.anuncio_id !== id),
-    confirmados: g.confirmados.filter((a) => a.anuncio_id !== id),
-    ignorados: g.ignorados.filter((a) => a.anuncio_id !== id),
-  };
-}
-
-/** Põe o anúncio no grupo (tirando de onde estiver): na posição dada ou, sem ela, no começo. */
-function comAnuncio(g: Grupos, grupo: GrupoRevisao, anuncio: AnuncioRevisao, indice = 0): Grupos {
-  const limpo = semAnuncio(g, anuncio.anuncio_id);
-  const lista = [...limpo[grupo]];
-  lista.splice(Math.max(0, Math.min(indice, lista.length)), 0, anuncio);
-  return { ...limpo, [grupo]: lista };
-}
-
-function destinoOtimista(acao: AcaoCasamento): GrupoRevisao {
-  if (acao === "confirmar") return "confirmados";
-  if (acao === "desfazer") return "para_decidir";
-  return "ignorados";
-}
-
 function emCampo(alvo: EventTarget | null): boolean {
   if (!(alvo instanceof HTMLElement)) return false;
   return alvo.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(alvo.tagName);
+}
+
+/** O Enter é do elemento com foco (botão, link, menu ⋯), não do atalho "próximo produto". */
+function enterDoElemento(alvo: EventTarget | null): boolean {
+  return alvo instanceof Element && alvo.closest("button, a, [role=button], .dropdown") !== null;
 }
 
 export function RevisaoCasamento() {
@@ -62,18 +44,21 @@ export function RevisaoCasamento() {
   const [filtros] = useFiltrosUrl(PADROES);
   const query = montarQuery(filtros, true);
   const sufixo = query ? `?${query}` : "";
-  const linkProduto = (id: number) => `/gestao/casamentos/${id}${sufixo}`;
+  const linkProduto = useCallback((id: number) => `/gestao/casamentos/${id}${sufixo}`, [sufixo]);
   const voltar = `/gestao/casamentos${sufixo}`;
 
   const [dados, setDados] = useState<Revisao | null>(null);
-  const [grupos, setGrupos] = useState<Grupos>({ para_decidir: [], confirmados: [], ignorados: [] });
+  const [grupos, setGrupos] = useState<Grupos>(GRUPOS_VAZIOS);
   const [erro, setErro] = useState<{ status: number; mensagem: string } | null>(null);
   const [proximoFora, setProximoFora] = useState<number | null>(null);
   const [ocupados, setOcupados] = useState<Set<number>>(new Set());
   const [aviso, setAviso] = useState<Aviso | null>(null);
-  const [selecionado, setSelecionado] = useState(0);
+  // O destaque segue o anúncio (não a posição): um "desfazer" que entra acima não o troca. Se o destacado sai de
+  // "Para decidir", vale a última posição (o seguinte ocupa o lugar dele).
+  const [destacadoId, setDestacadoId] = useState<number | null>(null);
+  const posicao = useRef(0);
+  const rolar = useRef(false);
   const [trocando, setTrocando] = useState<AnuncioRevisao | null>(null);
-  const [link, setLink] = useState("");
   // Cada carga da tela (outro produto ou a mesma de novo) ganha um número: resposta de ação pedida numa carga
   // anterior chega tarde e é descartada, para não cair nos grupos nem no aviso do produto que está na tela agora.
   const tela = useRef(0);
@@ -84,7 +69,8 @@ export function RevisaoCasamento() {
       setErro(null);
       setAviso(null);
       setProximoFora(null);
-      setSelecionado(0);
+      setDestacadoId(null);
+      posicao.current = 0;
       setOcupados(new Set());
       tela.current += 1;
       try {
@@ -120,6 +106,18 @@ export function RevisaoCasamento() {
     };
   }, [carregar]);
 
+  useEffect(() => {
+    if (!rolar.current || destacadoId === null) return;
+    rolar.current = false;
+    document.getElementById(idDoCartao(destacadoId))?.scrollIntoView?.({ block: "nearest" });
+  }, [destacadoId]);
+
+  const tirarOcupado = (id: number) => setOcupados((o) => {
+    const novo = new Set(o);
+    novo.delete(id);
+    return novo;
+  });
+
   const decidir = useCallback(
     async (anuncio: AnuncioRevisao, de: GrupoRevisao, acao: AcaoCasamento, para?: number) => {
       const id = anuncio.anuncio_id;
@@ -127,6 +125,7 @@ export function RevisaoCasamento() {
       const indice = grupos[de].findIndex((a) => a.anuncio_id === id);
       setAviso(null);
       setOcupados((o) => new Set(o).add(id));
+      setDestacadoId((d) => (d === id ? null : d));
       setGrupos((g) => comAnuncio(g, destinoOtimista(acao), anuncio));
       try {
         const corpo = acao === "trocar" ? { acao, para_produto_id: para } : { acao };
@@ -142,11 +141,7 @@ export function RevisaoCasamento() {
         const mensagem = tratarErro(e);
         if (mensagem) setAviso({ tipo: "error", mensagem });
       } finally {
-        if (tela.current === minha) setOcupados((o) => {
-          const novo = new Set(o);
-          novo.delete(id);
-          return novo;
-        });
+        if (tela.current === minha) tirarOcupado(id);
       }
     },
     [grupos, produtoId, tratarErro],
@@ -171,15 +166,11 @@ export function RevisaoCasamento() {
       const mensagem = tratarErro(e);
       if (mensagem) setAviso({ tipo: "error", mensagem });
     } finally {
-      if (tela.current === minha) setOcupados((o) => {
-        const novo = new Set(o);
-        novo.delete(id);
-        return novo;
-      });
+      if (tela.current === minha) tirarOcupado(id);
     }
   };
 
-  const acaoDoTopo = async (caminho: "rebuscar" | "reavaliar" | "termos") => {
+  const acaoDoTopo = async (caminho: AcaoTopo) => {
     (document.activeElement as HTMLElement | null)?.blur(); // fecha o menu ⋯
     setAviso(null);
     const minha = tela.current;
@@ -194,24 +185,23 @@ export function RevisaoCasamento() {
     }
   };
 
-  const casarLink = async () => {
-    const valor = link.trim();
-    if (!valor) return;
+  const casarLink = async (valor: string): Promise<boolean> => {
     setAviso(null);
     const minha = tela.current;
     try {
       const novo = await chamarApi<AnuncioRevisao>(`/api/gestao/casamentos/${produtoId}/link`, {
         metodo: "POST", corpo: { link: valor },
       });
-      if (tela.current !== minha) return;
+      if (tela.current !== minha) return false;
       setGrupos((g) => comAnuncio(g, "confirmados", novo));
-      setLink("");
       (document.activeElement as HTMLElement | null)?.blur();
       setAviso({ tipo: "success", mensagem: "Anúncio casado com este produto." });
+      return true;
     } catch (e) {
-      if (tela.current !== minha) return;
+      if (tela.current !== minha) return false;
       const mensagem = tratarErro(e);
       if (mensagem) setAviso({ tipo: "error", mensagem });
+      return false;
     }
   };
 
@@ -221,24 +211,29 @@ export function RevisaoCasamento() {
     if (anuncio) void decidir(anuncio, "para_decidir", "trocar", produto.id);
   };
 
+  const pendentes = grupos.para_decidir;
+  const achado = destacadoId === null ? -1 : pendentes.findIndex((a) => a.anuncio_id === destacadoId);
+  const atual = achado >= 0 ? achado : Math.min(posicao.current, Math.max(0, pendentes.length - 1));
+  posicao.current = atual;
+
   // Atalhos: C, I, ↑/↓ e Enter, só com o foco fora de campo e sem janela aberta.
   const atalho = useRef<(ev: KeyboardEvent) => void>(() => {});
   atalho.current = (ev: KeyboardEvent) => {
     if (!dados || trocando || ev.ctrlKey || ev.metaKey || ev.altKey || emCampo(ev.target)) return;
-    const pendentes = grupos.para_decidir;
-    const atual = Math.min(selecionado, Math.max(0, pendentes.length - 1));
     const tecla = ev.key.toLowerCase();
     if (tecla === "arrowdown" || tecla === "arrowup") {
       if (pendentes.length === 0) return;
       ev.preventDefault();
       const passo = tecla === "arrowdown" ? 1 : -1;
-      setSelecionado(Math.max(0, Math.min(pendentes.length - 1, atual + passo)));
+      const novo = Math.max(0, Math.min(pendentes.length - 1, atual + passo));
+      posicao.current = novo;
+      rolar.current = true;
+      setDestacadoId(pendentes[novo].anuncio_id);
     } else if ((tecla === "c" || tecla === "i") && pendentes[atual] && !ocupados.has(pendentes[atual].anuncio_id)) {
       ev.preventDefault();
       void decidir(pendentes[atual], "para_decidir", tecla === "c" ? "confirmar" : "ignorar");
     } else if (tecla === "enter" && dados.navegacao.proximo !== null) {
-      const alvo = ev.target as HTMLElement | null;
-      if (alvo && (alvo.tagName === "BUTTON" || alvo.tagName === "A")) return; // o Enter é do botão/link
+      if (enterDoElemento(ev.target)) return;
       ev.preventDefault();
       navigate(linkProduto(dados.navegacao.proximo));
     }
@@ -248,13 +243,6 @@ export function RevisaoCasamento() {
     document.addEventListener("keydown", ouvir);
     return () => document.removeEventListener("keydown", ouvir);
   }, []);
-
-  const alerta = aviso && (
-    <div role="alert" className={ALERTA[aviso.tipo]}>
-      <span>{aviso.mensagem}</span>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAviso(null)}>Fechar</button>
-    </div>
-  );
 
   if (erro) {
     return (
@@ -274,164 +262,36 @@ export function RevisaoCasamento() {
   }
   if (dados === null) return <Carregando />;
 
-  const { produto, navegacao } = dados;
-  const atual = Math.min(selecionado, Math.max(0, grupos.para_decidir.length - 1));
-
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Link className="btn btn-ghost btn-sm" to={voltar}>Voltar à lista</Link>
-        {navegacao.posicao > 0 ? (
-          <span className="badge badge-ghost">{navegacao.posicao} de {navegacao.total}</span>
-        ) : (
-          <span className="badge badge-ghost">Fora da lista filtrada</span>
-        )}
-        <div className="join">
-          {navegacao.anterior !== null ? (
-            <Link className="btn btn-sm join-item" to={linkProduto(navegacao.anterior)}>← Anterior</Link>
-          ) : (
-            <button type="button" className="btn btn-sm join-item" disabled>← Anterior</button>
-          )}
-          {navegacao.proximo !== null ? (
-            <>
-              <Link className="btn btn-sm join-item" to={linkProduto(navegacao.proximo)} title="Próximo sem decidir">Pular</Link>
-              <Link className="btn btn-primary btn-sm join-item" to={linkProduto(navegacao.proximo)}>Próximo →</Link>
-            </>
-          ) : (
-            <>
-              <button type="button" className="btn btn-sm join-item" disabled>Pular</button>
-              <button type="button" className="btn btn-sm join-item" disabled>Próximo →</button>
-            </>
-          )}
-        </div>
-        <div className="dropdown dropdown-end ml-auto">
-          <div tabIndex={0} role="button" className="btn btn-ghost btn-sm" aria-label="Mais ações">⋯</div>
-          <div tabIndex={0} className="dropdown-content z-10 mt-2 w-72 rounded-box bg-base-100 p-2 shadow">
-            <ul className="menu w-full p-0">
-              <li><button type="button" onClick={() => void acaoDoTopo("rebuscar")}>Rebuscar agora</button></li>
-              <li><button type="button" onClick={() => void acaoDoTopo("reavaliar")}>Reavaliar com a IA</button></li>
-              <li><button type="button" onClick={() => void acaoDoTopo("termos")}>Gerar termos de busca</button></li>
-            </ul>
-            <form
-              className="join mt-2 w-full"
-              onSubmit={(ev) => {
-                ev.preventDefault();
-                void casarLink();
-              }}
-            >
-              <input
-                type="text" className="input input-sm join-item w-full" aria-label="Casar por link ou ASIN"
-                placeholder="Casar por link ou ASIN" value={link} onChange={(ev) => setLink(ev.target.value)}
-              />
-              <button type="submit" className="btn btn-sm join-item">Casar</button>
-            </form>
-          </div>
-        </div>
-      </div>
+      <BarraRevisao
+        navegacao={dados.navegacao} voltar={voltar} linkProduto={linkProduto}
+        aoAcao={(acao) => void acaoDoTopo(acao)} aoCasarLink={casarLink}
+      />
 
-      {alerta}
+      {aviso && (
+        <div role="alert" className={ALERTA[aviso.tipo]}>
+          <span>{aviso.mensagem}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAviso(null)}>Fechar</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <aside className="space-y-3 self-start lg:sticky lg:top-4">
-          <div className="card card-border card-sm bg-base-100">
-            <div className="card-body">
-              <div className="flex gap-3 lg:flex-col">
-                <Foto src={produto.imagem} alt={produto.nome} tamanho="g" />
-                <div className="min-w-0 space-y-1">
-                  <h1 className="text-lg font-bold lg:text-xl">{produto.nome}</h1>
-                  {produto.nome_en && produto.nome_en !== produto.nome && (
-                    <p className="text-sm opacity-70">{produto.nome_en}</p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-1 text-sm">
-                    {produto.categoria && <span className="badge badge-outline badge-sm">{produto.categoria}</span>}
-                    <span>a partir de <strong>{reais(produto.preco_liga)}</strong></span>
-                    {produto.lojas !== null && <span className="opacity-70">· {produto.lojas} lojas</span>}
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {produto.pistas.map((p) => <span key={p} className="badge badge-ghost badge-sm">{p}</span>)}
-                  </div>
-                  <a className="link text-sm" href={produto.url} target="_blank" rel="noreferrer">Ver na LigaMagic ↗</a>
-                </div>
-              </div>
-              {dados.parecidos.length > 0 && (
-                <div className="space-y-1 pt-2">
-                  <h2 className="text-sm font-semibold">Parecidos na Liga</h2>
-                  <ul className="list" aria-label="Parecidos na Liga">
-                    {dados.parecidos.map((p) => (
-                      <li key={p.id} className="list-row items-center p-1">
-                        <Foto src={p.imagem} alt={p.nome} tamanho="p" />
-                        <Link className="link list-col-grow truncate text-sm" to={linkProduto(p.id)}>{p.nome}</Link>
-                        <span className="text-xs opacity-70">{reais(p.preco_liga)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
+        {/* No celular o aside some (contents) e o produto, os anúncios e os parecidos se ordenam pelo order-*. */}
+        <aside className="contents lg:sticky lg:top-4 lg:block lg:space-y-3 lg:self-start">
+          <ProdutoDaLiga produto={dados.produto} />
+          <ParecidosNaLiga parecidos={dados.parecidos} linkProduto={linkProduto} />
         </aside>
-
-        <div className="min-w-0 space-y-6">
-          <section className="space-y-2">
-            <h2 className="text-lg font-semibold">Para decidir ({grupos.para_decidir.length})</h2>
-            {grupos.para_decidir.length === 0 && <p className="text-sm opacity-70">Nada para decidir neste produto.</p>}
-            <ul className="space-y-2" aria-label="Para decidir">
-              {grupos.para_decidir.map((a, i) => (
-                <li key={a.anuncio_id}>
-                  <CartaoAnuncio
-                    anuncio={a} grupo="para_decidir" ocupado={ocupados.has(a.anuncio_id)} selecionado={i === atual}
-                    onDecidir={(acao) => (acao === "trocar" ? setTrocando(a) : void decidir(a, "para_decidir", acao))}
-                  />
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="space-y-2">
-            <h2 className="text-lg font-semibold">Confirmados ({grupos.confirmados.length})</h2>
-            {grupos.confirmados.length === 0 && <p className="text-sm opacity-70">Nenhum anúncio confirmado.</p>}
-            <ul className="space-y-2" aria-label="Confirmados">
-              {grupos.confirmados.map((a) => (
-                <li key={a.anuncio_id}>
-                  <CartaoAnuncio
-                    anuncio={a} grupo="confirmados" ocupado={ocupados.has(a.anuncio_id)}
-                    onDecidir={(acao) => void decidir(a, "confirmados", acao)}
-                    onDefinirIdioma={(idioma) => void definirIdioma(a, idioma)}
-                  />
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <div className="collapse collapse-arrow border border-base-300 bg-base-100">
-            <input type="checkbox" aria-label="Mostrar ignorados" />
-            <h2 className="collapse-title text-lg font-semibold">Ignorados ({grupos.ignorados.length})</h2>
-            <div className="collapse-content">
-              {grupos.ignorados.length === 0 && <p className="text-sm opacity-70">Nenhum anúncio ignorado.</p>}
-              <ul className="space-y-2" aria-label="Ignorados">
-                {grupos.ignorados.map((a) => (
-                  <li key={a.anuncio_id}>
-                    <CartaoAnuncio
-                      anuncio={a} grupo="ignorados" ocupado={ocupados.has(a.anuncio_id)}
-                      onDecidir={(acao) => void decidir(a, "ignorados", acao)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <p className="hidden text-xs opacity-70 lg:block">
-            <kbd className="kbd kbd-sm">C</kbd> é o mesmo · <kbd className="kbd kbd-sm">I</kbd> não é ·{" "}
-            <kbd className="kbd kbd-sm">↑</kbd> <kbd className="kbd kbd-sm">↓</kbd> anúncio ·{" "}
-            <kbd className="kbd kbd-sm">Enter</kbd> próximo produto
-          </p>
-        </div>
+        <GruposAnuncios
+          grupos={grupos} ocupados={ocupados} destacado={atual}
+          aoDecidir={(a, de, acao) => void decidir(a, de, acao)} aoTrocar={setTrocando}
+          aoDefinirIdioma={(a, idioma) => void definirIdioma(a, idioma)}
+        />
       </div>
 
       {trocando && (
         <ModalOutroProduto
-          anuncio={trocando} produtoId={produto.id} aoEscolher={escolherOutro} aoFechar={() => setTrocando(null)}
+          anuncio={trocando} produtoId={dados.produto.id} aoEscolher={escolherOutro} aoFechar={() => setTrocando(null)}
         />
       )}
     </section>

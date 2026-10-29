@@ -1,5 +1,5 @@
 // Um anúncio da Amazon na revisão de um produto: título com a variação destacada, parecer da IA e as decisões.
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { dataHora, reais } from "../formato";
 import type { AcaoCasamento, AnuncioRevisao, GrupoRevisao } from "../tipos";
 import { Foto } from "./Foto";
@@ -78,6 +78,23 @@ function DefinirIdioma({
   ocupado: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
+  const caixa = useRef<HTMLDivElement>(null);
+  // Aberto, o menu fecha com Esc ou com um clique fora dele.
+  useEffect(() => {
+    if (!aberto) return;
+    const tecla = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setAberto(false);
+    };
+    const clique = (ev: MouseEvent) => {
+      if (!(ev.target instanceof Node) || !caixa.current?.contains(ev.target)) setAberto(false);
+    };
+    document.addEventListener("keydown", tecla);
+    document.addEventListener("mousedown", clique);
+    return () => {
+      document.removeEventListener("keydown", tecla);
+      document.removeEventListener("mousedown", clique);
+    };
+  }, [aberto]);
   const escolher = (idioma: string) => {
     setAberto(false);
     onDefinir(idioma);
@@ -85,7 +102,7 @@ function DefinirIdioma({
   return (
     <div className="flex items-center gap-2">
       {anuncio.ia === null && anuncio.idioma && <span className="badge badge-outline badge-sm">{anuncio.idioma}</span>}
-      <div className={aberto ? "dropdown dropdown-open" : "dropdown"}>
+      <div ref={caixa} className={aberto ? "dropdown dropdown-open" : "dropdown"}>
         <button type="button" className="btn btn-ghost btn-sm" disabled={ocupado} onClick={() => setAberto(!aberto)}>
           definir idioma
         </button>

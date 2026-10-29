@@ -45,7 +45,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Migração do pacote: o CHECK recriado e o índice de `oportunidade` sem `NOT VALID`/`CONCURRENTLY` (trava curta, aceita neste tamanho); o teste da migração cruza `casamento` × `oportunidade` sem filtrar às linhas de teste.
 - [ ] Login sem o 9: `/entrar` resolve o número duas vezes (4 consultas, constante); o caso inverso (`+55DD8…` digitado com o 9) não é tratado.
 - [ ] Casador: gravar a falha ou a limpeza dentro dos `except` pode derrubar o ciclo se o banco cair; `produtos_para_gerar_termos` ficou com o parâmetro `excluir` sem uso.
-- [ ] Idioma: o selo no cartão só considera a avaliação deste par; `definir_idioma` recebe `agora` sem usar; o menu "definir idioma" não fecha com clique fora nem Esc; o selo mostra o código e o menu mostra o rótulo; `definir-idioma` só marca como suspeitos os anúncios antes sem idioma (não os já `ja`/`outro`).
+- [ ] Idioma: o selo no cartão só considera a avaliação deste par; `definir_idioma` recebe `agora` sem usar; o selo mostra o código e o menu mostra o rótulo; `definir-idioma` só marca como suspeitos os anúncios antes sem idioma (não os já `ja`/`outro`).
 - [ ] Desativar produto: lote grande segura as travas dos anúncios até o commit; `Alterados` é subclasse de `int` (um dataclass seria mais claro); `alternar_ativo` usa `agora_utc`; a suíte do front teve falhas intermitentes por tempo sob carga (testes antigos).
 - [ ] Lembretes: `reenviar`/`descartar` sempre rodam a checagem de resolução (descartes internos de alerta pendente pagam algumas consultas); `_lembrar` trava todos os avisos abertos em espera a cada minuto; falta teste unitário de `eh_do_proprio_aviso` e de que os 7 tipos têm lembrete.
 - [ ] Vigia: a própria `manutencao` não é vigiada (anterior ao pacote).
@@ -60,7 +60,6 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Gestão do site novo (adiadas da revisão da 3A, 2026-10-22; entram na 3C)
 
-- [ ] Revisão de casamentos: Enter com o foco no menu ⋯ avança para o próximo produto; ↑/↓ não rolam até o cartão escolhido; "desfazer" muda o cartão destacado sem avisar; no celular a foto grande e os parecidos ficam acima dos anúncios (a spec pede a Liga compacta); `RevisaoCasamento.tsx` tem ~400 linhas (dividir); "Pular" e "Próximo" levam ao mesmo produto.
 - [ ] Lista de Casamentos: "Tentar de novo" sem cancelamento; depois de um erro, a lista antiga fica sob o alerta; página além da última sem link para a 1ª.
 - [ ] Menu da gestão: o botão do menu no celular não tem `aria-expanded`/`aria-controls` (o foco pelo teclado, a contagem do selo e a Atividade no lugar de Mensagens e Logs foram feitos na 3B, `7e02a55`).
 - [ ] API da gestão: a navegação da revisão refaz a lista filtrada a cada pedido; `DecisaoSaida.mensagem` nunca é preenchida; os tipos `Literal` e a classe de filtros repetem à mão as listas de situação e de filtros; o lote conta e aplica sem trava (dois usuários ao mesmo tempo podem mudar 1–2 produtos a mais; fica registrado em `acao_gestao`).
