@@ -159,4 +159,26 @@ describe("Casamentos", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ir para a primeira página" }));
     expect(await screen.findByRole("table")).toBeInTheDocument();
   });
+
+  it("durante o Tentar de novo a lista do filtro antigo não volta para a tela", async () => {
+    const TODOS = "situacao=todos&ordem=preco_liga&pagina=1";
+    apiFalsa({
+      ...base, [L(BASE)]: ok(LISTA),
+      [L(TODOS)]: [{ status: 500, corpo: { erro: "interno", mensagem: "Erro interno." } }, ok(LISTA)],
+    });
+    renderizarEm("/gestao/casamentos");
+    await screen.findByRole("table");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Situação" }), "todos");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Erro interno");
+    const original = globalThis.fetch;
+    let soltar: () => void = () => {};
+    const porta = new Promise<void>((r) => { soltar = r; });
+    vi.stubGlobal("fetch", (entrada: RequestInfo | URL, init?: RequestInit) =>
+      String(entrada).endsWith(`?${TODOS}`) ? porta.then(() => original(entrada, init)) : original(entrada, init));
+    await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText("Goblin Box")).toBeNull();
+    soltar();
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+  });
 });

@@ -26,7 +26,8 @@ export function Servicos() {
   const podeAgir = pode("pausar_servicos");
   const [dados, setDados] = useState<ListaServicos | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [mensagem, setMensagem] = useState<string | null>(null);
+  // Um objeto novo a cada ação: a mesma mensagem de novo recomeça a contagem para sumir.
+  const [mensagem, setMensagem] = useState<{ texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [recarga, setRecarga] = useState(0);
   // Conta as ações (no começo e no fim de cada uma): uma recarga silenciosa pedida antes ou durante uma ação chega
@@ -69,7 +70,7 @@ export function Servicos() {
     acoes.current += 1; // ímpar: ação em andamento
     try {
       const r = await chamarApi<ResultadoServico>(`${BASE}/${caminho}`, { metodo: "POST" });
-      setMensagem(r.mensagem);
+      setMensagem({ texto: r.mensagem });
       try {
         setDados(await chamarApi<ListaServicos>(BASE));
       } catch (e) {
@@ -100,7 +101,7 @@ export function Servicos() {
       )}
       {mensagem && (
         <div role="status" className="alert alert-info">
-          <span>{mensagem}</span>
+          <span>{mensagem.texto}</span>
         </div>
       )}
       {dados && (

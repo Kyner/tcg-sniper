@@ -340,4 +340,39 @@ describe("Revisão de um produto", () => {
     await userEvent.click(screen.getByRole("heading", { name: "Lair of the Hydra" }));
     expect(within(cartao).queryByRole("button", { name: "japonês" })).toBeNull();
   });
+
+  it("desfazer sem ter usado as setas mantém o destaque no cartão que o tinha", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    apiFalsa({
+      ...base, [G(31)]: ok(REVISAO),
+      "POST /api/gestao/casamentos/31/anuncios/201": ok({ anuncio: CONF, grupo: "para_decidir", mensagem: null }),
+    });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    const destacado = () => within(grupo("Para decidir")).getAllByRole("article").find((a) => a.getAttribute("aria-current") === "true");
+    expect(destacado()).toHaveTextContent("Foil");
+    await userEvent.click(within(grupo("Confirmados")).getByRole("button", { name: "desfazer" }));
+    await waitFor(() => expect(within(grupo("Para decidir")).getAllByRole("listitem")).toHaveLength(4));
+    expect(destacado()).toHaveTextContent("Foil");
+  });
+
+  it("C e depois desfazer: o destaque fica no próximo pendente, não no desfeito", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    apiFalsa({
+      ...base, [G(31)]: ok(REVISAO),
+      [P(101)]: ok({ anuncio: A1, grupo: "confirmados", mensagem: null }),
+      "POST /api/gestao/casamentos/31/anuncios/201": ok({ anuncio: CONF, grupo: "para_decidir", mensagem: null }),
+    });
+    renderizarEm("/gestao/casamentos/31");
+    await screen.findByRole("heading", { name: "Lair of the Hydra" });
+    const destacado = () => within(grupo("Para decidir")).getAllByRole("article").find((a) => a.getAttribute("aria-current") === "true");
+    await userEvent.keyboard("c");
+    await waitFor(() => expect(within(grupo("Confirmados")).getAllByRole("listitem")).toHaveLength(2));
+    expect(destacado()).toHaveTextContent("Lair of the Hydra Booster");
+    const conf = within(grupo("Confirmados")).getAllByRole("listitem").find((li) => li.textContent?.includes("confirmado"))!;
+    await userEvent.click(within(conf).getByRole("button", { name: "desfazer" }));
+    await waitFor(() => expect(within(grupo("Para decidir")).getAllByRole("listitem")).toHaveLength(3));
+    expect(destacado()).toHaveTextContent("Lair of the Hydra Booster");
+    expect(destacado()).not.toHaveTextContent("confirmado");
+  });
 });

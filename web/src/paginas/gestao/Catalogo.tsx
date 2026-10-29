@@ -176,7 +176,10 @@ export function Catalogo() {
       const r = await chamarApi<LoteCatalogo>("/api/gestao/catalogo/lote", {
         metodo: "POST", corpo: corpoLote(lote.acao, lote.alvo, true),
       });
-      setFeito(`${r.alterados} ${r.alterados === 1 ? "produto alterado" : "produtos alterados"} (de ${r.alvo}).`);
+      // A lista mudou no meio: o resultado era da seleção anterior, que já foi descartada.
+      if (caminhoAtual.current === de) {
+        setFeito(`${r.alterados} ${r.alterados === 1 ? "produto alterado" : "produtos alterados"} (de ${r.alvo}).`);
+      }
       setLote(null);
       limparSelecao();
       setRecarga((n) => n + 1);

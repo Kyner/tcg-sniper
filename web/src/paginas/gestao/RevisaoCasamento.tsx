@@ -53,8 +53,8 @@ export function RevisaoCasamento() {
   const [proximoFora, setProximoFora] = useState<number | null>(null);
   const [ocupados, setOcupados] = useState<Set<number>>(new Set());
   const [aviso, setAviso] = useState<Aviso | null>(null);
-  // O destaque segue o anúncio (não a posição): um "desfazer" que entra acima não o troca. Se o destacado sai de
-  // "Para decidir", vale a última posição (o seguinte ocupa o lugar dele).
+  // O destaque segue o anúncio (não a posição): um "desfazer" que entra acima não o troca. Começa no primeiro; se o
+  // destacado é decidido, passa para o seguinte (ou o anterior). Nunca fica vazio com cartões para decidir.
   const [destacadoId, setDestacadoId] = useState<number | null>(null);
   const posicao = useRef(0);
   const rolar = useRef(false);
@@ -77,6 +77,7 @@ export function RevisaoCasamento() {
         const r = await chamarApi<Revisao>(`/api/gestao/casamentos/${produtoId}${sufixo}`);
         if (sinal?.cancelado) return;
         setDados(r);
+        setDestacadoId(r.para_decidir[0]?.anuncio_id ?? null);
         setGrupos({ para_decidir: r.para_decidir, confirmados: r.confirmados, ignorados: r.ignorados });
       } catch (e) {
         if (sinal?.cancelado) return;
@@ -125,7 +126,10 @@ export function RevisaoCasamento() {
       const indice = grupos[de].findIndex((a) => a.anuncio_id === id);
       setAviso(null);
       setOcupados((o) => new Set(o).add(id));
-      setDestacadoId((d) => (d === id ? null : d));
+      if (de === "para_decidir" && destacadoId === id) {
+        const lista = grupos.para_decidir;
+        setDestacadoId((lista[indice + 1] ?? lista[indice - 1])?.anuncio_id ?? null);
+      }
       setGrupos((g) => comAnuncio(g, destinoOtimista(acao), anuncio));
       try {
         const corpo = acao === "trocar" ? { acao, para_produto_id: para } : { acao };
@@ -144,7 +148,7 @@ export function RevisaoCasamento() {
         if (tela.current === minha) tirarOcupado(id);
       }
     },
-    [grupos, produtoId, tratarErro],
+    [destacadoId, grupos, produtoId, tratarErro],
   );
 
   const definirIdioma = async (anuncio: AnuncioRevisao, idioma: string) => {
@@ -215,6 +219,11 @@ export function RevisaoCasamento() {
   const achado = destacadoId === null ? -1 : pendentes.findIndex((a) => a.anuncio_id === destacadoId);
   const atual = achado >= 0 ? achado : Math.min(posicao.current, Math.max(0, pendentes.length - 1));
   posicao.current = atual;
+  // Rede de segurança: com cartões para decidir e nenhum destacado (ex.: o grupo estava vazio), fixa o da posição.
+  const fixar = pendentes.length > 0 && achado < 0 ? pendentes[atual].anuncio_id : null;
+  useEffect(() => {
+    if (fixar !== null) setDestacadoId(fixar);
+  }, [fixar]);
 
   // Atalhos: C, I, ↑/↓ e Enter, só com o foco fora de campo e sem janela aberta.
   const atalho = useRef<(ev: KeyboardEvent) => void>(() => {});

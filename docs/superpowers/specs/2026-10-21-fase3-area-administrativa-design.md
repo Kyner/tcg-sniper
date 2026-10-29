@@ -65,7 +65,7 @@ Fora do escopo: a área de negócio (já feita na fase 2), Usuários e Acessos (
 
 ### Casamentos — revisão de um produto (`/gestao/casamentos/:produtoId`)
 
-- Topo: posição na fila ("12 de 96"), **Anterior · Pular · Próximo produto**, seguindo a ordem e os filtros da lista de onde veio; "Voltar à lista" restaura filtros e rolagem.
+- Topo: posição na fila ("12 de 96"), **Anterior · Próximo produto**, seguindo a ordem e os filtros da lista de onde veio; "Voltar à lista" restaura filtros e rolagem. (Em 2026-10-29 "Pular" e "Próximo" foram juntados num botão só: levavam ao mesmo produto e não há "visto" a marcar.)
 - **Esquerda, fixa (sticky)**: produto da Liga — foto grande (toque amplia), nome pt e en, categoria, preço e lojas, **pistas de variação** (ex.: "sem Foil no nome", "idioma não informado"; derivadas do nome, sem IA), "Ver na LigaMagic ↗", **parecidos na Liga** (produtos de nome próximo, ex.: a versão Foil).
 - **Direita**: anúncios da Amazon do produto, em três grupos **na mesma página, sem abas**:
   1. **Para decidir** (pendentes, os sugeridos pela IA primeiro): foto (toque amplia), título com a **variação destacada** (Foil/Non-Foil, idioma, quantidade), preço, vendedor, ASIN com link para a Amazon, **parecer da IA** (mesmo/outro, confiança, motivo em uma linha com o resto no tooltip), selo de idioma. Botões **C · é o mesmo**, **I · não é**, "é de outro produto…".

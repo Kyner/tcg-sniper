@@ -234,4 +234,23 @@ describe("Serviços", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("LigaMagic")).toBeInTheDocument();
   });
+
+  it("a mesma mensagem de novo recomeça os 5 s", async () => {
+    const espiao = vi.spyOn(window, "setTimeout");
+    const limpar = vi.spyOn(window, "clearTimeout");
+    apiFalsa({
+      ...base, [LISTAR]: ok({ servicos: [LIGA] }),
+      "POST /api/gestao/servicos/liga/rodar-agora": ok({ codigo: "rodar_agora", mensagem: "Coleta pedida." }),
+    });
+    renderizarEm("/gestao/servicos");
+    const daTela = () => espiao.mock.calls.filter((c) => c[1] === 5_000 && !String(c[0]).includes("handleTimeout"));
+    await userEvent.click(await screen.findByRole("button", { name: "Rodar agora" }));
+    await waitFor(() => expect(daTela()).toHaveLength(1));
+    await userEvent.click(screen.getByRole("button", { name: "Rodar agora" }));
+    await waitFor(() => expect(daTela()).toHaveLength(2));
+    const primeiro = espiao.mock.results[espiao.mock.calls.indexOf(daTela()[0])].value;
+    expect(limpar).toHaveBeenCalledWith(primeiro);
+    espiao.mockRestore();
+    limpar.mockRestore();
+  });
 });

@@ -56,6 +56,8 @@ export function Casamentos() {
   const [filtros, mudar] = useFiltrosUrl(PADROES);
   const [texto, setTexto] = useState(filtros.busca);
   const [dados, setDados] = useState<ListaCasamentos | null>(null);
+  // Depois de um erro a lista na tela é de outro filtro: fica fora até chegar a lista nova.
+  const [listaVelha, setListaVelha] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
   const caminho = `/api/gestao/casamentos?${montarQuery(filtros, true)}`;
@@ -73,8 +75,8 @@ export function Casamentos() {
     const sinal = { cancelado: false };
     setErro(null);
     chamarApi<ListaCasamentos>(caminho).then(
-      (r) => { if (!sinal.cancelado) setDados(r); },
-      (e: unknown) => { if (!sinal.cancelado) setErro(tratarErro(e)); },
+      (r) => { if (!sinal.cancelado) { setDados(r); setListaVelha(false); } },
+      (e: unknown) => { if (!sinal.cancelado) { setErro(tratarErro(e)); setListaVelha(true); } },
     );
     return () => { sinal.cancelado = true; };
   }, [caminho, recarga, tratarErro]);
@@ -85,8 +87,8 @@ export function Casamentos() {
   const linkRevisao = (id: number) => `/gestao/casamentos/${id}${queryRevisao ? `?${queryRevisao}` : ""}`;
 
   if (dados === null && !erro) return <Carregando />;
-  // Com erro, a lista anterior (de outro filtro) sai da tela.
-  const lista = erro ? null : dados;
+  // Com erro, a lista anterior (de outro filtro) sai da tela; numa nova tentativa ela também não volta.
+  const lista = erro || listaVelha ? null : dados;
 
   return (
     <section className="space-y-4">
@@ -129,6 +131,8 @@ export function Casamentos() {
           <button type="button" className="btn btn-sm" onClick={() => setRecarga((n) => n + 1)}>Tentar de novo</button>
         </div>
       )}
+
+      {listaVelha && !erro && <Carregando />}
 
       {lista && lista.itens.length === 0 && lista.total > 0 && pagina > 1 && (
         <div className="space-y-3 py-6 text-center">

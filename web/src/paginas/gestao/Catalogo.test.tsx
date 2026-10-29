@@ -289,4 +289,21 @@ describe("Catálogo", () => {
     soltar();
     expect(await screen.findByText("Desligar 400 produtos?")).toBeInTheDocument();
   });
+
+  it("resultado do lote que chega depois de trocar o filtro não aparece", async () => {
+    apiFalsa({
+      ...base, [LISTAR]: ok(LISTA), [LISTAR_SIM]: ok({ ...LISTA, itens: [ITEM], total: 1 }),
+      "POST /api/gestao/catalogo/lote": ok({ alvo: 1, alterados: 1 }),
+    });
+    const soltar = segurar("/catalogo/lote");
+    renderizarEm("/gestao/catalogo");
+    const t = await tabela();
+    await userEvent.click(t.getByRole("checkbox", { name: "Selecionar Lair of the Hydra" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ligar" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Monitoramento" }), "sim");
+    soltar();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/produto alterado/)).toBeNull();
+  });
 });
