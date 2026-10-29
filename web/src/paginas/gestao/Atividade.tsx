@@ -68,10 +68,13 @@ function rotuloChave(chave: string): string {
   return chave.replace(/_/g, " ");
 }
 
+/** Custo da IA que vale mostrar: o de valor zero (ex.: chamada que falhou) fica de fora. */
+const temCusto = (custo: unknown) => custo !== null && custo !== undefined && Number(custo) !== 0;
+
 function Detalhe({ linha }: { linha: LinhaAtividade }) {
   const { texto, ...resto } = linha.detalhe as Record<string, string | number | null>;
   const ehMensagem = linha.o_que === "mensagem";
-  const campos = Object.entries(resto).filter(([, v]) => v !== null && v !== "");
+  const campos = Object.entries(resto).filter(([k, v]) => v !== null && v !== "" && (k !== "custo_usd" || temCusto(v)));
   return (
     <div className="space-y-2 rounded-box bg-base-200 p-3 text-sm">
       {campos.length > 0 && (
@@ -291,7 +294,7 @@ export function Atividade() {
                   <div className="tooltip max-w-full" data-tip={l.resultado}>
                     <span className="block max-w-full truncate text-left text-sm">{l.resultado}</span>
                   </div>
-                  {(l.produto || l.asin || l.custo_usd) && (
+                  {(l.produto || l.asin || temCusto(l.custo_usd)) && (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                       {l.produto && l.produto_id != null && (
                         <Link className="link max-w-full truncate" to={`/gestao/produtos/${l.produto_id}`}>{l.produto}</Link>
@@ -299,7 +302,7 @@ export function Atividade() {
                       {l.asin && (
                         <a className="link" href={enderecoAmazon(l.asin)} target="_blank" rel="noopener noreferrer">{l.asin}</a>
                       )}
-                      {l.custo_usd && <span className="opacity-70">US$ {l.custo_usd}</span>}
+                      {temCusto(l.custo_usd) && <span className="opacity-70">US$ {l.custo_usd}</span>}
                     </div>
                   )}
                   <button type="button" className="btn btn-xs btn-ghost" aria-expanded={aberta} onClick={() => alternar(l.chave)}>

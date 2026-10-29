@@ -40,6 +40,21 @@ describe("Atividade", () => {
     expect(within(item).getByText("ok")).toHaveClass("badge-success");
   });
 
+  it("chamada da IA de custo zero não mostra US$ 0.000000 (nem na linha, nem no detalhe)", async () => {
+    const ia = (chave: string, custo: string, asin: string) => linha({
+      chave, servico: "casador", o_que: "ia", asin, custo_usd: custo,
+      detalhe: { finalidade: "casamento", modelo: "gpt-5-mini", custo_usd: custo },
+    });
+    apiFalsa({ ...base, [LISTAR]: ok({ itens: [ia("ia:1", "0.000000", "B0ZERO0001"), ia("ia:2", "0.012300", "B0PAGO0001")], proximo: null }) });
+    renderizarEm("/gestao/atividade");
+    const zero = (await screen.findByRole("link", { name: "B0ZERO0001" })).closest("li")!;
+    expect(within(zero).queryByText(/US\$/)).toBeNull();
+    await userEvent.click(within(zero).getByRole("button", { name: "Detalhes" }));
+    expect(within(zero).queryByText("0.000000")).toBeNull();
+    const pago = screen.getByRole("link", { name: "B0PAGO0001" }).closest("li")!;
+    expect(within(pago).getByText("US$ 0.012300")).toBeInTheDocument();
+  });
+
   it("mapeia parcial e falha para as cores", async () => {
     apiFalsa({
       ...base,
