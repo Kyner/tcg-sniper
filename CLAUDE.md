@@ -48,3 +48,4 @@ Valem para toda sessão neste repositório. O repositório é público: nada de 
 
 - `docs/PENDENCIAS.md` é a lista única do que falta. Ler antes de começar e atualizar no mesmo commit de cada entrega (marcar `[x]`, anotar o commit, mover para "Concluídas").
 - Specs e planos ficam em `docs/superpowers/specs/` e `docs/superpowers/plans/`.
+- Revisão de código só registra pendência de bug que afeta uso ou dados. Qualidade de código, teste fraco ou visual menor: corrigir na hora ou descartar, sem ir para a lista.

@@ -14,7 +14,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
-7. Seção 2 (pequenas), junto com a próxima mexida no código de cada área (as da gestão: ver "Pequenas da revisão da 3C" e as da 3A/3B).
+7. Seção 2, "Pacote de bugs" (16 itens, uma entrega só).
 8. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
@@ -36,103 +36,40 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Login (`POST /api/auth/pedir-codigo` e `POST /api/auth/entrar`): a resposta é sempre igual, mas o tempo ainda difere um pouco entre número com e sem cadastro. Fazer o mesmo trabalho nos dois casos ou responder depois de um tempo fixo.
 - [ ] Revisar os números dos limites por número com o volume real de assinantes.
 - [ ] Avisos de limite de login com teto: sem o limite total, quem inventa muitos números faz sair um `SEGURANCA_LIMITE` por número no grupo admin, e o de número sem cadastro nunca fecha. Agrupar (um aviso "muitos números" por hora) e avisar por número só quando ele tem usuário ativo. Hoje não é alcançável (a API só escuta neste PC).
-
-## 2. Pequenas (sem pressa, juntar num pacote)
-
-### Pequenas da revisão do pacote (2026-10-27)
-
-- [ ] IA do idioma (`definir-idioma --ia` e o Casador): em 2026-10-28 respondeu "português" pelo idioma do título do anúncio, mesmo vendo a embalagem em inglês (#5424). Ajustar a pergunta para o idioma do produto (embalagem e cartas), não do anúncio.
-- [ ] Migração do pacote: o CHECK recriado e o índice de `oportunidade` sem `NOT VALID`/`CONCURRENTLY` (trava curta, aceita neste tamanho); o teste da migração cruza `casamento` × `oportunidade` sem filtrar às linhas de teste.
-- [ ] Login sem o 9: `/entrar` resolve o número duas vezes (4 consultas, constante); o caso inverso (`+55DD8…` digitado com o 9) não é tratado.
-- [ ] Casador: gravar a falha ou a limpeza dentro dos `except` pode derrubar o ciclo se o banco cair; `produtos_para_gerar_termos` ficou com o parâmetro `excluir` sem uso.
-- [ ] Idioma: o selo no cartão só considera a avaliação deste par; `definir_idioma` recebe `agora` sem usar; o selo mostra o código e o menu mostra o rótulo; `definir-idioma` só marca como suspeitos os anúncios antes sem idioma (não os já `ja`/`outro`).
-- [ ] Desativar produto: lote grande segura as travas dos anúncios até o commit; `Alterados` é subclasse de `int` (um dataclass seria mais claro); `alternar_ativo` usa `agora_utc`; a suíte do front teve falhas intermitentes por tempo sob carga (testes antigos).
-- [ ] Lembretes: `reenviar`/`descartar` sempre rodam a checagem de resolução (descartes internos de alerta pendente pagam algumas consultas); `_lembrar` trava todos os avisos abertos em espera a cada minuto; falta teste unitário de `eh_do_proprio_aviso` e de que os 7 tipos têm lembrete.
-- [ ] Vigia: a própria `manutencao` não é vigiada (anterior ao pacote).
-- [ ] Liga: sem teste dos dois textos de `execucao_solicitada` (painel e admin antigo); espaço duplo em um template.
-- [ ] Liga: com o dia encerrado pelo 2º desafio, cada reinício do coletor ainda loga "execução atrasada em HH:MM", mas a atrasada é descartada em silêncio (só o pedido descartado vira log). Não logar a atrasada nesse caso, ou logar o descarte.
-
-### Testes
-
-- [ ] Teste instável: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` falhou uma vez numa rodada completa e passa sozinho (suspeita de dependência do relógio ou da ordem). Investigar antes de confiar nele no CI.
 - [ ] `tests/test_compose_portas.py` só lê portas no formato curto (`"ip:porta:porta"`); uma porta no formato longo (`published:`) ou só `"8000"` passaria sem ser conferida.
-- [ ] Teste da migração `acao_gestao` não confere o `ON DELETE SET NULL` no schema; a lista de permissões do operador está fixa em `tests/api/test_auth.py` (derivar de `PADROES`).
+- [ ] "Abrir" (Serviços) usa `host_publico`, e o noVNC só escuta em 127.0.0.1: com `host_publico` diferente de localhost/127.0.0.1 o link morre.
 
-### Gestão do site novo (adiadas da revisão da 3A, 2026-10-22; sem pressa)
+## 2. Pequenas
 
-- [ ] API da gestão: a navegação da revisão refaz a lista filtrada a cada pedido; `DecisaoSaida.mensagem` nunca é preenchida; os tipos `Literal` e a classe de filtros repetem à mão as listas de situação e de filtros; o lote conta e aplica sem trava (dois usuários ao mesmo tempo podem mudar 1–2 produtos a mais; fica registrado em `acao_gestao`).
-- [ ] Código: lambdas com parâmetro `l` e nomes parecidos `ORDENS_CASAMENTO`/`_ORDENS_CASAMENTO` (`consultas/casamentos.py`); `parecidos_na_liga` corta sufixos de forma agressiva e ordena por nome, não por proximidade.
+Faxina de 2026-10-29: das 58 linhas, 31 foram descartadas (código, teste fraco ou visual sem efeito no uso; ficam no histórico do git), 2 foram para a segurança etapa 2 e 3 para a fase 4. Regra daqui em diante: revisão só registra aqui bug que afeta uso ou dados; o resto é corrigido na hora ou descartado.
 
-### Pequenas da revisão da 3C (2026-10-29)
+### Pacote de bugs (próxima entrega)
 
-- [ ] Efeito de Configurações: "IA · o que decide sozinha" mostra "até N" sem considerar a regra de idioma; o Efeito da busca ignora a releitura de produtos já casados.
-- [ ] Configurações, tela: botões `btn-xs` pequenos para toque no celular; categoria da Liga inválida ou repetida some do campo sem aviso; o Padrão de inteiros mostra milhar e o campo, o número cru; falta teste de estouro a 390 px; o teste do estado velho no aviso não reproduz a corrida real; `chat` do exemplo do aviso sem a estrutura `chat-*`; `input-bordered` não existe mais no DaisyUI 5 (inofensivo).
-- [ ] Ofertas: o tooltip perto da borda direita a 390 px não foi conferido; os cartões valem até `lg` (a spec dizia `md`).
-- [ ] Menu e Dashboard: links desconhecidos do painel caem em `/gestao` sem aviso (o teste só varre alguns prefixos; conferir se o Dashboard desenha a ação "Já conferi" do carrinho); o teste "sem link para o admin antigo" é fraco.
-- [ ] Atividade: URL editada à mão com `situacao=pendente` ou `destino` sem `o_que=mensagem` aplica um filtro invisível.
-- [ ] Configurações: o botão Voltar do navegador não avisa sobre alterações não salvas (o site usa `BrowserRouter`, sem `useBlocker`).
-- [ ] Atividade mostra o antes→depois das configurações (ids dos grupos do WhatsApp, `host_publico`) para quem tem `ver_logs` sem `ver_configuracoes`: decidir se mascara os valores de `geral.*`.
-- [ ] Catálogo: a lista pedida antes de o PATCH da troca gravar ainda pode trazer a chave antiga (corrida rara); o teste dos 5 s da mensagem de Serviços é frágil (espiona `setTimeout`); o `aside` com `display: contents` da revisão pode perder o marco de acessibilidade.
+- [ ] IA do idioma (`definir-idioma --ia` e o Casador) responde pelo idioma do título do anúncio, não da embalagem e das cartas (#5424 em 2026-10-28): ajustar a pergunta. Causa casamento errado.
+- [ ] Notificador: uma mensagem cujo registro sempre falha trava a fila inteira (nada mais sai no WhatsApp).
+- [ ] Casador: gravar a falha ou a limpeza dentro dos `except` derruba o ciclo se o banco cair.
+- [ ] Vigia: a própria `manutencao` (backup) não é vigiada; se ela morrer, ninguém fica sabendo.
+- [ ] Atividade mostra o antes→depois das configurações (ids dos grupos do WhatsApp, `host_publico`) para quem tem `ver_logs` sem `ver_configuracoes`: mascarar os valores.
+- [ ] `GET /api/usuarios` mostra a contagem de sessões ativas de admins para quem não é superadmin.
+- [ ] Login: `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
+- [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (acima de 2³¹ dá 500; reusar `MAX_ID`).
+- [ ] Configurações: o botão Voltar do navegador não avisa sobre alterações não salvas (`BrowserRouter`, sem `useBlocker`).
+- [ ] Configurações: categoria da Liga inválida ou repetida some do campo sem aviso; botões `btn-xs` pequenos para toque no celular.
+- [ ] Serviços: "iniciando…" por 10 min em Liga, WhatsApp e Backup, que esperam o próprio horário (não mostrar para esses).
+- [ ] Dashboard: conferir se desenha a ação "Já conferi" do carrinho; links desconhecidos do painel caem em `/gestao` sem aviso.
+- [ ] "Quase lá" sem limite padrão na API (hoje o limite vem do front).
+- [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (se o texto quebrar, nenhum teste avisa).
+- [ ] Testes instáveis: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` (falhou uma vez numa rodada completa) e o "Entrar" do front (estourou o tempo sob carga).
+- [ ] Liga: com o dia encerrado pelo 2º desafio, cada reinício do coletor loga "execução atrasada em HH:MM", mas a atrasada é descartada em silêncio. Não logar a atrasada nesse caso, ou logar o descarte.
 
-- [ ] **Nomes das categorias da Liga:** `NOMES_CATEGORIAS` (`src/tcg_sniper/configuracoes/geral_liga.py`) está vazio; os chips de Configurações → LigaMagic mostram "categoria N". Preencher olhando a Liga (exige abrir as categorias).
-- [ ] **Nomes dos grupos do WhatsApp:** Configurações mostra só o ID (`…@g.us`) dos grupos admin e de oportunidades; o projeto não tem chamada da Evolution para listar grupos. Se valer, listar pela Evolution e mostrar o nome.
+### Mantidas (funcionalidade ou decisão)
 
-### Pequenas da revisão da 3B (2026-10-25; adiadas, sem pressa)
-
-- [ ] Histórico: `historico._pagina` repete a limitação de página escrita à mão (herdado do admin antigo).
-- [ ] `admin/consultas.py`: `listar_categorias` e `detalhe_produto` seguem no admin antigo; mover na fase 4.
-- [ ] Serviços (back): os testes de `retomar_desafio` não conferem o aviso `SERVICO_PAUSADO_MANUAL`; `cfg_efetiva` sem tipo e redundante com `zona`; um teste usa `servicos.aplicar_config` pelo módulo testado; a docstring de `rodar_agora` não diz que o Casador ignora zona e config.
-- [ ] Estado dos serviços: sem testes nos limites exatos de 2 e 10 min, com ciclo aberto bloqueando "iniciando" e nas transições do monitor e do backup; `em_andamento` recebe `agora` sem usar; `saude_por_servico` com `resumo` sem tipo; linhas travadas em RODANDO mostrariam "parando" para sempre (a marcação de interrompidas ao reiniciar atenua).
-- [ ] API de Serviços: `ajustar_amazon` grava `acao=codigo` (redundante) em `acao_gestao`; `extra="forbid"` só em `ResultadoSaida`; id de carrinho que não é inteiro dá 422 em vez de 404; `rodar-agora` e `retomar` são aceitos mesmo com a ação escondida na lista (igual ao admin antigo); o "último ok" do monitor, do Casador e do WhatsApp é o último registro (rótulo "Último registro"), não um ok de verdade.
-- [ ] "Abrir" usa `host_publico`, e o noVNC só escuta em 127.0.0.1: com `host_publico` diferente de localhost/127.0.0.1 o link morre (em produção está 127.0.0.1 desde 2026-10-24).
-- [ ] Atividade (back): `atividade.py` tem 730 linhas (virar pacote se crescer); `_SERVICO_DA_ORIGEM` repete as origens de `avisos/catalogo.py`; os índices da migração não usam `CONCURRENTLY` (trava curta de escrita no deploy); `estado_aviso.ultimo_em` muda e um aviso reaberto pode repetir entre páginas; o índice de `oferta_amazon` é `(lida_em, anuncio_id)`, não de coluna única (aceito).
-- [ ] Atividade (API e tela): `de`/`ate` com `+HH:MM` precisam de URL-encode (o 422 confunde); `FiltroAtividade.mostrar_texto_mensagem` começa em `True` (falha aberta para chamadores futuros; trocar para `False`) e há uma linha em branco sobrando; `de` maior que `ate` não é validado (lista vazia); o teste "exige `ver_logs`" só confere a ausência do título; "Descartar" aparece para mensagem individual (o back decide); trocar o filtro A→B→A ou clicar duas vezes na mesma busca pode repetir uma página (um contador de geração resolveria).
-- [ ] Dashboard: `rotas_gestao_dashboard` importa `NOMES_TELA`/`ORDEM` de outro módulo de rotas; `top_oportunidades` carrega todas as abertas para fatiar 3.
-- [ ] Tela de Serviços: nos cartões do celular a dica (o detalhe do "agora") só aparece com o mouse; os testes usam `querySelector` por `href` em vez de papel e nome (o menu agora também tem "Atividade").
-- [ ] Teste "Entrar" do front estourou o tempo uma vez sob carga (acompanhar se é instável).
-- [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (id acima de 2³¹ dá 500; reusar `MAX_ID`).
-- [ ] "iniciando…" por 10 min em Liga/WhatsApp/Backup, que esperam o próprio horário (não mostrar para esses).
-- [ ] `listar` dos serviços repete `ultimo_registro` para monitor, casador e WhatsApp.
-
-### Oportunidades e monitor da Amazon
-
-- [ ] Oportunidade aberta há mais de 30 dias sem realerta perde o vínculo com a mensagem (limpeza apaga a mensagem) e não avisa o encerramento; aceito por ora (rara).
-- [ ] Fim da oportunidade: `alertas` começa em 1 ao abrir mesmo com o aviso de oportunidade desligado (padrão do banco); o sub-projeto B deve contar pelas mensagens se precisar do número exato.
-- [ ] `docs/IMPLANTACOES.md`, fim da oportunidade: "sem carência" onde o certo é "sem risco marcado" (só redação).
-- [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
-
-### Casamento e idioma
-
-- [ ] Casamento por par: `marcar_reavaliado` pode tirar a marca de reavaliar com uma resposta da IA que já estava a caminho, mais antiga que o pedido de reavaliar (inofensivo: a avaliação gravada vale para os mesmos dados; para reavaliar de novo, é só clicar outra vez).
-- [ ] Casamento por par: a guarda global contra as colunas antigas (`tests/test_sem_casamento_no_anuncio.py`) só pega os prefixos `anuncio.` e `AnuncioAmazon.`; uma variável com outro nome (`a.produto_id`, `item.status_casamento`) passaria. As colunas já saíram do banco, então o erro apareceria em execução.
-
-### Login, usuários e site novo
-
-- [ ] `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem raramente dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
-- [ ] `GET /api/usuarios` ainda mostra a contagem de sessões ativas de admins para quem não é superadmin.
-- [ ] `repositorio_acesso.travar_limite` ainda cita o "limite total" na docstring, e o caminho sem número (chave fixa) e `contar_pedidos` sem número ficaram sem uso desde a segurança etapa 1.
-
-### Avisos, vigia e notificador
-
-- [ ] Notificador, casos raros aceitos: (a) uma mensagem cujo registro sempre falha pode travar a fila; (b) se o banco cair entre gravar a oportunidade e gravar a mensagem, o alerta fica só no log.
-
-### Admin antigo (juntar com a fase 3)
-
-- [ ] Card da LigaMagic diz "Próxima começa em instantes" até a meia-noite quando a coleta do dia foi pulada (pausa no horário) (`consultas_painel.py`).
-- [ ] Admin antigo lê a configuração duas vezes por página (sobra da configuração em tela).
-- [ ] Casamentos: o selo/opção "sem par" cobre tanto "só ignorados" quanto "sem candidato" (as situações do produto no Dashboard). Alinhar os nomes.
-
-### Oportunidades na área de negócio
-
-- [ ] Tooltip da curva de preço sem o nome do anúncio e sem as cores do tema (pequena, a fazer).
-- [ ] "Quase lá" sem limite padrão na API (pequena): hoje o limite vem do front.
-
-### Código e dependências
-
-- [ ] `openai` fixada em `<3` no `pyproject.toml`: a 3.x troca a biblioteca de rede e exige refazer os testes do pacote `ia`.
-- [ ] Limpar as 6 reexportações `# noqa: PLC0414` em `src/` (sobra da extração do pacote `navegador`).
-- [ ] `TZ` fixo em America/Sao_Paulo no compose: mudar o fuso em Configurações → Geral não muda os logs nem o relógio do noVNC.
-- [ ] Seis itens menores da revisão final do coletor da Amazon (2026-10-14) ficaram "para depois" e não foram registrados. Dar como perdidos ou reabrir por uma revisão do código atual.
+- [ ] **Nomes das categorias da Liga:** `NOMES_CATEGORIAS` (`src/tcg_sniper/configuracoes/geral_liga.py`) está vazio; os chips de Configurações → LigaMagic mostram "categoria N". Preencher olhando a Liga.
+- [ ] **Nomes dos grupos do WhatsApp:** Configurações mostra só o ID (`…@g.us`); o projeto não tem chamada da Evolution para listar grupos.
+- [ ] Login: número cadastrado sem o 9 e digitado com o 9 (`+55DD9…` para um cadastro `+55DD8…`) não é reconhecido.
+- [ ] Tooltip da curva de preço (área de negócio) sem o nome do anúncio e sem as cores do tema.
+- [ ] `openai` fixada em `<3` no `pyproject.toml`: a 3.x troca a biblioteca de rede e exige refazer os testes do pacote `ia`. Só ao atualizar.
+- [ ] `TZ` fixo em America/Sao_Paulo no compose: mudar o fuso em Configurações → Geral não muda os logs nem o relógio do noVNC. Documentar no README.
 
 ## 3. Acompanhar (sem código)
 
@@ -182,7 +119,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
   - [x] **3A. Casamentos e Catálogo** (merge `43fdd04`, em produção desde 2026-10-22 11:37; detalhe em "Concluídas").
   - [x] **3B. Serviços, Atividade e Dashboard** (merge `266cc9d`, em produção desde 2026-10-25 20:37; detalhe em "Concluídas").
   - [x] **3C. Configurações, Ofertas e Mensagens** (merge `f3f7c72`, em produção desde 2026-10-29 11:35; detalhe em "Concluídas"). Do que sobrou da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo, o que não entrou fica na seção 2.
-- [ ] **Site novo, fase 4 — desligar o admin antigo:** apagar `admin/`, o serviço `admin` do compose e a porta 8000, depois do deploy e da conferência da 3C. Cobertura do admin antigo (rota antiga → onde fica no site novo):
+- [ ] **Site novo, fase 4 — desligar o admin antigo:** apagar `admin/`, o serviço `admin` do compose e a porta 8000, depois do deploy e da conferência da 3C. Junto: mover `listar_categorias` e `detalhe_produto` de `admin/consultas.py`; somem com o admin antigo o card da Liga que diz "Próxima começa em instantes" com a coleta pulada e a leitura dupla da configuração. Cobertura do admin antigo (rota antiga → onde fica no site novo):
 
 | Rota antiga | Onde fica |
 |---|---|
