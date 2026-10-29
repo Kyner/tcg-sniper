@@ -41,6 +41,9 @@ TIMEOUT_CLIQUE_MS = 2_000
 class NavegadorChromium:
     """Chromium visível com perfil persistente. Use como context manager.
 
+    `canal` escolhe o navegador instalado no sistema em vez do Chromium empacotado do Playwright
+    (`"chrome"`: Google Chrome estável).
+
     `eh_desafio` decide se a página na tela é um desafio do site (Cloudflare na Liga, CAPTCHA na
     Amazon): num erro de navegação com o desafio na tela, `abrir` devolve o desafio em vez de
     lançar ErroRede, para quem chamou pausar em vez de tentar de novo."""
@@ -51,11 +54,13 @@ class NavegadorChromium:
         eh_desafio: Callable[[Pagina], bool],
         timeout_ms: int = 45_000,
         espera_pos_carga_ms: int = 2_000,
+        canal: str | None = None,
     ):
         self._dir_perfil = dir_perfil
         self._eh_desafio = eh_desafio
         self._timeout_ms = timeout_ms
         self._espera_ms = espera_pos_carga_ms
+        self._canal = canal
 
     def __enter__(self) -> Self:
         self._dir_perfil.mkdir(parents=True, exist_ok=True)
@@ -63,6 +68,7 @@ class NavegadorChromium:
         try:
             self._contexto = self._playwright.chromium.launch_persistent_context(
                 str(self._dir_perfil),
+                channel=self._canal,
                 headless=False,
                 locale="pt-BR",
                 timezone_id="America/Sao_Paulo",
@@ -85,7 +91,7 @@ class NavegadorChromium:
             # Sem isso o driver do Playwright (processo node) fica órfão a cada falha de launch.
             self._playwright.stop()
             if isinstance(erro, PlaywrightError):
-                raise ErroRede(f"Chromium não abriu: {erro}") from erro
+                raise ErroRede(f"{self._canal or 'Chromium'} não abriu: {erro}") from erro
             raise
         return self
 

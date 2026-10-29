@@ -47,8 +47,8 @@ Versão 0.1, em uso diário por um grupo de compra desde outubro de 2026. Coleta
 O tcg-sniper foi feito para acessar a LigaMagic como uma pessoa acessaria, em volume baixo:
 
 - **Um acesso por vez, com pausa humana.** Entre uma página e outra há uma pausa aleatória de 8 a 20 segundos. A coleta roda uma vez por dia e nunca há duas ao mesmo tempo.
-- **Navegador de verdade.** Usa o Chromium com janela (não headless), com perfil persistente, no seu próprio PC e na sua conexão.
-- **Sem burlar proteções.** Não há solucionador de CAPTCHA, nem troca de identidade do navegador, nem rodízio de IP. O Chromium sobe sem a marca de "navegador automatizado" (sem ela, a verificação do Cloudflare entra em loop mesmo resolvida à mão), mas com o próprio user agent e o IP da sua casa. Se aparecer uma verificação, a coleta pausa, avisa você e espera que uma pessoa a resolva pela tela remota; depois de um desafio, a coleta fica mais lenta, e um segundo desafio no mesmo dia encerra o dia.
+- **Navegador de verdade.** Usa navegador com janela (não headless): o Google Chrome estável na LigaMagic e o Chromium do Playwright na Amazon, com perfil persistente, no seu próprio PC e na sua conexão.
+- **Sem burlar proteções.** Não há solucionador de CAPTCHA, nem troca de identidade do navegador, nem rodízio de IP. O navegador sobe sem a marca de "navegador automatizado" (sem ela, a verificação do Cloudflare entra em loop mesmo resolvida à mão), mas com o próprio user agent e o IP da sua casa. Se aparecer uma verificação, a coleta pausa, avisa você e espera que uma pessoa a resolva pela tela remota; depois de um desafio, a coleta fica mais lenta, e um segundo desafio no mesmo dia encerra o dia.
 - **Amazon com teto e horário.** Na Amazon, a busca tem teto de 90 buscas por hora e o monitor de 150 páginas por hora (padrões; recomendado no máximo 90 e 180, e a Amazon vê a soma no mesmo endereço), cada um no próprio horário; um CAPTCHA pausa só o serviço que o recebeu até uma pessoa resolver.
 - **Só o que a página mostra em texto.** Lê o preço "À partir de" das listagens e o quadro de resumo da página do produto. Os preços de cada loja são desenhados como imagem na página e nunca são decodificados.
 
@@ -61,7 +61,7 @@ flowchart LR
     liga[(LigaMagic)]
     amazon[(amazon.com.br)]
     subgraph pc[Seu PC - Docker Compose]
-        coletor[coletor-liga<br/>Chromium + agendador]
+        coletor[coletor-liga<br/>Google Chrome + agendador]
         coletor_amz[coletor-amazon<br/>Chromium logado: monitor de preço,<br/>conferência de checkout e retirada]
         coletor_busca[coletor-amazon-busca<br/>Chromium sem login: busca de anúncios novos]
         casador[casador<br/>casamento com IA]
@@ -92,7 +92,7 @@ flowchart LR
     manut --> db
     manut -.-> r2
     db --> notif --> evo --> whats
-    vnc -. tela do Chromium .- coletor
+    vnc -. tela do Chrome .- coletor
     vnc_amz -. tela do Chromium .- coletor_amz
     vnc_busca -. tela do Chromium .- coletor_busca
 ```
@@ -201,7 +201,7 @@ docker compose up -d --build coletor-liga
 
 **Deu certo se** `docker compose logs coletor-liga --tail 20` mostrar `agendador iniciado`, sem erro.
 
-Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chromium trabalhando pelo noVNC: `http://localhost:6080/vnc.html`, com a `VNC_SENHA`.
+Na primeira vez, como ainda não há nenhuma coleta, ela começa sozinha em até 30 minutos (não espera as 10:00). Para começar já, use **Rodar agora** em Serviços (passo 7). As listagens de todas as categorias levam cerca de 20 minutos. Dá para acompanhar o Chrome trabalhando pelo noVNC: `http://localhost:6080/vnc.html`, com a `VNC_SENHA`.
 
 Ao final, o grupo admin recebe "🟡 Liga · produtos novos no catálogo" e "✅ Liga · coleta concluída".
 
@@ -392,10 +392,10 @@ Um problema que se repete sai uma vez, volta como lembrete a cada 2 h enquanto c
 ### Quando chegar um aviso de desafio
 
 1. Abra o noVNC: `http://localhost:6080/vnc.html` (senha `VNC_SENHA`). Por padrão só abre neste PC (veja abaixo como abrir para a rede de casa).
-2. O Chromium está aberto com a verificação na tela. Resolva-a nessa janela.
+2. O Chrome está aberto com a verificação na tela. Resolva-a nessa janela.
 3. Clique em **Retomar** em Serviços. A coleta volta no mesmo navegador depois do esfriamento (30 min por padrão; o card da LigaMagic mostra "Esfriando até HH:MM"), com pausas em dobro por 24 h depois do desafio. Se foi o 2º desafio do dia, o card mostra "Parada até amanhã (2º desafio)" e a coleta volta no horário de amanhã ("Rodar agora" some até lá). O aviso do WhatsApp já diz qual dos dois é.
 
-O coletor nunca tenta de novo sozinho. Se a janela do Chromium for fechada, a próxima coleta abre outra.
+O coletor nunca tenta de novo sozinho. Se a janela do Chrome for fechada, a próxima coleta abre outra.
 
 ### Segurança
 
@@ -466,7 +466,7 @@ As regras para contribuir (idioma, commits, dados pessoais, ritmo de coleta) est
 cp .env.example .env
 docker compose up -d postgres postgres-teste   # postgres-teste: banco só de testes (porta 5433, em memória)
 uv sync
-uv run playwright install chromium
+uv run playwright install chromium   # o Google Chrome da LigaMagic é o do sistema (ou `playwright install chrome`)
 uv run pytest -q
 uv run ruff check
 ```
@@ -495,7 +495,7 @@ Layout do site novo: `docker compose exec api tcg-sniper codigo-acesso "<número
 
 Os testes usam `tcg_test` no `postgres-teste` (`127.0.0.1:5433`), nunca o Postgres de produção: a suíte recusa rodar em banco que não comece com `tcg_test` ou na porta 5432. Para outro banco (por exemplo um por trabalho paralelo), crie-o com `docker compose exec -T postgres-teste createdb -U tcg tcg_test_<nome>` e aponte `DATABASE_URL_TESTE` para ele. O `postgres-teste` guarda os dados em memória (tmpfs): ao reiniciar o container ou o Docker, tudo some. O `tcg_test` padrão volta sozinho (o container o cria e as migrações recriam as tabelas no próximo `pytest`), mas os bancos extras (`tcg_test_<nome>`) precisam ser criados de novo com o `createdb` acima.
 
-Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem um Chromium com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
+Nenhum teste acessa a LigaMagic ou o WhatsApp reais: os parsers são testados com páginas salvas em `tests/fixtures/liga`, e o navegador e o WhatsApp têm versões falsas nos testes. Os 3 testes de `tests/coletor_liga/test_navegador.py` abrem o Google Chrome com uma página local e só rodam com `TESTAR_NAVEGADOR=1`.
 
 Para rodar um serviço fora do Docker: `uv run tcg-sniper migrate`, `uv run tcg-sniper admin`, `uv run tcg-sniper coletor-liga`, `uv run tcg-sniper coletor-amazon`, `uv run tcg-sniper coletor-amazon-busca` ou `uv run tcg-sniper notificador`.
 

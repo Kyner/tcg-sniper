@@ -81,7 +81,7 @@ services:
     entrypoint: ["/app/docker/coletor-entrypoint.sh"]
     command: ["tcg-sniper", "coletor-liga"]
     # tini repassa o SIGTERM e recolhe Xvfb/x11vnc/websockify/fluxbox; o hostname fixo
-    # mantém válido o SingletonLock do perfil do Chromium entre recriações do container.
+    # mantém válido o SingletonLock do perfil do Chrome entre recriações do container.
     init: true
     hostname: coletor-liga
     stop_grace_period: 30s

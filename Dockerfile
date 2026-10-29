@@ -26,7 +26,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-RUN .venv/bin/playwright install --with-deps chromium
+# Chromium empacotado para a Amazon; Google Chrome estável (/opt/google/chrome) para a LigaMagic.
+# O Chrome só se atualiza ao refazer a imagem.
+RUN .venv/bin/playwright install --with-deps chromium chrome
 
 COPY src ./src
 COPY docker ./docker

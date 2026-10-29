@@ -1,4 +1,4 @@
-"""Teste opcional do NavegadorPlaywright contra uma página local (abre um Chromium visível).
+"""Teste opcional do NavegadorPlaywright contra uma página local (abre o Google Chrome visível).
 
 Não acessa a LigaMagic. Roda só com TESTAR_NAVEGADOR=1.
 """

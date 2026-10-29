@@ -176,7 +176,7 @@ def test_abrir_e_esperar_com_pagina_ilegivel_vira_erro_rede():
         n.abrir_e_esperar("https://loja.test/p", "#aod-offer")
 
 
-def test_chromium_abre_sem_se_anunciar_como_automatizado(monkeypatch, tmp_path):
+def _argumentos_do_launch(monkeypatch, criar):
     from tcg_sniper.navegador import chromium as modulo
 
     recebido = {}
@@ -204,9 +204,22 @@ def test_chromium_abre_sem_se_anunciar_como_automatizado(monkeypatch, tmp_path):
             return Playwright()
 
     monkeypatch.setattr(modulo, "sync_playwright", lambda: Inicio())
-    with NavegadorChromium(tmp_path / "perfil", lambda p: False):
+    with criar():
         pass
+    return recebido
+
+
+def test_chromium_abre_sem_se_anunciar_como_automatizado(monkeypatch, tmp_path):
+    recebido = _argumentos_do_launch(monkeypatch, lambda: NavegadorChromium(tmp_path / "perfil", lambda p: False))
     # Sem isso o navigator.webdriver fica true e o desafio do Cloudflare entra em loop mesmo
     # resolvido à mão no noVNC.
     assert "--enable-automation" in recebido["ignore_default_args"]
     assert "--disable-blink-features=AutomationControlled" in recebido["args"]
+    assert recebido["channel"] is None  # sem canal: o Chromium empacotado do Playwright
+
+
+def test_navegador_da_liga_abre_o_google_chrome(monkeypatch, tmp_path):
+    from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
+
+    recebido = _argumentos_do_launch(monkeypatch, lambda: NavegadorPlaywright(tmp_path / "perfil"))
+    assert recebido["channel"] == "chrome"

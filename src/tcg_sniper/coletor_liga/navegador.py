@@ -30,10 +30,12 @@ class Navegador(NavegadorBase, Protocol):
 
 
 class NavegadorPlaywright(NavegadorChromium):
-    """Chromium da LigaMagic: detector do Cloudflare e o clique em "Exibir mais"."""
+    """Google Chrome da LigaMagic: detector do Cloudflare e o clique em "Exibir mais".
+
+    Chrome estável em vez do Chromium empacotado: o navegador comum de quem visita a Liga."""
 
     def __init__(self, dir_perfil: Path, timeout_ms: int = 45_000, espera_pos_carga_ms: int = 2_000):
-        super().__init__(dir_perfil, eh_desafio, timeout_ms, espera_pos_carga_ms)
+        super().__init__(dir_perfil, eh_desafio, timeout_ms, espera_pos_carga_ms, canal="chrome")
 
     def abrir_expandindo(
         self, url: str, max_cliques: int, pausar: Callable[[], None]
