@@ -3,6 +3,8 @@
 Os avisos do painel antigo (`consultas.painel`) trazem links do admin antigo; `destino_novo` os traduz para as
 telas novas. Link sem tela própria cai no dashboard (`/gestao`)."""
 
+import logging
+import re
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +18,8 @@ from tcg_sniper.consultas import oportunidades, painel
 from tcg_sniper.consultas.catalogo import SituacaoCatalogo, contar_esperando_decisao
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
+
+log = logging.getLogger(__name__)
 
 DESTINO_ESPERANDO = "/gestao/casamentos?situacao=esperando_decisao"
 LIMITE_TETO_IA = Decimal("0.8")  # a partir de 80% do teto (do dia ou do mês) a IA entra em "Precisa de você"
@@ -122,6 +126,7 @@ def destino_novo(link_antigo: str) -> str:
         return "/gestao/ofertas"
     if caminho.startswith("/produtos/"):
         return caminho  # a página do produto já é do site novo
+    log.warning("link do painel sem destino novo: %s", link_antigo)
     return "/gestao"
 
 
@@ -136,11 +141,18 @@ def permissao_do_destino(destino: str) -> str | None:
 
 
 @dataclass(frozen=True)
+class AcaoPrecisa:
+    rotulo: str
+    caminho: str  # POST da API nova (ex.: "Já conferi" do carrinho da Amazon)
+
+
+@dataclass(frozen=True)
 class ItemPrecisa:
     texto: str
     rotulo: str
     destino: str
     requer: str | None  # permissão da tela de destino; a rota esconde o item de quem não a tem
+    acao: AcaoPrecisa | None = None  # botão ao lado do link; o front só o mostra com `pausar_servicos`
 
 
 def pode_abrir(item: ItemPrecisa, permissoes: Collection[str]) -> bool:
@@ -174,8 +186,19 @@ def destino_de(aviso: painel.Aviso) -> str:
     return destino_novo(aviso.link)
 
 
-def _item(texto: str, rotulo: str, destino: str) -> ItemPrecisa:
-    return ItemPrecisa(texto, rotulo, destino, permissao_do_destino(destino))
+_CARRINHO_CONFERIDO = re.compile(r"/amazon/carrinho/(\d+)/conferido")
+
+
+def acao_de(aviso: painel.Aviso) -> AcaoPrecisa | None:
+    """O "Já conferi" do carrinho vira o POST da API nova; outra ação do painel não tem equivalente."""
+    achou = _CARRINHO_CONFERIDO.fullmatch(aviso.acao or "")
+    if achou is None or not aviso.rotulo_acao:
+        return None
+    return AcaoPrecisa(aviso.rotulo_acao, f"/api/gestao/servicos/carrinho/{achou.group(1)}/conferido")
+
+
+def _item(texto: str, rotulo: str, destino: str, acao: AcaoPrecisa | None = None) -> ItemPrecisa:
+    return ItemPrecisa(texto, rotulo, destino, permissao_do_destino(destino), acao)
 
 
 def _esperando(s: Session) -> list[ItemPrecisa]:
@@ -206,7 +229,7 @@ def precisa(s: Session, agora: datetime, cfg: Config, avisos_painel: Sequence[pa
     """Decisões esperando, IA perto do teto e os avisos do painel (serviços com problema ou desligados, monitor
     atrasado, carrinho a conferir, mensagens com falha…) já com o destino novo. Vazio quando não há nada."""
     itens = _esperando(s) + ia_perto_do_teto(s, agora, cfg)
-    itens += [_item(a.texto, rotulo_de(a), destino_de(a)) for a in avisos_painel]
+    itens += [_item(a.texto, rotulo_de(a), destino_de(a), acao_de(a)) for a in avisos_painel]
     return itens
 
 

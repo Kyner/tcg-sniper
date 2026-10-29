@@ -47,7 +47,7 @@ def test_forma_da_resposta_do_operador(cliente, logar, sessoes):
     }
     assert dados["funil"]["liga"] == 1 and dados["funil"]["oportunidades"] == 1
     for item in dados["precisa"]:
-        assert set(item) == {"texto", "rotulo", "destino"}
+        assert set(item) == {"texto", "rotulo", "destino", "acao"}
 
 
 def test_precisa_inclui_a_revisao_em_sequencia(cliente, logar, sessoes):
@@ -59,6 +59,7 @@ def test_precisa_inclui_a_revisao_em_sequencia(cliente, logar, sessoes):
         "texto": "1 produto esperando decisão.",
         "rotulo": "Revisar em sequência",
         "destino": "/gestao/casamentos?situacao=esperando_decisao",
+        "acao": None,
     } in cliente.get(DASHBOARD).json()["precisa"]
 
 

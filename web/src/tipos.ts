@@ -310,7 +310,7 @@ export interface LinhaAtividade {
 export interface PaginaAtividade { itens: LinhaAtividade[]; proximo: string | null }
 
 /** GET /api/gestao/dashboard: cada bloco vem `null` quando a pessoa não tem a permissão dele. */
-export interface PrecisaItem { texto: string; rotulo: string; destino: string }
+export interface PrecisaItem { texto: string; rotulo: string; destino: string; acao?: { rotulo: string; caminho: string } | null }
 export interface SaudeItem { id: string; nome: string; estado: Estado; resumo: string }
 export interface TopOportunidade { produto_id: number; nome: string; imagem: string | null; desconto_pct: number }
 export interface FunilGestao {

@@ -61,13 +61,28 @@ export function Gestao() {
           <button type="button" className="btn btn-sm" onClick={() => setRecarga((n) => n + 1)}>Tentar de novo</button>
         </div>
       )}
-      {dados === null ? (erro === null ? <Carregando /> : null) : <Blocos dados={dados} />}
+      {dados === null ? (erro === null ? <Carregando /> : null) : <Blocos dados={dados} recarregar={() => setRecarga((n) => n + 1)} />}
     </section>
   );
 }
 
-function Blocos({ dados }: { dados: DashboardGestao }) {
-  const { pode } = useSessao();
+function Blocos({ dados, recarregar }: { dados: DashboardGestao; recarregar: () => void }) {
+  const { pode, tratarErro } = useSessao();
+  const [ocupado, setOcupado] = useState(false);
+  const [erroAcao, setErroAcao] = useState<string | null>(null);
+  // O botão de um item (ex.: "Já conferi" do carrinho): POST e recarrega o Dashboard.
+  async function agir(caminho: string) {
+    setOcupado(true);
+    setErroAcao(null);
+    try {
+      await chamarApi<unknown>(caminho, { metodo: "POST" });
+      recarregar();
+    } catch (e) {
+      setErroAcao(tratarErro(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
   const { precisa, saude, oportunidades, funil } = dados;
   // O produto das oportunidades fica na área de negócio.
   const abreProduto = pode("ver_area_negocio") && pode("ver_oportunidades");
@@ -77,11 +92,21 @@ function Blocos({ dados }: { dados: DashboardGestao }) {
         <div className="card bg-base-100 shadow-sm">
           <div className="card-body">
             <h2 className="card-title">Precisa de você</h2>
+            {erroAcao !== null && (
+              <div role="alert" className="alert alert-error"><span>{erroAcao}</span></div>
+            )}
             <ul className="space-y-2">
               {precisa.map((p, i) => (
                 <li key={`${i}|${p.texto}|${p.destino}`} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="min-w-0">{p.texto}</span>
-                  <Link className="btn btn-primary btn-sm" to={p.destino}>{p.rotulo}</Link>
+                  <span className="flex flex-wrap items-center gap-2">
+                    {p.acao && pode("pausar_servicos") && (
+                      <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => void agir(p.acao!.caminho)}>
+                        {p.acao.rotulo}
+                      </button>
+                    )}
+                    <Link className="btn btn-primary btn-sm" to={p.destino}>{p.rotulo}</Link>
+                  </span>
                 </li>
               ))}
             </ul>

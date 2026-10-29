@@ -67,6 +67,13 @@ def test_destino_novo_traduz_cada_link_antigo(antigo, novo):
     assert dashboard.destino_novo(antigo) == novo
 
 
+def test_destino_novo_desconhecido_avisa_no_log(caplog):
+    with caplog.at_level("WARNING", logger="tcg_sniper.consultas.dashboard"):
+        assert dashboard.destino_novo("/algo-desconhecido") == "/gestao"
+        assert dashboard.destino_novo("/servicos") == "/gestao/servicos"
+    assert [r.getMessage() for r in caplog.records] == ["link do painel sem destino novo: /algo-desconhecido"]
+
+
 def test_destino_novo_cobre_todo_link_que_o_painel_emite():
     """Varre o código do painel e das mensagens: todo link literal vira destino migrado (ou as Configurações)."""
     texto = (FONTES / "painel.py").read_text(encoding="utf-8") + (FONTES / "mensagens.py").read_text(encoding="utf-8")
@@ -119,13 +126,20 @@ def test_precisa_some_quando_nao_ha_nada(s, config):
 def test_precisa_junta_decisoes_e_avisos_com_destino_novo(s, config):
     p = criar_produto(s, "x1")
     criar_anuncio(s, "B000000X10", p)
-    avisos = [Aviso("error", "Liga parada.", "/servicos", "Ir para Serviços")]
+    avisos = [
+        Aviso("error", "Liga parada.", "/servicos", "Ir para Serviços"),
+        Aviso("error", "Confira o carrinho.", "/servicos", "Ir para Serviços", "/amazon/carrinho/7/conferido", "Já conferi"),
+    ]
     itens = dashboard.precisa(s, AGORA, config, avisos)
     assert [(i.texto, i.rotulo, i.destino) for i in itens] == [
         ("1 produto esperando decisão.", "Revisar em sequência", "/gestao/casamentos?situacao=esperando_decisao"),
         ("Liga parada.", "Ir para Serviços", "/gestao/servicos"),
+        ("Confira o carrinho.", "Ir para Serviços", "/gestao/servicos"),
     ]
-    assert [i.requer for i in itens] == ["revisar_casamentos", "ver_servicos"]
+    assert [i.requer for i in itens] == ["revisar_casamentos", "ver_servicos", "ver_servicos"]
+    assert [i.acao for i in itens] == [
+        None, None, dashboard.AcaoPrecisa("Já conferi", "/api/gestao/servicos/carrinho/7/conferido"),
+    ]
 
 
 def _gastar(s, usd, quando):

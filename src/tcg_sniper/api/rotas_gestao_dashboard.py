@@ -24,10 +24,16 @@ roteador = APIRouter(prefix="/api/gestao", tags=["gestão"])
 VerGestao = Annotated[Contexto, Depends(exige(Permissao.VER_AREA_GESTAO))]
 
 
+class AcaoSaida(BaseModel):
+    rotulo: str
+    caminho: str
+
+
 class PrecisaSaida(BaseModel):
     texto: str
     rotulo: str
     destino: str
+    acao: AcaoSaida | None = None
 
 
 class SaudeSaida(BaseModel):
@@ -108,6 +114,12 @@ def dashboard(request: Request, contexto: VerGestao) -> DashboardSaida:
             if Permissao.VER_CATALOGO in pode:
                 funil = FunilSaida.model_validate(q.funil(s, agora, efetiva, numeros), from_attributes=True)
     return DashboardSaida(
-        precisa=[PrecisaSaida(texto=i.texto, rotulo=q.rotulo_para(i, pode), destino=i.destino) for i in itens],
+        precisa=[
+            PrecisaSaida(
+                texto=i.texto, rotulo=q.rotulo_para(i, pode), destino=i.destino,
+                acao=AcaoSaida(rotulo=i.acao.rotulo, caminho=i.acao.caminho) if i.acao else None,
+            )
+            for i in itens
+        ],
         saude=saude, oportunidades=oportunidades, funil=funil,
     )

@@ -49,6 +49,50 @@ describe("Dashboard da gestão", () => {
     expect(screen.getByText("96 casamentos esperando decisão")).toBeInTheDocument();
   });
 
+  describe("ação do item (Já conferi do carrinho)", () => {
+    const CARRINHO = {
+      ...COMPLETO,
+      precisa: [{
+        texto: "Confira o carrinho da Amazon", rotulo: "Ir para Serviços", destino: "/gestao/servicos",
+        acao: { rotulo: "Já conferi", caminho: "/api/gestao/servicos/carrinho/7/conferido" },
+      }],
+    };
+    const POST = "POST /api/gestao/servicos/carrinho/7/conferido";
+
+    it("com pausar_servicos o botão faz o POST e recarrega o Dashboard", async () => {
+      const eu = { ...EU_OPERADOR, permissoes: [...EU_OPERADOR.permissoes, "pausar_servicos" as const] };
+      const chamadas = apiFalsa({
+        ...base, "GET /api/auth/eu": ok(eu), [POST]: ok({ mensagem: "ok" }),
+        [DASH]: [ok(CARRINHO), ok({ ...CARRINHO, precisa: [] })],
+      });
+      renderizarEm("/gestao");
+      await userEvent.click(await screen.findByRole("button", { name: "Já conferi" }));
+      await waitFor(() => expect(screen.queryByText("Confira o carrinho da Amazon")).not.toBeInTheDocument());
+      expect(chamadas.filter((c) => c.metodo === "POST").map((c) => c.caminho)).toEqual([
+        "/api/gestao/servicos/carrinho/7/conferido",
+      ]);
+    });
+
+    it("sem pausar_servicos não mostra o botão, só o link", async () => {
+      apiFalsa({ ...base, [DASH]: ok(CARRINHO) });
+      renderizarEm("/gestao");
+      expect(await screen.findByRole("link", { name: "Ir para Serviços" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Já conferi" })).not.toBeInTheDocument();
+    });
+
+    it("falha do POST mostra o erro e mantém o item", async () => {
+      const eu = { ...EU_OPERADOR, permissoes: [...EU_OPERADOR.permissoes, "pausar_servicos" as const] };
+      apiFalsa({
+        ...base, "GET /api/auth/eu": ok(eu), [DASH]: ok(CARRINHO),
+        [POST]: { status: 404, corpo: { codigo: "nao_encontrado", mensagem: "Esse item não está esperando conferência." } },
+      });
+      renderizarEm("/gestao");
+      await userEvent.click(await screen.findByRole("button", { name: "Já conferi" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Esse item não está esperando conferência.");
+      expect(screen.getByText("Confira o carrinho da Amazon")).toBeInTheDocument();
+    });
+  });
+
   it("saúde: selo de estado, nome e link para Serviços; no celular só o nome", async () => {
     apiFalsa({ ...base, [DASH]: ok(COMPLETO) });
     renderizarEm("/gestao");
