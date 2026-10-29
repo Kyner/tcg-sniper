@@ -152,7 +152,8 @@ def _grupos(s: Session, config_env: Config) -> list[GrupoSaida]:
     ]
 
 
-def _aviso(tipo: TipoAviso, ligado: bool, agora: datetime, zona) -> AvisoSaida:
+def _aviso(tipo: TipoAviso, ligado: bool, agora: datetime, zona, host: str | None) -> AvisoSaida:
+    """`host` vai para `formatar`, que recusa o endereço do sistema no texto (o exemplo nunca o leva)."""
     d = CATALOGO[tipo]
     return AvisoSaida(
         tipo=tipo.value,
@@ -162,18 +163,18 @@ def _aviso(tipo: TipoAviso, ligado: bool, agora: datetime, zona) -> AvisoSaida:
         destino=ROTULOS_DESTINO[d.grupo],
         agrupa=d.agrupa,
         ligado=ligado,
-        exemplo=formato.formatar(formato.aviso_de(tipo, d.exemplo, agora), zona, estrito=False),
+        exemplo=formato.formatar(formato.aviso_de(tipo, d.exemplo, agora), zona, host, estrito=False),
     )
 
 
 def _corpo(s: Session, config_env: Config, agora: datetime) -> ConfiguracoesSaida:
     grupos = _grupos(s, config_env)  # cria as linhas que faltam antes de ler as versões
-    zona, _ = avisos.zona_e_host(s)
+    zona, host = avisos.zona_e_host(s)
     estados = avisos.ligados(s)
     return ConfiguracoesSaida(
         grupos=grupos,
         versoes=cfg_grupos.versoes(s),
-        avisos=[_aviso(tipo, estados[tipo], agora, zona) for tipo in CATALOGO],
+        avisos=[_aviso(tipo, estados[tipo], agora, zona, host) for tipo in CATALOGO],
         ia=IASaida(chave_configurada=bool((config_env.openai_api_key or "").strip())),
     )
 
@@ -239,5 +240,5 @@ def ligar_aviso(request: Request, tipo: str, corpo: AvisoEntrada, contexto: Edit
             s, contexto.usuario_id, TipoAcaoGestao.CONFIGURACOES, {"aviso": tipo_aviso.value, "ligado": corpo.ligado},
             agora,
         )
-        zona, _ = avisos.zona_e_host(s)
-        return _aviso(tipo_aviso, corpo.ligado, agora, zona)
+        zona, host = avisos.zona_e_host(s)
+        return _aviso(tipo_aviso, corpo.ligado, agora, zona, host)

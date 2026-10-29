@@ -421,6 +421,9 @@ def test_acao_de_configuracoes_diz_o_que_mudou(s):
     desligou = _acao(s, T - timedelta(minutes=1), tipo=TipoAcaoGestao.CONFIGURACOES,
                      detalhe={"aviso": "liga_desafio", "ligado": False})
     ligou = _acao(s, T, tipo=TipoAcaoGestao.CONFIGURACOES, detalhe={"aviso": "sumiu", "ligado": True})
+    siglas = _acao(s, T - timedelta(minutes=4), tipo=TipoAcaoGestao.CONFIGURACOES, detalhe={"campos": {
+        "amazon.url_busca": ["a", "b"], "ia.ligado": [False, True], "geral.host_publico": ["x", "y"],
+    }})
     linhas = {l.chave: l.resultado for l in linha_do_tempo(s, _filtro(o_que="acao_gestao"), None)[0]}
     assert linhas[f"acao_gestao:{um.id}"] == "admin antigo · salvou 1 campo: desconto mínimo sobre a Liga (%) 20→22"
     assert linhas[f"acao_gestao:{varios.id}"] == (
@@ -429,3 +432,6 @@ def test_acao_de_configuracoes_diz_o_que_mudou(s):
     )
     assert linhas[f"acao_gestao:{desligou.id}"] == "admin antigo · desligou o aviso Liga · desafio do Cloudflare"
     assert linhas[f"acao_gestao:{ligou.id}"] == "admin antigo · ligou o aviso sumiu"
+    assert linhas[f"acao_gestao:{siglas.id}"] == (
+        "admin antigo · salvou 3 campos: URL da busca a→b, IA ligada não→sim, IP ou nome deste PC na rede x→y"
+    )

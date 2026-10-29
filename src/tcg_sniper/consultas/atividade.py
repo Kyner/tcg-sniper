@@ -674,6 +674,8 @@ def _rotulo_config(chave: str) -> str:
         rotulo = campo_config(chave).rotulo
     except KeyError:
         return chave
+    if rotulo[1:2].isupper():  # sigla no começo (URL, IA, IP): fica como está
+        return rotulo
     return rotulo[:1].lower() + rotulo[1:]
 
 

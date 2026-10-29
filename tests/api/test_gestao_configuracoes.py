@@ -114,6 +114,7 @@ def test_get_traz_grupos_valores_versoes_avisos_e_ia(cliente, logar):
     assert aviso["titulo"] == definicao.titulo and aviso["area"] == definicao.origem
     assert aviso["destino"] == "grupo admin" and aviso["ligado"] is True
     assert definicao.titulo in aviso["exemplo"]
+    assert not any("host.test" in a["exemplo"] for a in corpo["avisos"])  # host_publico nunca sai no WhatsApp
 
 
 def test_put_salva_so_os_alterados_e_registra_antes_depois(cliente, logar, sessoes, relogio):
