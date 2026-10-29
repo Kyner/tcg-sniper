@@ -768,6 +768,10 @@ def test_rodada_avisa_no_maximo_uma_vez_por_hora_com_as_voltas_somadas(engine, s
 def test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada(engine, sessoes, config):
     for asin in ("B0AAAA0001", "B0BBBB0001"):
         confirmado(sessoes, asin, asin)
+    with sessoes() as s, s.begin():
+        # Janela explícita (não a padrão do banco): 12h e 23h ficam a horas das bordas, com qualquer sorteio
+        # do `JITTER_JANELA_MIN`.
+        aplicar_config(s, {"monitor_janela_inicio": time(8, 0), "monitor_janela_fim": time(20, 0)}, MEIO_DIA)
     paginas = {url_ofertas(a): ofertas(a, "R$ 850,00") for a in ("B0AAAA0001", "B0BBBB0001")}
     v, _, avisador, relogio = varredura(engine, sessoes, config, paginas)
     assert v.passo() == 0  # lê um dos dois
@@ -775,10 +779,11 @@ def test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada(engine, sessoes, c
     assert v.passo() == ESPERA_OCIOSA_S  # janela fechada: a volta incompleta é descartada
     assert TipoAviso.AMAZON_MONITOR_CONCLUIDO not in avisador.tipos()
     relogio.agora = MEIO_DIA + timedelta(days=1)
-    assert v.passo() == 0 and v.passo() == 0
-    assert v.passo() == ESPERA_OCIOSA_S
-    [dados] = avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)
-    assert dados.linhas[:2] == ("Voltas da fila rápida: 1", "Anúncios lidos: 2")  # só a volta do dia seguinte
+    assert [v.passo(), v.passo(), v.passo()] == [0, 0, ESPERA_OCIOSA_S]  # lê os dois e fecha a volta
+    # Lista inteira na comparação: se falhar, a mensagem mostra todos os avisos da rodada.
+    assert [d.linhas[:2] for d in avisador.dados(TipoAviso.AMAZON_MONITOR_CONCLUIDO)] == [
+        ("Voltas da fila rápida: 1", "Anúncios lidos: 2")  # só a volta do dia seguinte
+    ]
 
 
 def test_anuncio_que_sai_do_monitor_no_meio_da_volta_nao_prende_a_rodada(engine, sessoes, config):
