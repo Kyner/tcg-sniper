@@ -3,14 +3,14 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-29 (fase 3C pronta na branch `worktree-fase3c`, merge pendente; Liga parada por desafio desde 27/10 16:54, a resolver; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
+Última revisão: 2026-10-29 (fase 3C mergeada em `f3f7c72`, deploy pendente; coletor da Liga no Google Chrome em produção desde 2026-10-29 11:23 (`7232f8b`); Liga com desafio na 1ª página em toda tentativa desde 27/10 16:54; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
-0. **Liga parada por desafio do Cloudflare** (seção 0).
+0. **Liga com desafio do Cloudflare em toda tentativa** (seção 0): ver se o Google Chrome resolve.
 1. Casamento e idioma (seção 3, "Coleta e casamento"): conferir os casamentos #322, #382 e #462 e o idioma de 4 anúncios.
 2. Acompanhar a primeira semana do monitor por grupo (seção 3).
-3. Merge e deploy da 3C (Configurações, Ofertas e Mensagens na Atividade; sem migração, ver `docs/IMPLANTACOES.md`), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+3. Deploy da 3C (merge `f3f7c72`; sem migração, conferência em `docs/IMPLANTACOES.md`), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
@@ -19,7 +19,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico
 
-- [ ] **LigaMagic parada com desafio do Cloudflare desde 2026-10-27 16:54** (logo depois de religar a produção): a coleta de 28/10 não rodou. Resolver a verificação no noVNC da Liga (`http://localhost:6080/vnc.html`) e clicar em **Retomar** (gestão → Serviços → LigaMagic). Depois de retomar, a coleta espera 30 min e roda com pausas em dobro por 24 h.
+- [ ] **LigaMagic sem coletar desde 2026-10-26** (último job ok: produtos, 26/10 14:42): toda tentativa cai no desafio do Cloudflare já na 1ª página das listagens (27/10 16:54, 28/10 23:12, 29/10 08:46 e 11:09), mesmo depois de resolvido e retomado. Em 2026-10-29 11:23 o coletor passou para o Google Chrome estável (`7232f8b`) e foi retomado às 11:25: acompanhar a próxima tentativa. Se o desafio continuar, pensar em perfil novo (o atual veio do Chromium) ou em pausas maiores antes da 1ª página.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -151,7 +151,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 ### Coleta e casamento
 
-- [ ] **Coletor da Liga no Google Chrome** (em vez do Chromium do Playwright; a Amazon continua no Chromium): implantar com `docker compose up -d --build` (a imagem passa a instalar o Chrome estável), conferir no noVNC (porta 6080) que abre o Chrome com o perfil antigo e acompanhar se os desafios do Cloudflare mudam. O Chrome só se atualiza ao refazer a imagem.
+- [ ] **Coletor da Liga no Google Chrome** (em produção desde 2026-10-29 11:23, `7232f8b`; Chrome 156 estável na imagem, a Amazon continua no Chromium): conferir no noVNC (porta 6080) que o Chrome abre com o perfil antigo e acompanhar se os desafios do Cloudflare mudam (seção 0). O Chrome só se atualiza ao refazer a imagem.
 - [ ] **Casamentos possivelmente errados** (pendente com o usuário; conferir e desfazer na revisão se for o caso): #322 "Secret Lair x Final Fantasy: Grimoire – Rainbow Foil Edition (Japanese)" (japonês confirmado; pela regra é sempre produto diferente); #382 "Iron Man, Titan of Innovation – Rainbow Foil" (a IA diz que parece carta avulsa, não o Secret Lair completo); #462 "MTG Decks & More Compatible with Spider-Man…" (a IA diz que é acessório não oficial, não o Secret Lair lacrado).
 - [ ] **Idioma de 4 anúncios confirmados** (pendente com o usuário; definir pela foto no botão "definir idioma" da revisão): #25 Final Fantasy Chocobo, #394 Secret Lair Storm e #5424 Foundations Starter Collection (a IA respondeu português pelo título, mas no #5424 diz que a embalagem está em inglês: não gravado para não bloquear os anúncios em inglês do produto); #102935 Dominária Unida (sem decisão). Os outros 30 foram gravados como inglês em 2026-10-28 pela IA (`definir-idioma --ia`).
 - [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: a etapa dos produtos da Liga lê ~450–500 páginas por dia (leitura por interesse; eram ~10 h com todos os ativos); a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
@@ -180,8 +180,8 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] **Site novo, fase 3 — área administrativa**, organizada por tarefa (spec de 2026-10-21: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`, a partir da auditoria de UX do mesmo dia), em três entregas:
   - [x] **3A. Casamentos e Catálogo** (merge `43fdd04`, em produção desde 2026-10-22 11:37; detalhe em "Concluídas").
   - [x] **3B. Serviços, Atividade e Dashboard** (merge `266cc9d`, em produção desde 2026-10-25 20:37; detalhe em "Concluídas").
-  - [x] **3C. Configurações, Ofertas e Mensagens** (pronta na branch `worktree-fase3c`, merge pendente; detalhe em "Concluídas"). Do que sobrou da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo, o que não entrou fica na seção 2.
-- [ ] **Site novo, fase 4 — desligar o admin antigo:** apagar `admin/`, o serviço `admin` do compose e a porta 8000, depois do merge da 3C. Cobertura do admin antigo (rota antiga → onde fica no site novo):
+  - [x] **3C. Configurações, Ofertas e Mensagens** (merge `f3f7c72`, deploy pendente; detalhe em "Concluídas"). Do que sobrou da auditoria de layout de 2026-10-18 (`docs/auditorias/2026-10-18-admin-layout.md`) e das pequenas do admin antigo, o que não entrou fica na seção 2.
+- [ ] **Site novo, fase 4 — desligar o admin antigo:** apagar `admin/`, o serviço `admin` do compose e a porta 8000, depois do deploy e da conferência da 3C. Cobertura do admin antigo (rota antiga → onde fica no site novo):
 
 | Rota antiga | Onde fica |
 |---|---|
@@ -247,7 +247,7 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### Fase 3C — Configurações, Ofertas e Mensagens na gestão (branch `worktree-fase3c`, merge pendente; sem migração)
+### Fase 3C — Configurações, Ofertas e Mensagens na gestão (merge `f3f7c72` em 2026-10-29, deploy pendente; sem migração)
 
 Plano `docs/superpowers/plans/2026-10-28-fase3c-configuracoes-ofertas.md`. Decisões do plano: Efeito calculado na API, categorias da Liga por ID, grupos do WhatsApp por ID, avisos agrupados por origem (37 tipos), Mensagens como filtro da Atividade.
 
