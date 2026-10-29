@@ -19,7 +19,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico
 
-- [ ] **LigaMagic sem coletar desde 2026-10-26** (último job ok: produtos, 26/10 14:42): toda tentativa cai no desafio do Cloudflare já na 1ª página das listagens (27/10 16:54, 28/10 23:12, 29/10 08:46 e 11:09), mesmo depois de resolvido e retomado. Em 2026-10-29 11:23 o coletor passou para o Google Chrome estável (`7232f8b`) e foi retomado às 11:25: acompanhar a próxima tentativa. Se o desafio continuar, pensar em perfil novo (o atual veio do Chromium) ou em pausas maiores antes da 1ª página.
+- [ ] **LigaMagic sem coletar desde 2026-10-26** (último job ok: produtos, 26/10 14:42): toda tentativa cai no desafio do Cloudflare já na 1ª página das listagens (27/10 16:54, 28/10 23:12, 29/10 08:46 e 11:09), mesmo depois de resolvido e retomado. Em 2026-10-29 11:23 o coletor passou para o Google Chrome estável (`7232f8b`) e retomado às 11:25, mas o 2º desafio do dia (11:09) já tinha encerrado o dia: a primeira tentativa no Chrome é a coleta de 2026-10-30, no horário normal. Se o desafio continuar, pensar em perfil novo (o atual veio do Chromium) ou em pausas maiores antes da 1ª página.
 
 ## 1. Segurança antes da internet (prioridade alta)
 
@@ -50,6 +50,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Lembretes: `reenviar`/`descartar` sempre rodam a checagem de resolução (descartes internos de alerta pendente pagam algumas consultas); `_lembrar` trava todos os avisos abertos em espera a cada minuto; falta teste unitário de `eh_do_proprio_aviso` e de que os 7 tipos têm lembrete.
 - [ ] Vigia: a própria `manutencao` não é vigiada (anterior ao pacote).
 - [ ] Liga: sem teste dos dois textos de `execucao_solicitada` (painel e admin antigo); espaço duplo em um template.
+- [ ] Liga: com o dia encerrado pelo 2º desafio, cada reinício do coletor ainda loga "execução atrasada em HH:MM", mas a atrasada é descartada em silêncio (só o pedido descartado vira log). Não logar a atrasada nesse caso, ou logar o descarte.
 
 ### Testes
 
