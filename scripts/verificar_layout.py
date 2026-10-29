@@ -36,7 +36,7 @@ FIXAS = [
 ]
 TELAS_WEB = [
     "/", "/gestao", "/gestao/usuarios", "/gestao/acessos", "/sem-acesso", "/gestao/casamentos", "/gestao/catalogo",
-    "/gestao/servicos", "/gestao/atividade",
+    "/gestao/servicos", "/gestao/atividade", "/gestao/configuracoes", "/gestao/ofertas",
 ]  # as telas por produto (/gestao/casamentos/<id>, /gestao/produtos/<id>) o teste ponta a ponta confere com dados de teste
 TELAS_WEB_ANONIMAS = ["/entrar"]
 TAMANHOS = {"celular": (390, 844), "computador": (1440, 900)}

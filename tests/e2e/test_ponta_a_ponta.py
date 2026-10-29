@@ -356,6 +356,60 @@ def test_servicos_atividade_e_dashboard_ponta_a_ponta(servidores, usuarios, engi
             navegador.close()
 
 
+def test_configuracoes_ofertas_e_operador_ponta_a_ponta(servidores, gestao, engine):
+    """Admin altera um campo de Oportunidades, vê o Efeito, salva e vê a ação na Atividade; o operador vê as
+    Configurações só em leitura; Ofertas carrega e filtra; o operador percorre as telas da gestão."""
+    from playwright.sync_api import expect, sync_playwright
+
+    with sessionmaker(bind=engine)() as s, s.begin():
+        repo_acesso.criar_usuario(s, "Pessoa Operadora", OPERADOR, Papel.OPERADOR, agora_utc())
+    rotulo = "Desconto mínimo sobre a Liga (%)"
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        try:
+            admin = navegador.new_context().new_page()
+            entrar(admin, expect, engine, ADMIN, "11 90000-0001")
+            admin.goto(BASE + "/gestao/configuracoes?grupo=oportunidades")
+            campo = admin.get_by_label(rotulo, exact=True)
+            expect(campo).to_be_visible()
+            valor_antigo = campo.input_value()
+            novo_valor = "31" if valor_antigo != "31" else "32"
+            campo.fill(novo_valor)
+            expect(admin.get_by_role("alert").filter(has_text="Efeito")).to_contain_text(f"{novo_valor}% de desconto")
+            expect(admin.get_by_text("1 alteração")).to_be_visible()
+            admin.get_by_role("button", name="Salvar").click()
+            expect(admin.get_by_text("1 alteração")).to_be_hidden()
+            expect(campo).to_have_value(novo_valor)
+            admin.goto(BASE + "/gestao/atividade")
+            expect(admin.get_by_role("list", name="Atividade").get_by_text(re.compile("salvou 1 campo")).first).to_be_visible()
+
+            # Ofertas: carrega e filtra (uma busca sem resultado esvazia a lista; Limpar filtros traz de volta).
+            admin.goto(BASE + "/gestao/ofertas")
+            expect(admin.get_by_role("heading", name="Ofertas", exact=True)).to_be_visible()
+            admin.get_by_label("Buscar").fill("zzz-nada-assim")
+            expect(admin.get_by_text("Nenhuma oferta com esses filtros")).to_be_visible()
+            admin.get_by_role("button", name="Limpar filtros").click()
+            expect(admin.get_by_label("Buscar")).to_have_value("")
+            expect(admin.get_by_text("Nenhuma oferta com esses filtros")).to_be_hidden()
+
+            # Operador: Configurações só em leitura; telas da gestão sem erro.
+            operador = navegador.new_context().new_page()
+            entrar(operador, expect, engine, OPERADOR, "11 90000-0003")
+            operador.goto(BASE + "/gestao/configuracoes?grupo=oportunidades")
+            expect(operador.get_by_text("Você pode ver as configurações, mas não alterá-las.")).to_be_visible()
+            expect(operador.get_by_label(rotulo, exact=True)).to_be_disabled()
+            assert operador.get_by_role("button", name="Salvar").count() == 0
+            for caminho, titulo in (
+                ("/gestao/ofertas", "Ofertas"), ("/gestao/casamentos", "Casamentos"), ("/gestao/catalogo", "Catálogo"),
+                ("/gestao/atividade", "Atividade"), ("/gestao", "Dashboard"),
+            ):
+                operador.goto(BASE + caminho)
+                expect(operador.get_by_role("heading", name=titulo, exact=True)).to_be_visible()
+                assert operador.get_by_role("heading", name="Sem acesso").count() == 0
+        finally:
+            navegador.close()
+
+
 def _verificar_layout():
     spec = importlib.util.spec_from_file_location("verificar_layout", RAIZ / "scripts" / "verificar_layout.py")
     modulo = importlib.util.module_from_spec(spec)
