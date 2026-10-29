@@ -9,10 +9,15 @@ import { CampoConfig } from "./CampoConfig";
 const DEBOUNCE_MS = 400;
 
 function CaixaEfeito({ efeito }: { efeito: EfeitoConfig }) {
+  // Classes escritas por extenso.
   const classe =
-    efeito.nivel === "erro" ? "alert alert-error" : efeito.nivel === "aviso" ? "alert alert-warning" : "alert alert-info";
+    efeito.nivel === "erro"
+      ? "alert alert-error alert-vertical items-start text-left"
+      : efeito.nivel === "aviso"
+        ? "alert alert-warning alert-vertical items-start text-left"
+        : "alert alert-info alert-vertical items-start text-left";
   return (
-    <div role="alert" className={`${classe} alert-vertical items-start text-left`}>
+    <div role="alert" className={classe}>
       <p className="font-semibold">Efeito</p>
       {efeito.linhas.map((linha) => (
         <p key={linha}>{linha}</p>

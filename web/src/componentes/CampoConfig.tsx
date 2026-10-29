@@ -33,7 +33,6 @@ export function CampoConfig({ campo, valor, erro, editavel, aoMudar }: Props) {
   const numerico = campo.tipo === "int" || campo.tipo === "decimal" || campo.tipo === "float";
   const diferente = !iguais(valor, campo.padrao);
   const texto = valor === null || Array.isArray(valor) ? "" : String(valor);
-  const erroClasse = erro ? "input-error" : "";
 
   let controle;
   if (campo.tipo === "bool") {
@@ -51,7 +50,7 @@ export function CampoConfig({ campo, valor, erro, editavel, aoMudar }: Props) {
     controle = (
       <select
         id={id}
-        className={`select select-bordered w-full ${erro ? "select-error" : ""}`}
+        className={erro ? "select select-bordered select-error w-full" : "select select-bordered w-full"}
         value={texto}
         disabled={!editavel}
         onChange={(e) => aoMudar(e.target.value)}
@@ -78,7 +77,7 @@ export function CampoConfig({ campo, valor, erro, editavel, aoMudar }: Props) {
         id={id}
         type={campo.tipo === "hora" ? "time" : "text"}
         inputMode={numerico ? "decimal" : undefined}
-        className={`input input-bordered w-full ${erroClasse}`}
+        className={erro ? "input input-bordered input-error w-full" : "input input-bordered w-full"}
         value={texto}
         disabled={!editavel}
         onChange={(e) => aoMudar(e.target.value)}
