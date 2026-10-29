@@ -28,6 +28,16 @@ const linhaDe = async (nome: string) => {
 };
 
 describe("Gestão → Usuários", () => {
+  it("mostra traço quando a API esconde as sessões de um admin", async () => {
+    apiFalsa({
+      "GET /api/auth/eu": ok(EU_ADMIN),
+      "GET /api/usuarios": ok({ usuarios: [{ ...ADMIN, sessoes_ativas: null }, GRUPO] }),
+    });
+    renderizarEm("/gestao/usuarios");
+    const celulas = within(await linhaDe("Pessoa Admin")).getAllByRole("cell");
+    expect(celulas[4]).toHaveTextContent("—");
+  });
+
   it("lista com número mascarado e cadastra", async () => {
     const chamadas = apiFalsa({
       "GET /api/auth/eu": ok(EU_ADMIN),

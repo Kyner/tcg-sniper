@@ -43,7 +43,7 @@ export interface Usuario {
   superadmin: boolean;
   ativo: boolean;
   criado_em: string;
-  sessoes_ativas: number;
+  sessoes_ativas: number | null;
 }
 
 /** GET /api/usuarios/{id}/sessoes. */

@@ -41,7 +41,7 @@ class UsuarioSaida(BaseModel):
     superadmin: bool
     ativo: bool
     criado_em: datetime
-    sessoes_ativas: int
+    sessoes_ativas: int | None  # None: sessões de admin, só o superadmin vê
 
 
 class UsuariosSaida(BaseModel):
@@ -95,11 +95,18 @@ class Ok(BaseModel):
     ok: bool = True
 
 
-def _saida(usuario: Usuario, sessoes_ativas: int) -> UsuarioSaida:
+def _saida(usuario: Usuario, sessoes_ativas: int | None) -> UsuarioSaida:
     return UsuarioSaida(
         id=usuario.id, nome=usuario.nome, numero_mascarado=mascarar_numero(usuario.numero), papel=usuario.papel,
         superadmin=usuario.superadmin, ativo=usuario.ativo, criado_em=usuario.criado_em, sessoes_ativas=sessoes_ativas,
     )
+
+
+def _sessoes_visiveis(contexto: Contexto, usuario: Usuario, contagem: dict[int, int]) -> int | None:
+    """Número de sessões ativas, ou None quando o usuário é admin e quem pede não é o superadmin."""
+    if usuario.papel is Papel.ADMIN and not contexto.superadmin:
+        return None
+    return contagem.get(usuario.id, 0)
 
 
 def _obter(s: Session, usuario_id: int, *, travar: bool = False) -> Usuario:
@@ -127,11 +134,11 @@ def _protegido() -> ErroApi:
 
 
 @roteador.get("/usuarios")
-def listar(request: Request, _contexto: GerirUsuarios) -> UsuariosSaida:
+def listar(request: Request, contexto: GerirUsuarios) -> UsuariosSaida:
     estado = request.app.state
     with estado.sessoes() as s:
         contagem = repo_acesso.contar_sessoes_ativas(s, estado.relogio())
-        return UsuariosSaida(usuarios=[_saida(u, contagem.get(u.id, 0)) for u in repo_acesso.listar_usuarios(s)])
+        return UsuariosSaida(usuarios=[_saida(u, _sessoes_visiveis(contexto, u, contagem)) for u in repo_acesso.listar_usuarios(s)])
 
 
 @roteador.post("/usuarios", status_code=201)
@@ -181,7 +188,7 @@ def editar(request: Request, usuario_id: int, entrada: EdicaoUsuario, contexto: 
                 repo_acesso.encerrar_sessoes_do_usuario(s, usuario.id, agora)
             avisos_acesso.ativo_alterado(s, usuario, contexto.nome, agora)
         s.flush()
-        return _saida(usuario, repo_acesso.contar_sessoes_ativas(s, agora).get(usuario.id, 0))
+        return _saida(usuario, _sessoes_visiveis(contexto, usuario, repo_acesso.contar_sessoes_ativas(s, agora)))
 
 
 @roteador.get("/usuarios/{usuario_id}/sessoes")
