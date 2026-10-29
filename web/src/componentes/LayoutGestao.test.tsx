@@ -13,7 +13,7 @@ describe("LayoutGestao", () => {
     expect(item).toHaveAttribute("href", "/gestao/casamentos");
     expect(await screen.findByText("96")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Catálogo" })).toHaveAttribute("href", "/gestao/catalogo");
-    expect(screen.getAllByRole("link", { name: "Ofertas" })[0]).toHaveAttribute("href", "http://localhost:8000/ofertas");
+    expect(screen.getAllByRole("link", { name: "Ofertas" })[0]).toHaveAttribute("href", "/gestao/ofertas");
   });
 
   it("a ordem do menu e as telas novas no lugar das antigas", async () => {
@@ -28,7 +28,11 @@ describe("LayoutGestao", () => {
     ]);
     expect(within(menu).getByRole("link", { name: "Serviços" })).toHaveAttribute("href", "/gestao/servicos");
     expect(within(menu).getByRole("link", { name: "Atividade" })).toHaveAttribute("href", "/gestao/atividade");
-    expect(within(menu).getByRole("link", { name: "Configurações" })).toHaveAttribute("href", "http://localhost:8000/configuracoes");
+    expect(within(menu).getByRole("link", { name: "Configurações" })).toHaveAttribute("href", "/gestao/configuracoes");
+    for (const a of within(menu).getAllByRole("link")) {
+      expect(a.getAttribute("href")).not.toContain(":8000");
+      expect(a).not.toHaveAttribute("target", "_blank");
+    }
     expect(within(menu).getByRole("link", { name: "Documentação da API" })).toHaveAttribute("href", "/api/docs");
     expect(within(menu).queryByRole("link", { name: "Mensagens" })).not.toBeInTheDocument();
     expect(within(menu).queryByRole("link", { name: "Logs" })).not.toBeInTheDocument();

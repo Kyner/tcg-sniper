@@ -45,9 +45,18 @@ FONTES = Path(__file__).resolve().parents[2] / "src" / "tcg_sniper" / "consultas
         ("/casamentos?situacao=sem_par&busca=ab", "/gestao/casamentos?busca=ab&situacao=sem_candidato"),
         ("/casamentos?situacao=casados&com_preco=1", "/gestao/casamentos?situacao=casado&com_preco=true"),
         ("/casamentos/produto/7", "/gestao/casamentos/7"),
-        ("/configuracoes", "antigo:/configuracoes"),
-        ("/configuracoes?aba=ia", "antigo:/configuracoes?aba=ia"),
-        ("/produtos/3", "antigo:/produtos/3"),
+        ("/configuracoes", "/gestao/configuracoes"),
+        ("/configuracoes?aba=ia", "/gestao/configuracoes"),
+        ("/configuracoes?secao=geral", "/gestao/configuracoes?grupo=sistema"),
+        ("/configuracoes?secao=liga", "/gestao/configuracoes?grupo=liga"),
+        ("/configuracoes?secao=amazon", "/gestao/configuracoes?grupo=oportunidades"),
+        ("/configuracoes?secao=ia", "/gestao/configuracoes?grupo=ia-decide"),
+        ("/configuracoes?secao=avisos", "/gestao/configuracoes?grupo=whatsapp"),
+        ("/configuracoes?secao=inexistente", "/gestao/configuracoes"),
+        ("/ofertas", "/gestao/ofertas"),
+        ("/ofertas?pagina=2", "/gestao/ofertas"),
+        ("/produtos/3", "/produtos/3"),
+        ("/algo-desconhecido", "/gestao"),
     ],
 )
 def test_destino_novo_traduz_cada_link_antigo(antigo, novo):
@@ -61,10 +70,7 @@ def test_destino_novo_cobre_todo_link_que_o_painel_emite():
     assert {"/servicos", "/logs?aba=liga", "/logs?aba=manutencao", "/mensagens?situacao=falha", "/configuracoes"} <= links
     for link in links:
         destino = dashboard.destino_novo(link)
-        if link.startswith("/configuracoes"):
-            assert destino == f"antigo:{link}"
-        else:
-            assert destino.startswith("/gestao"), (link, destino)
+        assert destino.startswith("/gestao"), (link, destino)
 
 
 def test_permissao_do_destino():
@@ -72,7 +78,8 @@ def test_permissao_do_destino():
     assert dashboard.permissao_do_destino("/gestao/atividade?o_que=mensagem") == "ver_logs"
     assert dashboard.permissao_do_destino("/gestao/atividade?o_que=busca") == "ver_logs"
     assert dashboard.permissao_do_destino("/gestao/casamentos?situacao=casado") == "revisar_casamentos"
-    assert dashboard.permissao_do_destino("antigo:/configuracoes") == "ver_configuracoes"
+    assert dashboard.permissao_do_destino("/gestao/configuracoes?grupo=monitor") == "ver_configuracoes"
+    assert dashboard.permissao_do_destino("/gestao/ofertas") == "ver_catalogo"
 
 
 def test_precisa_some_quando_nao_ha_nada(s, config):
@@ -104,7 +111,7 @@ def test_ia_perto_do_teto_entra(s, config):
     _gastar(s, str(teto * Decimal("0.02")), AGORA - timedelta(minutes=4))
     [item] = dashboard.ia_perto_do_teto(s, AGORA, config)
     assert "81% do teto do dia" in item.texto
-    assert item.destino == "antigo:/configuracoes" and item.requer == "ver_configuracoes"
+    assert item.destino == "/gestao/configuracoes?grupo=ia-gasto" and item.requer == "ver_configuracoes"
 
 
 def test_funil_soma_com_o_catalogo(s, config):
@@ -172,7 +179,7 @@ def test_monitor_atrasado_abre_configuracoes_com_ver_o_efeito(s, config):
     avisos = painel.avisos(s, AGORA, config, [], mensagens.resumo(s, AGORA))
     [item] = [i for i in dashboard.precisa(s, AGORA, config, avisos) if "atrasado" in i.texto]
     assert item.rotulo == "Ver o efeito"
-    assert item.destino == "antigo:/configuracoes?secao=amazon"
+    assert item.destino == "/gestao/configuracoes?grupo=monitor"
     assert item.requer == "ver_configuracoes"
 
 
@@ -184,3 +191,7 @@ def test_aviso_de_servico_leva_ligar_ou_ver_conforme_o_estado():
     desafio = SaudeServico("Backup", "pausado_desafio", "captcha", "", "/servicos")
     rotulos = [dashboard.rotulo_de(a) for sv in (pausado, falha, desafio) for a in avisos_backup(sv)]
     assert rotulos == ["Ligar", "Ver", "Ver"]
+
+
+def test_nenhum_destino_do_dashboard_aponta_para_o_admin_antigo():
+    assert not hasattr(dashboard, "PREFIXO_ANTIGO")

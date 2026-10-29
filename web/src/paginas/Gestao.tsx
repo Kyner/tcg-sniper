@@ -6,12 +6,10 @@ import { chamarApi } from "../api";
 import { Carregando } from "../componentes/Carregando";
 import { Foto } from "../componentes/Foto";
 import { SeloEstado } from "../componentes/SeloEstado";
-import { enderecoAdminAntigo } from "../enderecos";
 import { useSessao } from "../sessao";
 import type { DashboardGestao, FunilGestao, Permissao } from "../tipos";
 
 const RECARGA_MS = 60_000;
-const PREFIXO_ANTIGO = "antigo:";
 
 const FUNIL: readonly (readonly [keyof FunilGestao, string, string, Permissao])[] = [
   ["liga", "Na Liga", "/gestao/catalogo", "ver_catalogo"],
@@ -80,18 +78,7 @@ function Blocos({ dados }: { dados: DashboardGestao }) {
               {precisa.map((p, i) => (
                 <li key={`${i}|${p.texto}|${p.destino}`} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="min-w-0">{p.texto}</span>
-                  {p.destino.startsWith(PREFIXO_ANTIGO) ? (
-                    <a
-                      className="btn btn-primary btn-sm"
-                      href={enderecoAdminAntigo(p.destino.slice(PREFIXO_ANTIGO.length).replace(/^\//, ""))}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {p.rotulo}
-                    </a>
-                  ) : (
-                    <Link className="btn btn-primary btn-sm" to={p.destino}>{p.rotulo}</Link>
-                  )}
+                  <Link className="btn btn-primary btn-sm" to={p.destino}>{p.rotulo}</Link>
                 </li>
               ))}
             </ul>

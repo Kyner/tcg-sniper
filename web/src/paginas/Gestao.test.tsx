@@ -11,7 +11,7 @@ const FUNIL = {
 const COMPLETO = {
   precisa: [
     { texto: "96 casamentos esperando decisão", rotulo: "Revisar em sequência", destino: "/gestao/casamentos" },
-    { texto: "WhatsApp desconectado", rotulo: "Ligar", destino: "antigo:configuracoes" },
+    { texto: "WhatsApp desconectado", rotulo: "Ligar", destino: "/gestao/configuracoes?grupo=whatsapp" },
   ],
   saude: [
     { id: "liga", nome: "LigaMagic", estado: "rodando", resumo: "coletando" },
@@ -38,14 +38,14 @@ describe("Dashboard da gestão", () => {
     expect(titulos).toEqual(["Precisa de você", "Saúde dos serviços", "Oportunidades", "Funil"]);
   });
 
-  it("destino interno é Link e destino antigo abre o admin antigo em nova aba", async () => {
+  it("todo destino é Link interno, nenhum abre o admin antigo", async () => {
     apiFalsa({ ...base, [DASH]: ok(COMPLETO) });
     renderizarEm("/gestao");
     const rev = await screen.findByRole("link", { name: "Revisar em sequência" });
     expect(rev).toHaveAttribute("href", "/gestao/casamentos");
     const ligar = screen.getByRole("link", { name: "Ligar" });
-    expect(ligar).toHaveAttribute("href", "http://localhost:8000/configuracoes");
-    expect(ligar).toHaveAttribute("target", "_blank");
+    expect(ligar).toHaveAttribute("href", "/gestao/configuracoes?grupo=whatsapp");
+    expect(ligar).not.toHaveAttribute("target");
     expect(screen.getByText("96 casamentos esperando decisão")).toBeInTheDocument();
   });
 
