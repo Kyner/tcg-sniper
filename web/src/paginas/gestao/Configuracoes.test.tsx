@@ -210,4 +210,37 @@ describe("Configurações", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ver exemplo: Teto da IA atingido" }));
     expect(screen.getByText("batido").tagName).toBe("EM");
   });
+
+  it("ligar aviso depois de salvar mantém as versões do salvamento", async () => {
+    const chamadas = await abrir("/gestao/configuracoes?grupo=monitor", {
+      [SALVAR]: ok({ ...CONFIG, versoes: { amazon: "v9", ia: "v2", liga: "v3" } }),
+      "PATCH /api/gestao/avisos/ia_teto": ok({ ...AVISOS[1], ligado: true }),
+    });
+    const entrada = await screen.findByLabelText("Intervalo do monitor");
+    await userEvent.clear(entrada);
+    await userEvent.type(entrada, "30");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument());
+    const chave = screen.getByRole("checkbox", { name: "Ligar aviso Teto da IA atingido" });
+    await userEvent.click(chave);
+    await waitFor(() => expect(chave).toBeChecked());
+    await userEvent.clear(screen.getByLabelText("Intervalo do monitor"));
+    await userEvent.type(screen.getByLabelText("Intervalo do monitor"), "40");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(chamadas.filter((c) => c.metodo === "PUT")).toHaveLength(2));
+    expect((chamadas.filter((c) => c.metodo === "PUT")[1].corpo as { versoes: unknown }).versoes).toEqual({ amazon: "v9", ia: "v2", liga: "v3" });
+  });
+
+  it("Recarregar após 409 confirma quando há alterações", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor", {
+      [SALVAR]: { status: 409, corpo: { erro: "config_mudou", mensagem: "x" } },
+    });
+    const entrada = await screen.findByLabelText("Intervalo do monitor");
+    await userEvent.type(entrada, "1");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await userEvent.click(await screen.findByRole("button", { name: "Recarregar" }));
+    expect(confirma).toHaveBeenCalled();
+    expect(screen.getByLabelText("Intervalo do monitor")).toHaveValue("15001");
+  });
 });

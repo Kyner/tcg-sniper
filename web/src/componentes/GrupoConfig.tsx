@@ -2,6 +2,7 @@
 // caixa "Efeito" (calculada pela API com o que está digitado, 400 ms depois da última tecla).
 import { useEffect, useRef, useState } from "react";
 import { chamarApi } from "../api";
+import { useSessao } from "../sessao";
 import type { EfeitoConfig, GrupoConfig as Grupo, ValorConfig } from "../tipos";
 import { CampoConfig } from "./CampoConfig";
 
@@ -11,7 +12,7 @@ function CaixaEfeito({ efeito }: { efeito: EfeitoConfig }) {
   const classe =
     efeito.nivel === "erro" ? "alert alert-error" : efeito.nivel === "aviso" ? "alert alert-warning" : "alert alert-info";
   return (
-    <div role="alert" className={`${classe} flex-col items-start`}>
+    <div role="alert" className={`${classe} alert-vertical items-start text-left`}>
       <p className="font-semibold">Efeito</p>
       {efeito.linhas.map((linha) => (
         <p key={linha}>{linha}</p>
@@ -32,13 +33,26 @@ function CaixaEfeito({ efeito }: { efeito: EfeitoConfig }) {
   );
 }
 
+/** Valor digitado ainda sem sentido para o tipo (vazio, não numérico, hora incompleta): não vale pedir o Efeito. */
+function digitacaoValida(grupo: Grupo, valores: Record<string, ValorConfig>): boolean {
+  return grupo.campos.every((c) => {
+    const v = valores[c.chave];
+    if (c.tipo === "int" || c.tipo === "decimal" || c.tipo === "float") {
+      return String(v ?? "").trim() !== "" && Number.isFinite(Number(String(v).replace(",", ".")));
+    }
+    if (c.tipo === "hora") return /^\d{2}:\d{2}$/.test(String(v ?? ""));
+    return true;
+  });
+}
+
 function useEfeito(grupo: Grupo, valores: Record<string, ValorConfig>, ativo: boolean) {
+  const { tratarErro } = useSessao();
   const [efeito, setEfeito] = useState<EfeitoConfig | null>(null);
   const sequencia = useRef(0);
   const doGrupo = JSON.stringify(Object.fromEntries(grupo.campos.map((c) => [c.chave, valores[c.chave]])));
 
   useEffect(() => {
-    if (!ativo || !grupo.tem_efeito) return;
+    if (!ativo || !grupo.tem_efeito || !digitacaoValida(grupo, JSON.parse(doGrupo) as Record<string, ValorConfig>)) return;
     const minha = ++sequencia.current;
     const timer = setTimeout(() => {
       chamarApi<EfeitoConfig | null>("/api/gestao/configuracoes/efeito", {
@@ -46,11 +60,11 @@ function useEfeito(grupo: Grupo, valores: Record<string, ValorConfig>, ativo: bo
         corpo: { grupo: grupo.id, valores: JSON.parse(doGrupo) as Record<string, ValorConfig> },
       }).then(
         (r) => { if (minha === sequencia.current) setEfeito(r); },
-        () => { if (minha === sequencia.current) setEfeito(null); }, // o Efeito é só um apoio: sem ele, a tela segue
+        (e: unknown) => { if (minha === sequencia.current) tratarErro(e); }, // o Efeito é só um apoio: mantém o último bom
       );
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [ativo, grupo.id, grupo.tem_efeito, doGrupo]);
+  }, [ativo, grupo, tratarErro, doGrupo]);
 
   return efeito;
 }

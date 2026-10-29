@@ -29,7 +29,8 @@ function useAvisarAoSair(sujo: boolean) {
     };
     const aoClicar = (e: MouseEvent) => {
       const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!link || link.target === "_blank" || link.origin !== window.location.origin) return;
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+      if (!link || link.hasAttribute("download") || link.target === "_blank" || link.origin !== window.location.origin) return;
       if (link.pathname === window.location.pathname) return;
       if (!window.confirm(MENSAGEM_SAIR)) {
         e.preventDefault();
@@ -77,6 +78,11 @@ export function Configuracoes() {
     void carregar();
   }, [carregar]);
 
+  // ?grupo= também vale quando a URL muda depois de aberta a tela.
+  useEffect(() => {
+    if (profundo) setAbertos((antes) => (antes.has(profundo) ? antes : new Set(antes).add(profundo)));
+  }, [profundo]);
+
   // Link profundo: depois de carregar, rola até o grupo pedido.
   useEffect(() => {
     if (dados && profundo) document.getElementById(`grupo-${profundo}`)?.scrollIntoView?.({ block: "start" });
@@ -116,6 +122,11 @@ export function Configuracoes() {
     setErros(({ [chave]: _tirado, ...resto }) => resto);
   };
 
+  const recarregar = () => {
+    if (alterados.length > 0 && !window.confirm("Recarregar descarta as alterações não salvas. Continuar?")) return;
+    void carregar();
+  };
+
   const salvar = async () => {
     setSalvando(true);
     setErroGeral(null);
@@ -147,7 +158,7 @@ export function Configuracoes() {
   };
 
   const atualizarAviso = (aviso: AvisoConfig) =>
-    setDados({ ...dados, avisos: dados.avisos.map((a) => (a.tipo === aviso.tipo ? aviso : a)) });
+    setDados((d) => d && { ...d, avisos: d.avisos.map((a) => (a.tipo === aviso.tipo ? aviso : a)) });
 
   return (
     <div className="space-y-4 pb-20">
@@ -160,7 +171,7 @@ export function Configuracoes() {
       {mudou && (
         <div role="alert" className="alert alert-warning">
           <span>As configurações mudaram; recarregue</span>
-          <button type="button" className="btn btn-sm" onClick={() => void carregar()}>
+          <button type="button" className="btn btn-sm" onClick={recarregar}>
             Recarregar
           </button>
         </div>

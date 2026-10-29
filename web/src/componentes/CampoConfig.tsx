@@ -16,7 +16,7 @@ function mostrarPadrao(campo: Campo): string {
   if (typeof v === "boolean") return v ? "ligado" : "desligado";
   if (Array.isArray(v)) return v.length === 0 ? "nenhuma" : v.map((n) => `categoria ${n}`).join(", ");
   if (campo.tipo === "escolha") return campo.opcoes.find((o) => o.valor === v)?.rotulo ?? String(v);
-  if (campo.tipo === "int" || campo.tipo === "decimal" || campo.tipo === "float") return milhar(v);
+  if (campo.tipo === "int") return milhar(v);
   return String(v);
 }
 
@@ -51,7 +51,7 @@ export function CampoConfig({ campo, valor, erro, editavel, aoMudar }: Props) {
     controle = (
       <select
         id={id}
-        className="select select-bordered w-full"
+        className={`select select-bordered w-full ${erro ? "select-error" : ""}`}
         value={texto}
         disabled={!editavel}
         onChange={(e) => aoMudar(e.target.value)}
@@ -92,7 +92,7 @@ export function CampoConfig({ campo, valor, erro, editavel, aoMudar }: Props) {
         <label htmlFor={campo.tipo === "categorias" ? undefined : id} className="font-medium">
           {campo.rotulo}
         </label>
-        <div className="tooltip tooltip-right" data-tip={campo.explicacao}>
+        <div className="tooltip tooltip-bottom" data-tip={campo.explicacao}>
           <button type="button" className="btn btn-ghost btn-xs btn-circle" aria-label={`Explicação: ${campo.rotulo}`}>
             ⓘ
           </button>
@@ -109,8 +109,8 @@ export function CampoConfig({ campo, valor, erro, editavel, aoMudar }: Props) {
         )}
       </div>
       {controle}
-      <div className="flex flex-wrap gap-x-3 text-xs text-base-content/70">
-        <span>Padrão: {mostrarPadrao(campo)}</span>
+      <div className="flex min-w-0 flex-wrap gap-x-3 text-xs text-base-content/70">
+        <span className="min-w-0 break-all">Padrão: {mostrarPadrao(campo)}</span>
         {numerico && texto !== "" && Math.abs(Number(texto)) >= 1000 && <span>= {milhar(texto)}</span>}
         {campo.vinculo && <span>{campo.vinculo}</span>}
       </div>
