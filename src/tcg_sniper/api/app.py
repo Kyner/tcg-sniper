@@ -20,6 +20,7 @@ from tcg_sniper.api import (
     rotas_gestao_catalogo,
     rotas_gestao_configuracoes,
     rotas_gestao_dashboard,
+    rotas_gestao_ofertas,
     rotas_gestao_servicos,
     rotas_oportunidades,
     rotas_usuarios,
@@ -54,6 +55,7 @@ def criar_app(
     app.include_router(rotas_gestao_catalogo.roteador)
     app.include_router(rotas_gestao_configuracoes.roteador)
     app.include_router(rotas_gestao_dashboard.roteador)
+    app.include_router(rotas_gestao_ofertas.roteador)
     app.include_router(rotas_gestao_servicos.roteador)
 
     VerDocumentacao = Annotated[Contexto, Depends(exige(Permissao.VER_DOCUMENTACAO_API))]

@@ -372,3 +372,38 @@ export interface EfeitoConfig {
   nivel: "info" | "aviso" | "erro";
   barras: { rotulo: string; pct: number }[];
 }
+
+/** GET /api/gestao/ofertas: a melhor oferta da Amazon por produto da Liga. */
+export interface OfertaGestao {
+  produto_id: number;
+  produto: string;
+  imagem: string | null;
+  preco_liga: string | null;
+  anuncio: { asin: string; titulo: string; url: string; imagem: string | null };
+  preco: string | null;
+  /** Já arredondado para baixo em 2 casas; null sem preço na Liga. */
+  desconto_pct: string | null;
+  diferenca: string | null;
+  envio: "amazon" | "fba" | "proprio" | "desconhecido";
+  vendedor: { nome: string | null; envio: string };
+  confiavel: boolean;
+  verificado: boolean;
+  aberta: boolean;
+  risco: { desde: string; motivo: string } | null;
+  origem: "manual" | "sugerido_ia" | "automatico_ia" | "outro_confirmado" | null;
+  prime: boolean;
+  importada: boolean;
+  origem_envio: string | null;
+  /** Itens + impostos (sem frete) da conferência válida; null: não conferido. */
+  conferido: { preco: string; impostos: string | null; frete: string | null } | null;
+  coletado_em: string;
+}
+
+export interface ListaOfertas {
+  itens: OfertaGestao[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  categorias: string[];
+  desconto_min_pct: number;
+}

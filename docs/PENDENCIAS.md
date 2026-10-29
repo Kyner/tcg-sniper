@@ -94,7 +94,7 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 - [ ] Fim da oportunidade: `alertas` começa em 1 ao abrir mesmo com o aviso de oportunidade desligado (padrão do banco); o sub-projeto B deve contar pelas mensagens se precisar do número exato.
 - [ ] `docs/IMPLANTACOES.md`, fim da oportunidade: "sem carência" onde o certo é "sem risco marcado" (só redação).
 - [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (hoje, se o texto quebrar, nenhum teste avisa).
-- [ ] Teste de Ofertas com produto sem preço na Liga.
+- [x] Teste de Ofertas com produto sem preço na Liga (`test_sem_preco_na_liga_aparece_sem_desconto`, 3C: `feat: management offers screen`).
 
 ### Casamento e idioma
 

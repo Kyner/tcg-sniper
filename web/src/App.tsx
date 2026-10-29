@@ -8,6 +8,7 @@ import { Atividade } from "./paginas/gestao/Atividade";
 import { Casamentos } from "./paginas/gestao/Casamentos";
 import { Catalogo } from "./paginas/gestao/Catalogo";
 import { Configuracoes } from "./paginas/gestao/Configuracoes";
+import { Ofertas } from "./paginas/gestao/Ofertas";
 import { ProdutoGestao } from "./paginas/gestao/ProdutoGestao";
 import { RevisaoCasamento } from "./paginas/gestao/RevisaoCasamento";
 import { Servicos } from "./paginas/gestao/Servicos";
@@ -86,6 +87,14 @@ export function Rotas() {
             element={
               <ExigeTodas permissoes={["ver_area_gestao", "ver_catalogo"]}>
                 <Catalogo />
+              </ExigeTodas>
+            }
+          />
+          <Route
+            path="ofertas"
+            element={
+              <ExigeTodas permissoes={["ver_area_gestao", "ver_catalogo"]}>
+                <Ofertas />
               </ExigeTodas>
             }
           />

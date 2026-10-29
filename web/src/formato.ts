@@ -53,3 +53,17 @@ export function milhar(valor: string | number): string {
   const n = typeof valor === "number" ? valor : Number(valor);
   return Number.isFinite(n) && String(valor).trim() !== "" ? MILHAR.format(n) : String(valor);
 }
+
+const PCT2 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+/** Percentual com até 2 casas (o desconto das ofertas, que o servidor já arredonda para baixo). */
+export function pct2(valor: string | null): string {
+  return valor === null ? "—" : `${PCT2.format(Number(valor))}%`;
+}
+
+/** Reais com o sinal antes do símbolo e o menos de verdade: "−R$ 42,00" (negativo), "R$ 42,00" (positivo). */
+export function reaisComSinal(valor: string | null): string {
+  if (valor === null) return "—";
+  const n = Number(valor);
+  const texto = reais(String(Math.abs(n)));
+  return n < 0 ? `−${texto}` : texto;
+}
