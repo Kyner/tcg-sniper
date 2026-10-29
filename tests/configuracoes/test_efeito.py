@@ -7,7 +7,7 @@ from fakes import T0, criar_anuncio, criar_preco_liga, criar_produto
 from fakes_oportunidades import criar_atual_amazon, criar_oportunidade
 
 from tcg_sniper.configuracoes import efeito as modulo
-from tcg_sniper.configuracoes.efeito import efeito
+from tcg_sniper.configuracoes.efeito import _duracao, efeito
 from tcg_sniper.configuracoes.grupos import valores_atuais
 from tcg_sniper.db import repositorio_amazon as repo_amz
 from tcg_sniper.db import repositorio_ia as repo_ia
@@ -95,7 +95,22 @@ def test_busca_ciclo_curto_fica_no_intervalo(s):
     r = efeito(s, AGORA, "busca", {"amazon.intervalo_busca_min": "60"})  # 90/h × 14 h = 1.260 por dia
     texto = _texto(r)
     assert "1.260 buscas por dia" in texto
-    assert "a cada ~60 min" in texto
+    assert "a cada ~1 h" in texto  # 60 min
+
+
+def test_busca_menos_de_uma_busca_por_dia(s):
+    _catalogo_sem_par(s)
+    r = efeito(s, AGORA, "busca", {
+        "amazon.max_buscas_hora": "1", "amazon.janela_inicio": "08:00", "amazon.janela_fim": "08:20",
+    })
+    assert r.nivel == "aviso"
+    assert "menos de 1 busca por dia" in _texto(r).lower()
+
+
+def test_busca_intervalo_longo_em_dias(s):
+    criar_produto(s, "a")
+    r = efeito(s, AGORA, "busca", {"amazon.intervalo_busca_min": "1440"})
+    assert "a cada ~1 dia" in _texto(r)
 
 
 def test_busca_janela_invertida_e_erro(s):
@@ -130,6 +145,14 @@ def test_monitor_estoura_o_teto(s, monkeypatch):
     assert r.nivel == "aviso"
     assert "cabem 150 por hora" in texto
     assert "usar 26 min" in texto  # ceil(64 × 60 / 150)
+
+
+def test_monitor_intervalo_sugerido_longo_em_dias(s, monkeypatch):
+    _rapidos(monkeypatch, s, 3840)
+    r = efeito(s, AGORA, "monitor", {"amazon.monitor_intervalo_min": "1440", "amazon.monitor_max_paginas_hora": "60"})
+    texto = _texto(r)
+    assert "a cada 1 dia" in texto
+    assert "usar 2,7 dias" in texto  # ceil(3840 × 60 / 60) = 3.840 min
 
 
 def test_monitor_cabe(s, monkeypatch):
@@ -182,8 +205,9 @@ def test_ia_decide_quantos_ficam_para_voce(s):
     assert "2 de 4 anúncios pendentes ficam para você" in texto
     texto = _texto(efeito(s, AGORA, "ia-decide", {**base, "ia.confianca_confirmar": "50"}))
     assert "1 de 4 anúncios pendentes ficam para você" in texto
-    texto = _texto(efeito(s, AGORA, "ia-decide", {**base, "ia.automatico": "não"}))
+    texto = _texto(efeito(s, AGORA, "ia-decide", {**base, "ia.automatico": "nao"}))  # sem acento também vale
     assert "4 de 4 anúncios pendentes ficam para você" in texto
+    assert "avaliações já feitas" in _texto(efeito(s, AGORA, "ia-decide", base))
 
 
 def _chamada(s, em, custo, ok=True, finalidade="casamento"):
@@ -216,6 +240,25 @@ def test_ia_ritmo_teto_do_dia_no_custo_medio(s):
     assert r.nivel == "info"
 
 
+def test_ia_ritmo_teto_zero_e_desligada(s):
+    _chamada(s, AGORA - timedelta(days=1), "0.01")
+    r = efeito(s, AGORA, "ia-ritmo", {"ia.lote": "20", "ia.intervalo_min": "5", "ia.teto_dia_usd": "0", "ia.ligado": "não"})
+    texto = _texto(r).lower()
+    assert r.nivel == "aviso"
+    assert "com teto zero a ia não avalia" in texto
+    assert "a ia está desligada" in texto
+
+
+def test_ia_ritmo_teto_zero_sem_dado(s):
+    r = efeito(s, AGORA, "ia-ritmo", {"ia.teto_dia_usd": "0"})
+    assert "com teto zero a ia não avalia" in _texto(r).lower()
+
+
+def test_dolar_com_milhar(s):
+    r = efeito(s, AGORA, "ia-gasto", {"ia.teto_mes_usd": "1000"})
+    assert "US$ 1.000,00" in _texto(r)
+
+
 def test_ia_gasto_barras_e_nivel(s):
     _chamada(s, AGORA - timedelta(hours=1), "1.50")
     r = efeito(s, AGORA, "ia-gasto", {})
@@ -231,3 +274,8 @@ def test_valor_invalido_usa_o_salvo_e_chave_de_fora_e_ignorada(s):
     r = efeito(s, AGORA, "checkout", {"amazon.margem_candidata_pp": "abc", "amazon.monitor_ligado": "x"})
     assert "a partir de 20% de desconto" in _texto(r)  # margem salva: 5
 
+
+
+def test_duracao_singular():
+    assert _duracao(24 * 60) == "~1 dia"
+    assert _duracao(36 * 60) == "~1,5 dias"

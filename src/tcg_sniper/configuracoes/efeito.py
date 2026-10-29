@@ -60,7 +60,7 @@ def _converter(c: Campo, bruto: object) -> object | None:
         if isinstance(bruto, bool):
             return bruto
         texto = str(bruto).strip().lower()
-        return {"sim": True, "true": True, "não": False, "false": False}.get(texto)
+        return {"sim": True, "true": True, "não": False, "nao": False, "false": False}.get(texto)
     if c.tipo in ("int", "decimal", "float"):
         try:
             numero = Decimal(str(bruto).strip().replace(",", "."))
@@ -113,20 +113,27 @@ def _decimal(valor: float, casas: int = 1) -> str:
 
 
 def _usd(valor: Decimal, casas: int = 2) -> str:
-    return f"US$ {valor:.{casas}f}".replace(".", ",")
+    """Dólar com ponto de milhar e vírgula decimal ("US$ 1.000,00")."""
+    return "US$ " + f"{valor:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def _plural(n: int, singular: str, plural: str) -> str:
     return f"{formatar_milhar(n)} {singular if n == 1 else plural}"
 
 
-def _duracao(minutos: float) -> str:
-    """Duração aproximada: minutos, horas ou dias."""
+def _tempo(minutos: float) -> str:
+    """Duração legível: minutos, horas ou dias (uma casa decimal)."""
     if minutos < 60:
-        return f"~{max(round(minutos), 1)} min"
+        return f"{max(round(minutos), 1)} min"
     if minutos < 24 * 60:
-        return f"~{_decimal(minutos / 60)} h"
-    return f"~{_decimal(minutos / (24 * 60))} dias"
+        return f"{_decimal(minutos / 60)} h"
+    dias = _decimal(minutos / (24 * 60))
+    return f"{dias} {'dia' if dias == '1' else 'dias'}"
+
+
+def _duracao(minutos: float) -> str:
+    """Duração aproximada ("~1,5 dias")."""
+    return f"~{_tempo(minutos)}"
 
 
 def _pct(valor: Decimal | int, teto: Decimal | int) -> int:
@@ -165,16 +172,20 @@ def _busca(s: Session, agora: datetime, valores: Mapping[str, object]) -> Efeito
     horas = _horas_janela(cfg.janela_inicio, cfg.janela_fim)
     if horas <= 0:
         return Efeito(("O fim da busca precisa ser depois do início: com esta janela, nenhuma busca roda.",), "erro")
-    por_dia = round(cfg.max_buscas_hora * horas)
+    por_dia = cfg.max_buscas_hora * horas  # float: a conta do ciclo não arredonda
+    janela = f"({cfg.max_buscas_hora} por hora × {_decimal(horas)} h de janela)"
+    if por_dia < 1:
+        return Efeito((
+            f"Menos de 1 busca por dia {janela}: os produtos quase não são procurados.",
+            "Aumente a janela ou as buscas por hora.",
+        ), "aviso")
     catalogo = situacao_catalogo(s, agora, _zona(s))
     sem_par = catalogo.produtos_ativos - catalogo.casado
-    linhas = [
-        f"{formatar_milhar(por_dia)} buscas por dia ({cfg.max_buscas_hora} por hora × {_decimal(horas)} h de janela).",
-    ]
+    linhas = [f"{formatar_milhar(round(por_dia))} buscas por dia {janela}."]
     if sem_par:
         minutos = sem_par / por_dia * 24 * 60
         if minutos <= cfg.intervalo_busca_min:
-            ciclo = f"a cada ~{cfg.intervalo_busca_min} min (o intervalo entre buscas do mesmo produto)"
+            ciclo = f"a cada {_duracao(cfg.intervalo_busca_min)} (o intervalo entre buscas do mesmo produto)"
         else:
             ciclo = f"a cada {_duracao(minutos)}"
         linhas.append(f"{_plural(sem_par, 'produto sem par', 'produtos sem par')}: cada produto sem par {ciclo}.")
@@ -189,7 +200,7 @@ def _monitor(s: Session, agora: datetime, valores: Mapping[str, object]) -> Efei
     situacao = repo_amz.situacao_monitor(s, agora, cfg)
     carga = carga_monitor(situacao.rapidos, cfg)
     linhas = [
-        (f"Fila rápida: {_plural(situacao.rapidos, 'anúncio', 'anúncios')} a cada {carga.intervalo_min} min = "
+        (f"Fila rápida: {_plural(situacao.rapidos, 'anúncio', 'anúncios')} a cada {_tempo(carga.intervalo_min)} = "
         f"{formatar_milhar(carga.exigido)} páginas por hora."),
         (f"{'Mas só cabem' if carga.estoura else 'Cabem'} {formatar_milhar(carga.limite)} por hora (teto "
         f"{formatar_milhar(carga.teto)}; capacidade de {formatar_milhar(carga.capacidade)} por hora com pausas de "
@@ -199,8 +210,8 @@ def _monitor(s: Session, agora: datetime, valores: Mapping[str, object]) -> Efei
         return Efeito(tuple(linhas), "info")
     sugerido = carga.intervalo_sugerido_min
     linhas.append(
-        f"Não cabe: cada anúncio rápido será lido a cada ~{sugerido} min, não {carga.intervalo_min}. "
-        f"Para caber, usar {sugerido} min ou mais no intervalo (ou menos anúncios na fila rápida)."
+        f"Não cabe: cada anúncio rápido será lido a cada {_duracao(sugerido)}, não {_tempo(carga.intervalo_min)}. "
+        f"Para caber, usar {_tempo(sugerido)} ou mais no intervalo (ou menos anúncios na fila rápida)."
     )
     return Efeito(tuple(linhas), "aviso")
 
@@ -252,7 +263,7 @@ def _ia_decide(s: Session, agora: datetime, valores: Mapping[str, object]) -> Ef
     else:
         motivo = (
             f"A IA confirma com {cfg.confianca_confirmar}% de confiança ou mais e ignora com {cfg.confianca_ignorar}% "
-            f"ou mais: pelas avaliações de hoje, decide até {_plural(decide, 'anúncio', 'anúncios')}"
+            f"ou mais: pelas avaliações já feitas, decide até {_plural(decide, 'anúncio', 'anúncios')}"
         )
     return Efeito((
         f"{motivo}.",
@@ -276,16 +287,23 @@ def _ia_ritmo(s: Session, agora: datetime, valores: Mapping[str, object]) -> Efe
     cfg = _ia(s, agora, valores)
     por_hora = Decimal(cfg.lote * 60) / Decimal(cfg.intervalo_min)
     linhas = [
-        (f"Até {formatar_milhar(round(por_hora))} avaliações por hora ({cfg.lote} a cada {cfg.intervalo_min} min), "
+        (f"Até {formatar_milhar(round(por_hora))} avaliações por hora ({cfg.lote} a cada {_tempo(cfg.intervalo_min)}), "
         "enquanto houver anúncios para avaliar."),
     ]
+    if not cfg.ligado:
+        linhas.append("Agora a IA está desligada: nada é avaliado até ligar (IA · o que decide sozinha).")
     medio = custo_medio(s, agora)
     if medio is None:
         linhas.append("Custo médio por avaliação: sem dado ainda.")
-        return Efeito(tuple(linhas), "info")
-    linhas.append(f"Custo médio por avaliação: {_usd(medio, 4)} (últimos {DIAS_CUSTO_MEDIO} dias).")
-    por_hora_usd = por_hora * medio
+    else:
+        linhas.append(f"Custo médio por avaliação: {_usd(medio, 4)} (últimos {DIAS_CUSTO_MEDIO} dias).")
     teto = _usd(cfg.teto_dia_usd)
+    if cfg.teto_dia_usd == 0:
+        linhas.append(f"Com teto zero a IA não avalia nada (teto do dia {teto}).")
+        return Efeito(tuple(linhas), "aviso")
+    if medio is None:
+        return Efeito(tuple(linhas), "info")
+    por_hora_usd = por_hora * medio
     if por_hora_usd == 0 or por_hora_usd * 24 < cfg.teto_dia_usd:
         linhas.append(f"No ritmo máximo, o gasto não chega ao teto do dia ({teto}).")
         return Efeito(tuple(linhas), "info")
