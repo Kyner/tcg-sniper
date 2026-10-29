@@ -64,7 +64,7 @@ describe("Ofertas", () => {
     renderizarEm("/gestao/ofertas");
     const t = await tabela();
     expect(t.getByText("−R$ 42,00")).toBeInTheDocument();
-    expect(t.getByText("-10,5%")).toBeInTheDocument();
+    expect(t.getByText("−10,5%")).toBeInTheDocument();
     expect(t.getByText("não conferido")).toBeInTheDocument();
   });
 
@@ -131,6 +131,36 @@ describe("Ofertas", () => {
     expect(await screen.findByText("Nenhuma oferta com esses filtros")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Limpar filtros" }));
     await waitFor(() => expect(chamadas.some((c) => c.caminho === "/api/gestao/ofertas?pagina=1")).toBe(true));
+  });
+
+  it("página fora do limite mostra a página que a API devolveu", async () => {
+    apiFalsa({ ...base, "GET /api/gestao/ofertas?pagina=999": ok({ ...LISTA, pagina: 2, total: 60 }) });
+    renderizarEm("/gestao/ofertas?pagina=999");
+    await tabela();
+    expect(screen.getByText("Página 2 de 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "»" })).toBeDisabled();
+  });
+
+  it("sem impostos na conferência a frase não diz 'com impostos'", async () => {
+    apiFalsa({ ...base, [LISTAR]: ok({ ...LISTA, itens: [{ ...OFERTA, conferido: { preco: "300.00", impostos: null, frete: null } }] }) });
+    renderizarEm("/gestao/ofertas");
+    const t = await tabela();
+    expect(t.getByText("conferido R$ 300,00")).toBeInTheDocument();
+  });
+
+  it("erro esconde a lista antiga, mantém as categorias e oferece Limpar filtros", async () => {
+    const chamadas = apiFalsa({
+      ...base, [LISTAR]: ok(LISTA),
+      "GET /api/gestao/ofertas?vendedor=fba&pagina=1": { status: 400, corpo: { erro: "filtro_invalido", mensagem: "Filtro inválido." } },
+    });
+    renderizarEm("/gestao/ofertas");
+    await tabela();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Vendedor" }), "fba");
+    const alerta = await screen.findByRole("alert");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByRole("option", { name: "Decks" })).toBeInTheDocument();
+    await userEvent.click(within(alerta).getByRole("button", { name: "Limpar filtros" }));
+    await waitFor(() => expect(chamadas.filter((c) => c.caminho === "/api/gestao/ofertas?pagina=1").length).toBe(2));
   });
 
   it("quem não tem ver_catalogo não entra", async () => {

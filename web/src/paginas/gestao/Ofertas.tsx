@@ -46,7 +46,7 @@ function fraseConferido(o: OfertaGestao): { curta: string; detalhe: string } | n
   if (c.impostos !== null) partes.push(`impostos ${reais(c.impostos)} inclusos`);
   if (c.frete !== null) partes.push(`frete ${reais(c.frete)} à parte`);
   return {
-    curta: `conferido ${reais(c.preco)} com impostos`,
+    curta: c.impostos !== null ? `conferido ${reais(c.preco)} com impostos` : `conferido ${reais(c.preco)}`,
     detalhe: `Conferido no checkout: ${reais(c.preco)}${partes.length ? ` (${partes.join("; ")})` : ""}`,
   };
 }
@@ -106,10 +106,15 @@ export function Ofertas() {
   const filtrado = Object.keys(PADROES_OFERTAS).some(
     (k) => k !== "pagina" && filtros[k as keyof typeof PADROES_OFERTAS] !== PADROES_OFERTAS[k as keyof typeof PADROES_OFERTAS],
   );
-  const pagina = Number(filtros.pagina) || 1;
+  const pagina = dados?.pagina ?? (Number(filtros.pagina) || 1);
   const paginas = dados ? Math.max(1, Math.ceil(dados.total / dados.por_pagina)) : 1;
   const minimo = dados?.desconto_min_pct ?? null;
   const chipAtivo = minimo !== null && filtros.desconto_min === String(minimo);
+
+  function limpar() {
+    setTexto(""); setTextoDesconto("");
+    mudar({ busca: "", categoria: "", desconto_min: "", vendedor: "todos", situacao: "todas", ordem: "desconto" });
+  }
 
   if (dados === null && !erro) return <Carregando />;
 
@@ -217,24 +222,20 @@ export function Ofertas() {
         <div role="alert" className="alert alert-error">
           <span>{erro}</span>
           <button type="button" className="btn btn-sm" onClick={() => setRecarga((n) => n + 1)}>Tentar de novo</button>
+          {filtrado && <button type="button" className="btn btn-sm" onClick={limpar}>Limpar filtros</button>}
         </div>
       )}
 
-      {dados && dados.itens.length === 0 && !erro && (
+      {dados && !erro && dados.itens.length === 0 && (
         <div className="space-y-3 py-6 text-center">
           <p className="opacity-70">{filtrado ? "Nenhuma oferta com esses filtros" : "Nenhuma oferta no momento"}</p>
           {filtrado && (
-            <button type="button" className="btn btn-sm" onClick={() => {
-              setTexto(""); setTextoDesconto("");
-              mudar({ busca: "", categoria: "", desconto_min: "", vendedor: "todos", situacao: "todas", ordem: "desconto" });
-            }}>
-              Limpar filtros
-            </button>
+            <button type="button" className="btn btn-sm" onClick={limpar}>Limpar filtros</button>
           )}
         </div>
       )}
 
-      {dados && dados.itens.length > 0 && (
+      {dados && !erro && dados.itens.length > 0 && (
         <>
           <ul className="list rounded-box bg-base-100 shadow-sm lg:hidden" aria-label="Ofertas">
             {dados.itens.map((o) => (
@@ -290,7 +291,7 @@ export function Ofertas() {
         </>
       )}
 
-      {paginas > 1 && (
+      {!erro && paginas > 1 && (
         <div className="join">
           <button type="button" className="btn btn-sm join-item" disabled={pagina <= 1}
             onClick={() => mudar({ pagina: String(pagina - 1) })}>«</button>

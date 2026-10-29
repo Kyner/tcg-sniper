@@ -57,7 +57,9 @@ export function milhar(valor: string | number): string {
 const PCT2 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
 /** Percentual com até 2 casas (o desconto das ofertas, que o servidor já arredonda para baixo). */
 export function pct2(valor: string | null): string {
-  return valor === null ? "—" : `${PCT2.format(Number(valor))}%`;
+  if (valor === null) return "—";
+  const n = Number(valor);
+  return `${n < 0 ? "−" : ""}${PCT2.format(Math.abs(n))}%`;
 }
 
 /** Reais com o sinal antes do símbolo e o menos de verdade: "−R$ 42,00" (negativo), "R$ 42,00" (positivo). */
