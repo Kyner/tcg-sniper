@@ -3,14 +3,14 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-29 (fase 3C em produção desde 2026-10-29 11:35 (merge `f3f7c72`), conferência pelo usuário pendente; coletor da Liga no Google Chrome em produção desde 2026-10-29 11:23 (`7232f8b`); Liga com desafio na 1ª página em toda tentativa desde 27/10 16:54; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
+Última revisão: 2026-10-29 (pacote de bugs em produção desde 2026-10-29 20:51 (merge `6dee6d4`); fase 3C em produção desde 2026-10-29 11:35 (merge `f3f7c72`), conferência pelo usuário pendente; coletor da Liga no Google Chrome em produção desde 2026-10-29 11:23 (`7232f8b`); Liga com desafio na 1ª página em toda tentativa desde 27/10 16:54; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
 0. **Liga com desafio do Cloudflare em toda tentativa** (seção 0): ver se o Google Chrome resolve.
 1. Casamento e idioma (seção 3, "Coleta e casamento"): conferir os casamentos #322, #382 e #462 e o idioma de 4 anúncios.
 2. Acompanhar a primeira semana do monitor por grupo (seção 3).
-3. Conferir a 3C em produção (roteiro em `docs/IMPLANTACOES.md`), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+3. Conferir a 3C e o Voltar de Configurações em produção (roteiro da 3C em `docs/IMPLANTACOES.md`; o Voltar na seção 2, "Sobras do pacote de bugs"), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
@@ -173,7 +173,7 @@ Nenhuma no momento.
 
 ## Concluídas
 
-### Pacote de bugs (branch `pacote-bugs`, 2026-10-29; sem migração)
+### Pacote de bugs (merge `6dee6d4`, em produção desde 2026-10-29 20:51; sem migração)
 
 Plano `docs/superpowers/plans/2026-10-29-pacote-de-bugs.md`. Um agente por bug, cada um com revisão própria, e revisão final do pacote inteiro.
 
