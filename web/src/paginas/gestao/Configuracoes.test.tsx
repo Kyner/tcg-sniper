@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
@@ -172,6 +172,36 @@ describe("Configurações", () => {
     await userEvent.click(screen.getAllByRole("link", { name: "Atividade" })[0]);
     expect(confirma).toHaveBeenCalled();
     expect(screen.getByLabelText("Intervalo do monitor")).toBeInTheDocument();
+  });
+
+  it("Voltar com alteração pergunta e fica se cancelar", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    const entrada = await screen.findByLabelText("Intervalo do monitor");
+    await userEvent.type(entrada, "1");
+    const confirma = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const empilha = vi.spyOn(window.history, "pushState");
+    fireEvent.popState(window);
+    expect(confirma).toHaveBeenCalled();
+    expect(empilha).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Intervalo do monitor")).toHaveValue("15001");
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeInTheDocument();
+  });
+
+  it("Voltar com alteração e confirmar sai", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await userEvent.type(await screen.findByLabelText("Intervalo do monitor"), "1");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const volta = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    fireEvent.popState(window);
+    expect(volta).toHaveBeenCalledTimes(1);
+  });
+
+  it("Voltar sem alteração não pergunta", async () => {
+    await abrir("/gestao/configuracoes?grupo=monitor");
+    await screen.findByLabelText("Intervalo do monitor");
+    const confirma = vi.spyOn(window, "confirm");
+    fireEvent.popState(window);
+    expect(confirma).not.toHaveBeenCalled();
   });
 
   it("operador sem editar vê tudo só leitura e sem barra", async () => {

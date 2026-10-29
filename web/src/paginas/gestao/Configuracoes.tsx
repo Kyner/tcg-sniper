@@ -1,7 +1,7 @@
 // Gestão: Configurações. Grupos que abrem e fecham, cada um com a frase de propósito e a caixa "Efeito"; barra fixa
 // com Descartar/Salvar (só para quem pode editar); avisos do WhatsApp ao fim. Salvar manda só o que mudou, com as
 // versões lidas (409: alguém salvou antes). Sair com alteração pede confirmação.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { chamarApi, ErroApi } from "../../api";
 import { AvisosConfig } from "../../componentes/AvisosConfig";
@@ -18,11 +18,32 @@ function valoresDe(dados: Dados): Record<string, ValorConfig> {
   return Object.fromEntries(dados.grupos.flatMap((g) => g.campos.map((c) => [c.chave, c.valor])));
 }
 
-/** Avisa antes de perder alterações: fechar/recarregar a aba (beforeunload) e clicar em link interno. O app usa
- * BrowserRouter (sem roteador de dados), onde `useBlocker` não funciona; o botão Voltar do navegador não é coberto. */
+/** Avisa antes de perder alterações: fechar/recarregar a aba (beforeunload), clicar em link interno e o botão Voltar
+ * do navegador. O app usa BrowserRouter (sem roteador de dados), onde `useBlocker` não funciona; por isso o Voltar é
+ * pego com uma entrada-guarda no histórico (mesma URL) e um ouvinte de popstate. Ao limpar sem sair, a guarda é
+ * consumida para não exigir dois Voltar. */
 function useAvisarAoSair(sujo: boolean) {
+  const guarda = useRef(false);
   useEffect(() => {
-    if (!sujo) return;
+    if (!sujo) {
+      if (guarda.current) {
+        guarda.current = false;
+        if (window.history.state?.guardaSair) window.history.back();
+      }
+      return;
+    }
+    const empilhar = () => window.history.pushState({ guardaSair: true }, "", window.location.href);
+    empilhar();
+    guarda.current = true;
+    const aoVoltar = () => {
+      if (window.confirm(MENSAGEM_SAIR)) {
+        window.removeEventListener("popstate", aoVoltar);
+        guarda.current = false;
+        window.history.back();
+      } else {
+        empilhar();
+      }
+    };
     const aoFechar = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
@@ -39,7 +60,9 @@ function useAvisarAoSair(sujo: boolean) {
     };
     window.addEventListener("beforeunload", aoFechar);
     document.addEventListener("click", aoClicar, true);
+    window.addEventListener("popstate", aoVoltar);
     return () => {
+      window.removeEventListener("popstate", aoVoltar);
       window.removeEventListener("beforeunload", aoFechar);
       document.removeEventListener("click", aoClicar, true);
     };
