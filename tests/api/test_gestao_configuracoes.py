@@ -102,7 +102,10 @@ def test_get_traz_grupos_valores_versoes_avisos_e_ia(cliente, logar):
     assert valores["amazon.desconto_min_pct"] == 25
     assert valores["ia.ligado"] is False
     assert isinstance(valores["ia.teto_dia_usd"], str)
-    assert valores["liga.categorias"] == "10,11,12"
+    # Categorias viajam como lista de IDs (o front desenha um chip por ID); no banco ficam "10,11,12".
+    assert valores["liga.categorias"] == [10, 11, 12]
+    categorias = next(c for g in corpo["grupos"] for c in g["campos"] if c["chave"] == "liga.categorias")
+    assert isinstance(categorias["padrao"], list) and all(isinstance(n, int) for n in categorias["padrao"])
     esforco = next(c for g in corpo["grupos"] for c in g["campos"] if c["chave"] == "ia.esforco")
     assert {"valor": "medium", "rotulo": "médio"} in esforco["opcoes"]
     desconto = next(c for g in corpo["grupos"] for c in g["campos"] if c["chave"] == "amazon.desconto_min_pct")
@@ -308,3 +311,13 @@ def test_admin_antigo_e_api_gravam_a_mesma_linha(cliente, logar, sessoes):
         assert s.get(ConfigGeral, 1).validade_oportunidade_h == 12
         assert s.get(ConfigLiga, 1).categorias == "10,11"
     assert json.loads(json.dumps(_acoes(sessoes)[0][1]))["campos"]["liga.categorias"] == ["10,11,12", "10,11"]
+
+
+def test_categorias_voltam_como_lista_e_salvam_como_lista(cliente, logar, sessoes):
+    # A tela manda de volta o que recebeu: lista de IDs, nunca o texto do banco.
+    logar(Papel.ADMIN)
+    assert _salvar(cliente, {"liga.categorias": [12, 10, 12]}).status_code == 200
+    with sessoes() as s:
+        assert s.get(ConfigLiga, 1).categorias == "12,10"
+    assert _valores(cliente.get(ROTA).json())["liga.categorias"] == [12, 10]
+    assert _salvar(cliente, {"liga.categorias": []}, cliente.get(ROTA).json()["versoes"]).status_code == 422

@@ -264,6 +264,7 @@ Plano `docs/superpowers/plans/2026-10-28-fase3c-configuracoes-ofertas.md`. Decis
 - [x] Guarda "não importa admin" cobre também o pacote `api` (`b74f07b`).
 - [x] Revisão final: ligar/desligar serviços e a marca de "sem login" não mudam mais a versão das Configurações (fim do falso "As configurações mudaram"); avisos "IA desligada" e "monitor não cabe" abrem a seção certa de Configurações.
 - [x] Spec: "Pular" e "Próximo" viraram um botão só, "Próximo →" (eram o mesmo link).
+- [x] Depois do deploy: Configurações → LigaMagic mostrava "Nenhuma categoria." (a API mandava `liga.categorias` como o texto do banco, `"10,11,12"`, e a tela espera a lista de IDs); a API passa a mandar a lista em `valor` e `padrao`.
 
 ### Conferido em produção (2026-10-26 a 2026-10-28)
 

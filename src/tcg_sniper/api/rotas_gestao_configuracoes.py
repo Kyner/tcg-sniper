@@ -52,13 +52,13 @@ class CampoSaida(BaseModel):
     rotulo: str
     explicacao: str
     tipo: str
-    padrao: Valor
+    padrao: Valor | list[int]
     minimo: int | None
     maximo: int | None
     opcoes: list[OpcaoSaida]
     avancado: bool
     vinculo: str | None
-    valor: Valor
+    valor: Valor | list[int]
 
 
 class GrupoSaida(BaseModel):
@@ -123,6 +123,13 @@ def _inteiro(valor) -> int | None:
     return None if valor is None else int(valor)
 
 
+def _saida(tipo: str, valor: object) -> Valor | list[int]:
+    """Categorias ficam no banco como "10,11,12"; a tela recebe a lista de IDs (um chip por ID)."""
+    if tipo == "categorias":
+        return [int(parte) for parte in str(valor or "").split(",") if parte.strip()]
+    return serializar(valor)
+
+
 def _grupos(s: Session, config_env: Config) -> list[GrupoSaida]:
     atuais = cfg_grupos.valores_atuais(s, config_env)
     return [
@@ -137,13 +144,13 @@ def _grupos(s: Session, config_env: Config) -> list[GrupoSaida]:
                     rotulo=c.rotulo,
                     explicacao=c.explicacao,
                     tipo=c.tipo,
-                    padrao=serializar(c.padrao),
+                    padrao=_saida(c.tipo, c.padrao),
                     minimo=_inteiro(c.minimo),
                     maximo=_inteiro(c.maximo),
                     opcoes=[OpcaoSaida(valor=v, rotulo=r) for v, r in c.opcoes],
                     avancado=c.avancado,
                     vinculo=c.vinculo,
-                    valor=serializar(atuais[c.chave]),
+                    valor=_saida(c.tipo, atuais[c.chave]),
                 )
                 for c in g.campos
             ],
