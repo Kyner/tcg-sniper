@@ -14,7 +14,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 6. Acompanhar ao longo dos dias (seção 3), sem prazo.
-7. Seção 2, "Pacote de bugs" (16 itens, uma entrega só).
+7. Seção 2, "Sobras do pacote de bugs" (3 itens pequenos).
 8. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
@@ -43,24 +43,11 @@ A etapa 1 está em produção desde 2026-10-24 22:10 (detalhe em "Concluídas").
 
 Faxina de 2026-10-29: das 58 linhas, 31 foram descartadas (código, teste fraco ou visual sem efeito no uso; ficam no histórico do git), 2 foram para a segurança etapa 2 e 3 para a fase 4. Regra daqui em diante: revisão só registra aqui bug que afeta uso ou dados; o resto é corrigido na hora ou descartado.
 
-### Pacote de bugs (próxima entrega)
+### Sobras do pacote de bugs (2026-10-29)
 
-- [ ] IA do idioma (`definir-idioma --ia` e o Casador) responde pelo idioma do título do anúncio, não da embalagem e das cartas (#5424 em 2026-10-28): ajustar a pergunta. Causa casamento errado.
-- [ ] Notificador: uma mensagem cujo registro sempre falha trava a fila inteira (nada mais sai no WhatsApp).
-- [ ] Casador: gravar a falha ou a limpeza dentro dos `except` derruba o ciclo se o banco cair.
-- [ ] Vigia: a própria `manutencao` (backup) não é vigiada; se ela morrer, ninguém fica sabendo.
-- [ ] Atividade mostra o antes→depois das configurações (ids dos grupos do WhatsApp, `host_publico`) para quem tem `ver_logs` sem `ver_configuracoes`: mascarar os valores.
-- [ ] `GET /api/usuarios` mostra a contagem de sessões ativas de admins para quem não é superadmin.
-- [ ] Login: `limpar_antigos` apaga linhas antes de pegar a trava consultiva; dois pedidos simultâneos podem dar deadlock (500). Pegar a trava antes ou usar `SKIP LOCKED`.
-- [ ] `POST /api/gestao/servicos/carrinho/{id}/conferido` sem limite do id (acima de 2³¹ dá 500; reusar `MAX_ID`).
-- [ ] Configurações: o botão Voltar do navegador não avisa sobre alterações não salvas (`BrowserRouter`, sem `useBlocker`).
-- [ ] Configurações: categoria da Liga inválida ou repetida some do campo sem aviso; botões `btn-xs` pequenos para toque no celular.
-- [ ] Serviços: "iniciando…" por 10 min em Liga, WhatsApp e Backup, que esperam o próprio horário (não mostrar para esses).
-- [ ] Dashboard: conferir se desenha a ação "Já conferi" do carrinho; links desconhecidos do painel caem em `/gestao` sem aviso.
-- [ ] "Quase lá" sem limite padrão na API (hoje o limite vem do front).
-- [ ] Teste para a frase "conferido, com impostos de R$ X" da oportunidade (se o texto quebrar, nenhum teste avisa).
-- [ ] Testes instáveis: `tests/coletor_amazon/test_varredura_monitor.py::test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` (falhou uma vez numa rodada completa) e o "Entrar" do front (estourou o tempo sob carga).
-- [ ] Liga: com o dia encerrado pelo 2º desafio, cada reinício do coletor loga "execução atrasada em HH:MM", mas a atrasada é descartada em silêncio. Não logar a atrasada nesse caso, ou logar o descarte.
+- [ ] Configurações → Voltar do navegador: conferir à mão no navegador depois do deploy (os testes usam `MemoryRouter`): Voltar com alteração pergunta; cancelar fica na tela com o rascunho; confirmar sai; link do menu confirmado sai com um Voltar só.
+- [ ] Vigia, sinal antigo no boot: com o PC desligado mais de 10 min, se o vigia rodar antes da primeira batida do serviço, abre "sem sinal" e logo resolve (vale para todos os serviços). Medir a partir de `max(ultimo, desde)` quando `ultimo < desde`.
+- [ ] Ids acima de 2³¹ ainda dão 500 em rotas com `produto_id` (casamentos, catálogo, `/produtos/{id}/historico`); `MAX_ID` mora em `rotas_usuarios` e é importado por outras rotas. Mover para um módulo comum e conferir as rotas com id.
 
 ### Mantidas (funcionalidade ou decisão)
 
@@ -102,6 +89,7 @@ Faxina de 2026-10-29: das 58 linhas, 31 foram descartadas (código, teste fraco 
 
 ### Operação
 
+- [ ] Teste `test_janela_que_fecha_no_meio_da_volta_nao_avisa_a_rodada` (monitor da Amazon): reforçado em `af03916`, causa da falha única de 2026-10-22 não provada. Se falhar de novo, a mensagem agora mostra cada passo e os avisos: investigar a partir dela.
 - [ ] Evolution API (WhatsApp): o Node dentro da imagem (24.11.1) tem a falha de Brotli do lançamento de 2026-10-21 (corrigida no Node 24.22.1) e a versão 2.3.7 expõe `/metrics` sem senha (CVE-2026-91997). Risco baixo (só escuta em 127.0.0.1); atualizar a imagem quando sair uma versão com o Node corrigido.
 - [ ] Playwright: conferir na próxima versão se o Chromium empacotado traz todas as correções do Chrome estável (o 1.64.1 vem com um build anterior ao 156 estável).
 - [ ] Atualizar o Python do PC de desenvolvimento (3.12.10; CVE-2026-12003 é escalada local no Windows). Não afeta os containers (3.12.15).
@@ -184,6 +172,27 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Pacote de bugs (branch `pacote-bugs`, 2026-10-29; sem migração)
+
+Plano `docs/superpowers/plans/2026-10-29-pacote-de-bugs.md`. Um agente por bug, cada um com revisão própria, e revisão final do pacote inteiro.
+
+- [x] IA do idioma olha a embalagem e as cartas, não a língua do título (`427af31`, ajuste em `faa6b91`).
+- [x] Notificador: mensagem que falha ao gravar é adiada e a fila segue; depois de 5 tentativas vira falha definitiva e avisa o grupo admin (`0ecfe8f`, `0ef1101`, `faa6b91`).
+- [x] Casador: gravar falha, limpeza, pausa ou aviso de orçamento não derruba mais o ciclo se o banco cair (`0549ba4`, `edf251d`).
+- [x] Notificador vigia a manutenção (backup) com o mesmo "sem sinal" de 10 min (`9d1cd1c`).
+- [x] Atividade sem `ver_configuracoes`: só os nomes dos campos, sem valores, e a busca não acha pelo valor (`d4c1aa9`).
+- [x] Lista de usuários sem a contagem de sessões de admins para quem não é superadmin (`3b5f2c8`).
+- [x] Login: trava por número antes da limpeza, e a limpeza com trava global que não espera (sem deadlock) (`1bd3d23`, `b6e6175`).
+- [x] Carrinho com id fora do limite dá 404 (`6e7e1ed`).
+- [x] Configurações: Voltar do navegador avisa sobre alterações não salvas, sem perder o estado do roteador (`7aabc10`, `82cf594`, `faa6b91`).
+- [x] Configurações: categoria inválida ou repetida mostra o motivo; botões maiores para toque (`b2f5560`).
+- [x] Serviços: Liga, WhatsApp e Backup não ficam "iniciando…" por 10 min (`fef9ab9`, `e0f5f12`).
+- [x] Dashboard: botão "Já conferi" do carrinho (com `pausar_servicos`) e log de link do painel sem destino novo (`02dae85`, `e68af1f`).
+- [x] "Quase lá" com limite padrão de 200 na API ("Ver todas" mostra no máximo 200) (`277beec`).
+- [x] Frase "conferido, com impostos de R$ X": já coberta por `test_conferido_com_impostos_frete_importado_prime_e_cupom` (sem código).
+- [x] Testes instáveis: teste do monitor reforçado (janela fixa e mensagens de falha legíveis; causa não reproduzida em 30 rodadas, o código que falhou foi reescrito em 23/10) e `testTimeout` de 15 s no front (`af03916`).
+- [x] Liga: reinício com o dia encerrado pelo 2º desafio não promete mais execução atrasada (`7a7b596`).
 
 ### Fase 3C — Configurações, Ofertas e Mensagens na gestão (merge `f3f7c72`, em produção desde 2026-10-29 11:35; sem migração)
 
