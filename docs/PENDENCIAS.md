@@ -8,14 +8,13 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 ## Ordem sugerida
 
 0. **Liga com desafio do Cloudflare em toda tentativa** (seção 0): ver se o Google Chrome resolve.
-1. Casamento e idioma (seção 3, "Coleta e casamento"): conferir os casamentos #322, #382 e #462 e o idioma de 4 anúncios.
-2. Acompanhar a primeira semana do monitor por grupo (seção 3).
-3. Conferir a 3C e o Voltar de Configurações em produção (roteiro da 3C em `docs/IMPLANTACOES.md`; o Voltar na seção 2, "Sobras do pacote de bugs"), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
-4. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
-5. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
-6. Acompanhar ao longo dos dias (seção 3), sem prazo.
-7. Seção 2, "Sobras do pacote de bugs" (3 itens pequenos).
-8. Margem líquida (seção 4), quando o grupo tiver os valores.
+1. Acompanhar a primeira semana do monitor por grupo (seção 3).
+2. Conferir a 3C e o Voltar de Configurações em produção (roteiro da 3C em `docs/IMPLANTACOES.md`; o Voltar na seção 2, "Sobras do pacote de bugs"), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+3. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
+4. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
+5. Acompanhar ao longo dos dias (seção 3), sem prazo.
+6. Seção 2, "Sobras do pacote de bugs" (3 itens pequenos).
+7. Margem líquida (seção 4), quando o grupo tiver os valores.
 
 ## 0. Crítico
 
@@ -77,8 +76,6 @@ Faxina de 2026-10-29: das 58 linhas, 31 foram descartadas (código, teste fraco 
 ### Coleta e casamento
 
 - [ ] **Coletor da Liga no Google Chrome** (em produção desde 2026-10-29 11:23, `7232f8b`; Chrome 156 estável na imagem, a Amazon continua no Chromium): conferir no noVNC (porta 6080) que o Chrome abre com o perfil antigo e acompanhar se os desafios do Cloudflare mudam (seção 0). O Chrome só se atualiza ao refazer a imagem.
-- [ ] **Casamentos possivelmente errados** (pendente com o usuário; conferir e desfazer na revisão se for o caso): #322 "Secret Lair x Final Fantasy: Grimoire – Rainbow Foil Edition (Japanese)" (japonês confirmado; pela regra é sempre produto diferente); #382 "Iron Man, Titan of Innovation – Rainbow Foil" (a IA diz que parece carta avulsa, não o Secret Lair completo); #462 "MTG Decks & More Compatible with Spider-Man…" (a IA diz que é acessório não oficial, não o Secret Lair lacrado).
-- [ ] **Idioma de 4 anúncios confirmados** (pendente com o usuário; definir pela foto no botão "definir idioma" da revisão): #25 Final Fantasy Chocobo, #394 Secret Lair Storm e #5424 Foundations Starter Collection (a IA respondeu português pelo título, mas no #5424 diz que a embalagem está em inglês: não gravado para não bloquear os anúncios em inglês do produto); #102935 Dominária Unida (sem decisão). Os outros 30 foram gravados como inglês em 2026-10-28 pela IA (`definir-idioma --ia`).
 - [ ] Catálogo com 2165 produtos ativos (eram 224) — **intencional** (monitorar todos, decidido em 2026-10-19). Acompanhar a carga: a etapa dos produtos da Liga lê ~450–500 páginas por dia (leitura por interesse; eram ~10 h com todos os ativos); a busca da Amazon (90/h na janela 08–22h) alcança cada produto sem par ~1 vez a cada 2 dias; mais anúncios novos e a busca alternativa = mais gasto com a IA.
 - [ ] Acompanhar uma semana sem desafio com ~500 páginas/dia (leitura por interesse, desde a implantação): avisos "Liga · desafio do Cloudflare" e a linha "Produtos: … de … · casados, candidatos, novos, rodízio" do resumo diário. Se o desafio voltar, baixar o rodízio (por exemplo para 14 dias) ou subir as pausas em Configurações → LigaMagic. No fim, revisar também o máximo de cliques em "Exibir mais" com os números reais.
 - [ ] CAPTCHA da Amazon com os dois navegadores no mesmo endereço: busca até 90/h e monitor limitado na prática pelas pausas (~211 páginas/h com 8–20 s; o teto configurado é 1.000). Se os CAPTCHAs aumentarem (avisos "Amazon (busca) · CAPTCHA" ou "Amazon (monitor) · CAPTCHA"), baixar os tetos em Configurações → Amazon.
@@ -172,6 +169,11 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### Conferido pelo usuário (2026-10-29)
+
+- [x] Casamentos #322 (o produto da Liga também é japonês), #382 (título diferente, mesmo produto) e #462: certos, ficam como estão.
+- [x] Idioma dos anúncios #25, #394, #5424 e #102935: inglês, gravado à mão.
 
 ### Pacote de bugs (merge `6dee6d4`, em produção desde 2026-10-29 20:51; sem migração)
 
