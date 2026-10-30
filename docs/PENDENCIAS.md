@@ -7,7 +7,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## Ordem sugerida
 
-0. **Liga com desafio do Cloudflare em toda tentativa** (seção 0): ver se o Google Chrome resolve.
+0. **Liga com desafio do Cloudflare em toda tentativa** (seção 0): implantar o Patchright com a passagem pela home e acompanhar.
 1. Acompanhar a primeira semana do monitor por grupo (seção 3).
 2. Fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 3. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
@@ -18,7 +18,7 @@ Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados 
 
 ## 0. Crítico
 
-- [ ] **LigaMagic sem coletar desde 2026-10-26** (último job ok: produtos, 26/10 14:42): toda tentativa cai no desafio do Cloudflare já na 1ª página das listagens (27/10 16:54, 28/10 23:12, 29/10 08:46 e 11:09), mesmo depois de resolvido e retomado. Em 2026-10-29 11:23 o coletor passou para o Google Chrome estável (`7232f8b`) e retomado às 11:25, mas o 2º desafio do dia (11:09) já tinha encerrado o dia: a primeira tentativa no Chrome é a coleta de 2026-10-30, no horário normal. Se o desafio continuar, pensar em perfil novo (o atual veio do Chromium) ou em pausas maiores antes da 1ª página.
+- [ ] **LigaMagic sem coletar desde 2026-10-26** (último job ok: produtos, 26/10 14:42): toda tentativa cai no desafio do Cloudflare já na 1ª página das listagens (27/10 16:54, 28/10 23:12, 29/10 08:46 e 11:09), mesmo depois de resolvido e retomado. Em 2026-10-29 11:23 o coletor passou para o Google Chrome estável (`7232f8b`) e retomado às 11:25, mas o 2º desafio do dia (11:09) já tinha encerrado o dia: a primeira tentativa no Chrome é a coleta de 2026-10-30, no horário normal. Em 2026-10-30 o Chrome também caiu no desafio na 1ª página (08:52, 2 s após o início): é a cara de automação, não o ritmo (no container: WebGL por software (SwiftShader), Linux, `navigator.languages` só `pt-BR`, controle pelo CDP do Playwright). Feito no mesmo dia: perfil zerado (o antigo ficou em `/data/perfil.antigo-2026-10-30`, no volume `dados`); Chrome da Liga pelo Patchright, sem emular idioma e fuso (`--lang`/`--accept-lang`, fuso pelo `TZ`), e cada abertura do navegador passa pela página inicial antes da 1ª listagem (commit desta entrega). Falta implantar e acompanhar; se o desafio continuar, o próximo passo é o Chrome rodar no próprio Windows (placa de vídeo e sistema de verdade), com o coletor ligado a ele pela porta de depuração.
 
 ## 1. Segurança antes da internet (prioridade alta)
 

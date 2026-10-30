@@ -199,11 +199,16 @@ def _argumentos_do_launch(monkeypatch, criar):
         def stop(self):
             pass
 
-    class Inicio:
-        def start(self):
-            return Playwright()
+    def inicio(biblioteca):
+        class Inicio:
+            def start(self):
+                recebido["biblioteca"] = biblioteca
+                return Playwright()
 
-    monkeypatch.setattr(modulo, "sync_playwright", lambda: Inicio())
+        return lambda: Inicio()
+
+    monkeypatch.setattr(modulo, "sync_playwright", inicio("playwright"))
+    monkeypatch.setattr(modulo, "sync_patchright", inicio("patchright"))
     with criar():
         pass
     return recebido
@@ -216,10 +221,16 @@ def test_chromium_abre_sem_se_anunciar_como_automatizado(monkeypatch, tmp_path):
     assert "--enable-automation" in recebido["ignore_default_args"]
     assert "--disable-blink-features=AutomationControlled" in recebido["args"]
     assert recebido["channel"] is None  # sem canal: o Chromium empacotado do Playwright
+    assert recebido["biblioteca"] == "playwright"
 
 
-def test_navegador_da_liga_abre_o_google_chrome(monkeypatch, tmp_path):
+def test_navegador_da_liga_abre_o_google_chrome_discreto(monkeypatch, tmp_path):
     from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
 
     recebido = _argumentos_do_launch(monkeypatch, lambda: NavegadorPlaywright(tmp_path / "perfil"))
     assert recebido["channel"] == "chrome"
+    assert recebido["biblioteca"] == "patchright"
+    # Emulação pelo CDP denuncia automação: idioma pela linha de comando, fuso pelo TZ do container.
+    assert "locale" not in recebido and "timezone_id" not in recebido
+    assert "--lang=pt-BR" in recebido["args"]
+    assert "--accept-lang=pt-BR,pt,en-US,en" in recebido["args"]

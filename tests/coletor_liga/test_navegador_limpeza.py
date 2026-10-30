@@ -1,11 +1,12 @@
 """Testes do NavegadorPlaywright sem abrir um navegador: objetos do Playwright são falsos."""
 
 import pytest
+from patchright.sync_api import Error as PatchrightError
 from playwright.sync_api import Error as PlaywrightError
 
 from tcg_sniper.coletor_liga.desafio import eh_desafio
 from tcg_sniper.coletor_liga.modelos import ErroRede
-from tcg_sniper.coletor_liga.navegador import NavegadorPlaywright
+from tcg_sniper.coletor_liga.navegador import HOME, NavegadorPlaywright
 from tcg_sniper.navegador import chromium as modulo
 
 
@@ -72,7 +73,7 @@ def instalar(monkeypatch, pw):
         def start(self):
             return pw
 
-    monkeypatch.setattr(modulo, "sync_playwright", lambda: Inicio())
+    monkeypatch.setattr(modulo, "sync_patchright", lambda: Inicio())
 
 
 def test_falha_no_launch_para_o_playwright_e_vira_erro_rede(monkeypatch, tmp_path):
@@ -99,12 +100,58 @@ def test_falha_ao_fechar_o_contexto_ainda_para_o_playwright(monkeypatch, tmp_pat
     assert pw.parado
 
 
-def navegador_com(pagina):
+def navegador_com(pagina, na_home=True):
     n = NavegadorPlaywright.__new__(NavegadorPlaywright)
     n._timeout_ms, n._espera_ms = 1_000, 0
     n._eh_desafio = eh_desafio
     n._pagina = pagina
+    n._na_home = na_home
     return n
+
+
+class PaginaComHistorico(PaginaPw):
+    """Guarda cada `goto` (URL e Referer); o título muda conforme a URL aberta."""
+
+    def __init__(self, titulos=None, erro_home=None):
+        super().__init__()
+        self.titulos = titulos or {}
+        self.erro_home = erro_home
+        self.visitas = []
+
+    def goto(self, url, referer=None, **_):
+        self.visitas.append((url, referer))
+        self.url = url
+        self.titulo = self.titulos.get(url, "LigaMagic")
+        if url == HOME and self.erro_home:
+            raise self.erro_home
+
+
+def test_primeira_navegacao_passa_pela_home_e_leva_ela_como_referer():
+    pagina = PaginaComHistorico()
+    n = navegador_com(pagina, na_home=False)
+    n.abrir("https://liga.test/p")
+    n.abrir("https://liga.test/q")
+    assert pagina.visitas == [(HOME, None), ("https://liga.test/p", HOME), ("https://liga.test/q", None)]
+
+
+def test_desafio_ja_na_home_volta_sem_abrir_a_listagem():
+    pagina = PaginaComHistorico(titulos={HOME: "Just a moment..."})
+    resultado = navegador_com(pagina, na_home=False).abrir_expandindo("https://liga.test/l", 3, lambda: None)
+    assert resultado.pagina.titulo == "Just a moment..."
+    assert resultado.cliques == 0
+    assert pagina.visitas == [(HOME, None)]
+
+
+def test_home_fora_do_ar_nao_impede_a_coleta():
+    pagina = PaginaComHistorico(erro_home=PatchrightError("net::ERR_TIMED_OUT"))
+    resultado = navegador_com(pagina, na_home=False).abrir("https://liga.test/p")
+    assert resultado.titulo == "LigaMagic"
+    assert pagina.visitas == [(HOME, None), ("https://liga.test/p", None)]
+
+
+def test_erro_do_patchright_com_desafio_na_tela_devolve_o_desafio():
+    pagina = PaginaPw(titulo="Just a moment...", erro_goto=PatchrightError("net::ERR_ABORTED"))
+    assert navegador_com(pagina).abrir("https://liga.test/p").titulo == "Just a moment..."
 
 
 def test_abrir_com_erro_mas_tela_de_desafio_devolve_o_desafio():

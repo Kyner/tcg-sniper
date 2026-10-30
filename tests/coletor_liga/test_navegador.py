@@ -46,7 +46,7 @@ def cartoes(expandida):
 
 def test_expande_ate_o_botao_sumir(tmp_path):
     pausas = []
-    with NavegadorPlaywright(tmp_path / "perfil", espera_pos_carga_ms=100) as navegador:
+    with NavegadorPlaywright(tmp_path / "perfil", home=None, espera_pos_carga_ms=100) as navegador:
         expandida = navegador.abrir_expandindo(
             url_pagina(tmp_path, por_clique=2, limite=3), max_cliques=10, pausar=lambda: pausas.append(1)
         )
@@ -55,7 +55,7 @@ def test_expande_ate_o_botao_sumir(tmp_path):
 
 
 def test_para_no_limite_de_cliques(tmp_path):
-    with NavegadorPlaywright(tmp_path / "perfil", espera_pos_carga_ms=100) as navegador:
+    with NavegadorPlaywright(tmp_path / "perfil", home=None, espera_pos_carga_ms=100) as navegador:
         expandida = navegador.abrir_expandindo(
             url_pagina(tmp_path, por_clique=2, limite=99), max_cliques=2, pausar=lambda: None
         )
@@ -63,7 +63,7 @@ def test_para_no_limite_de_cliques(tmp_path):
 
 
 def test_para_quando_o_clique_nao_traz_cartoes(tmp_path):
-    with NavegadorPlaywright(tmp_path / "perfil", timeout_ms=3_000, espera_pos_carga_ms=100) as navegador:
+    with NavegadorPlaywright(tmp_path / "perfil", home=None, timeout_ms=3_000, espera_pos_carga_ms=100) as navegador:
         expandida = navegador.abrir_expandindo(
             url_pagina(tmp_path, por_clique=0, limite=99), max_cliques=10, pausar=lambda: None
         )
