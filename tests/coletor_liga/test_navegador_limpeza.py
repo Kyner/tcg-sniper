@@ -6,7 +6,7 @@ from playwright.sync_api import Error as PlaywrightError
 
 from tcg_sniper.coletor_liga.desafio import eh_desafio
 from tcg_sniper.coletor_liga.modelos import ErroRede
-from tcg_sniper.coletor_liga.navegador import HOME, NavegadorPlaywright
+from tcg_sniper.coletor_liga.navegador import ESPERA_DESAFIO_MS, HOME, NavegadorPlaywright
 from tcg_sniper.navegador import chromium as modulo
 
 
@@ -106,6 +106,7 @@ def navegador_com(pagina, na_home=True):
     n._eh_desafio = eh_desafio
     n._pagina = pagina
     n._na_home = na_home
+    n._espera_desafio_ms = ESPERA_DESAFIO_MS
     return n
 
 
@@ -187,3 +188,77 @@ def test_vivo_falso_quando_o_navegador_morreu():
     pagina = PaginaPw()
     pagina.erro_captura = PlaywrightError("Target page, context or browser has been closed")
     assert navegador_com(pagina).vivo() is False
+
+
+class Resposta:
+    def __init__(self, status, headers):
+        self.status, self.headers = status, headers
+
+
+class SemBotao:
+    first = None
+
+    def __init__(self):
+        self.first = self
+
+    def count(self):
+        return 0
+
+
+class PaginaComDesafioQuePassa(PaginaPw):
+    """O desafio do Cloudflare fica na tela por `leituras_com_desafio` leituras e depois some sozinho."""
+
+    def __init__(self, leituras_com_desafio, resposta=None):
+        super().__init__()
+        self.restantes = leituras_com_desafio
+        self.resposta = resposta
+        self.esperas = 0
+
+    def goto(self, url, **_):
+        return self.resposta
+
+    def wait_for_timeout(self, _ms):
+        self.esperas += 1
+
+    def title(self):
+        if self.restantes > 0:
+            self.restantes -= 1
+            return "Just a moment..."
+        return "Busca | LigaMagic"
+
+    def locator(self, _seletor):
+        return SemBotao()
+
+
+def test_desafio_que_passa_sozinho_devolve_a_pagina_de_verdade():
+    pagina = PaginaComDesafioQuePassa(leituras_com_desafio=3)
+    resultado = navegador_com(pagina).abrir("https://liga.test/p")
+    assert resultado.titulo == "Busca | LigaMagic"
+    assert not eh_desafio(resultado)
+
+
+def test_desafio_que_nao_passa_no_prazo_e_devolvido():
+    pagina = PaginaComDesafioQuePassa(leituras_com_desafio=10_000)
+    resultado = navegador_com(pagina).abrir("https://liga.test/p")
+    assert eh_desafio(resultado)
+    # Uma espera da carga e uma por segundo do prazo: não fica preso no desafio.
+    assert pagina.esperas == 1 + ESPERA_DESAFIO_MS // 1_000
+
+
+def test_listagem_com_desafio_que_passa_esquece_o_403_do_desafio():
+    # A resposta da navegação foi o desafio (403 com cf-mitigated); depois que ele passa, a página
+    # de verdade não pode continuar marcada como desafio por causa desses cabeçalhos.
+    resposta = Resposta(403, {"cf-mitigated": "challenge"})
+    pagina = PaginaComDesafioQuePassa(leituras_com_desafio=2, resposta=resposta)
+    resultado = navegador_com(pagina).abrir_expandindo("https://liga.test/l", 3, lambda: None)
+    assert not eh_desafio(resultado.pagina)
+    assert resultado.pagina.titulo == "Busca | LigaMagic"
+
+
+def test_amazon_sem_espera_devolve_o_desafio_na_hora():
+    from tcg_sniper.navegador.chromium import NavegadorChromium
+
+    pagina = PaginaComDesafioQuePassa(leituras_com_desafio=1)
+    n = NavegadorChromium.__new__(NavegadorChromium)
+    n._timeout_ms, n._espera_ms, n._eh_desafio, n._pagina = 1_000, 0, eh_desafio, pagina
+    assert eh_desafio(n.abrir("https://loja.test/p"))
