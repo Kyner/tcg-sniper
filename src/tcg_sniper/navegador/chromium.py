@@ -2,6 +2,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Self
 
+from patchright.sync_api import Error as PatchrightError
+from patchright.sync_api import sync_playwright as sync_patchright
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
@@ -36,6 +38,10 @@ JS_DESCREVER = r"""e => {
 # O clique de verdade, depois do ensaio e da guarda, tem prazo curto: o elemento já estava pronto, e
 # quanto menos tempo entre a conferência e o clique, menos chance de a tela trocar o botão.
 TIMEOUT_CLIQUE_MS = 2_000
+# O Patchright tem a própria classe de erro, que não herda da do Playwright.
+ERROS = (PlaywrightError, PatchrightError)
+# Idiomas de um Chrome comum em português (com `locale` o navigator.languages fica só com "pt-BR").
+IDIOMAS = "pt-BR,pt,en-US,en"
 
 
 class NavegadorChromium:
@@ -46,7 +52,13 @@ class NavegadorChromium:
 
     `eh_desafio` decide se a página na tela é um desafio do site (Cloudflare na Liga, CAPTCHA na
     Amazon): num erro de navegação com o desafio na tela, `abrir` devolve o desafio em vez de
-    lançar ErroRede, para quem chamou pausar em vez de tentar de novo."""
+    lançar ErroRede, para quem chamou pausar em vez de tentar de novo.
+
+    `discreto` abre pelo Patchright (o Playwright sem os rastros de automação que o Cloudflare
+    detecta, como o `Runtime.enable`) e sem emular idioma e fuso: o idioma vem da linha de comando e
+    o fuso do `TZ` do container, como num Chrome comum."""
+
+    _referer: str | None = None
 
     def __init__(
         self,
@@ -55,42 +67,45 @@ class NavegadorChromium:
         timeout_ms: int = 45_000,
         espera_pos_carga_ms: int = 2_000,
         canal: str | None = None,
+        discreto: bool = False,
     ):
         self._dir_perfil = dir_perfil
         self._eh_desafio = eh_desafio
         self._timeout_ms = timeout_ms
         self._espera_ms = espera_pos_carga_ms
         self._canal = canal
+        self._discreto = discreto
+
+    def _opcoes_launch(self) -> dict:
+        # A janela ocupa a tela do Xvfb (1366x768) com abas e barra de endereço visíveis no noVNC; a
+        # página usa o espaço que sobra, como num navegador maximizado de verdade (`no_viewport`).
+        janela = ["--start-maximized", "--window-position=0,0", "--window-size=1366,768"]
+        if self._discreto:
+            # O Patchright já tira `--enable-automation` e põe `AutomationControlled`.
+            return {"no_viewport": True, "args": [*janela, "--lang=pt-BR", f"--accept-lang={IDIOMAS}"]}
+        return {
+            "locale": "pt-BR",
+            "timezone_id": "America/Sao_Paulo",
+            "no_viewport": True,
+            # Sem a marca de automação (navigator.webdriver = false): com ela o desafio do
+            # Cloudflare entra em loop mesmo resolvido à mão no noVNC.
+            "ignore_default_args": ["--enable-automation"],
+            "args": [*janela, "--disable-blink-features=AutomationControlled"],
+        }
 
     def __enter__(self) -> Self:
         self._dir_perfil.mkdir(parents=True, exist_ok=True)
-        self._playwright = sync_playwright().start()
+        self._playwright = (sync_patchright if self._discreto else sync_playwright)().start()
         try:
             self._contexto = self._playwright.chromium.launch_persistent_context(
-                str(self._dir_perfil),
-                channel=self._canal,
-                headless=False,
-                locale="pt-BR",
-                timezone_id="America/Sao_Paulo",
-                # A janela ocupa a tela do Xvfb (1366x768) com abas e barra de endereço visíveis no
-                # noVNC; a página usa o espaço que sobra, como num navegador maximizado de verdade.
-                no_viewport=True,
-                # Sem a marca de automação (navigator.webdriver = false): com ela o desafio do
-                # Cloudflare entra em loop mesmo resolvido à mão no noVNC.
-                ignore_default_args=["--enable-automation"],
-                args=[
-                    "--start-maximized",
-                    "--window-position=0,0",
-                    "--window-size=1366,768",
-                    "--disable-blink-features=AutomationControlled",
-                ],
+                str(self._dir_perfil), channel=self._canal, headless=False, **self._opcoes_launch()
             )
             paginas = self._contexto.pages
             self._pagina = paginas[0] if paginas else self._contexto.new_page()
         except BaseException as erro:
             # Sem isso o driver do Playwright (processo node) fica órfão a cada falha de launch.
             self._playwright.stop()
-            if isinstance(erro, PlaywrightError):
+            if isinstance(erro, ERROS):
                 raise ErroRede(f"{self._canal or 'Chromium'} não abriu: {erro}") from erro
             raise
         return self
@@ -104,7 +119,7 @@ class NavegadorChromium:
     def vivo(self) -> bool:
         try:
             return not self._pagina.is_closed() and self._pagina.evaluate("1") == 1
-        except PlaywrightError:
+        except ERROS:
             return False
 
     def _capturar(self, status: int, headers: dict[str, str]) -> Pagina:
@@ -116,14 +131,19 @@ class NavegadorChromium:
             headers=headers,
         )
 
+    def _ir(self, url: str):
+        """`goto` com o `Referer` pendente (se houver), que vale só para esta navegação."""
+        referer, self._referer = self._referer, None
+        return self._pagina.goto(url, wait_until="load", timeout=self._timeout_ms, referer=referer)
+
     def abrir(self, url: str) -> Pagina:
         try:
-            resposta = self._pagina.goto(url, wait_until="load", timeout=self._timeout_ms)
+            resposta = self._ir(url)
             self._pagina.wait_for_timeout(self._espera_ms)
             return self._capturar(
                 resposta.status if resposta else 0, dict(resposta.headers) if resposta else {}
             )
-        except PlaywrightError as erro:
+        except ERROS as erro:
             # Erro de navegação com o desafio na tela: devolve o desafio (quem chamou pausa) em vez
             # de ErroRede, que levaria a um retry em cima do desafio.
             atual = self._capturar_se_possivel(0, {})
@@ -134,25 +154,25 @@ class NavegadorChromium:
     def _capturar_se_possivel(self, status: int, headers: dict[str, str]) -> Pagina | None:
         try:
             return self._capturar(status, headers)
-        except PlaywrightError:
+        except ERROS:
             return None
 
     def atual(self) -> Pagina:
         try:
             return self._capturar(0, {})
-        except PlaywrightError as erro:
+        except ERROS as erro:
             raise ErroRede(f"página atual ilegível: {erro}") from erro
 
     def abrir_e_esperar(self, url: str, seletor: str, timeout_ms: int = 15_000) -> Pagina:
         pagina = self.abrir(url)
         try:
             self._pagina.wait_for_selector(seletor, state="attached", timeout=timeout_ms)
-        except PlaywrightError:
+        except ERROS:
             return pagina  # sem o elemento no prazo: quem chamou decide (o parser acusa o layout)
         try:
             self._pagina.wait_for_timeout(self._espera_ms)
             return self._capturar(pagina.status, pagina.headers)
-        except PlaywrightError as erro:
+        except ERROS as erro:
             raise ErroRede(f"{url}: página ilegível depois da espera: {erro}") from erro
 
     def clicar(self, seletor: str, indice: int, guarda: Guarda) -> Pagina:
@@ -165,7 +185,7 @@ class NavegadorChromium:
             # espera longa acontece antes da guarda, não entre a guarda e o clique.
             elemento.click(trial=True, timeout=self._timeout_ms)
             html, texto = elemento.evaluate(JS_DESCREVER)
-        except PlaywrightError as erro:
+        except ERROS as erro:
             raise ErroRede(f"elemento {seletor} [{indice}] não encontrado: {erro}") from erro
         # A guarda vê o mesmo nó (handle) que vai ser clicado, já pronto para o clique: se a página
         # trocou o botão depois da leitura do HTML, é este que conta.
@@ -175,5 +195,5 @@ class NavegadorChromium:
             self._pagina.wait_for_load_state("load", timeout=self._timeout_ms)
             self._pagina.wait_for_timeout(self._espera_ms)
             return self._capturar(0, {})
-        except PlaywrightError as erro:
+        except ERROS as erro:
             raise ErroRede(f"clique em {seletor} [{indice}]: {erro}") from erro
