@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { apiFalsa, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../../teste/apoio";
+import { dataHora } from "../../formato";
 import { fimDoDia, inicioDoDia } from "./Atividade";
 
 const base = { "GET /api/auth/eu": ok(EU_ADMIN), "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }) };
@@ -53,6 +54,15 @@ describe("Atividade", () => {
     expect(within(zero).queryByText("0.000000")).toBeNull();
     const pago = screen.getByRole("link", { name: "B0PAGO0001" }).closest("li")!;
     expect(within(pago).getByText("US$ 0.012300")).toBeInTheDocument();
+  });
+
+  it("data e hora no detalhe aparecem como no resto da tela, não em ISO", async () => {
+    const enviada = "2026-10-30T00:05:53.816174+00:00";
+    apiFalsa({ ...base, [LISTAR]: ok({ itens: [linha({ ...MSG, detalhe: { ...MSG.detalhe, enviada_em: enviada } })], proximo: null }) });
+    renderizarEm("/gestao/atividade");
+    await userEvent.click(await screen.findByRole("button", { name: /Detalhes/ }));
+    expect(screen.queryByText(enviada)).not.toBeInTheDocument();
+    expect(screen.getByText(dataHora(enviada))).toBeInTheDocument();
   });
 
   it("mapeia parcial e falha para as cores", async () => {

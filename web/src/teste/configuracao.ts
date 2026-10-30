@@ -12,9 +12,11 @@ class ResizeObserverFalso {
   disconnect() {}
 }
 
-// jsdom não tem ResizeObserver, que o ResponsiveContainer do Recharts usa.
+// jsdom não tem ResizeObserver, que o ResponsiveContainer do Recharts usa, nem `scrollTo` (o Layout leva a
+// tela nova ao topo).
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverFalso);
+  vi.stubGlobal("scrollTo", vi.fn());
 });
 
 afterEach(() => {

@@ -68,6 +68,9 @@ function rotuloChave(chave: string): string {
   return chave.replace(/_/g, " ");
 }
 
+/** Data e hora em ISO vindas do detalhe (ex.: `enviada_em`) aparecem no formato do resto da tela. */
+const ISO_DATA_HORA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
 /** Custo da IA que vale mostrar: o de valor zero (ex.: chamada que falhou) fica de fora. */
 const temCusto = (custo: unknown) => custo !== null && custo !== undefined && Number(custo) !== 0;
 
@@ -82,7 +85,7 @@ function Detalhe({ linha }: { linha: LinhaAtividade }) {
           {campos.map(([k, v]) => (
             <div key={k} className="flex min-w-0 flex-col">
               <dt className="text-xs opacity-60">{rotuloChave(k)}</dt>
-              <dd className="break-words">{String(v)}</dd>
+              <dd className="break-words">{typeof v === "string" && ISO_DATA_HORA.test(v) ? dataHora(v) : String(v)}</dd>
             </div>
           ))}
         </dl>

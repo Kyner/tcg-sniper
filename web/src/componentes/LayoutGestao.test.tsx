@@ -1,11 +1,19 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { apiFalsa, DASHBOARD_VAZIO, EU_ADMIN, EU_OPERADOR, ok, renderizarEm } from "../teste/apoio";
 
 const MENU = { "GET /api/gestao/menu": ok({ casamentos_esperando: 0 }), ...DASHBOARD_VAZIO };
 
 describe("LayoutGestao", () => {
+  it("tela nova aberta pelo menu começa no topo", async () => {
+    apiFalsa({ ...MENU, "GET /api/auth/eu": ok(EU_ADMIN), "GET /api/gestao/ofertas": ok({ itens: [], total: 0, pagina: 1, por_pagina: 50, categorias: [] }) });
+    const rolar = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    renderizarEm("/gestao");
+    await userEvent.click(await screen.findByRole("link", { name: "Ofertas" }));
+    expect(rolar).toHaveBeenCalledWith(0, 0);
+  });
+
   it("mostra o selo de casamentos esperando no menu", async () => {
     apiFalsa({ ...DASHBOARD_VAZIO, "GET /api/auth/eu": ok(EU_OPERADOR), "GET /api/gestao/menu": ok({ casamentos_esperando: 96 }) });
     renderizarEm("/gestao");

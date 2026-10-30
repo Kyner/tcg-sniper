@@ -1,6 +1,6 @@
 // Moldura das telas logadas: barra com o menu (só o que a pessoa pode), nome, papel, tema e Sair.
-import type { ReactNode } from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router";
+import { type ReactNode, useEffect } from "react";
+import { Link, NavLink, useLocation, useNavigate, useNavigationType } from "react-router";
 import { ROTULO_PAPEL } from "../permissoes";
 import { useSessao } from "../sessao";
 import { BotaoTema } from "./BotaoTema";
@@ -8,7 +8,13 @@ import { BotaoTema } from "./BotaoTema";
 export function Layout({ children }: { children: ReactNode }) {
   const { sessao, pode, sair } = useSessao();
   const navegar = useNavigate();
-  const emGestao = useLocation().pathname.startsWith("/gestao"); // a gestão tem menu lateral: precisa de mais largura
+  const { pathname } = useLocation();
+  const emGestao = pathname.startsWith("/gestao"); // a gestão tem menu lateral: precisa de mais largura
+  const tipoNavegacao = useNavigationType();
+  // Tela nova começa no topo (o navegador mantinha a rolagem da anterior); no Voltar (POP) o navegador restaura.
+  useEffect(() => {
+    if (tipoNavegacao !== "POP") window.scrollTo(0, 0);
+  }, [pathname, tipoNavegacao]);
   if (sessao.estado !== "logado") return null;
   const { eu } = sessao;
 
