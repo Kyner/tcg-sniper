@@ -32,7 +32,7 @@ def situacao(s, agora, esfriar=30):
 def test_sem_desafio_nada_muda(s):
     atual = situacao(s, local(12))
     assert atual == SituacaoDesafio(0, 0, None)
-    assert not atual.parada_hoje and not atual.pausas_dobradas
+    assert not atual.pausas_dobradas
 
 
 def test_ainda_pausado_conta_o_desafio_mas_nao_esfria(s):
@@ -68,14 +68,15 @@ def test_esfriar_zero_nao_espera(s):
     assert situacao(s, local(11), esfriar=0).esfriando_ate is None
 
 
-def test_segundo_desafio_do_dia_para_ate_amanha(s):
+def test_segundo_desafio_do_dia_so_esfria_de_novo(s):
+    # Sem parada até amanhã: o 2º desafio esfria contado da nova retomada, como o 1º.
     desafio(s, local(10, 30))
     repo.retomar(s, local(11), desafio_resolvido=True)
     coleta(s, local(11, 30))
     desafio(s, local(13))
-    atual = situacao(s, local(13, 5))
-    assert (atual.desafios_hoje, atual.parada_hoje) == (2, True)
-    assert not situacao(s, local(9, dias=1)).parada_hoje
+    repo.retomar(s, local(13, 10), desafio_resolvido=True)
+    atual = situacao(s, local(13, 15))
+    assert (atual.desafios_hoje, atual.esfriando_ate, atual.pausas_dobradas) == (2, local(13, 40), True)
 
 
 def test_desafio_antes_da_meia_noite_local_conta_no_dia_anterior(s):
@@ -89,9 +90,8 @@ def test_desafio_de_ontem_ainda_esfria_a_retomada_de_hoje_sem_dobrar_as_pausas(s
     desafio(s, local(22, dias=-1))
     repo.retomar(s, local(8), desafio_resolvido=True)
     atual = situacao(s, local(8, 10))
-    # O desafio de 22h de ontem tem menos de 24 h às 8h: dobra (a parada até amanhã segue no dia do calendário).
+    # O desafio de 22h de ontem tem menos de 24 h às 8h: dobra (a contagem do dia segue o calendário).
     assert (atual.desafios_hoje, atual.esfriando_ate, atual.pausas_dobradas) == (0, local(8, 30), True)
-    assert not atual.parada_hoje
 
 
 def test_desafio_de_mais_de_24h_nao_dobra_as_pausas(s):

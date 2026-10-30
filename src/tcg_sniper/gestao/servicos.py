@@ -64,9 +64,7 @@ MENSAGENS = {
         "Desafio resolvido. A coleta roda depois do esfriamento (o card mostra até quando), "
         "com pausas em dobro por 24 h depois do desafio."
     ),
-    "retomar_parada": "Desafio resolvido. Foi o 2º de hoje: a coleta da LigaMagic só volta amanhã, no horário de sempre.",
     "liga_esfriando": "Execução da LigaMagic solicitada; começa quando o esfriamento terminar (o card mostra até quando).",
-    "liga_parada_hoje": "A LigaMagic teve o 2º desafio hoje e fica parada até amanhã; nada foi solicitado.",
     "liga_pausar": "Coleta da LigaMagic desligada. Volta quando você ligar de novo.",
     "liga_retomar": "Coleta da LigaMagic ligada; segue o horário diário.",
     "notificador_pausar": (
@@ -130,7 +128,7 @@ def desligar(s: Session, servico: Servico, agora: datetime) -> str:
 
 def retomar_desafio(s: Session, servico: Servico, zona: ZoneInfo, cfg_efetiva, agora: datetime) -> str:
     """Retoma depois de o desafio ser resolvido (Liga) ou do CAPTCHA (busca e monitor da Amazon), pedindo
-    uma execução já. Na Liga a mensagem diz se há esfriamento ou se foi o 2º desafio do dia.
+    uma execução já. Na Liga a mensagem diz se há esfriamento.
 
     Fora do estado de desafio faz o mesmo que a rota antiga: retoma e avisa (idempotente)."""
     if servico not in (Servico.LIGA, Servico.AMAZON_BUSCA, Servico.AMAZON_MONITOR):
@@ -141,22 +139,17 @@ def retomar_desafio(s: Session, servico: Servico, zona: ZoneInfo, cfg_efetiva, a
     if servico is not Servico.LIGA:
         return f"{_PREFIXO[servico]}_retomar"
     desafio = situacao_desafio(s, agora, zona, cfg_efetiva.esfriar_desafio_min)
-    if desafio.parada_hoje:
-        return "retomar_parada"
     return "retomar_esfriando" if desafio.esfriando_ate is not None else "retomar"
 
 
 def rodar_agora(s: Session, servico: Servico, zona: ZoneInfo, cfg_efetiva, agora: datetime) -> str:
-    """Só Liga e Casador. A Liga respeita o esfriamento (o pedido espera) e a parada do 2º desafio
-    (nada é pedido)."""
+    """Só Liga e Casador. A Liga respeita o esfriamento (o pedido espera)."""
     if servico is Servico.CASADOR:
         repo.solicitar_execucao(s, agora, COLETOR_CASADOR)
         return "casador_rodar"
     if servico is not Servico.LIGA:
         raise ValueError(f"serviço sem 'rodar agora': {servico}")
     desafio = situacao_desafio(s, agora, zona, cfg_efetiva.esfriar_desafio_min)
-    if desafio.parada_hoje:
-        return "liga_parada_hoje"
     repo.solicitar_execucao(s, agora)
     return "liga_esfriando" if desafio.esfriando_ate is not None else "rodar"
 

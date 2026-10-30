@@ -28,6 +28,9 @@ class ItemListagem:
 
     `preco_a_partir` é o menor preço pedido AGORA ("À partir de R$ X"); `None` quando o cartão
     diz "Produto Indisponível" (sem estoque). `tipo` é o nome da categoria mostrado no cartão.
+
+    `so_catalogo`: o produto foi visto sem o "à partir de" (categoria com um só produto, em que a Liga
+    abre direto a página dele): entra no catálogo, mas não grava preço de listagem.
     """
 
     liga_id: str
@@ -35,6 +38,7 @@ class ItemListagem:
     url: str
     preco_a_partir: Decimal | None
     tipo: str | None = None
+    so_catalogo: bool = False
 
 
 @dataclass(frozen=True)

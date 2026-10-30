@@ -171,11 +171,6 @@ def _saude_liga(s: Session, agora: datetime, cfg: Config) -> SaudeServico:
         texto = f"Coleta em andamento desde {_quando(rodando.iniciada_em, agora, zona)}"
         return SaudeServico("LigaMagic", "rodando", texto, detalhe, link_logs)
     desafio = situacao_desafio(s, agora, zona, cfg.esfriar_desafio_min)
-    if desafio.parada_hoje:
-        return SaudeServico(
-            "LigaMagic", "parcial", "Parada até amanhã (2º desafio)", f"Próxima amanhã {horario} · {com_preco} de {ativos} com preço",
-            link_logs, selo="parada até amanhã",
-        )
     if desafio.esfriando_ate is not None:
         texto = f"Esfriando até {desafio.esfriando_ate.astimezone(zona):%H:%M}"
         if estado.execucao_solicitada:

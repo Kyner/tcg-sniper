@@ -155,7 +155,8 @@ def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], a
     (append-only) e o grupo "listagem" do preço atual. Retorna quantos produtos são novos.
 
     Um produto que já apareceu nesta coleta (outra categoria) não é contado como novo de novo e
-    mantém o primeiro preço visto na coleta, tanto no histórico quanto no preço atual.
+    mantém o primeiro preço visto na coleta, tanto no histórico quanto no preço atual. Item
+    `so_catalogo` só entra no catálogo (sem o "à partir de", que não pode virar "indisponível").
     """
     unicos = _primeiro_de_cada(itens)
     novos = upsert_catalogo(s, list(unicos.values()), agora)
@@ -165,6 +166,8 @@ def gravar_listagem(s: Session, coleta_id: int, itens: Sequence[ItemListagem], a
         s.execute(select(ProdutoLiga.liga_id, ProdutoLiga.id).where(ProdutoLiga.liga_id.in_(unicos))).all()
     )
     for liga_id, item in unicos.items():
+        if item.so_catalogo:
+            continue
         produto_id = ids[liga_id]
         s.execute(
             pg_insert(PrecoListagem)

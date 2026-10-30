@@ -102,3 +102,22 @@ def test_pagina_de_produto_no_lugar_da_listagem_continua_erro():
     assert "Nenhum produto de lojas encontrado" in html
     with pytest.raises(ErroParser):
         parse_listagem(html, URL_CATEG_10)
+
+
+URL_CATEG_20 = "https://www.ligamagic.com.br/?view=cards/search&card=categ%3D20+searchprod%3D1&tipo=1"
+
+
+def test_categoria_com_um_so_produto_abre_a_pagina_dele():
+    # Com um único resultado a Liga mostra direto a página do produto, na URL da busca (categoria 20,
+    # capturada em 2026-10-30). O "à partir de" ali é imagem: o produto entra só no catálogo.
+    itens = parse_listagem(fixture_liga("listagem_um_produto"), URL_CATEG_20)
+    assert itens == [
+        ItemListagem(
+            liga_id="106224",
+            nome="Global Series - Jiang Yanggu e Mu Yanling",
+            url=URL_PRODUTO + "106224&prod=Global Series - Jiang Yanggu e Mu Yanling",
+            preco_a_partir=None,
+            tipo=None,
+            so_catalogo=True,
+        )
+    ]

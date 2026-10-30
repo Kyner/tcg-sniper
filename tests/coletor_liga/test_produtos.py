@@ -209,7 +209,7 @@ def test_le_so_a_lista_do_dia_e_resume_os_grupos(sessoes, config):
         novo = criar_produto(s, "novo")
         velhos = [criar_produto(s, f"velho{i}") for i in range(7)]
         for v in velhos:
-            lido_em(s, v, ANTIGO)
+            lido_em(s, v, QUARTA - timedelta(days=2))  # lidos na semana: sem atraso
         [do_dia] = [v for v in velhos if v.id % 7 == QUARTA.weekday()]
         urls = [p.url for p in (casado, candidato, novo, do_dia)]
     paginas = {u: pagina_html(HTML_OK, url=u) for u in urls}
@@ -274,7 +274,7 @@ def test_aviso_sem_esfriar_diz_que_volta_logo(sessoes, config):
     assert dados.linhas[2] == "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro por 24 h depois do desafio"
 
 
-def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):
+def test_aviso_do_segundo_desafio_do_dia_conta_e_so_esfria(sessoes, config):
     urls = preparar(sessoes, "a")
     with sessoes() as s, s.begin():
         antes = repo.agora_utc() - timedelta(seconds=1)
@@ -282,7 +282,10 @@ def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):
         repo.finalizar_coleta(s, c.id, StatusColeta.PAUSADA_DESAFIO, 0, 0, antes, erro="desafio em /x")
     _, _, avisador = coletar(sessoes, config, {urls["a"]: DESAFIO})
     [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
-    assert dados.linhas[2] == "2º desafio de hoje: depois de retomar, a coleta só volta amanhã, no horário de sempre"
+    assert dados.linhas[2] == (
+        f"2º desafio de hoje: volta {config.esfriar_desafio_min} min depois de você retomar, "
+        "com pausas em dobro por 24 h depois do desafio"
+    )
 
 
 def falhas_da_pagina(sessoes, url):

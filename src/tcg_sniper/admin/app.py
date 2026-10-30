@@ -306,7 +306,6 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
                 request,
                 "servicos.html",
                 {
-                    "liga_parada": desafio.parada_hoje,
                     "liga_esfriando_ate": (
                         f"{desafio.esfriando_ate.astimezone(efetiva.zona):%H:%M}" if desafio.esfriando_ate else None
                     ),
@@ -367,7 +366,7 @@ def criar_app(sessoes: sessionmaker[Session], config: Config) -> FastAPI:
 
     @app.post("/rodar-agora")
     def rodar_agora(request: Request):
-        """Respeita o esfriamento (o pedido espera) e a parada do 2º desafio (nada é pedido)."""
+        """Respeita o esfriamento (o pedido espera)."""
         efetiva = request.state.config
         with sessoes() as s, s.begin():
             msg = acoes.rodar_agora(s, Servico.LIGA, efetiva.zona, efetiva, repo.agora_utc())

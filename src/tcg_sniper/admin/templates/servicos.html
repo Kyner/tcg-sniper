@@ -45,16 +45,16 @@
   {% else %}
   <div data-servico="liga" class="card bg-base-100 shadow-sm"><div class="card-body gap-3 p-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 class="card-title text-base">LigaMagic {{ selo_ligado(liga == "ativo") }}{% if em_andamento %} {{ selo("rodando", "coleta em andamento") }}{% elif liga == "ativo" and liga_parada %} {{ selo("parcial", "parada até amanhã") }}{% elif liga == "ativo" and liga_esfriando_ate %} {{ selo("parcial", "esfriando") }}{% endif %}</h2>
+      <h2 class="card-title text-base">LigaMagic {{ selo_ligado(liga == "ativo") }}{% if em_andamento %} {{ selo("rodando", "coleta em andamento") }}{% elif liga == "ativo" and liga_esfriando_ate %} {{ selo("parcial", "esfriando") }}{% endif %}</h2>
       {{ chave("/liga/pausar" if liga == "ativo" else "/liga/retomar", liga == "ativo", "LigaMagic") }}
     </div>
     {% if liga == "ativo" %}
-    <p class="text-sm">Coleta diária por volta das {{ coleta_hora }} (variação de {{ coleta_jitter }} min).{% if ultima_liga %} Última ok {{ ultima_liga.iniciada_em|data }}.{% endif %}{% if em_andamento %} <strong>Coleta em andamento.</strong>{% elif liga_parada %} <strong>Parada até amanhã (2º desafio).</strong> Volta no horário de amanhã, com as pausas normais.{% elif liga_esfriando_ate %} <strong>Esfriando até {{ liga_esfriando_ate }}.</strong> {% if estado.execucao_solicitada %} Execução solicitada; roda quando o esfriamento terminar, com pausas em dobro por 24 h depois do desafio.{% else %} Sem pedido de execução: depois disso vale o horário do dia (se o de hoje já rodou, só amanhã), com pausas em dobro por 24 h depois do desafio.{% endif %}{% elif estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
+    <p class="text-sm">Coleta diária por volta das {{ coleta_hora }} (variação de {{ coleta_jitter }} min).{% if ultima_liga %} Última ok {{ ultima_liga.iniciada_em|data }}.{% endif %}{% if em_andamento %} <strong>Coleta em andamento.</strong>{% elif liga_esfriando_ate %} <strong>Esfriando até {{ liga_esfriando_ate }}.</strong> {% if estado.execucao_solicitada %} Execução solicitada; roda quando o esfriamento terminar, com pausas em dobro por 24 h depois do desafio.{% else %} Sem pedido de execução: depois disso vale o horário do dia (se o de hoje já rodou, só amanhã), com pausas em dobro por 24 h depois do desafio.{% endif %}{% elif estado.execucao_solicitada %} Execução solicitada; começa em até 1 minuto.{% endif %}</p>
     {% else %}
     <p class="text-sm">Desligada: {{ estado.motivo or "sem motivo" }}. Não coleta (nem no horário, nem a pedido) até ligar de novo.</p>
     {% endif %}
     <div class="card-actions">
-      {% if liga == "ativo" and not em_andamento and not liga_parada %}<form method="post" action="/rodar-agora"><button class="btn btn-sm btn-primary">Rodar agora</button></form>{% endif %}
+      {% if liga == "ativo" and not em_andamento %}<form method="post" action="/rodar-agora"><button class="btn btn-sm btn-primary">Rodar agora</button></form>{% endif %}
       <a class="btn btn-sm btn-ghost" href="/logs?aba=liga">Ver histórico</a>
     </div>
   </div></div>

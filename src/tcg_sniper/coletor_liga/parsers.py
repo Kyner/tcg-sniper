@@ -40,6 +40,10 @@ estrutura observada em 2026-10-13 (fixture `catalogo_pagina_1`, categ 10):
 - Categoria: `.card-section a` ("Caixas de Boosters") → `tipo`.
 - Grade sem nenhum cartão → `ErroParser` (layout mudou ou categoria vazia; categoria vazia
   deve sair de `LIGA_CATEGORIAS`).
+- Categoria com um só produto (fixture `listagem_um_produto`, categ 20, 2026-10-30): a Liga mostra
+  direto a página do produto, na URL da busca, sem a grade. Vira um item `so_catalogo`: `pcode` do
+  link do histórico de preços (`?view=prod/pricehistory&pcode=<ID>`), nome em `.item-name`. O "à
+  partir de" dessa página é imagem, então fica sem preço (o resumo vem da etapa de produtos).
 """
 
 import re
@@ -71,6 +75,8 @@ SELETOR_LINK_CARTAO = "h5.card-title a"
 SELETOR_PRECO_A_PARTIR = ".smallest-price"
 SELETOR_SEM_ESTOQUE = ".price-out-of-stock"
 SELETOR_CATEGORIA_CARTAO = ".card-section a"
+SELETOR_NOME_PRODUTO = ".item-name"
+SELETOR_HISTORICO_PRODUTO = 'a[href*="view=prod/pricehistory"]'
 _RE_PCODE = re.compile(r"[?&]pcode=(\d+)")
 
 
@@ -164,10 +170,33 @@ def _item_listagem(cartao: LexborNode, url_base: str) -> ItemListagem:
     )
 
 
+def _item_pagina_produto(arvore: LexborHTMLParser, url_base: str) -> ItemListagem | None:
+    """O único produto da categoria quando a Liga abre direto a página dele; `None` se não é página de
+    produto."""
+    if arvore.css_first(SELETOR_ESTRUTURA_PRODUTO) is None:
+        return None
+    nome = arvore.css_first(SELETOR_NOME_PRODUTO)
+    historico = arvore.css_first(SELETOR_HISTORICO_PRODUTO)
+    pcode = _RE_PCODE.search(historico.attributes.get("href") or "") if historico is not None else None
+    if nome is None or not nome.text(strip=True) or pcode is None:
+        return None
+    nome_texto = nome.text(strip=True)
+    return ItemListagem(
+        liga_id=pcode.group(1),
+        nome=nome_texto,
+        url=urljoin(url_base, f"/?view=prod/view&pcode={pcode.group(1)}&prod={nome_texto}"),
+        preco_a_partir=None,
+        so_catalogo=True,
+    )
+
+
 def parse_listagem(html: str, url_base: str) -> list[ItemListagem]:
     """Cartões da grade de uma listagem de categoria, na ordem da página (pode repetir `liga_id`)."""
     arvore = LexborHTMLParser(html)
     if arvore.css_first(SELETOR_GRADE_LISTAGEM) is None:
+        unico = _item_pagina_produto(arvore, url_base)
+        if unico is not None:
+            return [unico]
         raise ErroParser("grade da listagem não encontrada")
     cartoes = arvore.css(SELETOR_CARTAO)
     if not cartoes:

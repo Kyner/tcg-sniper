@@ -902,31 +902,27 @@ def test_horario_do_dia_durante_o_esfriamento_espera_o_fim(engine, sessoes, conf
     assert chamadas == [True]
 
 
-def test_segundo_desafio_nada_roda_ate_amanha_nem_com_rodar_agora(engine, sessoes, config):
-    job_ok(sessoes, TERCA - timedelta(days=2), 10)  # > 24 h: inicializar arma uma execução atrasada
+def test_segundo_desafio_do_dia_so_esfria_e_volta_com_o_retomar(engine, sessoes, config):
+    # Sem parada até amanhã: quem decide parar é a pessoa (não retomando); o 2º desafio só esfria.
+    job_ok(sessoes, TERCA - timedelta(days=2), 10)
     coleta(sessoes, TipoColeta.LISTAGEM, local(TERCA, 10, 5))
     desafio(sessoes, local(TERCA, 10, 30))
     desafio(sessoes, local(TERCA, 12, 0))
     retomar_em(sessoes, local(TERCA, 12, 10))  # Retomar pede execução
-    relogio = Relogio(local(TERCA, 12, 41))
+    relogio = Relogio(local(TERCA, 12, 20))
     chamadas = []
     a, _ = agendador(engine, sessoes, config, relogio, chamadas)
     a.inicializar()
-    assert a.tick() is None
-    with sessoes() as s, s.begin():
-        assert repo.obter_estado(s).execucao_solicitada is False  # o pedido foi descartado
-        repo.solicitar_execucao(s, local(TERCA, 13, 0))  # "Rodar agora"
-    relogio.agora = local(TERCA, 13, 1)
-    assert a.tick() is None
-    relogio.agora = local(TERCA + timedelta(days=1), 0, 30)
-    assert a.tick() is None  # nem o pedido nem a atrasada rodam à meia-noite
-    relogio.agora = local(TERCA + timedelta(days=1), 10, 31)
-    assert a.tick() == "agendado"
-    assert chamadas == [True]
+    assert a.tick() is None  # esfriando até 12:40
+    with sessoes() as s:
+        assert repo.obter_estado(s).execucao_solicitada is True  # o pedido espera
+    relogio.agora = local(TERCA, 12, 41)
+    assert a.tick() == "solicitado"
+    assert len(chamadas) == 1
 
 
-def test_reinicio_com_dia_encerrado_nao_agenda_atrasada(engine, sessoes, config, caplog):
-    job_ok(sessoes, TERCA - timedelta(days=2), 10)  # > 24 h: sem a regra, armaria uma atrasada
+def test_reinicio_depois_de_dois_desafios_no_dia_ainda_agenda_a_atrasada(engine, sessoes, config, caplog):
+    job_ok(sessoes, TERCA - timedelta(days=2), 10)  # > 24 h: arma uma execução atrasada
     desafio(sessoes, local(TERCA, 10, 30))
     desafio(sessoes, local(TERCA, 12, 0))
     relogio = Relogio(local(TERCA, 12, 41))
@@ -934,12 +930,7 @@ def test_reinicio_com_dia_encerrado_nao_agenda_atrasada(engine, sessoes, config,
     a, _ = agendador(engine, sessoes, config, relogio, chamadas)
     with caplog.at_level("INFO"):
         a.inicializar()
-    assert "execução atrasada" not in caplog.text
-    assert "dia encerrado pelo 2º desafio; a próxima coleta é amanhã no horário" in caplog.text
-    assert a.tick() is None
-    relogio.agora = local(TERCA + timedelta(days=1), 10, 31)
-    assert a.tick() == "agendado"
-    assert chamadas == [True]
+    assert "execução atrasada" in caplog.text
 
 
 HTML_PRODUTO = fixture_liga("produto_varios_vendedores")

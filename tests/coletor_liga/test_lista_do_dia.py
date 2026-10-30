@@ -12,6 +12,8 @@ SP = ZoneInfo("America/Sao_Paulo")
 SEGUNDA = datetime(2026, 10, 12, 12, 0, tzinfo=SP)
 QUARTA = SEGUNDA + timedelta(days=2)
 ANTIGO = SEGUNDA - timedelta(days=10)
+# Lido há poucos dias: no rodízio só no dia da semana dele (sem atraso).
+RECENTE = QUARTA - timedelta(days=2)
 
 
 def fixo(_grupo):
@@ -31,6 +33,13 @@ def par(s, p, status, sufixo="00"):
     criar_anuncio(s, f"B{p.id:07d}{sufixo}", produto=p, status=status)
 
 
+def ler(s, produto_ids, quando):
+    """O job leu estes produtos (grava um resumo para cada um)."""
+    c = repo.iniciar_coleta(s, TipoColeta.PRODUTOS, quando)
+    for pid in produto_ids:
+        repo.gravar_precos_produto(s, c.id, pid, Resumo(None, None, None, 1), quando)
+
+
 def ids(lista):
     return [produto_id for produto_id, _ in lista.produtos]
 
@@ -42,7 +51,7 @@ def test_grupos_na_ordem_e_cada_produto_uma_vez_so(s):
     candidato = produto(s, "candidato", lido_em=ANTIGO)
     par(s, candidato, StatusCasamento.PENDENTE)
     novo = produto(s, "novo")
-    velhos = [produto(s, f"velho{i}", lido_em=ANTIGO) for i in range(7)]
+    velhos = [produto(s, f"velho{i}", lido_em=RECENTE) for i in range(7)]
     [do_dia] = [v for v in velhos if v.id % 7 == QUARTA.weekday()]
 
     lista = montar_lista(s, QUARTA, SP, 100, fixo)
@@ -55,12 +64,14 @@ def test_grupos_na_ordem_e_cada_produto_uma_vez_so(s):
 
 def test_rodizio_cobre_cada_produto_uma_vez_por_semana(s):
     assert SEGUNDA.weekday() == 0
-    velhos = [produto(s, f"v{i}", lido_em=ANTIGO) for i in range(14)]
+    velhos = [produto(s, f"v{i}", lido_em=SEGUNDA - timedelta(days=1)) for i in range(14)]
     vistos = []
     for dia in range(7):
-        lista = montar_lista(s, SEGUNDA + timedelta(days=dia), SP, 100, fixo)
+        agora = SEGUNDA + timedelta(days=dia)
+        lista = montar_lista(s, agora, SP, 100, fixo)
         assert all(produto_id % 7 == dia for produto_id in ids(lista))
-        assert lista.rodizio == 2
+        assert (lista.rodizio, lista.atrasados) == (2, 0)
+        ler(s, ids(lista), agora)
         vistos += ids(lista)
     assert sorted(vistos) == sorted(v.id for v in velhos)
 
@@ -159,3 +170,54 @@ def test_novo_que_falha_3_vezes_sai_dos_novos_do_dia(s):
     # sem resumo, segue no rodízio do dia da semana dele
     do_dia = montar_lista(s, SEGUNDA + timedelta(days=ruim.id % 7), SP, 0, fixo)
     assert ids(do_dia) == [ruim.id] and do_dia.rodizio == 1
+
+
+def test_rodizio_nao_lido_no_dia_passa_para_os_proximos_dias(s):
+    # Sexta cortada por um desafio: o produto da sexta não lido entra no sábado como atrasado.
+    sexta = SEGUNDA + timedelta(days=4)
+    velhos = [produto(s, f"v{i}") for i in range(7)]
+    [da_sexta] = [v for v in velhos if v.id % 7 == sexta.weekday()]
+    ler(s, [da_sexta.id], sexta - timedelta(days=7))  # a última leitura dele foi na sexta passada
+    ler(s, [v.id for v in velhos if v is not da_sexta], sexta - timedelta(days=2))
+    assert ids(montar_lista(s, sexta, SP, 100, fixo)) == [da_sexta.id]  # o job parou antes de ler
+    sabado = montar_lista(s, sexta + timedelta(days=1), SP, 100, fixo)
+    [do_sabado] = [v for v in velhos if v.id % 7 == 5]
+    assert ids(sabado) == [da_sexta.id, do_sabado.id]  # atrasado antes do rodízio do dia
+    assert (sabado.atrasados, sabado.rodizio) == (1, 1)
+    assert sabado.grupos() == "casados 0, candidatos 0, novos 0, rodízio 1, atrasados 1"
+    ler(s, [da_sexta.id], sexta + timedelta(days=1))
+    assert da_sexta.id not in ids(montar_lista(s, sexta + timedelta(days=2), SP, 100, fixo))
+
+
+def test_atrasados_mais_antigos_primeiro_e_lido_na_semana_nao_atrasa(s):
+    fora_do_dia = [v for v in (produto(s, f"v{i}") for i in range(14)) if v.id % 7 != QUARTA.weekday()]
+    antigo, menos_antigo, da_semana = fora_do_dia[:3]
+    ler(s, [menos_antigo.id], QUARTA - timedelta(days=8))
+    ler(s, [antigo.id], QUARTA - timedelta(days=20))
+    ler(s, [da_semana.id], inicio_do_dia(QUARTA, SP) - timedelta(days=6))  # ainda dentro dos 7 dias
+    lista = montar_lista(s, QUARTA, SP, 0, fixo)
+    assert ids(lista) == [antigo.id, menos_antigo.id]
+    assert lista.atrasados == 2
+
+
+def test_atrasado_que_falha_3_vezes_fica_so_no_dia_dele(s):
+    [ruim] = [v for v in (produto(s, f"v{i}", lido_em=ANTIGO) for i in range(7)) if v.id % 7 != QUARTA.weekday()][:1]
+    for _ in range(3):
+        repo.registrar_falha_pagina(s, ruim.id)
+    assert ruim.id not in ids(montar_lista(s, QUARTA, SP, 0, fixo))
+
+
+def test_atrasados_tem_teto_por_dia_que_vale_entre_execucoes(s, monkeypatch):
+    from tcg_sniper.coletor_liga import lista_do_dia
+
+    monkeypatch.setattr(lista_do_dia, "ATRASADOS_POR_DIA", 2)
+    fora_do_dia = [v for v in (produto(s, f"v{i}") for i in range(21)) if v.id % 7 != QUARTA.weekday()][:4]
+    for dias, v in zip((30, 20, 10, 9), fora_do_dia, strict=True):
+        ler(s, [v.id], QUARTA - timedelta(days=dias))
+    primeira = montar_lista(s, QUARTA, SP, 0, fixo)
+    assert ids(primeira) == [fora_do_dia[0].id, fora_do_dia[1].id]  # os 2 mais antigos
+    ler(s, [fora_do_dia[0].id], QUARTA)  # o job leu 1 e parou
+    segunda = montar_lista(s, QUARTA + timedelta(hours=1), SP, 0, fixo)
+    assert ids(segunda) == [fora_do_dia[1].id]  # o teto do dia já gastou 1
+    amanha = montar_lista(s, QUARTA + timedelta(days=1), SP, 0, fixo)
+    assert amanha.atrasados == 2

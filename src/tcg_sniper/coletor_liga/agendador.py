@@ -90,21 +90,11 @@ class Agendador:
         with self._sessoes() as s, s.begin():
             interrompidas = repo.marcar_interrompidas(s, agora, TIPOS_LIGA)
             ultima = repo.ultima_coleta_sucesso(s, TipoColeta.PRODUTOS)
-            dia_encerrado = situacao_desafio(
-                s, agora, self._config.zona, self._config.esfriar_desafio_min
-            ).parada_hoje
         if interrompidas:
             log.warning("%d coleta(s) interrompida(s) marcadas como falha", interrompidas)
             dados = Dados(linhas=(f"{interrompidas} coleta(s) marcada(s) como falha: o coletor reiniciou no meio do job",))
             self._avisador.avisar(TipoAviso.LIGA_INTERROMPIDA, CHAVE_GERAL, dados)
         if ultima is None or agora - ultima > timedelta(hours=24):
-            if dia_encerrado:
-                # O tick descartaria a atrasada em silêncio; não a prometa no log.
-                log.info(
-                    "último job com sucesso: %s; dia encerrado pelo 2º desafio; a próxima coleta é amanhã no horário",
-                    ultima,
-                )
-                return
             self._atrasada_em = agora + timedelta(minutes=self._rng.uniform(0, self._config.coleta_jitter_min))
             log.info("último job com sucesso: %s; execução atrasada em %s", ultima, self._atrasada_em)
 
@@ -117,13 +107,6 @@ class Agendador:
             if repo.obter_estado(s, agora).estado != EstadoColetorTipo.ATIVO:
                 return None
             desafio = situacao_desafio(s, agora, self._config.zona, self._config.esfriar_desafio_min)
-            if desafio.parada_hoje:
-                # 2º desafio do dia: nada roda até amanhã. O pedido (Retomar, Rodar agora) é descartado e a
-                # execução atrasada também, para nada sair à meia-noite; amanhã vale o horário normal.
-                if repo.consumir_solicitacao(s, agora):
-                    log.info("pedido de execução descartado: parada até amanhã (2º desafio do dia)")
-                self._atrasada_em = None
-                return None
             rodou_hoje = repo.coleta_iniciada_desde(s, TipoColeta.LISTAGEM, inicio_do_dia)
             if desafio.esfriando_ate is not None:
                 # Esfriando depois de um desafio: nada roda (nem pedido, nem atrasada, nem o horário do
