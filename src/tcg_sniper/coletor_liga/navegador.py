@@ -24,6 +24,9 @@ TIMEOUTS = (PlaywrightTimeoutError, PatchrightTimeoutError)
 # Quem visita a Liga chega pela página inicial, não direto numa URL de busca.
 HOME = "https://www.ligamagic.com.br/"
 PAUSA_HOME_MS = (4_000, 9_000)
+# A verificação automática do Cloudflare costuma passar sozinha em 1 a 4 s (às vezes vem uma segunda):
+# só depois desse prazo o desafio pausa a coleta e vai para o noVNC.
+ESPERA_DESAFIO_MS = 20_000
 
 
 class Navegador(NavegadorBase, Protocol):
@@ -54,7 +57,15 @@ class NavegadorPlaywright(NavegadorChromium):
         home: str | None = HOME,
     ):
         """`home=None` pula a página inicial (testes contra página local, sem acessar a Liga)."""
-        super().__init__(dir_perfil, eh_desafio, timeout_ms, espera_pos_carga_ms, canal="chrome", discreto=True)
+        super().__init__(
+            dir_perfil,
+            eh_desafio,
+            timeout_ms,
+            espera_pos_carga_ms,
+            canal="chrome",
+            discreto=True,
+            espera_desafio_ms=ESPERA_DESAFIO_MS,
+        )
         self._home = home
 
     def _passar_pela_home(self) -> Pagina | None:
@@ -67,11 +78,12 @@ class NavegadorPlaywright(NavegadorChromium):
         try:
             self._pagina.goto(self._home, wait_until="load", timeout=self._timeout_ms)
             self._pagina.wait_for_timeout(random.randint(*PAUSA_HOME_MS))
-            pagina = self._capturar(0, {})
+            pagina = self._esperar_desafio(self._capturar(0, {}))
         except ERROS as erro:
             atual = self._capturar_se_possivel(0, {})
             if atual is not None and eh_desafio(atual):
-                return atual
+                atual = self._esperar_desafio(atual)
+                return atual if eh_desafio(atual) else None
             log.warning("página inicial da Liga não abriu (%s); seguindo direto", erro)
             return None
         if eh_desafio(pagina):
@@ -92,10 +104,12 @@ class NavegadorPlaywright(NavegadorChromium):
         try:
             resposta = self._ir(url)
             self._pagina.wait_for_timeout(self._espera_ms)
-            status = resposta.status if resposta else 0
-            headers = dict(resposta.headers) if resposta else {}
+            pagina = self._esperar_desafio(
+                self._capturar(resposta.status if resposta else 0, dict(resposta.headers) if resposta else {})
+            )
+            # Desafio que passou sozinho: a página volta sem status e cabeçalhos (os do desafio não valem).
+            status, headers = pagina.status, pagina.headers
             while True:
-                pagina = self._capturar(status, headers)
                 if eh_desafio(pagina):
                     return PaginaExpandida(pagina, cliques, limite_atingido=False)
                 botao = self._pagina.locator(SELETOR_EXIBIR_MAIS).first
@@ -116,6 +130,7 @@ class NavegadorPlaywright(NavegadorChromium):
                     # verifica desafio na página devolvida).
                     return PaginaExpandida(self._capturar(status, headers), cliques, limite_atingido=False)
                 self._pagina.wait_for_timeout(self._espera_ms)
+                pagina = self._capturar(status, headers)
         except ERROS as erro:
             # Um clique pode levar a uma navegação para o desafio: nesse caso devolve o desafio.
             atual = self._capturar_se_possivel(status, headers)

@@ -42,6 +42,8 @@ TIMEOUT_CLIQUE_MS = 2_000
 ERROS = (PlaywrightError, PatchrightError)
 # Idiomas de um Chrome comum em português (com `locale` o navigator.languages fica só com "pt-BR").
 IDIOMAS = "pt-BR,pt,en-US,en"
+# De quanto em quanto tempo olhar se o desafio automático já passou.
+INTERVALO_DESAFIO_MS = 1_000
 
 
 class NavegadorChromium:
@@ -56,9 +58,14 @@ class NavegadorChromium:
 
     `discreto` abre pelo Patchright (o Playwright sem os rastros de automação que o Cloudflare
     detecta, como o `Runtime.enable`) e sem emular idioma e fuso: o idioma vem da linha de comando e
-    o fuso do `TZ` do container, como num Chrome comum."""
+    o fuso do `TZ` do container, como num Chrome comum.
+
+    `espera_desafio_ms` dá esse tempo para um desafio que passa sozinho (a verificação automática do
+    Cloudflare some em poucos segundos, às vezes com uma segunda logo depois) antes de devolvê-lo a
+    quem chamou. Zero (padrão) devolve o desafio na hora, como pede o CAPTCHA da Amazon."""
 
     _referer: str | None = None
+    _espera_desafio_ms = 0
 
     def __init__(
         self,
@@ -68,6 +75,7 @@ class NavegadorChromium:
         espera_pos_carga_ms: int = 2_000,
         canal: str | None = None,
         discreto: bool = False,
+        espera_desafio_ms: int = 0,
     ):
         self._dir_perfil = dir_perfil
         self._eh_desafio = eh_desafio
@@ -75,6 +83,7 @@ class NavegadorChromium:
         self._espera_ms = espera_pos_carga_ms
         self._canal = canal
         self._discreto = discreto
+        self._espera_desafio_ms = espera_desafio_ms
 
     def _opcoes_launch(self) -> dict:
         # A janela ocupa a tela do Xvfb (1366x768) com abas e barra de endereço visíveis no noVNC; a
@@ -131,6 +140,29 @@ class NavegadorChromium:
             headers=headers,
         )
 
+    def _esperar_desafio(self, pagina: Pagina) -> Pagina:
+        """Com o desafio na tela, espera até `espera_desafio_ms` ele passar sozinho; devolve a página
+        que ficou (o desafio, se não passou). Depois que ele passa, a resposta original (403 com
+        `cf-mitigated`) não vale mais: a página volta sem status e cabeçalhos. Não lança erro: com o
+        navegador ilegível no meio da espera, devolve a última página lida."""
+        restante = self._espera_desafio_ms
+        try:
+            while restante > 0 and self._eh_desafio(pagina):
+                self._pagina.wait_for_timeout(INTERVALO_DESAFIO_MS)
+                restante -= INTERVALO_DESAFIO_MS
+                atual = self._capturar_se_possivel(0, {})
+                if atual is None:
+                    continue  # no meio de uma navegação do próprio desafio
+                if not self._eh_desafio(atual):
+                    # Passou: espera a página assentar e confere de novo (pode vir uma 2ª verificação).
+                    self._pagina.wait_for_timeout(self._espera_ms)
+                    restante -= self._espera_ms
+                    atual = self._capturar_se_possivel(0, {}) or atual
+                pagina = atual
+        except ERROS:
+            pass
+        return pagina
+
     def _ir(self, url: str):
         """`goto` com o `Referer` pendente (se houver), que vale só para esta navegação."""
         referer, self._referer = self._referer, None
@@ -140,15 +172,15 @@ class NavegadorChromium:
         try:
             resposta = self._ir(url)
             self._pagina.wait_for_timeout(self._espera_ms)
-            return self._capturar(
-                resposta.status if resposta else 0, dict(resposta.headers) if resposta else {}
+            return self._esperar_desafio(
+                self._capturar(resposta.status if resposta else 0, dict(resposta.headers) if resposta else {})
             )
         except ERROS as erro:
             # Erro de navegação com o desafio na tela: devolve o desafio (quem chamou pausa) em vez
             # de ErroRede, que levaria a um retry em cima do desafio.
             atual = self._capturar_se_possivel(0, {})
             if atual is not None and self._eh_desafio(atual):
-                return atual
+                return self._esperar_desafio(atual)
             raise ErroRede(f"{url}: {erro}") from erro
 
     def _capturar_se_possivel(self, status: int, headers: dict[str, str]) -> Pagina | None:
