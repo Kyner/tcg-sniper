@@ -3,13 +3,13 @@
 Lista única do que falta. Atualizar aqui quando algo entrar, sair ou mudar de prioridade.
 Marcar `[x]` ao concluir, anotar o commit e mover para "Concluídas". Sem dados pessoais neste arquivo (o repositório é público).
 
-Última revisão: 2026-10-29 (pacote de bugs em produção desde 2026-10-29 20:51 (merge `6dee6d4`); fase 3C em produção desde 2026-10-29 11:35 (merge `f3f7c72`), conferência pelo usuário pendente; coletor da Liga no Google Chrome em produção desde 2026-10-29 11:23 (`7232f8b`); Liga com desafio na 1ª página em toda tentativa desde 27/10 16:54; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
+Última revisão: 2026-10-29 (pacote de bugs em produção desde 2026-10-29 20:51 (merge `6dee6d4`); fase 3C em produção desde 2026-10-29 11:35 (merge `f3f7c72`), conferida no Chrome em 2026-10-29 (falta só a conta de operador); coletor da Liga no Google Chrome em produção desde 2026-10-29 11:23 (`7232f8b`); Liga com desafio na 1ª página em toda tentativa desde 27/10 16:54; 3A e 3B conferidas pelo usuário; pacote de pequenas em produção desde 2026-10-27 17:08, merge `9a765b6`; 3B em produção desde 2026-10-25 20:37 (merge `266cc9d`); segurança etapa 1 em produção desde 2026-10-24 22:10; próximas entregas: fase 4, segurança etapa 2).
 
 ## Ordem sugerida
 
 0. **Liga com desafio do Cloudflare em toda tentativa** (seção 0): ver se o Google Chrome resolve.
 1. Acompanhar a primeira semana do monitor por grupo (seção 3).
-2. Conferir a 3C e o Voltar de Configurações em produção (roteiro da 3C em `docs/IMPLANTACOES.md`; o Voltar na seção 2, "Sobras do pacote de bugs"), depois a fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
+2. Fase 4 (desligar o admin antigo, com a tabela de cobertura da seção 4) e a segurança etapa 2 (seção 1). Spec: `docs/superpowers/specs/2026-10-21-fase3-area-administrativa-design.md`.
 3. Seção 1, etapa 2 (segurança): **obrigatória antes de publicar na internet ou vender acesso** (a etapa 1 está em produção desde 2026-10-24).
 4. Sub-projeto C (Mercado), a partir de ~2026-11-03 (3 semanas de histórico da Liga).
 5. Acompanhar ao longo dos dias (seção 3), sem prazo.
@@ -44,7 +44,7 @@ Faxina de 2026-10-29: das 58 linhas, 31 foram descartadas (código, teste fraco 
 
 ### Sobras do pacote de bugs (2026-10-29)
 
-- [ ] Configurações → Voltar do navegador: conferir à mão no navegador depois do deploy (os testes usam `MemoryRouter`): Voltar com alteração pergunta; cancelar fica na tela com o rascunho; confirmar sai; link do menu confirmado sai com um Voltar só.
+- [ ] 3C com conta de operador: Configurações só para leitura (sem a barra de salvar). Não deu para conferir no navegador (só há sessão de admin).
 - [ ] Vigia, sinal antigo no boot: com o PC desligado mais de 10 min, se o vigia rodar antes da primeira batida do serviço, abre "sem sinal" e logo resolve (vale para todos os serviços). Medir a partir de `max(ultimo, desde)` quando `ultimo < desde`.
 - [ ] Ids acima de 2³¹ ainda dão 500 em rotas com `produto_id` (casamentos, catálogo, `/produtos/{id}/historico`); `MAX_ID` mora em `rotas_usuarios` e é importado por outras rotas. Mover para um módulo comum e conferir as rotas com id.
 
@@ -172,6 +172,7 @@ Nenhuma no momento.
 
 ### Conferido pelo usuário (2026-10-29)
 
+- [x] 3C no Chrome (admin): Configurações com Efeito e barra Descartar/Salvar; 20 categorias da Liga em chips e "Informe o número da categoria." para entrada inválida; Voltar do navegador pergunta, cancelar mantém o rascunho, "Avisos do WhatsApp" não pergunta, saída confirmada pelo menu volta com um Voltar só e o roteiro mantém `idx`; Ofertas carrega e a busca filtra; Atividade com "o quê = mensagem" mostra as mensagens com detalhes; menu sem link para o admin antigo; Dashboard ok (sem aviso de carrinho no momento para testar o "Já conferi").
 - [x] Casamentos #322 (o produto da Liga também é japonês), #382 (título diferente, mesmo produto) e #462: certos, ficam como estão.
 - [x] Idioma dos anúncios #25, #394, #5424 e #102935: inglês, gravado à mão.
 
