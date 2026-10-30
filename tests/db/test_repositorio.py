@@ -119,6 +119,17 @@ def test_gravar_listagem_item_repetido_na_mesma_lista(s):
     assert s.scalars(select(PrecoListagem.preco_a_partir)).all() == [Decimal("10.00")]
 
 
+def test_gravar_listagem_so_catalogo_nao_grava_preco(s):
+    # Página do produto no lugar da listagem: sem o "à partir de", que não pode virar "indisponível".
+    c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
+    so_catalogo = ItemListagem("z", "Global Series", "https://liga.test/z", None, so_catalogo=True)
+    assert repo.gravar_listagem(s, c.id, [so_catalogo, item("a")], T0) == 2
+    id_z = produto(s, "z").id
+    assert s.scalar(select(func.count()).select_from(PrecoListagem).where(PrecoListagem.produto_id == id_z)) == 0
+    assert s.get(PrecoAtualLiga, id_z) is None
+    assert s.scalar(select(func.count()).select_from(PrecoListagem)) == 1
+
+
 def test_gravar_listagem_vazia(s):
     c = repo.iniciar_coleta(s, TipoColeta.LISTAGEM, T0)
     assert repo.gravar_listagem(s, c.id, [], T0) == 0

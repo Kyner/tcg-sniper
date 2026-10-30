@@ -155,6 +155,19 @@ def test_falha_de_parser_salva_html_e_status_parcial(sessoes, config):
     assert salvos[0].read_text(encoding="utf-8") == HTML_QUEBRADO
 
 
+def test_categoria_que_abre_a_pagina_do_unico_produto_conta_como_lida(sessoes, config):
+    paginas = paginas_ok(config)
+    paginas[url(config, "12")] = expandida(fixture_liga("listagem_um_produto"), url(config, "12"))
+    resultado, _, _ = coletar(sessoes, config, paginas)
+    assert resultado.status is StatusColeta.OK
+    assert (resultado.produtos_ok, resultado.produtos_falha) == (3, 0)
+    with sessoes() as s:
+        assert s.scalar(select(ProdutoLiga.nome).where(ProdutoLiga.liga_id == "106224")) == (
+            "Global Series - Jiang Yanggu e Mu Yanling"
+        )
+    assert not list((config.dir_dados / "falhas").glob("*.html"))
+
+
 def test_mais_da_metade_falhando_avisa_layout(sessoes, config):
     paginas = paginas_ok(config)
     paginas[url(config, "11")] = expandida(HTML_QUEBRADO, url(config, "11"))

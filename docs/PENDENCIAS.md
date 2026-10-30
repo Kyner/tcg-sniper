@@ -170,6 +170,10 @@ Nenhuma no momento.
 
 ## Concluídas
 
+### LigaMagic: categoria com um só produto (2026-10-30)
+
+- [x] A categoria 20 falhava todo dia ("grade da listagem não encontrada", coleta parcial): com um só resultado a Liga mostra direto a página do produto, na URL da busca. O produto (106224, "Global Series - Jiang Yanggu e Mu Yanling") nunca tinha entrado no catálogo. Agora a listagem reconhece a página do produto e cadastra só no catálogo (`ItemListagem.so_catalogo`), sem preço de listagem naquele dia (o "à partir de" ali é imagem e não pode virar "indisponível"); o resumo vem da etapa de produtos. Fixture `listagem_um_produto`.
+
 ### Conferido pelo usuário (2026-10-29)
 
 - [x] Achados da conferência no Chrome, corrigidos e em produção desde 2026-10-29 21:18 (`19485e5`): tela aberta pelo menu começa no topo (Voltar mantém a rolagem) e datas dos detalhes da Atividade no formato da tela, não em ISO.
