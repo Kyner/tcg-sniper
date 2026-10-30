@@ -172,6 +172,7 @@ Nenhuma no momento.
 
 ### Conferido pelo usuário (2026-10-29)
 
+- [x] Achados da conferência no Chrome, corrigidos e em produção desde 2026-10-29 21:18 (`19485e5`): tela aberta pelo menu começa no topo (Voltar mantém a rolagem) e datas dos detalhes da Atividade no formato da tela, não em ISO.
 - [x] 3C no Chrome (admin): Configurações com Efeito e barra Descartar/Salvar; 20 categorias da Liga em chips e "Informe o número da categoria." para entrada inválida; Voltar do navegador pergunta, cancelar mantém o rascunho, "Avisos do WhatsApp" não pergunta, saída confirmada pelo menu volta com um Voltar só e o roteiro mantém `idx`; Ofertas carrega e a busca filtra; Atividade com "o quê = mensagem" mostra as mensagens com detalhes; menu sem link para o admin antigo; Dashboard ok (sem aviso de carrinho no momento para testar o "Já conferi").
 - [x] Casamentos #322 (o produto da Liga também é japonês), #382 (título diferente, mesmo produto) e #462: certos, ficam como estão.
 - [x] Idioma dos anúncios #25, #394, #5424 e #102935: inglês, gravado à mão.
