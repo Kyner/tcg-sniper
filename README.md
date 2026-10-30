@@ -100,7 +100,7 @@ flowchart LR
 Todo dia, por volta das 10:00:
 
 1. **Listagens.** O coletor abre a listagem de cada categoria de selados (20 por padrão) e clica em "Exibir mais" até mostrar tudo. Daí saem o catálogo e o preço "À partir de" atual de cada produto.
-2. **Produtos do dia.** Depois abre a página só dos produtos ativos que interessam hoje: os casados e os com candidato (todo dia), os novos ainda sem resumo (até 100 por dia, os mais antigos primeiro) e o rodízio do dia (cada um dos demais uma vez por semana). Guarda o número de lojas e o resumo do histórico de venda (mínimo, médio e máximo). O que já foi lido hoje não é relido: um Retomar continua de onde parou.
+2. **Produtos do dia.** Depois abre a página só dos produtos ativos que interessam hoje: os casados e os com candidato (todo dia), os novos ainda sem resumo (até 100 por dia, os mais antigos primeiro) o rodízio do dia (cada um dos demais uma vez por semana) e os atrasados do rodízio (os que ficaram mais de uma semana sem leitura porque o dia deles foi cortado; até 100 por dia, os mais antigos primeiro). Guarda o número de lojas e o resumo do histórico de venda (mínimo, médio e máximo). O que já foi lido hoje não é relido: um Retomar continua de onde parou.
 3. **Aviso.** No fim, manda um resumo para o grupo admin do WhatsApp.
 4. **Desafio do Cloudflare.** Se aparecer uma verificação no meio do caminho, a coleta pausa e avisa o grupo. Você resolve a verificação pela tela remota (noVNC) e clica em **Retomar** em Serviços. Depois do 1º desafio do dia a coleta espera 30 min (Configurações → LigaMagic → Esfriar após desafio) e segue com pausas em dobro por 24 h depois do desafio; um 2º desafio no mesmo dia encerra o dia, e a coleta volta no horário de amanhã.
 
@@ -209,7 +209,7 @@ Ao final, o grupo admin recebe "🟡 Liga · produtos novos no catálogo" e "✅
 
 Abra o admin em `http://localhost:8000` (usuário qualquer, senha `ADMIN_SENHA`) e vá em **Catálogo**. Todo produto novo entra inativo. Ative um por um ou use os filtros e **Ativar todos deste filtro**.
 
-Cada página de produto leva cerca de 17 segundos. Os casados e os com candidato são lidos todo dia; os demais ativos, uma vez por semana (rodízio), e os novos até 100 por dia. Com uns 2000 produtos ativos são umas 450 a 500 páginas por dia, de 2 a 3 horas.
+Cada página de produto leva cerca de 17 segundos. Os casados e os com candidato são lidos todo dia; os demais ativos, uma vez por semana (rodízio), os novos até 100 por dia e os atrasados do rodízio até 100 por dia. Com uns 2000 produtos ativos são umas 450 a 500 páginas por dia, de 2 a 3 horas.
 
 A partir da próxima coleta, os produtos ativos ganham histórico de venda e número de lojas. Para não esperar o dia seguinte, clique em **Rodar agora** em Serviços: como as listagens do dia já foram feitas, só os produtos rodam.
 

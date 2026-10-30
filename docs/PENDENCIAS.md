@@ -170,6 +170,10 @@ Nenhuma no momento.
 
 ## Concluídas
 
+### LigaMagic: rodízio atrasado passa para os dias seguintes (2026-10-30)
+
+- [x] Produto do rodízio cujo dia foi cortado (desafio) só voltava na semana seguinte. Agora, quem ficou mais de uma semana sem resumo fora do dia dele entra como "atrasado" nos dias seguintes, depois dos novos e antes do rodízio do dia, o mais antigo primeiro, até 100 por dia (teto que vale entre execuções do mesmo dia, como o dos novos). Sem resumo ou com 3 falhas seguidas da página, fica só no dia dele. O resumo do job ganha ", atrasados N" quando houver. Na implantação eram 815 atrasados (Liga parada de 27 a 29/10): lidos aos poucos, em ~8 dias.
+
 ### LigaMagic: categoria com um só produto (2026-10-30)
 
 - [x] A categoria 20 falhava todo dia ("grade da listagem não encontrada", coleta parcial): com um só resultado a Liga mostra direto a página do produto, na URL da busca. O produto (106224, "Global Series - Jiang Yanggu e Mu Yanling") nunca tinha entrado no catálogo. Agora a listagem reconhece a página do produto e cadastra só no catálogo (`ItemListagem.so_catalogo`), sem preço de listagem naquele dia (o "à partir de" ali é imagem e não pode virar "indisponível"); o resumo vem da etapa de produtos. Fixture `listagem_um_produto`.

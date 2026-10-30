@@ -209,7 +209,7 @@ def test_le_so_a_lista_do_dia_e_resume_os_grupos(sessoes, config):
         novo = criar_produto(s, "novo")
         velhos = [criar_produto(s, f"velho{i}") for i in range(7)]
         for v in velhos:
-            lido_em(s, v, ANTIGO)
+            lido_em(s, v, QUARTA - timedelta(days=2))  # lidos na semana: sem atraso
         [do_dia] = [v for v in velhos if v.id % 7 == QUARTA.weekday()]
         urls = [p.url for p in (casado, candidato, novo, do_dia)]
     paginas = {u: pagina_html(HTML_OK, url=u) for u in urls}
