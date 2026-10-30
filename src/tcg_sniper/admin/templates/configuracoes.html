@@ -11,7 +11,7 @@
     <div class="card bg-base-100 shadow-sm"><div class="card-body">
       {% if secao.erros %}{{ aviso("error", "Nada foi salvo. Corrija os campos marcados.") }}{% endif %}
       {% if secao.id == "liga" %}
-      {{ aviso("info", "Todo dia as listagens das categorias são lidas por inteiro: elas acham os produtos novos e trazem o preço “a partir de” de todos. Na etapa dos produtos só abrem os casados e os com candidato (todo dia), os novos ainda sem resumo (até Produtos novos por dia, os mais antigos primeiro) e o rodízio do dia (cada um dos demais uma vez por semana). Depois de um desafio resolvido a coleta espera Esfriar após desafio e segue com pausas em dobro por 24 h depois do desafio; um 2º desafio no mesmo dia para a coleta até o dia seguinte.") }}
+      {{ aviso("info", "Todo dia as listagens das categorias são lidas por inteiro: elas acham os produtos novos e trazem o preço “a partir de” de todos. Na etapa dos produtos só abrem os casados e os com candidato (todo dia), os novos ainda sem resumo (até Produtos novos por dia, os mais antigos primeiro) e o rodízio do dia (cada um dos demais uma vez por semana). Depois de um desafio resolvido a coleta espera Esfriar após desafio e segue com pausas em dobro por 24 h depois do desafio.") }}
       {% endif %}
       {% if secao.id == "amazon" %}
       {{ aviso("info", "Dois navegadores: a busca de anúncios novos roda sem login (noVNC na porta 6082), com o próprio horário e teto de buscas; o monitor, a conferência de checkout e a retirada do carrinho rodam no navegador logado (noVNC na porta 6081), com o horário e o teto do monitor. A Amazon vê a soma dos dois tetos, no mesmo endereço.") }}

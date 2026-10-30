@@ -259,25 +259,24 @@ def test_liga_esfriando_mostra_ate_quando(cliente, sessoes):
     assert 'action="/rodar-agora"' in liga
 
 
-def test_liga_parada_ate_amanha_sem_rodar_agora(cliente, sessoes):
+def test_liga_com_dois_desafios_no_dia_so_esfria(cliente, sessoes):
     agora = repo.agora_utc()
     desafio_da_liga(sessoes, agora - timedelta(seconds=3))
     desafio_da_liga(sessoes, agora - timedelta(seconds=2))
     retomada(sessoes, agora - timedelta(seconds=1))
     liga = card(cliente.get("/servicos").text, "liga")
-    assert "Parada até amanhã (2º desafio)" in liga and 'action="/rodar-agora"' not in liga
+    assert "Esfriando até" in liga and "Parada até amanhã" not in liga
 
 
-def test_rodar_agora_parada_nao_pede_execucao(cliente, sessoes):
+def test_rodar_agora_depois_de_dois_desafios_pede_execucao_que_espera_o_esfriamento(cliente, sessoes):
     agora = repo.agora_utc()
     desafio_da_liga(sessoes, agora - timedelta(seconds=3))
     desafio_da_liga(sessoes, agora - timedelta(seconds=2))
     retomada(sessoes, agora - timedelta(seconds=1))
     r = cliente.post("/rodar-agora", follow_redirects=False)
-    assert r.headers["location"] == "/servicos?msg=liga_parada_hoje"
+    assert r.headers["location"] == "/servicos?msg=liga_esfriando"
     with sessoes() as s:
-        assert repo.obter_estado(s).execucao_solicitada is False
-    assert "fica parada até amanhã" in cliente.get(r.headers["location"]).text
+        assert repo.obter_estado(s).execucao_solicitada is True
 
 
 def test_rodar_agora_esfriando_pede_e_diz_que_espera(cliente, sessoes):
@@ -297,10 +296,9 @@ def test_retomar_do_primeiro_desafio_diz_que_esfria(cliente, sessoes):
     assert r.headers["location"] == "/servicos?msg=retomar_esfriando"
 
 
-def test_retomar_do_segundo_desafio_diz_que_volta_amanha(cliente, sessoes):
+def test_retomar_do_segundo_desafio_so_esfria(cliente, sessoes):
     agora = repo.agora_utc()
     desafio_da_liga(sessoes, agora - timedelta(seconds=2))
     desafio_da_liga(sessoes, agora - timedelta(seconds=1))
     r = cliente.post("/retomar", follow_redirects=False)
-    assert r.headers["location"] == "/servicos?msg=retomar_parada"
-    assert "só volta amanhã" in cliente.get(r.headers["location"]).text
+    assert r.headers["location"] == "/servicos?msg=retomar_esfriando"

@@ -274,7 +274,7 @@ def test_aviso_sem_esfriar_diz_que_volta_logo(sessoes, config):
     assert dados.linhas[2] == "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro por 24 h depois do desafio"
 
 
-def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):
+def test_aviso_do_segundo_desafio_do_dia_conta_e_so_esfria(sessoes, config):
     urls = preparar(sessoes, "a")
     with sessoes() as s, s.begin():
         antes = repo.agora_utc() - timedelta(seconds=1)
@@ -282,7 +282,10 @@ def test_aviso_do_segundo_desafio_do_dia_diz_que_volta_amanha(sessoes, config):
         repo.finalizar_coleta(s, c.id, StatusColeta.PAUSADA_DESAFIO, 0, 0, antes, erro="desafio em /x")
     _, _, avisador = coletar(sessoes, config, {urls["a"]: DESAFIO})
     [dados] = avisador.dados(TipoAviso.LIGA_DESAFIO)
-    assert dados.linhas[2] == "2º desafio de hoje: depois de retomar, a coleta só volta amanhã, no horário de sempre"
+    assert dados.linhas[2] == (
+        f"2º desafio de hoje: volta {config.esfriar_desafio_min} min depois de você retomar, "
+        "com pausas em dobro por 24 h depois do desafio"
+    )
 
 
 def falhas_da_pagina(sessoes, url):

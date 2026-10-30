@@ -154,6 +154,7 @@ Nenhuma no momento.
 - **Alerta espera a conferência de checkout (confirmado pelo usuário em 2026-10-19):** o primeiro alerta de uma oportunidade só sai depois da conferência no checkout (preço = itens + impostos, sem frete); se a conferência não puder rodar, vale o comportamento descrito no README.
 - **Idioma (revista em 2026-10-19):** a edição em **português é a preferida** para o produto da Liga; um anúncio em **inglês também casa quando o produto não tem anúncio em português confirmado** (coleções antigas juntam português e inglês num produto só da Liga). Inglês já confirmado **continua confirmado** se um português for confirmado depois (sem desfazer automático; quem decide é o usuário). **Japonês e qualquer outro idioma são sempre produtos diferentes.** O automático só confirma inglês em produto sem português confirmado (nem confirmado de idioma não registrado); senão o par fica pendente para o usuário.
 - 2026-10-19: LigaMagic lê por interesse (casados e candidatos todo dia, novos até 100/dia, demais em rodízio de 7 dias; listagens completas todo dia) e esfria 30 min após um desafio resolvido, com pausas em dobro no resto do dia; o 2º desafio no dia encerra o dia.
+- 2026-10-30: o 2º desafio do dia deixa de encerrar o dia (decisão do usuário: quem decide parar é ele, não retomando). Todo desafio pausa até o Retomar e depois só esfria (30 min e pausas em dobro por 24 h).
 - 2026-10-19: os 2165 produtos ativos são intencionais (monitorar todos).
 - 2026-10-19: busca e monitor da Amazon em serviços separados (busca sem login, 90 buscas/h; monitor logado, 180 páginas/h; a migração baixou o monitor de 1000 para 180).
 - 2026-10-19: busca alternativa entra depois de 7 dias sem candidato.
@@ -169,6 +170,10 @@ Nenhuma no momento.
 - Avisos e alertas só pelo WhatsApp. Hospedagem: tudo no PC até validar.
 
 ## Concluídas
+
+### LigaMagic: sem parada até amanhã no 2º desafio (2026-10-30)
+
+- [x] O 2º desafio do dia não encerra mais o dia: o Retomar e o "Rodar agora" valem sempre, respeitando só o esfriamento (30 min da retomada e pausas em dobro por 24 h). Saíram o "Parada até amanhã (2º desafio)" de Serviços e do Dashboard, a mensagem `liga_parada_hoje`/`retomar_parada` e a frase das configurações; o aviso do WhatsApp continua dizendo o Nº desafio do dia.
 
 ### LigaMagic: rodízio atrasado passa para os dias seguintes (2026-10-30)
 

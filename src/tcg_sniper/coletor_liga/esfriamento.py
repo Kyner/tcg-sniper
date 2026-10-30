@@ -3,9 +3,9 @@
 Tudo sai do banco: os desafios são as coletas da Liga fechadas `pausada_desafio` (tabela `coleta`) e a
 espera conta da retomada depois do desafio (`estado_coletor.retomado_desafio_em` da Liga). Um reinício do serviço não zera nada.
 
-- 1º desafio do dia: depois de retomar, o job só começa `esfriar_min` minutos depois, e as pausas entre
+- Todo desafio: depois de retomar, o job só começa `esfriar_min` minutos depois, e as pausas entre
   páginas dobram por 24 h (contadas dos desafios, não do dia do calendário).
-- 2º desafio do dia: nada roda até o dia seguinte (nem "Rodar agora").
+- Quantos desafios no dia é só informação (aviso e log): quem decide parar é você, não retomando.
 """
 
 from dataclasses import dataclass
@@ -27,11 +27,6 @@ class SituacaoDesafio:
     desafios_hoje: int
     desafios_24h: int
     esfriando_ate: datetime | None  # fim da espera depois da retomada; None: não está esfriando
-
-    @property
-    def parada_hoje(self) -> bool:
-        """2º desafio do dia: nada roda até o dia seguinte."""
-        return self.desafios_hoje >= 2
 
     @property
     def pausas_dobradas(self) -> bool:
@@ -79,7 +74,7 @@ def _esfriando_ate(s: Session, agora: datetime, esfriar_min: int) -> datetime | 
 
 
 def situacao_desafio(s: Session, agora: datetime, fuso: ZoneInfo, esfriar_min: int) -> SituacaoDesafio:
-    """Desafios desde a meia-noite no fuso (a parada até amanhã), desafios nas últimas 24 h (as pausas em
+    """Desafios desde a meia-noite no fuso (só informação), desafios nas últimas 24 h (as pausas em
     dobro) e até quando esfriar. O esfriamento vale para o último desafio mesmo de ontem (retomado hoje)."""
     return SituacaoDesafio(
         desafios_desde(s, inicio_do_dia(agora, fuso)),

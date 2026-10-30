@@ -111,14 +111,14 @@ def test_desligar_a_busca_nao_mexe_no_monitor(sessoes):
     assert estado(sessoes, Servico.AMAZON_MONITOR).estado is EstadoColetorTipo.ATIVO
 
 
-def test_rodar_agora_parada_nao_pede_execucao(sessoes, config):
+def test_rodar_agora_depois_de_dois_desafios_pede_execucao_que_espera_o_esfriamento(sessoes, config):
     agora = repo.agora_utc()
     desafio_da_liga(sessoes, agora - timedelta(seconds=3))
     desafio_da_liga(sessoes, agora - timedelta(seconds=2))
     retomada(sessoes, agora - timedelta(seconds=1))
     with sessoes() as s, s.begin():
-        assert servicos.rodar_agora(s, Servico.LIGA, SP, config, agora) == "liga_parada_hoje"
-    assert estado(sessoes, Servico.LIGA).execucao_solicitada is False
+        assert servicos.rodar_agora(s, Servico.LIGA, SP, config, agora) == "liga_esfriando"
+    assert estado(sessoes, Servico.LIGA).execucao_solicitada is True
 
 
 def test_rodar_agora_esfriando_pede_e_diz_que_espera(sessoes, config):
@@ -153,12 +153,12 @@ def test_retomar_do_primeiro_desafio_diz_que_esfria(sessoes, config):
     assert estado(sessoes, Servico.LIGA).execucao_solicitada is True
 
 
-def test_retomar_do_segundo_desafio_diz_que_volta_amanha(sessoes, config):
+def test_retomar_do_segundo_desafio_so_esfria(sessoes, config):
     agora = repo.agora_utc()
     desafio_da_liga(sessoes, agora - timedelta(seconds=2))
     desafio_da_liga(sessoes, agora - timedelta(seconds=1))
     with sessoes() as s, s.begin():
-        assert servicos.retomar_desafio(s, Servico.LIGA, SP, config, agora) == "retomar_parada"
+        assert servicos.retomar_desafio(s, Servico.LIGA, SP, config, agora) == "retomar_esfriando"
 
 
 def test_retomar_desafio_da_amazon_usa_a_mensagem_de_retomar(sessoes, config):

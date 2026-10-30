@@ -316,11 +316,11 @@ def test_liga_esfriando_no_dashboard(s, config):
     assert "pausas em dobro" in liga.detalhe
 
 
-def test_liga_parada_ate_amanha_no_dashboard(s, config):
+def test_liga_com_dois_desafios_no_dia_so_esfria_no_dashboard(s, config):
     coleta(s, TipoColeta.PRODUTOS, AGORA - timedelta(hours=3), StatusColeta.PAUSADA_DESAFIO)
     coleta(s, TipoColeta.PRODUTOS, AGORA - timedelta(hours=1), StatusColeta.PAUSADA_DESAFIO)
-    repo.retomar(s, AGORA - timedelta(minutes=30), desafio_resolvido=True)
+    repo.retomar(s, AGORA - timedelta(minutes=10), desafio_resolvido=True)
     liga = saude(s, config)["LigaMagic"]
-    assert (liga.situacao, liga.rotulo, liga.texto) == ("parcial", "parada até amanhã", "Parada até amanhã (2º desafio)")
-    assert "Próxima amanhã por volta das 10:00" in liga.detalhe
+    assert liga.texto.startswith("Esfriando até")
+    assert "Parada até amanhã" not in liga.texto
     assert not any("LigaMagic" in a.texto for a in avisos_de(s, config))  # atenção, não problema

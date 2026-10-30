@@ -82,18 +82,19 @@ def abrir_listagem(
 
 def dados_desafio(url: str, desafios_hoje: int, esfriar_min: int) -> Dados:
     """Só o caminho da página (sem o domínio): o aviso diz onde parou, a ação diz onde resolver. A 3ª linha
-    diz o que acontece depois do Retomar (1º desafio do dia: esfria; 2º: só amanhã)."""
+    diz quantos desafios houve hoje e o que acontece depois do Retomar (esfria, se configurado)."""
     partes = urlsplit(url)
     pagina = (partes.path or "/") + (f"?{partes.query}" if partes.query else "")
-    if desafios_hoje >= 2:
-        efeito = "2º desafio de hoje: depois de retomar, a coleta só volta amanhã, no horário de sempre"
-    elif esfriar_min > 0:
+    if esfriar_min > 0:
         efeito = (
-            f"1º desafio de hoje: volta {esfriar_min} min depois de você retomar, "
+            f"{desafios_hoje}º desafio de hoje: volta {esfriar_min} min depois de você retomar, "
             "com pausas em dobro por 24 h depois do desafio"
         )
     else:
-        efeito = "1º desafio de hoje: volta logo depois de você retomar, com pausas em dobro por 24 h depois do desafio"
+        efeito = (
+            f"{desafios_hoje}º desafio de hoje: volta logo depois de você retomar, "
+            "com pausas em dobro por 24 h depois do desafio"
+        )
     return Dados(linhas=(f"Página: {pagina}", "A coleta fica pausada até você retomar", efeito))
 
 
